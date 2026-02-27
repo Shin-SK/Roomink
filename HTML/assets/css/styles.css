@@ -1,0 +1,1768 @@
+@charset "UTF-8";
+/* ===========================
+   Roomink - Bootstrap 5 ベース
+   =========================== */
+/* ===========================
+   Roomink Theme Variables
+   Bootstrap上書き用 + CSS Custom Properties
+   =========================== */
+:root {
+  --rk-primary: #2A9D8F;
+  --rk-accent: #5BC6A9;
+  --rk-bg: #F6FAF9;
+  --rk-text: #0F172A;
+  --rk-muted: #64748B;
+  --rk-warning: #F59E0B;
+  --rk-border: #E2E8F0;
+  --rk-card-bg: #FFFFFF;
+  --rk-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --rk-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --color-primary: #2A9D8F;
+  --color-accent: #5BC6A9;
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+  --color-info: #3B82F6;
+  --color-approved: #B2DFDB;
+  --color-attention: #FFE082;
+  --color-banned: #FFCDD2;
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --bg-main: #F6FAF9;
+  --bg-card: #FFFFFF;
+  --border-color: #E2E8F0;
+  --border-radius: 12px;
+  --border-radius-sm: 8px;
+  --rk-sidebar-width: 260px;
+  --rk-header-height: 60px;
+  --rk-time-col-w: 46px;
+  --rk-col-w: 120px;
+  --rk-row-hour-h: 80px;
+  --rk-grid-border: #E6EEF0;
+}
+
+@media (max-width: 576px) {
+  :root {
+    --rk-col-w: 104px;
+    --rk-row-hour-h: 72px;
+  }
+}
+/* ===========================
+   グローバルベーススタイル
+   =========================== */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  color: #0F172A;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: #2A9D8F;
+  transition: color 0.2s;
+}
+a:hover {
+  color: rgb(31.2361809045, 116.7638190955, 106.351758794);
+}
+
+/* カード全体のベーススタイル強化 */
+.cast-layout .cast-content .rk-section-header, .cast-layout .cast-content .card .card-header, .table-list-header, .customer-content .card-header, .card .card-header {
+  background: #F6FAF9;
+  border-bottom: unset;
+  font-weight: bold;
+  font-size: 1rem;
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.cast-layout .cast-content .rk-section-header i, .cast-layout .cast-content .card .card-header i, .table-list-header i, .customer-content .card-header i, .card .card-header i {
+  color: #2A9D8F;
+}
+
+.card {
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  background: #fff;
+  transition: box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.card .card-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* テーブル強化 */
+.table th {
+  font-weight: 600;
+  color: #64748B;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+.table td {
+  vertical-align: middle;
+}
+
+.list-group {
+  border: unset !important;
+}
+
+/* リストグループ強化 */
+.list-group-item {
+  padding: 0.5rem 0;
+  transition: background 0.15s;
+  border: unset;
+  border-bottom: 1px solid #E2E8F0;
+}
+.list-group-item:hover {
+  background: rgba(42, 157, 143, 0.02);
+}
+
+/* アラート強化 */
+.alert {
+  border-radius: 8px;
+  font-size: 0.9375rem;
+}
+
+/* バッジ強化 */
+.badge {
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.35em 0.75em;
+  border-radius: 999px;
+}
+
+/* Bootstrap色バッジ補完 */
+.badge-primary,
+.badge.bg-primary {
+  background: #2A9D8F !important;
+  color: #fff;
+}
+
+.badge-success,
+.badge.bg-success {
+  background: #10B981 !important;
+  color: #fff;
+}
+
+.badge-danger,
+.badge.bg-danger {
+  background: #EF4444 !important;
+  color: #fff;
+}
+
+.badge-warning,
+.badge.bg-warning {
+  background: #F59E0B !important;
+  color: #fff;
+}
+
+.bg-attention {
+  background: #FFE082 !important;
+}
+
+.btn-attention {
+  background: #FFE082 !important;
+}
+
+/* ページネーション */
+.page-link {
+  color: #2A9D8F;
+  border-color: #E2E8F0;
+  border-radius: 8px;
+}
+
+.page-item.active .page-link {
+  background-color: #2A9D8F;
+  border-color: #2A9D8F;
+}
+
+/* フォーム強化 */
+.form-control,
+.form-select {
+  border-color: #E2E8F0;
+  border-radius: 8px;
+}
+.form-control:focus,
+.form-select:focus {
+  border-color: #2A9D8F;
+  box-shadow: 0 0 0 3px rgba(42, 157, 143, 0.1);
+}
+
+.form-label {
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #0F172A;
+  margin-bottom: 0.375rem;
+}
+
+/* ボタン強化 */
+.btn {
+  font-weight: 500;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background-color: #2A9D8F;
+  border-color: #2A9D8F;
+}
+.btn-primary:hover {
+  background-color: rgb(33.3889447236, 124.8110552764, 113.6814070352);
+  border-color: rgb(33.3889447236, 124.8110552764, 113.6814070352);
+}
+
+.btn-outline-primary {
+  color: #2A9D8F;
+  border-color: #2A9D8F;
+  background: transparent;
+}
+.btn-outline-primary:hover, .btn-outline-primary:focus {
+  color: #fff;
+  background-color: #2A9D8F;
+  border-color: #2A9D8F;
+}
+
+.btn-success {
+  background-color: #10B981;
+  border-color: #10B981;
+}
+.btn-success:hover {
+  background-color: rgb(12.752238806, 147.447761194, 102.8149253731);
+  border-color: rgb(12.752238806, 147.447761194, 102.8149253731);
+}
+
+.btn-danger {
+  background-color: #EF4444;
+  border-color: #EF4444;
+}
+.btn-danger:hover {
+  background-color: rgb(235.7842364532, 30.4157635468, 30.4157635468);
+  border-color: rgb(235.7842364532, 30.4157635468, 30.4157635468);
+}
+
+/* ===========================
+   Roomink Mixins - Bootstrap 5 補完
+   =========================== */
+/* ===========================
+   Roomink Reset - Bootstrap 5 補完
+   Bootstrapのリセットに追加する最小限のリセットのみ
+   =========================== */
+/* フォーム要素の統一 */
+input, textarea, select {
+  font-family: inherit;
+}
+
+input[type=button],
+input[type=text],
+input[type=submit] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+       appearance: none;
+}
+
+textarea {
+  resize: vertical;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+       appearance: none;
+}
+
+/* 画像のレスポンシブ対応 */
+img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+/* テーブルのセル改行制御（必要な箇所のみ） */
+.table-nowrap th,
+.table-nowrap td {
+  white-space: nowrap;
+}
+
+ul {
+  padding: 0;
+  margin: 0;
+}
+ul li {
+  padding: unset;
+  margin: unset;
+  list-style: none;
+}
+
+/* ===========================
+   Roomink Reset - Bootstrap 5 補完
+   Bootstrapのリセットに追加する最小限のリセットのみ
+   =========================== */
+/* フォーム要素の統一 */
+input, textarea, select {
+  font-family: inherit;
+}
+
+/* 画像のレスポンシブ対応 */
+img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+/* テーブルのセル改行制御（必要な箇所のみ） */
+.table-nowrap th,
+.table-nowrap td {
+  white-space: nowrap;
+}
+
+ul {
+  padding: 0;
+  margin: 0;
+}
+
+ul li {
+  padding: unset;
+  margin: unset;
+  list-style: none;
+}
+
+/* ===========================
+   Roomink Layout - Bootstrapベース
+   =========================== */
+/* 運営：左ナビ + ヘッダ */
+.app-wrapper {
+  display: flex;
+  min-height: 100vh;
+  padding-bottom: 80px;
+}
+
+/* サイドバー */
+.sidebar {
+  width: var(--rk-sidebar-width);
+  background: var(--bs-white);
+  border-right: 1px solid var(--bs-border-color);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  height: 100vh;
+  z-index: 1000;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+}
+.sidebar.show {
+  transform: translateX(0);
+}
+.sidebar-header {
+  border-bottom: 1px solid var(--bs-border-color);
+}
+.sidebar-brand {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--bs-primary);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.sidebar-nav {
+  flex: 1;
+  padding: 0.5rem 0;
+  overflow-y: auto;
+}
+
+.sidebar .nav-item {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sidebar .nav-link {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  color: var(--bs-secondary);
+  text-decoration: none;
+  transition: all 0.2s;
+  font-weight: 500;
+  margin: 0.25rem 0.5rem;
+  border-radius: var(--bs-border-radius);
+}
+.sidebar .nav-link:hover {
+  background-color: var(--bs-light);
+  color: var(--bs-body-color);
+}
+.sidebar .nav-link.active {
+  background-color: var(--rk-primary);
+  color: white;
+}
+.sidebar .nav-link svg,
+.sidebar .nav-link i {
+  margin-right: 0.75rem;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* メインコンテンツ */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.main-content main {
+  position: relative;
+  padding-top: 1rem;
+}
+
+/* ヘッダ（Bootstrap navbarベース） */
+.app-header {
+  height: var(--rk-header-height);
+  background: var(--bs-white);
+  border-bottom: 1px solid var(--bs-border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 999;
+}
+
+.header-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+}
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+.header-bell {
+  position: relative;
+}
+.header-bell .ti {
+  font-size: 24px;
+}
+.header-bell .count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 12px;
+  padding: 0px 5px;
+  font-weight: bold;
+  background-color: red;
+  border-radius: 100%;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0.5rem;
+  cursor: pointer;
+  color: var(--bs-body-color);
+  font-size: 1.5rem;
+}
+
+/* 顧客レイアウト（ナビなし） */
+.customer-layout, .cast-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bs-light);
+}
+.customer-header, .cast-header {
+  background: var(--bs-white);
+  border-bottom: 1px solid var(--bs-border-color);
+  position: sticky;
+  padding-top: 8px;
+  top: 0;
+  z-index: 999;
+}
+.customer-nav, .cast-nav {
+  width: 100%;
+  margin: 0 auto;
+  align-items: center;
+}
+.customer-nav a, .cast-nav a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* color: var(--bs-secondary); */
+  text-decoration: none;
+  padding: 0.5rem 0;
+  font-weight: 500;
+  /* border-bottom: 2px solid transparent; */
+  transition: all 0.2s;
+  width: auto;
+}
+.customer-nav a:hover, .customer-nav a.active, .cast-nav a:hover, .cast-nav a.active {
+  color: var(--bs-primary);
+  border-bottom-color: var(--bs-primary);
+}
+.customer-content, .cast-content {
+  flex: 1;
+  padding: 1rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* レスポンシブ */
+@media (min-width: 768px) {
+  .footer {
+    display: none;
+  }
+}
+@media (min-width: 992px) {
+  .sidebar {
+    transform: translateX(0);
+  }
+  .main-content {
+    margin-left: var(--rk-sidebar-width);
+  }
+  .mobile-menu-btn {
+    display: none;
+  }
+  .page-content,
+  .customer-content {
+    padding: 2rem;
+  }
+}
+.order .card {
+  border: unset;
+}
+.order .card .card-body {
+  padding: 1rem 0;
+}
+
+/* ===========================
+   ステータスバッジ - Roomink独自ステータス
+   =========================== */
+:root {
+  --rk-pending: #E0F2F1;
+  --rk-approved: #B2DFDB;
+  --rk-unconfirmed: #FFF9C4;
+  --rk-attention: #FFE082;
+  --rk-banned: #FFCDD2;
+}
+
+/* ステータスバッジ */
+.badge-pending {
+  background: var(--rk-pending);
+  color: #2A9D8F;
+  border: 1px dashed #2A9D8F;
+  font-weight: 600;
+}
+
+.badge-approved {
+  background: var(--rk-approved);
+  color: #00695C;
+  font-weight: 600;
+}
+
+.badge-unconfirmed {
+  background: var(--rk-unconfirmed);
+  color: #F57C00;
+  font-weight: 600;
+}
+
+.badge-attention {
+  background: var(--rk-attention);
+  color: #E65100;
+  font-weight: 600;
+}
+
+.badge-banned {
+  background: var(--rk-banned);
+  color: #C62828;
+  font-weight: 600;
+}
+
+/* ===========================
+   Custom Buttons - Bootstrap拡張
+   =========================== */
+.btn-block {
+  display: block;
+  width: 100%;
+}
+
+/* ===========================
+   Statistics Cards
+   Dashboard/Today用の統計カード
+   =========================== */
+.stat-label {
+  font-size: 0.875rem;
+  color: var(--bs-secondary);
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--bs-body-color);
+  margin-bottom: 0.5rem;
+  line-height: 1.2;
+}
+
+.stat-change {
+  font-size: 0.875rem;
+  color: var(--bs-secondary);
+}
+.stat-change a {
+  color: var(--bs-primary);
+  text-decoration: none;
+}
+.stat-change a:hover {
+  text-decoration: underline;
+}
+
+/* ===========================
+   Timeline - op_shift.html ルーム軸ビュー用
+   =========================== */
+.timeline-container {
+  background: var(--bg-card);
+  border-radius: var(--border-radius);
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+.timeline-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 1rem;
+  min-width: 900px;
+}
+
+.timeline-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 30px;
+}
+
+.timeline-label {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--rk-bg);
+  border-radius: var(--border-radius-sm);
+}
+
+.timeline-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  position: relative;
+}
+
+.timeline-row {
+  height: 60px;
+  background: var(--rk-bg);
+  border-radius: var(--border-radius-sm);
+  position: relative;
+}
+
+.timeline-hours {
+  display: flex;
+  height: 30px;
+  margin-bottom: 0;
+}
+
+.timeline-hour {
+  flex: 1;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===========================
+   Booking - op_shift.html ルーム軸予約ブロック
+   =========================== */
+.booking-block {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: var(--border-radius-sm);
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  overflow: hidden;
+  box-shadow: var(--rk-shadow);
+}
+.booking-block:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--rk-shadow-lg);
+}
+.booking-block.status-pending {
+  background: var(--rk-pending);
+  border: 1px dashed var(--rk-primary);
+  color: var(--text-primary);
+}
+.booking-block.status-approved {
+  background: var(--rk-approved);
+  border: 1px solid #00897B;
+  color: var(--text-primary);
+}
+.booking-block.status-attention {
+  background: var(--rk-attention);
+  border: 1px solid var(--color-warning);
+  color: var(--text-primary);
+}
+
+.booking-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.booking-time {
+  font-size: 0.6875rem;
+  opacity: 0.8;
+  color: var(--text-secondary);
+}
+
+/* ===========================
+   Roomink Schedule - Excel風固定ヘッダー
+   =========================== */
+.rk-schedule__toolbar {
+  margin-top: 3rem;
+  max-width: 350px;
+}
+
+.rk-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.setting-area {
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
+}
+.setting-area .toolbar-toggle {
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+/* 共通：box-sizing統一（ズレ防止） */
+.rk-time,
+.rk-grid,
+.rk-casthead,
+.rk-timecol,
+.rk-corner,
+.rk-castcell {
+  box-sizing: border-box;
+}
+
+/* 1つのスクロール領域（Excel風） */
+.rk-sheet-scroll {
+  height: 80vh;
+  overflow: auto;
+  background: #fff;
+}
+
+/* Excel風：2行2列のグリッドで構成 */
+.rk-sheet {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--rk-time-col-w) auto;
+  grid-template-rows: var(--rk-casthead-h, 92px) auto;
+  width: calc(var(--rk-time-col-w) + var(--rk-col-w) * 6);
+  min-width: 100%;
+}
+
+/* 左上角：固定 */
+.rk-corner {
+  grid-column: 1/2;
+  grid-row: 1/2;
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  background: #fff;
+  border-right: 1px solid var(--rk-grid-border);
+  border-bottom: 1px solid var(--rk-grid-border);
+}
+
+/* 上：キャストヘッダー（横スクロールに追従しつつ上に固定） */
+.rk-casthead {
+  grid-column: 2/3;
+  grid-row: 1/2;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--rk-col-w);
+  background: #fff;
+  border-bottom: 1px solid var(--rk-grid-border);
+}
+
+.rk-castcell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 10px;
+  flex-direction: column;
+}
+.rk-castcell:last-child {
+  border-right: none;
+}
+
+.rk-avatar-img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  -o-object-fit: cover;
+     object-fit: cover;
+  border: 2px solid var(--rk-primary);
+}
+
+.rk-name {
+  font-weight: bold;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 左：時間列（縦スクロールに追従しつつ左に固定） */
+.rk-timecol {
+  grid-column: 1/2;
+  grid-row: 2/3;
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  background: #fff;
+  border-right: 1px solid var(--rk-grid-border);
+}
+
+.rk-time {
+  height: var(--rk-row-hour-h);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10px;
+  font-size: 12px;
+  color: #64748b;
+  border-bottom: 1px solid var(--rk-grid-border);
+}
+
+/* 本体グリッド */
+.rk-grid {
+  grid-column: 2/3;
+  grid-row: 2/3;
+  position: relative;
+  height: calc(var(--rk-row-hour-h) * 9); /* 12:00-20:00の9行 */
+  min-width: calc(var(--rk-col-w) * 6);
+  z-index: 1;
+  background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--rk-row-hour-h) - 1px), var(--rk-grid-border) calc(var(--rk-row-hour-h) - 1px), var(--rk-grid-border) var(--rk-row-hour-h));
+}
+
+/* 予約ブロック */
+.rk-block {
+  position: absolute;
+  border-radius: 10px;
+  padding: 0.625rem;
+  text-decoration: none;
+  color: #0b1220;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  transition: all 0.2s;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.rk-block:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
+  color: #0b1220;
+}
+.rk-block {
+  /* 承認済 */
+}
+.rk-block.is-approved {
+  background: rgba(42, 157, 143, 0.22);
+  border-color: var(--rk-primary);
+}
+.rk-block {
+  /* 申請中 */
+}
+.rk-block.is-requested {
+  background: rgba(91, 198, 169, 0.22);
+  border-style: dashed;
+  border-color: var(--rk-primary);
+}
+.rk-block {
+  /* 要注意 */
+}
+.rk-block.is-attention {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+}
+.rk-block {
+  /* 未確認 */
+}
+.rk-block.is-unconfirmed::after {
+  content: "!";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f59e0b;
+  color: #fff;
+  font-weight: 800;
+  font-size: 11px;
+}
+.rk-block__title {
+  font-weight: 700;
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rk-block__meta {
+  font-size: 0.6875rem;
+  opacity: 0.72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===========================
+   Room View（ルーム軸）専用
+   =========================== */
+/* ルーム軸はセラピスト横列ではなく「ルーム横列」 */
+.rk-roomview {
+  --rk-casthead-h: 84px; /* ルームヘッダの高さ */
+}
+.rk-roomview .rk-sheet-scroll {
+  height: 60vh;
+}
+
+/* 上部：ルームヘッダ行 */
+.rk-roomhead {
+  grid-column: 2/3;
+  grid-row: 1/2;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, var(--rk-col-w));
+  grid-auto-flow: column;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--rk-bg);
+  height: var(--rk-casthead-h);
+}
+
+.rk-roomcell {
+  border-bottom: 1px solid var(--rk-grid-border);
+  padding: 0.75rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  background: #fff;
+}
+
+.rk-roomname {
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--rk-text);
+  margin-bottom: 0.25rem;
+}
+
+.rk-roommeta {
+  font-size: 0.6875rem;
+  color: var(--rk-muted);
+}
+
+/* is-shift：シフト在席（緑系） */
+.rk-block.is-shift {
+  background: rgba(20, 184, 166, 0.15);
+  border-color: #14b8a6;
+}
+
+/* is-conflict：競合（赤系） */
+.rk-block.is-conflict {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+}
+
+.order .card {
+  border: unset;
+}
+.order .card .card-body {
+  padding: 1rem 0;
+}
+
+/* ===========================
+   Customer Bottom Navigation
+   =========================== */
+.rk-bottomnav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background: #fff;
+  border-top: 1px solid #E2E8F0;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  z-index: 1100;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.rk-bottomnav__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+  color: #64748B;
+  font-size: 0.6875rem;
+  transition: color 0.2s;
+  padding: 6px 12px;
+}
+.rk-bottomnav__item i {
+  font-size: 22px;
+  line-height: 1;
+}
+.rk-bottomnav__item:hover, .rk-bottomnav__item.active {
+  color: #2A9D8F;
+}
+
+/* customer-layout に bottomnav の余白を追加 */
+.customer-layout.has-bottomnav {
+  padding-bottom: 80px;
+}
+
+.customer-content {
+  padding-bottom: 80px;
+}
+.customer-content .card-header {
+  background-color: #5BC6A9;
+  color: white;
+}
+.customer-content .card-header i {
+  color: white;
+}
+
+.customer-booking .card, .customer-submitted .card {
+  border: unset;
+  margin-bottom: 2rem;
+}
+
+.customer-submitted .card .card-body .image img {
+  width: 100%;
+  -o-object-fit: cover;
+     object-fit: cover;
+  aspect-ratio: 2/1;
+}
+.customer-submitted .card .card-body .list-group-item .wrap {
+  border-bottom: 1px solid #E2E8F0;
+  width: 100%;
+  padding-bottom: 8px;
+}
+.customer-submitted .card .card-body .list-group-item .wrap .icon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+/* ===========================
+   Mypage - 予約カード
+   =========================== */
+.rk-booking-card {
+  background: linear-gradient(135deg, #2A9D8F 0%, rgb(31.2361809045, 116.7638190955, 106.351758794) 100%);
+  color: #fff;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 8px 24px rgba(42, 157, 143, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+.rk-booking-card::after {
+  content: "";
+  position: absolute;
+  top: -30%;
+  right: -15%;
+  width: 200px;
+  height: 200px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.rk-booking-card__label {
+  font-size: 0.75rem;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+.rk-booking-card__date {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.rk-booking-card__info {
+  font-size: 0.875rem;
+  opacity: 0.9;
+  margin-bottom: 0.25rem;
+}
+.rk-booking-card__badge {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  padding: 0.2em 0.75em;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+.rk-booking-card__cta {
+  display: inline-block;
+  background: #fff;
+  color: #2A9D8F;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: 999px;
+  text-decoration: none;
+  margin-top: 1rem;
+  transition: opacity 0.2s;
+}
+.rk-booking-card__cta:hover {
+  opacity: 0.85;
+  color: #2A9D8F;
+}
+.rk-booking-card {
+  /* 予約なし */
+}
+.rk-booking-card--empty {
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+  box-shadow: 0 8px 24px rgba(100, 116, 139, 0.25);
+  text-align: center;
+  padding: 2rem 1.5rem;
+}
+
+/* ===========================
+   Mypage - タブ (推し / おすすめ / 運営)
+   =========================== */
+.rk-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #E2E8F0;
+  margin-bottom: 1rem;
+}
+.rk-tabs__btn {
+  flex: 1;
+  padding: 0.625rem 0.5rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #64748B;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+.rk-tabs__btn:hover {
+  color: #2A9D8F;
+}
+.rk-tabs__btn.active {
+  color: #2A9D8F;
+  border-bottom-color: #2A9D8F;
+}
+
+/* ===========================
+   Mypage - 横スクロール
+   =========================== */
+.rk-hscroll {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.rk-hscroll::-webkit-scrollbar {
+  display: none;
+}
+.rk-hscroll__card {
+  flex: 0 0 auto;
+  width: 150px;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  text-align: center;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.2s;
+}
+.rk-hscroll__card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  color: inherit;
+}
+.rk-hscroll__img {
+  width: 100%;
+  height: 150px;
+  -o-object-fit: cover;
+     object-fit: cover;
+}
+.rk-hscroll__img--round {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  -o-object-fit: cover;
+     object-fit: cover;
+  margin: 0.75rem auto 0.5rem;
+}
+.rk-hscroll__body {
+  padding: 0.5rem;
+}
+.rk-hscroll__name {
+  font-weight: 700;
+  font-size: 0.875rem;
+  margin-bottom: 0.125rem;
+}
+.rk-hscroll__sub {
+  font-size: 0.75rem;
+  color: #64748B;
+  margin-bottom: 0.5rem;
+}
+
+/* ===========================
+   Mypage - 推しカード (大きめ)
+   =========================== */
+.rk-fav-card {
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #E2E8F0;
+  background: #fff;
+}
+.rk-fav-card__img {
+  width: 100%;
+  height: 240px;
+  -o-object-fit: cover;
+     object-fit: cover;
+}
+.rk-fav-card__body {
+  padding: 1rem 1.25rem;
+}
+
+/* ===========================
+   Mypage - 来店履歴リスト
+   =========================== */
+.rk-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #E2E8F0;
+  gap: 0.75rem;
+}
+.rk-history-item:last-child {
+  border-bottom: none;
+}
+
+.rk-history-date {
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: #0F172A;
+  white-space: nowrap;
+}
+
+.rk-history-meta {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: #64748B;
+}
+
+/* ===========================
+   Mypage - キャンペーンカード
+   =========================== */
+.rk-campaign {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  border: 1px solid #fbbf24;
+}
+.rk-campaign__title {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: #92400e;
+  margin-bottom: 0.25rem;
+}
+.rk-campaign__text {
+  font-size: 0.8125rem;
+  color: #a16207;
+}
+
+/* セクションヘッダー */
+.rk-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 1rem;
+  color: #0F172A;
+  margin-bottom: 0.75rem;
+}
+.rk-section-header i {
+  color: #2A9D8F;
+}
+
+/* ===========================
+   Cast - キャストページ共通
+   =========================== */
+.cast-content .card {
+  border-radius: 12px;
+}
+
+/* ===========================
+   Cast Today - 本日の予定
+   =========================== */
+.ca-page-header {
+  margin-bottom: 1rem;
+}
+.ca-page-header__title {
+  font-weight: bold;
+}
+.ca-page-header__sub {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.ca-page-header__sub span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ca-schedule {
+  --rk-casthead-h: 0;
+  --rk-col-w: 280px;
+}
+.ca-schedule .rk-sheet-scroll {
+  height: auto;
+  overflow: visible;
+}
+.ca-schedule .rk-sheet {
+  width: 100%;
+  grid-template-rows: 0 auto;
+}
+.ca-schedule .rk-timecol {
+  position: static;
+}
+.ca-schedule .rk-block {
+  left: 8px !important;
+  right: 8px;
+  width: auto !important;
+}
+
+.ca-timeline {
+  position: relative;
+  padding-left: 56px;
+}
+.ca-timeline::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 27px;
+  width: 2px;
+  background: #E2E8F0;
+}
+.ca-timeline__item {
+  position: relative;
+  padding-bottom: 1.5rem;
+}
+.ca-timeline__item:last-child {
+  padding-bottom: 0;
+}
+.ca-timeline__time {
+  position: absolute;
+  left: -56px;
+  top: 0;
+  width: 48px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #64748B;
+  text-align: right;
+  line-height: 1;
+  padding-top: 4px;
+}
+.ca-timeline__dot {
+  position: absolute;
+  left: -35px;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2A9D8F;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px #2A9D8F;
+  z-index: 2;
+}
+.ca-timeline__dot--warning {
+  background: #F59E0B;
+  box-shadow: 0 0 0 2px #F59E0B;
+}
+.ca-timeline__dot--muted {
+  background: #E2E8F0;
+  box-shadow: 0 0 0 2px #E2E8F0;
+}
+.ca-timeline__card {
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.8125rem;
+}
+.ca-timeline__card--active {
+  border-color: #2A9D8F;
+  background: rgba(42, 157, 143, 0.04);
+}
+.ca-timeline__card--warning {
+  border-color: #F59E0B;
+  background: #fffdf5;
+}
+.ca-timeline__card-title {
+  font-weight: 700;
+  color: #0F172A;
+  margin-bottom: 0.125rem;
+}
+.ca-timeline__card-meta {
+  font-size: 0.75rem;
+  color: #64748B;
+}
+.ca-timeline__now {
+  position: absolute;
+  left: -56px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  z-index: 3;
+  pointer-events: none;
+}
+.ca-timeline__now-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #EF4444;
+  white-space: nowrap;
+  padding-right: 4px;
+}
+.ca-timeline__now-line {
+  flex: 1;
+  height: 2px;
+  background: #EF4444;
+}
+
+.footer {
+  z-index: 999;
+}
+.footer img {
+  width: 24px;
+  height: auto;
+}
+.footer .ti {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  font-size: 24px;
+  line-height: 24px;
+  vertical-align: middle;
+  text-align: center;
+}
+.footer button a {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 4px;
+}
+.footer button a small {
+  font-size: 12px;
+}
+
+/* Dashboard Tabs */
+.dashboard-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+.dashboard-tabs button {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  color: var(--rk-text-secondary);
+  font-weight: 500;
+  transition: all 0.2s;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+.dashboard-tabs button:hover {
+  color: var(--rk-primary);
+}
+.dashboard-tabs button.active {
+  border-bottom: 2px solid var(--rk-primary);
+  color: var(--rk-primary);
+}
+
+.list-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.table-list-header {
+  justify-content: space-between;
+}
+.table-list-header i {
+  color: #2A9D8F;
+}
+.table-list-body .table th, .table-list-body .table td {
+  white-space: nowrap !important;
+}
+
+.cast-layout .cast-content {
+  padding-bottom: 80px;
+}
+.cast-layout .cast-content .card {
+  border: unset;
+  margin-bottom: 2rem;
+}
+.cast-layout .cast-content .card .card-header {
+  background-color: #5BC6A9;
+  color: white;
+}
+.cast-layout .cast-content .card .card-header i {
+  color: white;
+}
+.cast-layout .cast-content .rk-section-header {
+  background-color: #5BC6A9;
+  color: white;
+}
+.cast-layout .cast-content .rk-section-header i {
+  color: white;
+}
+
+/* ===========================
+   通知ドロップダウン
+   =========================== */
+.header-bell {
+  cursor: pointer;
+}
+
+.notification-dropdown {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: -8px;
+  width: 360px;
+  max-height: 480px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  z-index: 1100;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+.notification-dropdown.is-open {
+  display: flex;
+}
+.notification-dropdown::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 14px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-top: 1px solid #E2E8F0;
+  border-left: 1px solid #E2E8F0;
+  transform: rotate(45deg);
+  z-index: 1;
+}
+.notification-dropdown__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #E2E8F0;
+}
+.notification-dropdown__title {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: #0F172A;
+}
+.notification-dropdown__mark-read {
+  background: none;
+  border: none;
+  color: #2A9D8F;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+.notification-dropdown__mark-read:hover {
+  text-decoration: underline;
+}
+.notification-dropdown__list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0;
+  margin: 0;
+}
+.notification-dropdown__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+  transition: background 0.15s;
+  cursor: pointer;
+  list-style: none;
+}
+.notification-dropdown__item:last-child {
+  border-bottom: none;
+}
+.notification-dropdown__item:hover {
+  background: rgba(42, 157, 143, 0.03);
+}
+.notification-dropdown__item.is-unread {
+  background: rgba(42, 157, 143, 0.05);
+}
+.notification-dropdown__item.is-unread::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2A9D8F;
+}
+.notification-dropdown__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.notification-dropdown__icon i {
+  font-size: 18px;
+}
+.notification-dropdown__icon--booking {
+  background: rgba(42, 157, 143, 0.12);
+  color: #2A9D8F;
+}
+.notification-dropdown__icon--alert {
+  background: rgba(245, 158, 11, 0.12);
+  color: #F59E0B;
+}
+.notification-dropdown__icon--success {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10B981;
+}
+.notification-dropdown__icon--info {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3B82F6;
+}
+.notification-dropdown__body {
+  flex: 1;
+  min-width: 0;
+}
+.notification-dropdown__text {
+  font-size: 0.8125rem;
+  color: #0F172A;
+  margin: 0 0 2px;
+  line-height: 1.4;
+}
+.notification-dropdown__meta {
+  font-size: 0.75rem;
+  color: #64748B;
+  margin: 0 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notification-dropdown__time {
+  font-size: 0.6875rem;
+  color: rgb(127.050209205, 141.7782426778, 162.949790795);
+}
+.notification-dropdown__footer {
+  border-top: 1px solid #E2E8F0;
+  padding: 0.625rem 1rem;
+  text-align: center;
+}
+.notification-dropdown__footer a {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #2A9D8F;
+  text-decoration: none;
+}
+.notification-dropdown__footer a:hover {
+  text-decoration: underline;
+}
+
+.notification-dropdown__item {
+  position: relative;
+}
+
+@media (max-width: 576px) {
+  .notification-dropdown {
+    position: fixed;
+    top: var(--rk-header-height);
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: calc(100vh - var(--rk-header-height));
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+  .notification-dropdown::before {
+    display: none;
+  }
+}/*# sourceMappingURL=styles.css.map */

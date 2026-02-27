@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Details - Roomink</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="order">
+  <div class="app-wrapper">
+    <aside data-include="assets/partials/sidebar-operator.html"></aside>
+    <!-- メインコンテンツ -->
+    <div class="main-content">
+      <!-- ヘッダ -->
+      <header data-include="assets/partials/header.html"></header>
+
+      <!-- ページコンテンツ -->
+      <main class="container order">
+        <div class="row">
+          <!-- 左カラム：予約情報 -->
+          <div class="col-lg-8">
+
+            <!-- 予約基本情報 -->
+            <div class="card mb-4">
+              <div class="card-header">
+                <i class="ti ti-file-text"></i> 予約情報
+              </div>
+              <div class="card-body">
+                <table class="table mb-0">
+                  <tbody>
+                    <tr>
+                      <th style="width: 150px;">予約日時</th>
+                      <td>2025-02-09 (日) 13:00-14:30</td>
+                    </tr>
+                    <tr>
+                      <th>セラピスト</th>
+                      <td>あやか</td>
+                    </tr>
+                    <tr>
+                      <th>コース</th>
+                      <td>90分コース</td>
+                    </tr>
+                    <tr>
+                      <th>オプション</th>
+                      <td>なし</td>
+                    </tr>
+                    <tr>
+                      <th>割り当てルーム</th>
+                      <td>
+                        <select class="form-select form-select-sm w-auto">
+                          <option value="101" selected>ルーム 101</option>
+                          <option value="102">ルーム 102</option>
+                          <option value="103">ルーム 103</option>
+                          <option value="104">ルーム 104</option>
+                        </select>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th>料金</th>
+                      <td><strong>¥18,000</strong></td>
+                    </tr>
+                    <tr>
+                      <th>ステータス</th>
+                      <td><span class="badge badge-approved">承認済</span></td>
+                    </tr>
+                    <tr>
+                      <th>申請日時</th>
+                      <td>2025-02-08 20:15</td>
+                    </tr>
+                    <tr>
+                      <th>承認日時</th>
+                      <td>2025-02-08 20:30</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 顧客情報 -->
+            <div class="card mb-4">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="ti ti-user"></i> 顧客情報</span>
+                <a href="op_customers.html?id=田中" class="btn btn-sm btn-outline">顧客詳細 →</a>
+              </div>
+              <div class="card-body">
+                <div class="d-flex align-items-center gap-2 mb-3">
+                  <h4 class="mb-0">田中 太郎</h4>
+                  <span class="badge badge-approved">通常</span>
+                </div>
+                <table class="table mb-0">
+                  <tbody>
+                    <tr>
+                      <th style="width: 150px;">電話番号</th>
+                      <td>080-1234-5678</td>
+                    </tr>
+                    <tr>
+                      <th>来店回数</th>
+                      <td>5回</td>
+                    </tr>
+                    <tr>
+                      <th>前回来店</th>
+                      <td>2025-01-15</td>
+                    </tr>
+                    <tr>
+                      <th>累計利用額</th>
+                      <td>¥92,000</td>
+                    </tr>
+                    <tr>
+                      <th>備考</th>
+                      <td class="text-muted">推し: あやか / 駐車場利用希望</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 運営メモ -->
+            <div class="card mb-4">
+              <div class="card-header">
+                <i class="ti ti-notes"></i> 運営メモ
+              </div>
+              <div class="card-body">
+                <textarea class="form-control mb-2" rows="3" placeholder="メモを入力...">前回は延長希望あり。今回も可能性あり。</textarea>
+                <button class="btn btn-sm btn-primary">保存</button>
+              </div>
+            </div>
+
+            <!-- SMS送信ログ -->
+            <div class="card mb-4">
+              <div class="card-header">
+                <i class="ti ti-message"></i> SMS送信履歴
+              </div>
+              <div class="card-body p-0">
+                <div class="list-group list-group-flush">
+                  <div class="list-group-item px-3">
+                    <div class="d-flex justify-content-between">
+                      <span class="fw-semibold">承認通知</span>
+                      <span class="text-muted small">2025-02-08 20:30</span>
+                    </div>
+                    <p class="mb-0 text-muted small">
+                      【Roomink】ご予約が確定しました。2025-02-09 13:00～ セラピスト:あやか 場所: 東京都渋谷区... 詳細: https://...
+                    </p>
+                  </div>
+                  <div class="list-group-item px-3">
+                    <div class="d-flex justify-content-between">
+                      <span class="fw-semibold">前日リマインド</span>
+                      <span class="text-muted small">2025-02-08 10:00</span>
+                    </div>
+                    <p class="mb-0 text-muted small">
+                      【Roomink】明日13:00のご予約です。お待ちしております。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- 右カラム：アクション -->
+          <div class="col-lg-4">
+
+            <!-- アクションカード -->
+            <div class="card mb-4">
+              <div class="card-header">
+                <i class="ti ti-bolt"></i> アクション
+              </div>
+              <div class="card-body">
+                <div class="d-flex flex-column gap-2">
+                  <button class="btn btn-success w-100" data-confirm="この予約を承認しますか？">
+                    <i class="ti ti-check"></i> 承認
+                  </button>
+                  <button class="btn btn-danger w-100" data-confirm="この予約をキャンセルしますか？">
+                    <i class="ti ti-x"></i> キャンセル
+                  </button>
+                  <button class="btn btn-primary w-100">
+                    <i class="ti ti-circle-check"></i> 完了
+                  </button>
+                  <hr>
+                  <button class="btn btn-outline w-100">
+                    <i class="ti ti-message"></i> SMS送信
+                  </button>
+                  <button class="btn btn-outline w-100">
+                    <i class="ti ti-printer"></i> 印刷
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 要注意フラグ -->
+            <div class="card mb-4">
+              <div class="card-header">
+                <i class="ti ti-flag"></i> 顧客ステータス
+              </div>
+              <div class="card-body">
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" id="attention">
+                  <label class="form-check-label" for="attention">
+                    <span class="badge badge-attention">要注意</span> フラグを立てる
+                  </label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" id="ban">
+                  <label class="form-check-label" for="ban">
+                    <span class="badge badge-banned">BAN</span> 予約不可にする
+                  </label>
+                </div>
+                <hr>
+                <button class="btn btn-sm btn-outline w-100">変更を保存</button>
+              </div>
+            </div>
+
+            <!-- 来店履歴サマリ -->
+            <div class="card mb-4">
+              <div class="card-header">
+                <i class="ti ti-history"></i> 来店履歴（直近3件）
+              </div>
+              <div class="card-body p-0">
+                <ul class="list-group list-group-flush">
+                  <li class="list-group-item px-3">
+                    <div class="text-muted small">2025-01-15</div>
+                    <div>あやか / 90分 / ¥18,000</div>
+                  </li>
+                  <li class="list-group-item px-3">
+                    <div class="text-muted small">2024-12-20</div>
+                    <div>あやか / 120分 / ¥24,000</div>
+                  </li>
+                  <li class="list-group-item px-3">
+                    <div class="text-muted small">2024-11-05</div>
+                    <div>みさき / 90分 / ¥18,000</div>
+                  </li>
+                </ul>
+              </div>
+              <div class="card-body pt-0">
+                <a href="op_customers.html?id=田中" class="btn btn-sm btn-outline w-100 mt-2">全履歴を見る</a>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </main>
+
+      <footer data-include="assets/partials/footer.html"></footer>
+
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

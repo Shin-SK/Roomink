@@ -1,0 +1,43 @@
+/* ===========================
+   ステータスバッジ - Roomink独自ステータス
+   =========================== */
+
+:root {
+  --rk-pending: #E0F2F1;
+  --rk-approved: #B2DFDB;
+  --rk-unconfirmed: #FFF9C4;
+  --rk-attention: #FFE082;
+  --rk-banned: #FFCDD2;
+}
+
+/* ステータスバッジ */
+.badge-pending {
+  background: var(--rk-pending);
+  color: #2A9D8F;
+  border: 1px dashed #2A9D8F;
+  font-weight: 600;
+}
+
+.badge-approved {
+  background: var(--rk-approved);
+  color: #00695C;
+  font-weight: 600;
+}
+
+.badge-unconfirmed {
+  background: var(--rk-unconfirmed);
+  color: #F57C00;
+  font-weight: 600;
+}
+
+.badge-attention {
+  background: var(--rk-attention);
+  color: #E65100;
+  font-weight: 600;
+}
+
+.badge-banned {
+  background: var(--rk-banned);
+  color: #C62828;
+  font-weight: 600;
+}

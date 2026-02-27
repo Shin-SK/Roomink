@@ -1,0 +1,319 @@
+/* ===========================
+   Roomink Theme Variables
+   Bootstrap上書き用 + CSS Custom Properties
+   =========================== */
+
+@use "sass:color";
+
+// Roominkカラーパレット
+$rk-primary: #2A9D8F;
+$rk-accent: #5BC6A9;
+$rk-bg: #F6FAF9;
+$rk-text: #0F172A;
+$rk-muted: #64748B;
+
+// Bootstrap変数上書き（CDN使用のためCSS変数で反映）
+$primary: $rk-primary;
+$secondary: $rk-muted;
+$success: #10B981;
+$warning: #F59E0B;
+$danger: #EF4444;
+$info: #3B82F6;
+$light: #F6FAF9;
+$dark: #0F172A;
+
+// ステータス色
+$pending: #E0F2F1;
+$approved: #B2DFDB;
+$unconfirmed: #FFF9C4;
+$attention: #FFE082;
+$banned: #FFCDD2;
+
+// ボーダー
+$border-color: #E2E8F0;
+$rk-border: $border-color;
+$border-radius: 12px;
+$border-radius-sm: 8px;
+$border-radius-lg: 16px;
+
+// シャドウ
+$box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+$box-shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+$box-shadow-lg: 0 4px 12px rgba(0,0,0,0.12);
+$rk-shadow: $box-shadow;
+$rk-shadow-lg: $box-shadow-lg;
+
+// CSS Custom Properties（HTMLから参照可能）
+:root {
+  // Roominkカラー
+  --rk-primary: #{$rk-primary};
+  --rk-accent: #{$rk-accent};
+  --rk-bg: #{$rk-bg};
+  --rk-text: #{$rk-text};
+  --rk-muted: #{$rk-muted};
+  --rk-warning: #{$warning};
+  --rk-border: #{$border-color};
+  --rk-card-bg: #FFFFFF;
+  --rk-shadow: #{$box-shadow};
+  --rk-shadow-lg: #{$box-shadow-lg};
+
+  // 旧変数互換（HTMLで使用中）
+  --color-primary: #{$rk-primary};
+  --color-accent: #{$rk-accent};
+  --color-success: #{$success};
+  --color-warning: #{$warning};
+  --color-danger: #{$danger};
+  --color-info: #{$info};
+  --color-approved: #{$approved};
+  --color-attention: #{$attention};
+  --color-banned: #{$banned};
+
+  // テキスト
+  --text-primary: #{$rk-text};
+  --text-secondary: #{$rk-muted};
+
+  // 背景
+  --bg-main: #{$rk-bg};
+  --bg-card: #FFFFFF;
+
+  // ボーダー
+  --border-color: #{$border-color};
+  --border-radius: #{$border-radius};
+  --border-radius-sm: #{$border-radius-sm};
+
+  // レイアウト
+  --rk-sidebar-width: 260px;
+  --rk-header-height: 60px;
+
+  // タイムライン用
+  --rk-time-col-w: 46px;
+  --rk-col-w: 120px;
+  --rk-row-hour-h: 80px;
+  --rk-grid-border: #E6EEF0;
+}
+
+@media (max-width: 576px) {
+  :root {
+    --rk-col-w: 104px;
+    --rk-row-hour-h: 72px;
+  }
+}
+
+/* ===========================
+   グローバルベーススタイル
+   =========================== */
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  // background-color: $rk-bg;
+  color: $rk-text;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: $rk-primary;
+  transition: color 0.2s;
+
+  &:hover {
+    color: color.adjust($rk-primary, $lightness: -10%);
+  }
+}
+
+/* カード全体のベーススタイル強化 */
+%rk-card-header {
+  background: $rk-bg;
+  border-bottom: unset;
+  font-weight: bold;
+  font-size: 1rem;
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  i {
+    color: $rk-primary;
+  }
+}
+
+.card {
+  border: 1px solid $border-color;
+  border-radius: $border-radius;
+  background: #fff;
+  transition: box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+
+  .card-header {
+    @extend %rk-card-header;
+  }
+
+  .card-body {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+}
+
+/* テーブル強化 */
+.table {
+  th {
+    font-weight: 600;
+    color: $rk-muted;
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+  }
+
+  td {
+    vertical-align: middle;
+  }
+}
+
+.list-group{
+  border: unset !important;
+}
+
+/* リストグループ強化 */
+.list-group-item {
+  padding: 0.5rem 0;
+  transition: background 0.15s;
+  border: unset;
+  border-bottom: 1px solid $border-color;
+
+  &:hover {
+    background: rgba($rk-primary, 0.02);
+  }
+}
+
+/* アラート強化 */
+.alert {
+  border-radius: $border-radius-sm;
+  font-size: 0.9375rem;
+}
+
+/* バッジ強化 */
+.badge {
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.35em 0.75em;
+  border-radius: 999px;
+}
+
+/* Bootstrap色バッジ補完 */
+.badge-primary,
+.badge.bg-primary {
+  background: $rk-primary !important;
+  color: #fff;
+}
+
+.badge-success,
+.badge.bg-success {
+  background: $success !important;
+  color: #fff;
+}
+
+.badge-danger,
+.badge.bg-danger {
+  background: $danger !important;
+  color: #fff;
+}
+
+.badge-warning,
+.badge.bg-warning {
+  background: $warning !important;
+  color: #fff;
+}
+
+.bg-attention{
+  background: $attention !important;
+}
+
+
+.btn-attention{
+  background: $attention !important;
+}
+
+/* ページネーション */
+.page-link {
+  color: $rk-primary;
+  border-color: $border-color;
+  border-radius: $border-radius-sm;
+}
+
+.page-item.active .page-link {
+  background-color: $rk-primary;
+  border-color: $rk-primary;
+}
+
+/* フォーム強化 */
+.form-control,
+.form-select {
+  border-color: $border-color;
+  border-radius: $border-radius-sm;
+
+  &:focus {
+    border-color: $rk-primary;
+    box-shadow: 0 0 0 3px rgba($rk-primary, 0.1);
+  }
+}
+
+.form-label {
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: $rk-text;
+  margin-bottom: 0.375rem;
+}
+
+/* ボタン強化 */
+.btn {
+  font-weight: 500;
+  border-radius: $border-radius-sm;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background-color: $rk-primary;
+  border-color: $rk-primary;
+
+  &:hover {
+    background-color: color.adjust($rk-primary, $lightness: -8%);
+    border-color: color.adjust($rk-primary, $lightness: -8%);
+  }
+}
+
+.btn-outline-primary {
+  color: $primary;
+  border-color: $primary;
+  background: transparent;
+
+  &:hover,
+  &:focus {
+    color: #fff;
+    background-color: $primary;
+    border-color: $primary;
+  }
+}
+
+.btn-success {
+  background-color: $success;
+  border-color: $success;
+
+  &:hover {
+    background-color: color.adjust($success, $lightness: -8%);
+    border-color: color.adjust($success, $lightness: -8%);
+  }
+}
+
+.btn-danger {
+  background-color: $danger;
+  border-color: $danger;
+
+  &:hover {
+    background-color: color.adjust($danger, $lightness: -8%);
+    border-color: color.adjust($danger, $lightness: -8%);
+  }
+}
+

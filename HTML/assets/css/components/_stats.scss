@@ -1,0 +1,36 @@
+/* ===========================
+   Statistics Cards
+   Dashboard/Today用の統計カード
+   =========================== */
+
+// 統計ラベル（上部の小さいラベル）
+.stat-label {
+  font-size: 0.875rem;
+  color: var(--bs-secondary);
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+// 統計値（メインの大きい数字）
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--bs-body-color);
+  margin-bottom: 0.5rem;
+  line-height: 1.2;
+}
+
+// 統計変化（下部の補足情報）
+.stat-change {
+  font-size: 0.875rem;
+  color: var(--bs-secondary);
+  
+  a {
+    color: var(--bs-primary);
+    text-decoration: none;
+    
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}

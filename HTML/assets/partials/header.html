@@ -1,0 +1,72 @@
+      <header class="app-header">
+        <button class="mobile-menu-btn"><i class="ti ti-menu-2"></i></button>
+        <h1 class="header-title">
+          <a href="index.html"><img src="./assets/image/icon.svg" alt="" style="width: 24px;"></a>
+        </h1>
+        <div class="header-bell" id="notification-bell">
+          <i class="ti ti-bell"></i>
+          <span class="count">2</span>
+          <!-- 通知ドロップダウン -->
+          <div class="notification-dropdown" id="notification-dropdown">
+            <div class="notification-dropdown__header">
+              <span class="notification-dropdown__title">通知</span>
+              <button class="notification-dropdown__mark-read" onclick="markAllRead(event)">すべて既読</button>
+            </div>
+            <ul class="notification-dropdown__list">
+              <li class="notification-dropdown__item is-unread">
+                <div class="notification-dropdown__icon notification-dropdown__icon--booking">
+                  <i class="ti ti-calendar-plus"></i>
+                </div>
+                <div class="notification-dropdown__body">
+                  <p class="notification-dropdown__text"><strong>新規予約申請</strong>が届きました</p>
+                  <p class="notification-dropdown__meta">田中 太郎 様 — 60分コース</p>
+                  <span class="notification-dropdown__time">3分前</span>
+                </div>
+              </li>
+              <li class="notification-dropdown__item is-unread">
+                <div class="notification-dropdown__icon notification-dropdown__icon--alert">
+                  <i class="ti ti-alert-triangle"></i>
+                </div>
+                <div class="notification-dropdown__body">
+                  <p class="notification-dropdown__text"><strong>未確認の予約</strong>があります</p>
+                  <p class="notification-dropdown__meta">本日 14:00〜 佐藤 花子 様</p>
+                  <span class="notification-dropdown__time">15分前</span>
+                </div>
+              </li>
+              <li class="notification-dropdown__item">
+                <div class="notification-dropdown__icon notification-dropdown__icon--success">
+                  <i class="ti ti-check"></i>
+                </div>
+                <div class="notification-dropdown__body">
+                  <p class="notification-dropdown__text">予約が<strong>承認</strong>されました</p>
+                  <p class="notification-dropdown__meta">鈴木 一郎 様 — 90分コース</p>
+                  <span class="notification-dropdown__time">1時間前</span>
+                </div>
+              </li>
+              <li class="notification-dropdown__item">
+                <div class="notification-dropdown__icon notification-dropdown__icon--info">
+                  <i class="ti ti-message-dots"></i>
+                </div>
+                <div class="notification-dropdown__body">
+                  <p class="notification-dropdown__text">顧客からの<strong>メッセージ</strong></p>
+                  <p class="notification-dropdown__meta">山田 次郎 様「時間変更をお願い…」</p>
+                  <span class="notification-dropdown__time">2時間前</span>
+                </div>
+              </li>
+              <li class="notification-dropdown__item">
+                <div class="notification-dropdown__icon notification-dropdown__icon--booking">
+                  <i class="ti ti-calendar-check"></i>
+                </div>
+                <div class="notification-dropdown__body">
+                  <p class="notification-dropdown__text">明日の予約リマインダー</p>
+                  <p class="notification-dropdown__meta">3件の予約が入っています</p>
+                  <span class="notification-dropdown__time">3時間前</span>
+                </div>
+              </li>
+            </ul>
+            <div class="notification-dropdown__footer">
+              <a href="#" onclick="event.preventDefault()">すべての通知を見る</a>
+            </div>
+          </div>
+        </div>
+      </header>

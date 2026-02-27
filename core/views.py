@@ -1,0 +1,722 @@
+import csv
+import io
+from datetime import date as date_type
+
+from django.contrib.auth import authenticate, login, logout
+from django.db import transaction
+from rest_framework import parsers, viewsets, status
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import (
+    Cast, CastAck, Course, Customer, Option, Order, OrderOption, Room, ShiftAssignment, Store,
+)
+from .serializers import (
+    CastSerializer,
+    CastTodayOrderSerializer,
+    CourseSerializer,
+    CustomerSerializer,
+    OptionSerializer,
+    OrderCreateSerializer,
+    OrderSerializer,
+    RoomSerializer,
+    ScheduleResponseSerializer,
+    ShiftAssignmentSerializer,
+    build_customer_label,
+    build_schedule_data,
+)
+from .utils.phone import normalize_phone
+from .services.customer_context import resolve_customer
+from .services.notify import (
+    notify_cast_order,
+    notify_order_cancelled,
+    notify_order_confirmed,
+)
+
+
+# ──────────────────────────────────────
+# Auth
+# ──────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def auth_login(request):
+    username = normalize_phone(request.data.get("username", ""))
+    password = request.data.get("password", "")
+    user = authenticate(request, username=username, password=password)
+    if user is None:
+        return Response(
+            {"detail": "ユーザー名またはパスワードが正しくありません"},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+    login(request, user)
+    return Response({"ok": True, "username": user.username})
+
+
+@api_view(["POST"])
+def auth_logout(request):
+    logout(request)
+    return Response({"ok": True})
+
+
+@api_view(["GET"])
+def auth_me(request):
+    return Response({
+        "id": request.user.id,
+        "username": request.user.username,
+    })
+
+
+# ──────────────────────────────────────
+# Schedule
+# ──────────────────────────────────────
+
+class ScheduleView(APIView):
+    def get(self, request):
+        date_str = request.query_params.get("date")
+        if not date_str:
+            return Response(
+                {"detail": "date パラメータは必須です（YYYY-MM-DD）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            d = date_type.fromisoformat(date_str)
+        except ValueError:
+            return Response(
+                {"detail": "date の形式が不正です（YYYY-MM-DD）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        store = Store.objects.first()
+        if store is None:
+            return Response(
+                {"detail": "店舗が登録されていません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = build_schedule_data(store, d)
+        serializer = ScheduleResponseSerializer(data)
+        return Response(serializer.data)
+
+
+# ──────────────────────────────────────
+# Order CRUD + status actions
+# ──────────────────────────────────────
+
+class OrderViewSet(viewsets.ModelViewSet):
+    queryset = Order.objects.select_related(
+        "cast", "room", "customer", "course",
+    ).prefetch_related("options").order_by("start")
+
+    filterset_fields = {
+        "status": ["exact", "in"],
+        "cast": ["exact"],
+        "room": ["exact"],
+        "customer": ["exact"],
+        "start": ["date", "gte", "lte"],
+        "end": ["gte", "lte"],
+    }
+    search_fields = ["memo", "customer__display_name", "customer__phone"]
+    ordering_fields = ["start", "end", "created_at", "updated_at"]
+    ordering = ["start"]
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return OrderCreateSerializer
+        return OrderSerializer
+
+    # --- status actions ---
+
+    @action(detail=True, methods=["post"])
+    def confirm(self, request, pk=None):
+        order = self.get_object()
+        if order.status != Order.Status.REQUESTED:
+            return Response(
+                {"detail": f"ステータスが {order.get_status_display()} のため承認できません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        order.status = Order.Status.CONFIRMED
+        order.save(update_fields=["status", "updated_at"])
+        notify_order_confirmed(order)
+        notify_cast_order(order)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        order = self.get_object()
+        if order.status in (Order.Status.DONE, Order.Status.CANCELLED):
+            return Response(
+                {"detail": f"ステータスが {order.get_status_display()} のためキャンセルできません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        order.status = Order.Status.CANCELLED
+        order.save(update_fields=["status", "updated_at"])
+        notify_order_cancelled(order)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=["post"])
+    def done(self, request, pk=None):
+        order = self.get_object()
+        if order.status not in (Order.Status.CONFIRMED, Order.Status.IN_PROGRESS):
+            return Response(
+                {"detail": f"ステータスが {order.get_status_display()} のため完了にできません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        order.status = Order.Status.DONE
+        order.save(update_fields=["status", "updated_at"])
+        return Response(OrderSerializer(order).data)
+
+
+# ──────────────────────────────────────
+# Cast Today / ACK
+# ──────────────────────────────────────
+
+class CastTodayView(APIView):
+    """GET /api/cast/today/?date=YYYY-MM-DD — キャスト本人の当日予約一覧"""
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        date_str = request.query_params.get("date")
+        if not date_str:
+            return Response(
+                {"detail": "date パラメータは必須です（YYYY-MM-DD）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            d = date_type.fromisoformat(date_str)
+        except ValueError:
+            return Response(
+                {"detail": "date の形式が不正です（YYYY-MM-DD）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        orders = (
+            Order.objects
+            .filter(cast=cast, start__date=d)
+            .exclude(status__in=[Order.Status.DONE, Order.Status.CANCELLED])
+            .select_related("room", "customer", "course")
+            .order_by("start")
+        )
+
+        acked_ids = set(
+            CastAck.objects
+            .filter(order__in=orders, acked_at__isnull=False)
+            .values_list("order_id", flat=True)
+        )
+
+        # シフト情報
+        shift = (
+            ShiftAssignment.objects
+            .filter(cast=cast, date=d)
+            .select_related("room")
+            .first()
+        )
+
+        data = []
+        for o in orders:
+            data.append({
+                "id": o.id,
+                "start": o.start,
+                "end": o.end,
+                "status": o.status,
+                "room_id": o.room_id,
+                "room_name": o.room.name,
+                "customer_label": build_customer_label(o.customer),
+                "course_name": o.course.name,
+                "course_price": o.course.price,
+                "memo": o.memo,
+                "is_unconfirmed": o.id not in acked_ids,
+            })
+
+        serializer = CastTodayOrderSerializer(data, many=True)
+
+        return Response({
+            "cast_name": cast.name,
+            "avatar_url": cast.avatar_url,
+            "date": d.isoformat(),
+            "shift": {
+                "start_time": str(shift.start_time)[:5] if shift else None,
+                "end_time": str(shift.end_time)[:5] if shift else None,
+                "room_name": shift.room.name if shift else None,
+            } if shift else None,
+            "total_orders": len(data),
+            "unconfirmed_count": sum(1 for o in data if o["is_unconfirmed"]),
+            "orders": serializer.data,
+        })
+
+
+class CastAckView(APIView):
+    """POST /api/cast/orders/{id}/ack/ — キャストが予約を確認"""
+
+    def post(self, request, pk):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            order = Order.objects.select_related("room", "customer", "course").get(pk=pk)
+        except Order.DoesNotExist:
+            return Response(
+                {"detail": "予約が見つかりません"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if order.cast_id != cast.id:
+            return Response(
+                {"detail": "この予約は別のキャストに割り当てられています"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from django.utils import timezone
+        ack, _ = CastAck.objects.get_or_create(order=order)
+        ack.acked_at = timezone.now()
+        ack.save(update_fields=["acked_at"])
+
+        return Response({
+            "id": order.id,
+            "start": order.start,
+            "end": order.end,
+            "status": order.status,
+            "room_id": order.room_id,
+            "room_name": order.room.name,
+            "customer_label": build_customer_label(order.customer),
+            "course_name": order.course.name,
+            "course_price": order.course.price,
+            "memo": order.memo,
+            "is_unconfirmed": False,
+        })
+
+
+# ──────────────────────────────────────
+# Customer — signup / mypage / booking
+# ──────────────────────────────────────
+
+class CustomerStoresView(APIView):
+    """GET /api/cu/stores/ — 顧客が所属する店舗一覧"""
+
+    def get(self, request):
+        customers = Customer.objects.filter(
+            user=request.user,
+        ).select_related("store")
+        if not customers.exists():
+            return Response(
+                {"detail": "このユーザーに顧客プロフィールが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        stores = [
+            {"store_id": c.store_id, "store_name": c.store.name, "logo_url": ""}
+            for c in customers
+        ]
+        return Response({"stores": stores})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def customer_signup(request):
+    """POST /api/cu/signup/ — 顧客アカウント作成"""
+    from django.contrib.auth.models import User
+
+    phone = normalize_phone((request.data.get("phone") or "").strip())
+    password = request.data.get("password", "")
+    display_name = (request.data.get("display_name") or "").strip()
+
+    if not phone or not password:
+        return Response(
+            {"detail": "電話番号とパスワードは必須です"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if User.objects.filter(username=phone).exists():
+        return Response(
+            {"detail": "この電話番号は既に登録されています"},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    store = Store.objects.first()
+    if store is None:
+        return Response(
+            {"detail": "店舗が登録されていません"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        user = User.objects.create_user(username=phone, password=password)
+        customer, created = Customer.objects.get_or_create(
+            store=store, phone=phone,
+            defaults={"display_name": display_name},
+        )
+        if not created and customer.user_id is not None:
+            user.delete()
+            return Response(
+                {"detail": "この電話番号は既に登録されています"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        customer.user = user
+        if display_name and not customer.display_name:
+            customer.display_name = display_name
+        customer.save()
+
+    login(request, user)
+    return Response({"ok": True, "username": user.username}, status=status.HTTP_201_CREATED)
+
+
+class CustomerMypageView(APIView):
+    """GET /api/cu/mypage/ — 顧客マイページ"""
+
+    def get(self, request):
+        customer = resolve_customer(request)
+
+        from django.db.models import Sum, Count
+        from django.utils import timezone
+
+        now = timezone.now()
+
+        # ── 次回予約 ──
+        next_order = (
+            Order.objects
+            .filter(
+                customer=customer,
+                status__in=[Order.Status.REQUESTED, Order.Status.CONFIRMED, Order.Status.IN_PROGRESS],
+                start__gt=now,
+            )
+            .select_related("cast", "course")
+            .order_by("start")
+            .first()
+        )
+        next_reservation = None
+        if next_order:
+            opt_total = next_order.options.aggregate(t=Sum("price"))["t"] or 0
+            next_reservation = {
+                "id": next_order.id,
+                "start": next_order.start,
+                "end": next_order.end,
+                "status": next_order.status,
+                "cast_name": next_order.cast.name,
+                "course_name": next_order.course.name,
+                "total_price": next_order.course.price + opt_total,
+            }
+
+        # ── 推しセラピスト（直近指名キャスト 1名）──
+        fav_cast_id = (
+            Order.objects
+            .filter(customer=customer, status__in=[Order.Status.DONE, Order.Status.CONFIRMED])
+            .values("cast_id")
+            .annotate(cnt=Count("id"))
+            .order_by("-cnt")
+            .values_list("cast_id", flat=True)
+            .first()
+        )
+        favorites = []
+        if fav_cast_id:
+            fav_cast = Cast.objects.filter(pk=fav_cast_id).first()
+            if fav_cast:
+                fav_orders = Order.objects.filter(customer=customer, cast=fav_cast, status=Order.Status.DONE)
+                fav_spend = 0
+                for o in fav_orders.select_related("course").prefetch_related("options"):
+                    fav_spend += o.course.price + (o.options.aggregate(t=Sum("price"))["t"] or 0)
+                favorites.append({
+                    "id": fav_cast.id,
+                    "name": fav_cast.name,
+                    "avatar_url": fav_cast.avatar_url,
+                    "visit_count": fav_orders.count(),
+                    "total_spend": fav_spend,
+                })
+
+        # ── おすすめ（store 内キャスト最大3名、推し除外）──
+        rec_qs = Cast.objects.filter(store=customer.store).exclude(pk=fav_cast_id or 0).order_by("name")[:3]
+        recommended = [
+            {"id": c.id, "name": c.name, "avatar_url": c.avatar_url}
+            for c in rec_qs
+        ]
+
+        # ── 来店履歴 ──
+        history_qs = (
+            Order.objects
+            .filter(customer=customer)
+            .exclude(status=Order.Status.CANCELLED)
+            .select_related("cast", "course")
+            .prefetch_related("options")
+            .order_by("-start")[:10]
+        )
+        history = []
+        for o in history_qs:
+            opt_total = o.options.aggregate(t=Sum("price"))["t"] or 0
+            history.append({
+                "id": o.id,
+                "date": o.start.date().isoformat(),
+                "cast_name": o.cast.name,
+                "course_name": o.course.name,
+                "total_price": o.course.price + opt_total,
+                "status": o.status,
+            })
+
+        # ── 累計 ──
+        done_orders = Order.objects.filter(customer=customer, status=Order.Status.DONE)
+        total_visits = done_orders.count()
+        total_spend = 0
+        for o in done_orders.select_related("course").prefetch_related("options"):
+            total_spend += o.course.price + (o.options.aggregate(t=Sum("price"))["t"] or 0)
+
+        return Response({
+            "customer": {
+                "display_name": customer.display_name or customer.phone,
+                "phone": customer.phone,
+                "total_visits": total_visits,
+                "total_spend": total_spend,
+            },
+            "next_reservation": next_reservation,
+            "favorites": favorites,
+            "recommended": recommended,
+            "history": history,
+        })
+
+
+class CustomerBookingOptionsView(APIView):
+    """GET /api/cu/booking/options/ — 予約フォーム選択肢"""
+
+    def get(self, request):
+        customer = resolve_customer(request)
+        store = customer.store
+        casts = [{"id": c.id, "name": c.name, "avatar_url": c.avatar_url} for c in Cast.objects.filter(store=store).order_by("name")]
+        courses = [{"id": c.id, "name": c.name, "duration": c.duration, "price": c.price} for c in Course.objects.filter(store=store).order_by("id")]
+        options = [{"id": o.id, "name": o.name, "price": o.price} for o in Option.objects.filter(store=store).order_by("id")]
+
+        return Response({"casts": casts, "courses": courses, "options": options})
+
+
+class CustomerBookingCreateView(APIView):
+    """POST /api/cu/bookings/ — 顧客からの予約申請"""
+
+    def post(self, request):
+        customer = resolve_customer(request)
+
+        data = request.data.copy()
+        data["customer"] = customer.id
+
+        serializer = OrderCreateSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        order = serializer.save()
+        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
+
+
+# ──────────────────────────────────────
+# Shift / Customer / Master
+# ──────────────────────────────────────
+
+class ShiftAssignmentViewSet(viewsets.ModelViewSet):
+    queryset = ShiftAssignment.objects.select_related("cast", "room").order_by(
+        "date", "start_time",
+    )
+    serializer_class = ShiftAssignmentSerializer
+    filterset_fields = {
+        "date": ["exact", "gte", "lte"],
+        "cast": ["exact"],
+        "room": ["exact"],
+    }
+    ordering_fields = ["date", "start_time"]
+    ordering = ["date", "start_time"]
+
+
+class CustomerViewSet(viewsets.ModelViewSet):
+    queryset = Customer.objects.order_by("id")
+    serializer_class = CustomerSerializer
+    filterset_fields = {
+        "flag": ["exact"],
+        "phone": ["exact"],
+    }
+    search_fields = ["display_name", "phone"]
+    ordering_fields = ["id", "display_name"]
+    ordering = ["id"]
+
+
+class CastViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Cast.objects.order_by("name")
+    serializer_class = CastSerializer
+
+
+class CourseViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Course.objects.order_by("id")
+    serializer_class = CourseSerializer
+
+
+class OptionViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Option.objects.order_by("id")
+    serializer_class = OptionSerializer
+
+
+class RoomViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Room.objects.order_by("sort_order")
+    serializer_class = RoomSerializer
+
+
+# ──────────────────────────────────────
+# CSV Import  (2-stage: preview → execute)
+# ──────────────────────────────────────
+
+MODEL_MAP = {
+    "room": Room,
+    "cast": Cast,
+    "course": Course,
+    "option": Option,
+    "customer": Customer,
+}
+
+REQUIRED_HEADERS = {
+    "room": ["name"],
+    "cast": ["name"],
+    "course": ["name", "duration", "price"],
+    "option": ["name", "price"],
+    "customer": ["phone"],
+}
+
+OPTIONAL_HEADERS = {
+    "room": ["sort_order"],
+    "cast": ["avatar_url"],
+    "course": [],
+    "option": [],
+    "customer": ["display_name", "flag", "memo"],
+}
+
+
+def _parse_csv(file_obj):
+    """UTF-8 (BOM対応) で CSV を読み、行リストを返す"""
+    text = file_obj.read().decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    return list(reader), reader.fieldnames or []
+
+
+def _validate_headers(model_key, fieldnames):
+    required = REQUIRED_HEADERS[model_key]
+    missing = [h for h in required if h not in fieldnames]
+    if missing:
+        return f"必須ヘッダが不足: {', '.join(missing)}"
+    return None
+
+
+def _upsert_rows(store, model_key, rows):
+    """upsert して (created, updated) のカウントを返す"""
+    created = 0
+    updated = 0
+
+    for row in rows:
+        # 空行スキップ
+        if not any(row.values()):
+            continue
+
+        if model_key == "room":
+            obj, is_new = Room.objects.update_or_create(
+                store=store, name=row["name"],
+                defaults={"sort_order": int(row.get("sort_order") or 0)},
+            )
+        elif model_key == "cast":
+            obj, is_new = Cast.objects.update_or_create(
+                store=store, name=row["name"],
+                defaults={"avatar_url": row.get("avatar_url") or ""},
+            )
+        elif model_key == "course":
+            obj, is_new = Course.objects.update_or_create(
+                store=store, name=row["name"],
+                defaults={
+                    "duration": int(row["duration"]),
+                    "price": int(row["price"]),
+                },
+            )
+        elif model_key == "option":
+            obj, is_new = Option.objects.update_or_create(
+                store=store, name=row["name"],
+                defaults={"price": int(row["price"])},
+            )
+        elif model_key == "customer":
+            defaults = {}
+            if row.get("display_name"):
+                defaults["display_name"] = row["display_name"]
+            if row.get("flag"):
+                defaults["flag"] = row["flag"]
+            if row.get("memo"):
+                defaults["memo"] = row["memo"]
+            obj, is_new = Customer.objects.update_or_create(
+                store=store, phone=normalize_phone(row["phone"]),
+                defaults=defaults,
+            )
+
+        if is_new:
+            created += 1
+        else:
+            updated += 1
+
+    return created, updated
+
+
+class CsvImportView(APIView):
+    """
+    POST /api/op/csv-import/?model=room
+      - multipart/form-data  file=<csv>
+      - query: model = room|cast|course|option|customer
+      - query: preview = 1  → プレビューのみ（先頭10行）
+    """
+    parser_classes = [parsers.MultiPartParser]
+
+    def post(self, request):
+        model_key = request.query_params.get("model", "").lower()
+        if model_key not in MODEL_MAP:
+            return Response(
+                {"detail": f"model は {', '.join(MODEL_MAP.keys())} のいずれかを指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        file_obj = request.FILES.get("file")
+        if not file_obj:
+            return Response(
+                {"detail": "file が必要です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rows, fieldnames = _parse_csv(file_obj)
+
+        header_err = _validate_headers(model_key, fieldnames)
+        if header_err:
+            return Response({"detail": header_err}, status=status.HTTP_400_BAD_REQUEST)
+
+        is_preview = request.query_params.get("preview") == "1"
+
+        if is_preview:
+            return Response({
+                "model": model_key,
+                "total_rows": len(rows),
+                "headers": fieldnames,
+                "preview": rows[:10],
+            })
+
+        store = Store.objects.first()
+        if store is None:
+            return Response(
+                {"detail": "店舗が登録されていません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                created, updated = _upsert_rows(store, model_key, rows)
+        except Exception as e:
+            return Response(
+                {"detail": f"インポートエラー: {e}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({
+            "model": model_key,
+            "total_rows": len(rows),
+            "created": created,
+            "updated": updated,
+        })

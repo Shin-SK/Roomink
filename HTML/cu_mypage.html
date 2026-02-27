@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>マイページ - Roomink</title>
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="mypage">
+  <div class="customer-layout has-bottomnav">
+    <header data-include="assets/partials/header-customer.html"></header>
+
+    <!-- コンテンツ -->
+    <main class="customer-content container">
+      <div style="max-width: 640px; margin: 0 auto;">
+
+        <!-- あいさつ -->
+        <p class="text-muted mb-3">こんにちは、田中様</p>
+
+        <!-- ========================================
+             1) 予約カード - 1stビュー
+             ======================================== -->
+        <!-- 予約あり -->
+        <div class="rk-booking-card mb-4">
+          <div class="rk-booking-card__label"><i class="ti ti-calendar-event"></i> 次回のご予約</div>
+          <div class="rk-booking-card__date">2025-02-09 (日) 13:00 – 14:30</div>
+          <div class="rk-booking-card__info"><i class="ti ti-user"></i> あやか / 90分コース</div>
+          <div class="rk-booking-card__info"><i class="ti ti-currency-yen"></i> ¥18,000</div>
+          <span class="rk-booking-card__badge">承認済</span>
+          <div><a href="cu_reservation.html" class="rk-booking-card__cta">予約詳細を見る</a></div>
+        </div>
+
+        <!-- 予約なし（非表示のサンプル） -->
+        <!--
+        <div class="rk-booking-card rk-booking-card--empty mb-4">
+          <div class="rk-booking-card__label"><i class="ti ti-calendar-off"></i> 次回のご予約</div>
+          <p class="mb-2" style="font-size:1.125rem; font-weight:600;">次回予約はありません</p>
+          <a href="cu_booking.html" class="rk-booking-card__cta">予約する</a>
+        </div>
+        -->
+
+        <!-- ========================================
+             2) タブUI - 推し / おすすめ / 運営おすすめ
+             ======================================== -->
+        <div id="fav" class="mb-4">
+          <nav class="rk-tabs">
+            <button class="rk-tabs__btn active" data-rk-tab="fav"><i class="ti ti-heart"></i> 推し</button>
+            <button class="rk-tabs__btn" data-rk-tab="foryou"><i class="ti ti-stars"></i> おすすめ</button>
+            <button class="rk-tabs__btn" data-rk-tab="picks"><i class="ti ti-sparkles"></i> 運営</button>
+          </nav>
+
+          <!-- ── 推し (Fav) ── -->
+          <div data-rk-panel="fav">
+            <div class="rk-fav-card">
+              <img src="assets/image/01.webp" alt="あやか" class="rk-fav-card__img">
+              <div class="rk-fav-card__body">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                  <h4 class="mb-0 fw-bold">あやか</h4>
+                  <span class="badge badge-approved">推しセラピスト</span>
+                </div>
+                <p class="text-muted mb-3">指名回数: 4回 / 累計: ¥74,000</p>
+                <a href="cu_booking.html?therapist=ayaka" class="btn btn-primary btn-block">
+                  <i class="ti ti-calendar-plus"></i> あやかを指名予約
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── おすすめ (For you) ── -->
+          <div data-rk-panel="foryou" class="d-none">
+            <p class="text-muted small mb-2">あやかと似たタイプのセラピスト</p>
+            <div class="rk-hscroll">
+              <div class="rk-hscroll__card">
+                <img src="assets/image/02.webp" alt="みさき" class="rk-hscroll__img">
+                <div class="rk-hscroll__body">
+                  <div class="rk-hscroll__name">みさき</div>
+                  <div class="rk-hscroll__sub">あやかと似たタイプ</div>
+                  <a href="cu_booking.html?therapist=misaki" class="btn btn-sm btn-primary w-100">予約する</a>
+                </div>
+              </div>
+              <div class="rk-hscroll__card">
+                <img src="assets/image/03.webp" alt="ゆい" class="rk-hscroll__img">
+                <div class="rk-hscroll__body">
+                  <div class="rk-hscroll__name">ゆい</div>
+                  <div class="rk-hscroll__sub">癒し系・人気上昇中</div>
+                  <a href="cu_booking.html?therapist=yui" class="btn btn-sm btn-primary w-100">予約する</a>
+                </div>
+              </div>
+              <div class="rk-hscroll__card">
+                <img src="assets/image/04.webp" alt="れな" class="rk-hscroll__img">
+                <div class="rk-hscroll__body">
+                  <div class="rk-hscroll__name">れな</div>
+                  <div class="rk-hscroll__sub">リピート率No.1</div>
+                  <a href="cu_booking.html?therapist=rena" class="btn btn-sm btn-primary w-100">予約する</a>
+                </div>
+              </div>
+              <div class="rk-hscroll__card">
+                <img src="assets/image/05.webp" alt="なお" class="rk-hscroll__img">
+                <div class="rk-hscroll__body">
+                  <div class="rk-hscroll__name">なお</div>
+                  <div class="rk-hscroll__sub">初回人気No.1</div>
+                  <a href="cu_booking.html?therapist=nao" class="btn btn-sm btn-primary w-100">予約する</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 運営おすすめ (Staff picks) ── -->
+          <div data-rk-panel="picks" class="d-none">
+            <div class="rk-campaign">
+              <div class="rk-campaign__title"><i class="ti ti-discount-2"></i> 新人セラピスト「さくら」デビュー！</div>
+              <div class="rk-campaign__text">2月限定キャンペーン：初回指名で ¥1,000 オフ</div>
+            </div>
+            <div class="rk-hscroll">
+              <div class="rk-hscroll__card">
+                <img src="assets/image/06.webp" alt="さくら" class="rk-hscroll__img">
+                <div class="rk-hscroll__body">
+                  <div class="rk-hscroll__name">さくら</div>
+                  <div class="rk-hscroll__sub">新人 / 癒し系</div>
+                  <a href="cu_booking.html?therapist=sakura" class="btn btn-sm btn-primary w-100">予約する</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================
+             3) 来店履歴
+             ======================================== -->
+        <div class="mb-4" id="history">
+          <div class="rk-section-header"><i class="ti ti-history"></i> 来店履歴</div>
+          <div class="card">
+            <div class="card-body p-0 px-3">
+              <div class="rk-history-item">
+                <div>
+                  <div class="rk-history-date">2025-01-15</div>
+                  <div class="rk-history-meta">あやか / 90分</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="fw-bold">¥18,000</span>
+                  <a href="cu_reservation.html?id=past1" class="btn btn-sm btn-outline">詳細</a>
+                </div>
+              </div>
+              <div class="rk-history-item">
+                <div>
+                  <div class="rk-history-date">2024-12-20</div>
+                  <div class="rk-history-meta">あやか / 120分</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="fw-bold">¥24,000</span>
+                  <a href="cu_reservation.html?id=past2" class="btn btn-sm btn-outline">詳細</a>
+                </div>
+              </div>
+              <div class="rk-history-item">
+                <div>
+                  <div class="rk-history-date">2024-11-05</div>
+                  <div class="rk-history-meta">みさき / 90分</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="fw-bold">¥18,000</span>
+                  <a href="cu_reservation.html?id=past3" class="btn btn-sm btn-outline">詳細</a>
+                </div>
+              </div>
+              <div class="rk-history-item">
+                <div>
+                  <div class="rk-history-date">2024-10-12</div>
+                  <div class="rk-history-meta">あやか / 90分</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="fw-bold">¥18,000</span>
+                  <a href="cu_reservation.html?id=past4" class="btn btn-sm btn-outline">詳細</a>
+                </div>
+              </div>
+              <div class="rk-history-item">
+                <div>
+                  <div class="rk-history-date">2024-09-20</div>
+                  <div class="rk-history-meta">ゆい / 60分</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="fw-bold">¥12,000</span>
+                  <a href="cu_reservation.html?id=past5" class="btn btn-sm btn-outline">詳細</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================
+             4) 登録情報
+             ======================================== -->
+        <div class="mb-4">
+          <div class="rk-section-header"><i class="ti ti-user"></i> 登録情報</div>
+          <div class="card">
+            <div class="card-body">
+              <table class="table table-sm mb-0">
+                <tbody>
+                  <tr><th style="width:120px;">お名前</th><td>田中 太郎</td></tr>
+                  <tr><th>電話番号</th><td>080-1234-5678</td></tr>
+                  <tr><th>来店回数</th><td>5回</td></tr>
+                  <tr><th>累計利用額</th><td>¥92,000</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- Fixed Bottom Nav -->
+    <nav data-include="assets/partials/footer-customer.html"></nav>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+/* ===========================
+   Custom Buttons - Bootstrap拡張
+   =========================== */
+
+// カスタムアウトラインボタン（デフォルトカラー）
+
+// btn-blockはBootstrap 5で削除されたので、カスタム定義
+.btn-block {
+  display: block;
+  width: 100%;
+}

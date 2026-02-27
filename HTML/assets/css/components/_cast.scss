@@ -1,0 +1,174 @@
+/* ===========================
+   Cast - キャストページ共通
+   =========================== */
+
+.cast-content {
+  .card {
+    border-radius: $border-radius;
+  }
+}
+
+/* ===========================
+   Cast Today - 本日の予定
+   =========================== */
+
+// ページヘッダー
+.ca-page-header {
+  margin-bottom: 1rem;
+
+  &__title {
+    font-weight: bold;
+  }
+
+  &__sub {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    span{
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+  }
+}
+
+// キャスト用スケジュール（1カラム rk-sheet）
+.ca-schedule {
+  --rk-casthead-h: 0;
+  --rk-col-w: 280px;
+
+  .rk-sheet-scroll {
+    height: auto;
+    overflow: visible;
+  }
+
+  .rk-sheet {
+    width: 100%;
+    grid-template-rows: 0 auto;
+  }
+
+  .rk-timecol {
+    position: static;
+  }
+
+  .rk-block {
+    left: 8px !important;
+    right: 8px;
+    width: auto !important;
+  }
+}
+
+// 縦タイムライン（カスタム）※レガシー
+.ca-timeline {
+  position: relative;
+  padding-left: 56px;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 27px;
+    width: 2px;
+    background: $rk-border;
+  }
+
+  &__item {
+    position: relative;
+    padding-bottom: 1.5rem;
+
+    &:last-child {
+      padding-bottom: 0;
+    }
+  }
+
+  &__time {
+    position: absolute;
+    left: -56px;
+    top: 0;
+    width: 48px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: $rk-muted;
+    text-align: right;
+    line-height: 1;
+    padding-top: 4px;
+  }
+
+  &__dot {
+    position: absolute;
+    left: -35px;
+    top: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: $rk-primary;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 2px $rk-primary;
+    z-index: 2;
+
+    &--warning {
+      background: $warning;
+      box-shadow: 0 0 0 2px $warning;
+    }
+
+    &--muted {
+      background: $rk-border;
+      box-shadow: 0 0 0 2px $rk-border;
+    }
+  }
+
+  &__card {
+    background: #fff;
+    border: 1px solid $rk-border;
+    border-radius: $border-radius-sm;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.8125rem;
+
+    &--active {
+      border-color: $rk-primary;
+      background: rgba($rk-primary, 0.04);
+    }
+
+    &--warning {
+      border-color: $warning;
+      background: #fffdf5;
+    }
+  }
+
+  &__card-title {
+    font-weight: 700;
+    color: $rk-text;
+    margin-bottom: 0.125rem;
+  }
+
+  &__card-meta {
+    font-size: 0.75rem;
+    color: $rk-muted;
+  }
+
+  // 現在時刻ライン
+  &__now {
+    position: absolute;
+    left: -56px;
+    right: 0;
+    display: flex;
+    align-items: center;
+    z-index: 3;
+    pointer-events: none;
+
+    &-label {
+      font-size: 0.625rem;
+      font-weight: 700;
+      color: $danger;
+      white-space: nowrap;
+      padding-right: 4px;
+    }
+
+    &-line {
+      flex: 1;
+      height: 2px;
+      background: $danger;
+    }
+  }
+}

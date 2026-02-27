@@ -1,0 +1,53 @@
+/* ===========================
+   Booking - op_shift.html ルーム軸予約ブロック
+   =========================== */
+
+.booking-block {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: var(--border-radius-sm);
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  overflow: hidden;
+  box-shadow: var(--rk-shadow);
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--rk-shadow-lg);
+  }
+
+  &.status-pending {
+    background: var(--rk-pending);
+    border: 1px dashed var(--rk-primary);
+    color: var(--text-primary);
+  }
+
+  &.status-approved {
+    background: var(--rk-approved);
+    border: 1px solid #00897B;
+    color: var(--text-primary);
+  }
+
+  &.status-attention {
+    background: var(--rk-attention);
+    border: 1px solid var(--color-warning);
+    color: var(--text-primary);
+  }
+}
+
+.booking-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.booking-time {
+  font-size: 0.6875rem;
+  opacity: 0.8;
+  color: var(--text-secondary);
+}

@@ -1,0 +1,26 @@
+/* ===========================
+   Roomink Mixins - Bootstrap 5 補完
+   =========================== */
+
+// レスポンシブ ブレークポイント（Bootstrap準拠）
+$sp: 576px;
+$md: 768px;
+$lg: 992px;
+
+@mixin sp {
+  @media screen and (max-width: $sp) {
+    @content;
+  }
+}
+
+@mixin md {
+  @media screen and (max-width: $md) {
+    @content;
+  }
+}
+
+@mixin pc {
+  @media screen and (min-width: $md) {
+    @content;
+  }
+}

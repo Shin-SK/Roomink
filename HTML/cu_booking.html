@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>予約 - Roomink</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="booking">
+  <div class="customer-layout">
+    <header data-include="assets/partials/header-customer.html"></header>
+
+    <!-- コンテンツ -->
+    <main class="customer-content container customer-booking">
+
+        <h1 class="fs-3 mb-3 fw-bold">Web予約</h1>
+        <p class="text-muted mb-4">ご希望の内容を入力して予約申請してください。内容を確認後、SMSで結果をお知らせします。</p>
+
+        <!-- 予約フォーム -->
+        <form action="cu_submitted.html">
+          <div class="card">
+            <div class="card-header">予約情報</div>
+            <div class="card-body">
+
+              <!-- 電話番号 -->
+              <div class="mb-3">
+                <label class="form-label">
+                  電話番号 <span class="text-danger">*</span>
+                </label>
+                <input type="tel" class="form-control" name="phone" placeholder="080-1234-5678">
+                <small class="text-muted">SMS通知を受け取る電話番号を入力してください</small>
+              </div>
+
+              <!-- 予約日時 -->
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label class="form-label">
+                      予約日 <span class="text-danger">*</span>
+                    </label>
+                    <input type="date" class="form-control" name="date" value="2025-02-09">
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label class="form-label">
+                      希望時間 <span class="text-danger">*</span>
+                    </label>
+                    <input type="time" class="form-control" name="time" value="15:00">
+                  </div>
+                </div>
+              </div>
+
+              <!-- セラピスト指名 -->
+              <div class="mb-3">
+                <label class="form-label">
+                  セラピスト指名
+                </label>
+                <select class="form-select" name="therapist">
+                  <option value="">フリー（指名なし）</option>
+                  <option value="ayaka">あやか</option>
+                  <option value="misaki">みさき</option>
+                  <option value="yui">ゆい</option>
+                  <option value="nao">なお</option>
+                  <option value="rena">れな</option>
+                  <option value="sakura">さくら</option>
+                </select>
+                <small class="text-muted">指名料: +¥1,000</small>
+              </div>
+
+              <!-- コース -->
+              <div class="mb-3">
+                <label class="form-label">
+                  コース <span class="text-danger">*</span>
+                </label>
+                <div class="d-flex flex-column gap-2">
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="course" id="course60" value="60">
+                    <label class="form-check-label" for="course60">
+                      <strong>60分コース</strong> - ¥12,000
+                    </label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="course" id="course80" value="80">
+                    <label class="form-check-label" for="course80">
+                      <strong>80分コース</strong> - ¥16,000
+                    </label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="course" id="course90" value="90" checked>
+                    <label class="form-check-label" for="course90">
+                      <strong>90分コース</strong> - ¥18,000（人気）
+                    </label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="course" id="course120" value="120">
+                    <label class="form-check-label" for="course120">
+                      <strong>120分コース</strong> - ¥24,000
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- オプション -->
+              <div class="mb-3">
+                <label class="form-label">オプション</label>
+                <div class="d-flex flex-column gap-2">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="option_aroma" id="op-aroma">
+                    <label class="form-check-label" for="op-aroma">
+                      アロマオイル（+¥2,000）
+                    </label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="option_stone" id="op-stone">
+                    <label class="form-check-label" for="op-stone">
+                      ホットストーン（+¥3,000）
+                    </label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="option_extend" id="op-extend">
+                    <label class="form-check-label" for="op-extend">
+                      延長30分（+¥6,000）
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 備考 -->
+              <div class="mb-3">
+                <label class="form-label">備考・ご要望</label>
+                <textarea class="form-control" name="note" rows="3" placeholder="駐車場利用希望、初回、その他ご要望など"></textarea>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- 注意事項 -->
+          <div class="alert alert-info mb-4">
+            <strong>ご予約について</strong>
+            <ul class="mb-0">
+              <li>予約は「申請」として受け付けられます。内容を確認後、SMSで承認結果をお知らせします。</li>
+              <li>承認後、場所や詳細情報をSMSでお送りします。</li>
+              <li>キャンセルは予約の24時間前までにお願いします。</li>
+            </ul>
+          </div>
+
+          <!-- 送信ボタン -->
+          <div class="d-flex flex-column align-items-center mb-4">
+            <button type="submit" class="btn btn-primary btn-sm w-100 text-center">
+              <i class="ti ti-send"></i> 予約を申請
+            </button>
+            <a href="cu_mypage.html" class="btn btn-sm btn-outline">戻る</a>
+          </div>
+        </form>
+
+    </main>
+
+    <footer data-include="assets/partials/footer-customer.html"></footer>
+
+  </div>
+    <!-- Fixed Bottom Nav -->
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

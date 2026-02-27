@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shift / Room - Roomink</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+  
+  <style>
+    /* ルーム軸ビュー用の追加スタイル */
+    .room-conflict {
+      background: var(--color-banned) !important;
+      border-color: var(--color-danger) !important;
+      animation: blink 1s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-wrapper">
+    <!-- サイドバー -->
+    <aside data-include="assets/partials/sidebar-operator.html"></aside>
+
+    <!-- メインコンテンツ -->
+    <div class="main-content">
+      <!-- ヘッダ -->
+      <header data-include="assets/partials/header.html"></header>
+
+      <!-- ページコンテンツ -->
+      <main class="container">
+
+        <nav class="dashboard-tabs mb-3">
+          <div class="wrap">
+            <button id="tab-room-view" class="active" data-tab="room-view">ルームビュー</button>
+          </div>
+          <div class="wrap">
+            <button id="tab-room-info" data-tab="room-info">ルーム情報</button>
+          </div>
+        </nav>
+
+        <!-- ルームビュー（Excel固定：縦=時間 / 横=ルーム） -->
+        <div id="room-view" class="room-view mb-5">
+          <div class="roomview-header d-flex align-items-center justify-content-end gap-3 mb-2">
+              <button class="btn btn-sm btn-outline-secondary">今日</button>
+              <button class="btn btn-sm btn-outline-secondary">明日</button>
+              <button class="btn btn-sm btn-outline-secondary">日時指定</button>
+          </div>
+
+          <div class="roomview-body">
+            <section class="rk-roomview">
+              <div class="rk-sheet-scroll">
+                <div class="rk-sheet" data-cols="8" data-start="12:00" data-end="20:00">
+                  <!-- 左上角（固定） -->
+                  <div class="rk-corner"></div>
+
+                  <!-- 上：ルームヘッダ（固定） -->
+                  <div class="rk-roomhead">
+                    <div class="rk-roomcell"><div class="rk-roomname">Room 101</div><div class="rk-roommeta">標準</div></div>
+                    <div class="rk-roomcell"><div class="rk-roomname">Room 102</div><div class="rk-roommeta">標準</div></div>
+                    <div class="rk-roomcell"><div class="rk-roomname">Room 103</div><div class="rk-roommeta">VIP</div></div>
+                    <div class="rk-roomcell"><div class="rk-roomname">Room 104</div><div class="rk-roommeta">標準</div></div>
+                    <div class="rk-roomcell"><div class="rk-roomname">Room 105</div><div class="rk-roommeta">標準</div></div>
+                    <div class="rk-roomcell"><div class="rk-roomname">Room 106</div><div class="rk-roommeta">標準</div></div>
+                    <div class="rk-roomcell"><div class="rk-roomname">Room 107</div><div class="rk-roommeta">標準</div></div>
+                    <div class="rk-roomcell"><div class="rk-roomname">Room 108</div><div class="rk-roommeta">標準</div></div>
+                  </div>
+
+                  <!-- 左：時間列（固定） -->
+                  <div class="rk-timecol">
+                    <div class="rk-time">12:00</div>
+                    <div class="rk-time">13:00</div>
+                    <div class="rk-time">14:00</div>
+                    <div class="rk-time">15:00</div>
+                    <div class="rk-time">16:00</div>
+                    <div class="rk-time">17:00</div>
+                    <div class="rk-time">18:00</div>
+                    <div class="rk-time">19:00</div>
+                    <div class="rk-time">20:00</div>
+                  </div>
+
+                  <!-- 本体グリッド（在席/割当ブロック） -->
+                  <div class="rk-grid" data-cols="8">
+                    <!-- 例：Room 101（col=0）に あやか 13:00-17:00 -->
+                    <a class="rk-block is-shift" href="#"
+                       data-col="0" data-start="13:00" data-end="17:00">
+                      <div class="rk-block__title">あやか</div>
+                      <div class="rk-block__meta">在席 13:00–17:00</div>
+                    </a>
+
+                    <!-- 例：Room 103（col=2）に なお 14:00-18:00 -->
+                    <a class="rk-block is-shift" href="#"
+                       data-col="2" data-start="14:00" data-end="18:00">
+                      <div class="rk-block__title">なお</div>
+                      <div class="rk-block__meta">在席 14:00–18:00</div>
+                    </a>
+
+                    <!-- 競合例（同ルーム同時間の重なり：赤くする） -->
+                    <a class="rk-block is-shift is-conflict" href="#"
+                       data-col="2" data-start="16:00" data-end="19:00">
+                      <div class="rk-block__title">みさき</div>
+                      <div class="rk-block__meta">競合 16:00–19:00</div>
+                    </a>
+                  </div>
+
+                </div>
+              </div>
+
+              <div class="text-muted small mt-2">
+                ルーム軸は「その時間に誰がいるか」を見る画面。予約詳細はセラピスト軸（Schedule）で確認。
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <!-- ルーム情報 -->
+        <div id="room-info" class="wrap d-none">
+          <!-- 競合チェック -->
+          <div class="card mb-5">
+            <div class="card-header">競合チェック</div>
+            <div class="card-body">
+              <p class="text-muted mb-3">同じルームに時間が重複する予約がないかチェックします。</p>
+              <button class="btn btn-primary">
+                <i class="ti ti-refresh"></i> 競合チェック実行
+              </button>
+              <hr>
+              <div class="alert alert-success mb-0">
+                <strong>チェック結果:</strong> 競合は検出されませんでした。
+              </div>
+            </div>
+          </div>
+          <!-- ルーム情報 -->
+          <div class="table-list mb-5">
+            <div class="table-list-header">ルーム情報</div>
+            <div class="table-list-body">
+              <div class="table-responsive">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>ルーム</th>
+                      <th>状態</th>
+                      <th>本日稼働率</th>
+                      <th>備考</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>ルーム 101</strong></td>
+                      <td><span class="badge badge-success">利用可能</span></td>
+                      <td>60%（3本 / 5枠）</td>
+                      <td>標準ルーム</td>
+                      <td><button class="btn btn-sm btn-outline">編集</button></td>
+                    </tr>
+                    <tr>
+                      <td><strong>ルーム 102</strong></td>
+                      <td><span class="badge badge-success">利用可能</span></td>
+                      <td>80%（4本 / 5枠）</td>
+                      <td>標準ルーム</td>
+                      <td><button class="btn btn-sm btn-outline">編集</button></td>
+                    </tr>
+                    <tr>
+                      <td><strong>ルーム 103</strong></td>
+                      <td><span class="badge badge-success">利用可能</span></td>
+                      <td>40%（2本 / 5枠）</td>
+                      <td>VIPルーム</td>
+                      <td><button class="btn btn-sm btn-outline">編集</button></td>
+                    </tr>
+                    <tr>
+                      <td><strong>ルーム 104</strong></td>
+                      <td><span class="badge badge-success">利用可能</span></td>
+                      <td>40%（2本 / 5枠）</td>
+                      <td>標準ルーム</td>
+                      <td><button class="btn btn-sm btn-outline">編集</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+      <footer data-include="assets/partials/footer.html"></footer>
+      
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

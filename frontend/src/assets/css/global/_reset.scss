@@ -1,0 +1,78 @@
+/* ===========================
+   Roomink Reset - Bootstrap 5 補完
+   Bootstrapのリセットに追加する最小限のリセットのみ
+   =========================== */
+
+/* フォーム要素の統一 */
+input, textarea, select {
+  font-family: inherit;
+}
+
+input[type="button"],
+input[type="text"],
+input[type="submit"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+textarea {
+  resize: vertical;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* 画像のレスポンシブ対応 */
+img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+/* テーブルのセル改行制御（必要な箇所のみ） */
+.table-nowrap th,
+.table-nowrap td {
+  white-space: nowrap;
+}
+
+ul{
+  padding: 0;
+  margin: 0;
+  li{
+    padding: unset;
+    margin: unset;
+    list-style: none;
+  }
+}
+
+/* ===========================
+   Roomink Reset - Bootstrap 5 補完
+   Bootstrapのリセットに追加する最小限のリセットのみ
+   =========================== */
+/* フォーム要素の統一 */
+input, textarea, select {
+  font-family: inherit;
+}
+
+
+/* 画像のレスポンシブ対応 */
+img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+/* テーブルのセル改行制御（必要な箇所のみ） */
+.table-nowrap th,
+.table-nowrap td {
+  white-space: nowrap;
+}
+
+ul {
+  padding: 0;
+  margin: 0;
+}
+ul li {
+  padding: unset;
+  margin: unset;
+  list-style: none;
+}

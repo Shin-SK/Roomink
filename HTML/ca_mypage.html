@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>本日の予約 - Roomink Cast</title>
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="today">
+  <div class="cast-layout">
+    <header data-include="assets/partials/header-cast.html"></header>
+
+    <main class="cast-content container">
+      
+      <div class="ca-page-header d-flex align-items-center gap-3 mb-4">
+        <img src="./assets/image/01.webp" class="rounded-circle flex-shrink-0" style="width: 72px; aspect-ratio: 1/1; object-fit: cover;" alt="">
+        <div class="flex-grow-1">
+          <div class="ca-page-header__title">あやか様</div>
+          <div class="ca-page-header__sub">
+            <span class="time">
+              <i class="ti ti-calendar-event"></i>12:00-20:00</span>
+              <span class="room">
+                <i class="ti ti-door"></i>Room101</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- サマリーカード 3つ -->
+      <div class="row g-2 mb-3">
+        <div class="col-6">
+          <div class="card text-center mb-0">
+            <div class="card-body p-3">
+              <div class="small text-muted mb-2">本日の予約</div>
+              <div class="fs-4 fw-bold">2本</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="card text-center mb-0">
+            <div class="card-body p-3">
+              <div class="small text-muted mb-2">未確認</div>
+              <div class="fs-4 fw-bold text-danger">1本</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 未確認警告カード -->
+      <div class="alert alert-warning d-flex align-items-center gap-3 mb-4">
+        <i class="ti ti-alert-triangle fs-4 flex-shrink-0"></i>
+        <div class="flex-grow-1">
+          <div class="fw-bold mb-1">未確認の予約があります</div>
+          <div class="small">予約内容を確認して「確認する」ボタンを押してください</div>
+        </div>
+      </div>
+
+      <div id="res-list" class="rk-section-header"><i class="ti ti-calendar-event"></i> 予約一覧</div>
+
+      <!-- 予約1（確認済） -->
+      <div class="card mb-3">
+        
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <div class="fw-bold fs-5">13:00 – 14:30</div>
+              <div class="small text-muted">90分</div>
+            </div>
+            <span class="badge badge-approved">確認済</span>
+          </div>
+          <div class="small text-muted mb-2">
+            <div><i class="ti ti-door"></i> Room 101</div>
+            <div><i class="ti ti-currency-yen"></i> ¥18,000</div>
+          </div>
+          <div class="bg-light p-2 rounded small mb-3">
+            <i class="ti ti-note"></i> 駐車場利用希望
+          </div>
+          <button class="btn btn-sm btn-outline-primary w-100" disabled>
+            <i class="ti ti-check"></i> 確認済
+          </button>
+        </div>
+      </div>
+
+      <!-- 予約2（未確認） -->
+      <div class="card mb-3 border-warning border-2">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <div class="fw-bold fs-5">16:00 – 18:00</div>
+              <div class="small text-muted">120分</div>
+            </div>
+            <span class="badge badge-unconfirmed">未確認</span>
+          </div>
+          <div class="small text-muted mb-2">
+            <div><i class="ti ti-door"></i> Room 101</div>
+            <div><i class="ti ti-currency-yen"></i> ¥24,000</div>
+          </div>
+          <div class="bg-light p-2 rounded small mb-3">
+            <i class="ti ti-note"></i> 備考なし
+          </div>
+          <button class="btn btn-sm btn-warning w-100" onclick="confirmReservation('ORD002')">
+            <i class="ti ti-check"></i> 確認する
+          </button>
+        </div>
+      </div>
+
+      <div id="timeline" class="rk-section-header mt-4"><i class="ti ti-timeline-event"></i> タイムライン</div>
+
+      <section class="ca-schedule mb-4">
+        <div class="rk-sheet-scroll">
+          <div class="rk-sheet" data-cols="1" data-start="12:00" data-end="20:00">
+
+            <div class="rk-timecol">
+              <div class="rk-time">12:00</div>
+              <div class="rk-time">13:00</div>
+              <div class="rk-time">14:00</div>
+              <div class="rk-time">15:00</div>
+              <div class="rk-time">16:00</div>
+              <div class="rk-time">17:00</div>
+              <div class="rk-time">18:00</div>
+              <div class="rk-time">19:00</div>
+              <div class="rk-time">20:00</div>
+            </div>
+
+            <div class="rk-grid" data-cols="1">
+              <a class="rk-block is-approved" href="#"
+                  data-col="0" data-start="13:00" data-end="14:30">
+                <div class="rk-block__title">13:00 – 14:30 / 90分</div>
+                <div class="rk-block__meta">Room 101 / 確認済</div>
+              </a>
+
+              <a class="rk-block is-approved is-unconfirmed" href="#"
+                  data-col="0" data-start="16:00" data-end="18:00">
+                <div class="rk-block__title">16:00 – 18:00 / 120分</div>
+                <div class="rk-block__meta">Room 101 / 未確認</div>
+              </a>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <div class="card mb-3">
+        <button class="card-header btn btn-link w-100 text-start d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#castNotes" aria-expanded="false">
+          <span><i class="ti ti-info-circle"></i> 注意事項</span>
+          <i class="ti ti-chevron-down"></i>
+        </button>
+        <div class="collapse" id="castNotes">
+          <div class="card-body">
+            <ul class="mb-0 ps-3">
+              <li>予約内容を確認したら「確認する」ボタンを押してください</li>
+              <li>予約開始15分前までに準備を完了してください</li>
+              <li>遅刻やキャンセルの連絡があった場合は、すぐに運営に報告してください</li>
+              <li>顧客情報は絶対に外部に漏らさないでください</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+
+      <a href="tel:03-1234-5678" class="card text-decoration-none text-reset mb-4 mt-4">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="flex-shrink-0">
+            <div class="rounded-circle d-flex align-items-center justify-content-center bg-light" style="width: 44px; height: 44px;">
+              <i class="ti ti-phone" style="color: var(--rk-primary); font-size: 22px;"></i>
+            </div>
+          </div>
+          <div class="flex-grow-1">
+            <div class="fw-bold mb-1">困ったときは運営へ</div>
+            <div class="small text-muted">タップして電話する</div>
+          </div>
+          <i class="ti ti-chevron-right text-muted"></i>
+        </div>
+      </a>
+
+      <!-- フッターメッセージ -->
+      <div class="text-center mb-5">
+        <p class="text-muted" style="font-size: 0.8125rem;">本日もよろしくお願いします！</p>
+      </div>
+
+    </main>
+
+    <footer data-include="assets/partials/footer-cast.html"></footer>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

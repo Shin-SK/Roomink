@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>予約詳細 - Roomink</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="reservation">
+  <div class="customer-layout">
+    <header data-include="assets/partials/header-customer.html"></header>
+
+    <!-- コンテンツ -->
+    <main class="customer-content container">
+
+        <h1 style="font-size: 2rem; margin-bottom: 1rem;">予約詳細</h1>
+        <p class="text-muted mb-4">予約番号: #ORD001</p>
+
+        <!-- ステータス -->
+        <div class="alert alert-success">
+          <strong><i class="ti ti-check"></i> この予約は承認済みです</strong><br>
+          ご予約ありがとうございます。当日お待ちしております。
+        </div>
+
+        <!-- 予約情報 -->
+        <div class="card">
+          <div class="card-header">予約情報</div>
+          <div class="card-body">
+            <table class="table mb-0">
+              <tbody>
+                <tr>
+                  <th style="width: 150px;">予約日時</th>
+                  <td><h5 class="mb-0">2025-02-09 (日) 13:00-14:30</h5></td>
+                </tr>
+                <tr>
+                  <th>セラピスト</th>
+                  <td>あやか</td>
+                </tr>
+                <tr>
+                  <th>コース</th>
+                  <td>90分コース</td>
+                </tr>
+                <tr>
+                  <th>オプション</th>
+                  <td>なし</td>
+                </tr>
+                <tr>
+                  <th>料金</th>
+                  <td><strong>¥18,000</strong></td>
+                </tr>
+                <tr>
+                  <th>ステータス</th>
+                  <td><span class="badge badge-approved">承認済</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 場所・アクセス -->
+        <div class="card">
+          <div class="card-header">
+            <i class="ti ti-map-pin"></i> 場所・アクセス
+          </div>
+          <div class="card-body">
+            <h5 class="mb-3">Roomink 渋谷店</h5>
+            <p class="mb-2">
+              <strong>住所:</strong><br>
+              〒150-0002<br>
+              東京都渋谷区渋谷1-2-3 渋谷ビル 5F
+            </p>
+            <p class="mb-3">
+              <strong>アクセス:</strong><br>
+              JR渋谷駅 ハチ公口より徒歩5分<br>
+              東京メトロ 渋谷駅 B1出口より徒歩3分
+            </p>
+            <a href="https://maps.google.com/?q=東京都渋谷区渋谷1-2-3" target="_blank" class="btn btn-primary">
+              <i class="ti ti-map"></i> Google Mapsで開く
+            </a>
+          </div>
+        </div>
+
+        <!-- 当日の流れ -->
+        <div class="card">
+          <div class="card-header">
+            <i class="ti ti-clock"></i> 当日の流れ
+          </div>
+          <div class="card-body">
+            <ol class="mb-0">
+              <li class="mb-2">
+                <strong>15分前を目安にご来店ください</strong><br>
+                <small class="text-muted">エレベーターで5階までお上がりください</small>
+              </li>
+              <li class="mb-2">
+                <strong>受付で予約番号をお伝えください</strong><br>
+                <small class="text-muted">予約番号: #ORD001</small>
+              </li>
+              <li class="mb-2">
+                <strong>お支払い</strong><br>
+                <small class="text-muted">現金またはクレジットカードがご利用いただけます</small>
+              </li>
+              <li class="mb-2">
+                <strong>施術開始</strong><br>
+                <small class="text-muted">担当セラピストがご案内します</small>
+              </li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- 注意事項 -->
+        <div class="card">
+          <div class="card-header">
+            <i class="ti ti-alert-circle"></i> 注意事項
+          </div>
+          <div class="card-body">
+            <ul class="mb-0">
+              <li class="mb-2">ご予約時間に遅れる場合は、必ずお電話でご連絡ください</li>
+              <li class="mb-2">無断キャンセルの場合、次回以降のご予約をお断りする場合があります</li>
+              <li class="mb-2">キャンセルは24時間前までにお願いします</li>
+              <li class="mb-2">飲酒後のご来店はお控えください</li>
+              <li class="mb-2">体調不良の場合は無理をせず、予約変更をご検討ください</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- キャンセル・変更 -->
+        <div class="card">
+          <div class="card-header">
+            <i class="ti ti-calendar-x"></i> キャンセル・変更について
+          </div>
+          <div class="card-body">
+            <p class="mb-3">
+              予約の変更やキャンセルが必要な場合は、お電話でご連絡ください。
+            </p>
+            <div class="d-flex gap-2">
+              <a href="tel:03-1234-5678" class="btn btn-outline">
+                <i class="ti ti-phone"></i> 電話する
+              </a>
+              <button class="btn btn-danger" data-confirm="この予約をキャンセルしますか？キャンセル後の復元はできません。">
+                <i class="ti ti-x"></i> この予約をキャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 困ったときは -->
+        <div class="alert alert-info">
+          <strong><i class="ti ti-help"></i> 困ったときは</strong><br>
+          わからないことや困ったことがあれば、お気軽にお電話ください。<br>
+          <strong>電話:</strong> 03-1234-5678（営業時間: 12:00-22:00）
+        </div>
+
+        <!-- アクション -->
+        <div class="text-center mb-5">
+          <a href="cu_mypage.html" class="btn btn-primary btn-lg">
+            <i class="ti ti-arrow-left"></i> マイページに戻る
+          </a>
+        </div>
+
+    </main>
+
+
+      <!-- Fixed Bottom Nav -->
+    <nav data-include="assets/partials/footer-customer.html"></nav>
+
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

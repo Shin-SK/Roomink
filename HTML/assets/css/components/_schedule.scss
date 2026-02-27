@@ -1,0 +1,287 @@
+/* ===========================
+   Roomink Schedule - Excel風固定ヘッダー
+   =========================== */
+
+.rk-schedule {
+  &__toolbar {
+    margin-top: 3rem;
+    max-width: 350px;
+  }
+}
+
+.rk-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.setting-area{
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
+  .toolbar-toggle{
+    position: absolute;
+    right: 0;
+    top: 0;
+  }
+}
+
+/* 共通：box-sizing統一（ズレ防止） */
+.rk-time,
+.rk-grid,
+.rk-casthead,
+.rk-timecol,
+.rk-corner,
+.rk-castcell {
+  box-sizing: border-box;
+}
+
+/* 1つのスクロール領域（Excel風） */
+.rk-sheet-scroll {
+  height: 80vh;
+  overflow: auto;
+  background: #fff;
+  // border: 1px solid var(--rk-grid-border);
+}
+
+/* Excel風：2行2列のグリッドで構成 */
+.rk-sheet {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--rk-time-col-w) auto;
+  grid-template-rows: var(--rk-casthead-h, 92px) auto;
+  width: calc(var(--rk-time-col-w) + (var(--rk-col-w) * 6));
+  min-width: 100%;
+}
+
+/* 左上角：固定 */
+.rk-corner {
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  background: #fff;
+  border-right: 1px solid var(--rk-grid-border);
+  border-bottom: 1px solid var(--rk-grid-border);
+}
+
+/* 上：キャストヘッダー（横スクロールに追従しつつ上に固定） */
+.rk-casthead {
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--rk-col-w);
+  background: #fff;
+  border-bottom: 1px solid var(--rk-grid-border);
+}
+
+.rk-castcell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 10px;
+  // border-right: 1px solid var(--rk-grid-border);
+  flex-direction: column;
+
+  &:last-child {
+    border-right: none;
+  }
+}
+
+.rk-avatar-img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--rk-primary);
+}
+
+.rk-name {
+  font-weight: bold;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 左：時間列（縦スクロールに追従しつつ左に固定） */
+.rk-timecol {
+  grid-column: 1 / 2;
+  grid-row: 2 / 3;
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  background: #fff;
+  border-right: 1px solid var(--rk-grid-border);
+}
+
+.rk-time {
+  height: var(--rk-row-hour-h);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10px;
+  font-size: 12px;
+  color: #64748b;
+  border-bottom: 1px solid var(--rk-grid-border);
+}
+
+/* 本体グリッド */
+.rk-grid {
+  grid-column: 2 / 3;
+  grid-row: 2 / 3;
+  position: relative;
+  height: calc(var(--rk-row-hour-h) * 9); /* 12:00-20:00の9行 */
+  min-width: calc(var(--rk-col-w) * 6);
+  z-index: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--rk-row-hour-h) - 1px),
+    var(--rk-grid-border) calc(var(--rk-row-hour-h) - 1px),
+    var(--rk-grid-border) var(--rk-row-hour-h)
+  );
+}
+
+/* 予約ブロック */
+.rk-block {
+  position: absolute;
+  border-radius: 10px;
+  padding: 0.625rem;
+  text-decoration: none;
+  color: #0b1220;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  transition: all 0.2s;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
+    color: #0b1220;
+  }
+
+  /* 承認済 */
+  &.is-approved {
+    background: rgba(42, 157, 143, 0.22);
+    border-color: var(--rk-primary);
+  }
+
+  /* 申請中 */
+  &.is-requested {
+    background: rgba(91, 198, 169, 0.22);
+    border-style: dashed;
+    border-color: var(--rk-primary);
+  }
+
+  /* 要注意 */
+  &.is-attention {
+    background: rgba(245, 158, 11, 0.2);
+    border-color: #f59e0b;
+  }
+
+  /* 未確認 */
+  &.is-unconfirmed::after {
+    content: "!";
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f59e0b;
+    color: #fff;
+    font-weight: 800;
+    font-size: 11px;
+  }
+
+  &__title {
+    font-weight: 700;
+    font-size: 0.75rem;
+    margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__meta {
+    font-size: 0.6875rem;
+    opacity: 0.72;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ===========================
+   Room View（ルーム軸）専用
+   =========================== */
+
+   /* ルーム軸はセラピスト横列ではなく「ルーム横列」 */
+.rk-roomview {
+  --rk-casthead-h: 84px; /* ルームヘッダの高さ */
+  .rk-sheet-scroll{
+    height: 60vh;
+  }
+}
+
+/* 上部：ルームヘッダ行 */
+.rk-roomhead {
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, var(--rk-col-w));
+  grid-auto-flow: column;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--rk-bg);
+  height: var(--rk-casthead-h);
+}
+
+.rk-roomcell {
+  border-bottom: 1px solid var(--rk-grid-border);
+  padding: 0.75rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  background: #fff;
+}
+
+.rk-roomname {
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--rk-text);
+  margin-bottom: 0.25rem;
+}
+
+.rk-roommeta {
+  font-size: 0.6875rem;
+  color: var(--rk-muted);
+}
+
+/* is-shift：シフト在席（緑系） */
+.rk-block.is-shift {
+  background: rgba(20, 184, 166, 0.15);
+  border-color: #14b8a6;
+}
+
+/* is-conflict：競合（赤系） */
+.rk-block.is-conflict {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+}

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roomink - プロトタイプ目次</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="index">
+  <div class="main-layout">
+    <header class="main-header w-100">
+      <div class="main-nav w-100 pb-2 pt-3 d-flex align-items-center justify-content-center flex-column gap-2">
+        <a href="index.html" class="active">
+          <img src="./assets/image/logo.svg" style="height: 60px;" alt="">
+        </a>
+        <p class="text-center fw-bold">
+          メンズエステ予約管理システム<br>プロトタイプ
+        </p>
+      </div>
+    </header>
+
+    <div class="main-content container">
+
+        <div class="alert alert-info d-flex align-items-start gap-2">
+          <i class="ti ti-info-circle fs-5 mt-1"></i>
+          <div>
+            <strong>このプロトタイプについて</strong><br>
+            Roominkの各機能を確認できる静的HTMLモックです。実際のデータ連携はありませんが、UI/UXの方向性を確認できます。
+          </div>
+        </div>
+
+        <!-- ページセクション -->
+        <div class="row g-4 mt-2">
+          <!-- 運営側ページ -->
+          <div class="col-12 col-md-6 col-lg-4">
+            <div class="card h-100">
+              <div class="card-header">
+                <i class="ti ti-settings-2"></i> 運営メモ
+              </div>
+              <div class="card-body">
+                <div class="list-group list-group-flush">
+                  <a href="op_dashboard.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-home text-muted"></i> ホーム
+                  </a>
+                  <a href="op_schedule.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-calendar text-muted"></i> 予約タイムライン
+                  </a>
+                  <a href="op_order.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-file-text text-muted"></i> 予約申請
+                  </a>
+                  <a href="op_customers.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-users text-muted"></i> 顧客管理
+                  </a>
+                  <a href="op_sales.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-chart-bar text-muted"></i> 売上管理
+                  </a>
+                  <a href="op_shift.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-layout-grid text-muted"></i> シフト
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 顧客側ページ -->
+          <div class="col-12 col-md-6 col-lg-4">
+            <div class="card h-100">
+              <div class="card-header">
+                <i class="ti ti-user"></i> 顧客
+              </div>
+              <div class="card-body">
+                <div class="list-group list-group-flush">
+                  <a href="cu_mypage.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-home text-muted"></i> マイページ
+                  </a>
+                  <a href="cu_booking.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-calendar-plus text-muted"></i> 予約ページ
+                  </a>
+                  <a href="cu_submitted.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-circle-check text-muted"></i> 申請完了
+                  </a>
+                  <a href="cu_reservation.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-file-text text-muted"></i> 予約詳細
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- キャスト側ページ -->
+          <div class="col-12 col-md-6 col-lg-4">
+            <div class="card h-100">
+              <div class="card-header">
+                <i class="ti ti-star"></i> セラピスト
+              </div>
+              <div class="card-body">
+                <div class="list-group list-group-flush">
+                  <a href="ca_mypage.html" class="list-group-item list-group-item-action d-flex align-items-center gap-2">
+                    <i class="ti ti-clock text-muted"></i> マイページ
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 機能説明 -->
+        <div class="card mt-4">
+          <div class="card-header">
+            <i class="ti ti-bulb"></i> 主な特徴
+          </div>
+          <div class="card-body">
+            <div class="row g-4">
+              <div class="col-md-4">
+                <div class="d-flex gap-3">
+                  <div class="flex-shrink-0">
+                    <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; background: rgba(42,157,143,0.1);">
+                      <i class="ti ti-shield-check fs-5" style="color: var(--rk-primary);"></i>
+                    </div>
+                  </div>
+                  <div>
+                    <h6 class="fw-semibold mb-1">承認フロー</h6>
+                    <p class="text-muted small mb-0">顧客からのWeb予約は「申請」として受け付け、運営が内容を確認した上で承認・否認を判断できます。</p>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="d-flex gap-3">
+                  <div class="flex-shrink-0">
+                    <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; background: rgba(59,130,246,0.1);">
+                      <i class="ti ti-chart-bar fs-5" style="color: var(--color-info);"></i>
+                    </div>
+                  </div>
+                  <div>
+                    <h6 class="fw-semibold mb-1">2軸タイムチャート</h6>
+                    <p class="text-muted small mb-0">セラピスト軸とルーム軸の2つの視点でスケジュールを表示。競合や空き枠を直感的に把握できます。</p>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="d-flex gap-3">
+                  <div class="flex-shrink-0">
+                    <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; background: rgba(16,185,129,0.1);">
+                      <i class="ti ti-users fs-5" style="color: var(--color-success);"></i>
+                    </div>
+                  </div>
+                  <div>
+                    <h6 class="fw-semibold mb-1">顧客管理</h6>
+                    <p class="text-muted small mb-0">来店履歴、メモ、要注意フラグ、BANステータスなどを一元管理。リピーター対応を円滑にします。</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-center mt-4 mb-3">
+          <p class="text-muted small">&copy; 2025 Roomink</p>
+        </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phone Booking - Roomink</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="phone">
+  <div class="app-wrapper">
+    <aside data-include="assets/partials/sidebar-operator.html"></aside>
+      <div class="sidebar-header">
+        <a href="index.html" class="sidebar-brand">Roomink</a>
+      </div>
+      <nav class="sidebar-nav">
+        <ul class="nav-item">
+          <li><a href="op_dashboard.html" class="nav-link">
+            <i class="ti ti-layout-dashboard"></i> Dashboard
+          </a></li>
+          <li><a href="op_schedule.html" class="nav-link">
+            <i class="ti ti-calendar"></i> Schedule
+          </a></li>
+          <li><a href="op_inbox.html" class="nav-link">
+            <i class="ti ti-inbox"></i> Inbox
+          </a></li>
+          <li><a href="op_order.html" class="nav-link">
+            <i class="ti ti-file-text"></i> Orders
+          </a></li>
+          <li><a href="op_customers.html" class="nav-link">
+            <i class="ti ti-users"></i> Customers
+          </a></li>
+          <li><a href="op_phone.html" class="nav-link active">
+            <i class="ti ti-phone"></i> Phone
+          </a></li>
+          <li><a href="op_shift.html" class="nav-link">
+            <i class="ti ti-layout-grid"></i> Shift
+          </a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- メインコンテンツ -->
+    <div class="main-content">
+      <!-- ヘッダ -->
+      <header class="app-header">
+        <button class="mobile-menu-btn">
+          <i class="ti ti-menu-2"></i>
+        </button>
+        <h1 class="header-title">Phone Booking</h1>
+        <div class="header-actions">
+          <span class="text-muted">電話予約クイック作成</span>
+        </div>
+      </header>
+
+      <!-- ページコンテンツ -->
+      <div class="container">
+
+        <div class="alert alert-info">
+          <strong>電話予約フロー</strong><br>
+          1. 電話番号で顧客を検索 → 2. 日時・セラピスト・コースを選択 → 3. 承認済み予約を作成
+        </div>
+
+        <!-- STEP 1: 顧客検索 -->
+        <div class="card">
+          <div class="card-header">STEP 1: 顧客検索</div>
+          <div class="card-body">
+            <div class="row">
+              <div class="col-md-6">
+                <div class="mb-3">
+                  <label class="form-label">電話番号</label>
+                  <div class="d-flex gap-2">
+                    <input type="tel" class="form-control" id="phone-search" placeholder="080-1234-5678">
+                    <button class="btn btn-primary" onclick="searchByPhone()">
+                      <i class="ti ti-search"></i> 検索
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 検索結果 -->
+            <div id="customer-result" class="mt-3">
+              <!-- JavaScriptで結果を表示 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 2: 予約内容入力 -->
+        <div class="card" id="booking-step" style="display: none;">
+          <div class="card-header">STEP 2: 予約内容入力</div>
+          <div class="card-body">
+            <form>
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label class="form-label">予約日</label>
+                    <input type="date" class="form-control" value="2025-02-09">
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="mb-3">
+                    <label class="form-label">開始時刻</label>
+                    <input type="time" class="form-control" value="15:00">
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="mb-3">
+                    <label class="form-label">終了時刻</label>
+                    <input type="time" class="form-control" value="16:30">
+                  </div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label class="form-label">セラピスト</label>
+                    <select class="form-select">
+                      <option value="">フリー（指名なし）</option>
+                      <option value="ayaka">あやか</option>
+                      <option value="misaki">みさき</option>
+                      <option value="yui">ゆい</option>
+                      <option value="nao">なお</option>
+                      <option value="rena">れな</option>
+                      <option value="sakura">さくら</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label class="form-label">コース</label>
+                    <select class="form-select">
+                      <option value="60">60分コース（¥12,000）</option>
+                      <option value="80">80分コース（¥16,000）</option>
+                      <option value="90" selected>90分コース（¥18,000）</option>
+                      <option value="120">120分コース（¥24,000）</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">オプション</label>
+                <div class="d-flex gap-3">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="op-aroma">
+                    <label class="form-check-label" for="op-aroma">アロマ（+¥2,000）</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="op-stone">
+                    <label class="form-check-label" for="op-stone">ホットストーン（+¥3,000）</label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">割り当てルーム</label>
+                <select class="form-select" style="max-width: 300px;">
+                  <option value="">自動割当</option>
+                  <option value="101">ルーム 101</option>
+                  <option value="102">ルーム 102</option>
+                  <option value="103">ルーム 103</option>
+                  <option value="104">ルーム 104</option>
+                </select>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">備考</label>
+                <textarea class="form-control" rows="3" placeholder="備考やメモ..."></textarea>
+              </div>
+
+              <hr>
+
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <h5 class="mb-0">合計料金: <strong>¥18,000</strong></h5>
+                </div>
+                <div class="btn-group gap-2">
+                  <button type="button" class="btn btn-outline">キャンセル</button>
+                  <button type="submit" class="btn btn-success">
+                    <i class="ti ti-check"></i> 予約を確定
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- 空き枠確認（参考） -->
+        <div class="card">
+          <div class="card-header">本日の空き枠（参考）</div>
+          <div class="card-body">
+            <div class="table-responsive">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>時間</th>
+                    <th>あやか</th>
+                    <th>みさき</th>
+                    <th>ゆい</th>
+                    <th>なお</th>
+                    <th>れな</th>
+                    <th>さくら</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>12:00</td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                  </tr>
+                  <tr>
+                    <td>13:00</td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-pending">申請中</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                  </tr>
+                  <tr>
+                    <td>14:00</td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-pending">申請中</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                  </tr>
+                  <tr>
+                    <td>15:00</td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-pending">申請中</span></td>
+                  </tr>
+                  <tr>
+                    <td>16:00</td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                    <td><span class="badge badge-danger">予約済</span></td>
+                    <td><span class="badge badge-success">空き</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

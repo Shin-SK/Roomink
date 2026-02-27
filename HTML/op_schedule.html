@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Schedule - Roomink</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="schedule">
+  <div class="app-wrapper">
+    <aside data-include="assets/partials/sidebar-operator.html"></aside>
+
+    <div class="main-content">
+      <header data-include="assets/partials/header.html"></header>
+
+      <main class="container">
+
+         <div class="setting-area position-absolute">
+          <button id="toolbar-toggle" class="toolbar-toggle btn btn-sm border-0 shadow-sm bg-white">
+            <i class="ti ti-adjustments-horizontal" style="font-size: 24px;"></i>
+          </button>
+          <div id="toolbar-menu" class="rk-schedule__toolbar d-none">
+            <div class="rk-toolbar shadow-sm p-3 bg-white rounded">
+              <div class="row g-2">
+                <div class="col-6">
+                  <button class="btn btn-sm btn-primary w-100">今日</button>
+                </div>
+                <div class="col-6">
+                  <button class="btn btn-sm btn-outline-secondary w-100">明日</button>
+                </div>
+                <div class="col-6">
+                  <button class="btn btn-sm btn-outline-secondary w-100">セラピスト軸</button>
+                </div>
+                <div class="col-6">
+                  <button class="btn btn-sm btn-outline-secondary w-100">ルーム軸</button>
+                </div>
+                <div class="col-12">
+                  <button id="legend-toggle-menu" class="btn btn-sm btn-outline-secondary w-100">
+                    <i class="ti ti-info-circle me-1"></i>凡例を表示
+                  </button>
+                  <div id="legend-content-menu" class="wrap d-flex flex-wrap align-items-center gap-2 mt-2 d-none">
+                      <span class="d-flex align-items-center gap-1 me-3">
+                        <span class="badge badge-approved">承認済</span> <small class="text-muted">確定した予約</small>
+                      </span>
+                      <span class="d-flex align-items-center gap-1">
+                        <span class="badge badge-pending">申請中</span> <small class="text-muted">承認待ちの予約</small>
+                      </span>
+                      <span class="d-flex align-items-center gap-1 me-3">
+                        <span class="badge badge-attention">要注意</span> <small class="text-muted">要注意フラグ</small>
+                      </span>
+                      <span class="d-flex align-items-center gap-1">
+                        <span class="badge badge-unconfirmed">未確認</span> <small class="text-muted">未確認の予約</small>
+                      </span>
+                  </div>
+                </div>
+                            </div>
+              </div>
+          </div>
+         </div>
+
+        <!-- タイムライン -->
+        <section class="rk-schedule">
+          <div class="rk-sheet-scroll">
+            <div class="rk-sheet" data-cols="6" data-start="12:00" data-end="20:00">
+
+              <!-- 左上の角（固定） -->
+              <div class="rk-corner"></div>
+
+              <!-- 上：キャストヘッダー（固定） -->
+              <div class="rk-casthead">
+                <div class="rk-castcell">
+                  <img src="assets/image/01.webp" alt="" class="rk-avatar-img">
+                  <div class="rk-name">あやか</div>
+                </div>
+                <div class="rk-castcell">
+                  <img src="assets/image/02.webp" alt="" class="rk-avatar-img">
+                  <div class="rk-name">みさき</div>
+                </div>
+                <div class="rk-castcell">
+                  <img src="assets/image/03.webp" alt="" class="rk-avatar-img">
+                  <div class="rk-name">ゆい</div>
+                </div>
+                <div class="rk-castcell">
+                  <img src="assets/image/04.webp" alt="" class="rk-avatar-img">
+                  <div class="rk-name">なお</div>
+                </div>
+                <div class="rk-castcell">
+                  <img src="assets/image/05.webp" alt="" class="rk-avatar-img">
+                  <div class="rk-name">れな</div>
+                </div>
+                <div class="rk-castcell">
+                  <img src="assets/image/06.webp" alt="" class="rk-avatar-img">
+                  <div class="rk-name">さくら</div>
+                </div>
+              </div>
+
+              <!-- 左：時間列（固定） -->
+              <div class="rk-timecol">
+                <div class="rk-time">12:00</div>
+                <div class="rk-time">13:00</div>
+                <div class="rk-time">14:00</div>
+                <div class="rk-time">15:00</div>
+                <div class="rk-time">16:00</div>
+                <div class="rk-time">17:00</div>
+                <div class="rk-time">18:00</div>
+                <div class="rk-time">19:00</div>
+                <div class="rk-time">20:00</div>
+              </div>
+
+              <!-- 本体グリッド（縦横スクロール） -->
+              <div class="rk-grid" data-cols="6">
+                <a class="rk-block is-approved" href="op_order.html?id=ORD001"
+                   data-col="0" data-start="13:00" data-end="14:30">
+                  <div class="rk-block__title">田中様 (90分)</div>
+                  <div class="rk-block__meta">Room 101 / 13:00–14:30</div>
+                </a>
+
+                <a class="rk-block is-approved" href="op_order.html?id=ORD002"
+                   data-col="0" data-start="16:00" data-end="18:00">
+                  <div class="rk-block__title">佐藤様 (120分)</div>
+                  <div class="rk-block__meta">Room 104 / 16:00–18:00</div>
+                </a>
+
+                <a class="rk-block is-requested" href="op_order.html?id=ORD003"
+                   data-col="1" data-start="14:00" data-end="15:20">
+                  <div class="rk-block__title">鈴木様 (80分)</div>
+                  <div class="rk-block__meta">申請中 / 14:00–15:20</div>
+                </a>
+
+                <a class="rk-block is-approved" href="op_order.html?id=ORD004"
+                   data-col="1" data-start="17:00" data-end="18:30">
+                  <div class="rk-block__title">高橋様 (90分)</div>
+                  <div class="rk-block__meta">Room 102 / 17:00–18:30</div>
+                </a>
+
+                <a class="rk-block is-approved" href="op_order.html?id=ORD005"
+                   data-col="2" data-start="12:00" data-end="13:30">
+                  <div class="rk-block__title">伊藤様 (90分)</div>
+                  <div class="rk-block__meta">Room 102 / 12:00–13:30</div>
+                </a>
+
+                <a class="rk-block is-approved is-attention" href="op_order.html?id=ORD006"
+                   data-col="2" data-start="15:00" data-end="16:20">
+                  <div class="rk-block__title">渡辺様 (80分)</div>
+                  <div class="rk-block__meta">要注意 / 15:00–16:20</div>
+                </a>
+
+                <a class="rk-block is-approved" href="op_order.html?id=ORD007"
+                   data-col="3" data-start="14:00" data-end="16:00">
+                  <div class="rk-block__title">山本様 (120分)</div>
+                  <div class="rk-block__meta">Room 103 / 14:00–16:00</div>
+                </a>
+
+                <a class="rk-block is-requested" href="op_order.html?id=ORD008"
+                   data-col="4" data-start="13:00" data-end="14:30">
+                  <div class="rk-block__title">中村様 (90分)</div>
+                  <div class="rk-block__meta">申請中 / 13:00–14:30</div>
+                </a>
+
+                <a class="rk-block is-approved" href="op_order.html?id=ORD009"
+                   data-col="4" data-start="16:00" data-end="17:20">
+                  <div class="rk-block__title">小林様 (80分)</div>
+                  <div class="rk-block__meta">Room 101 / 16:00–17:20</div>
+                </a>
+
+                <a class="rk-block is-requested" href="op_order.html?id=ORD010"
+                   data-col="5" data-start="15:00" data-end="16:30">
+                  <div class="rk-block__title">加藤様 (90分)</div>
+                  <div class="rk-block__meta">申請中 / 15:00–16:30</div>
+                </a>
+
+                <a class="rk-block is-approved is-unconfirmed" href="op_order.html?id=ORD011"
+                   data-col="5" data-start="18:00" data-end="19:20">
+                  <div class="rk-block__title">吉田様 (80分)</div>
+                  <div class="rk-block__meta">未確認 / 18:00–19:20</div>
+                </a>
+              </div>
+
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <footer data-include="assets/partials/footer.html"></footer>
+
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

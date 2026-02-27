@@ -1,0 +1,31 @@
+/* ===========================
+   Roomink - Bootstrap 5 ベース
+   =========================== */
+
+// Roominkテーマ変数（Bootstrap上書き）
+@import "components/theme";
+
+// Bootstrap 5（CDN使用のため不要だがSCSS変数は適用される）
+// @import "bootstrap/scss/bootstrap";
+
+// グローバル
+@import "global/mixins";
+@import "global/reset";
+
+// Roominkレイアウト
+@import "components/layout";
+
+// 追加CSS変数（ステータスバッジ等）
+@import "components/variables";
+
+// Roomink独自コンポーネント
+@import "components/buttons";
+@import "components/stats";
+@import "components/timeline";
+@import "components/booking";
+@import "components/schedule";
+@import "components/order";
+@import "components/customer";
+@import "components/cast";
+
+@import "components/custom";

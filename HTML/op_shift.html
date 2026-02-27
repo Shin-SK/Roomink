@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shift / Room - Roomink</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+  
+  <style>
+    /* ルーム軸ビュー用の追加スタイル */
+    .room-conflict {
+      background: var(--color-banned) !important;
+      border-color: var(--color-danger) !important;
+      animation: blink 1s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-wrapper">
+    <!-- サイドバー -->
+    <aside data-include="assets/partials/sidebar-operator.html"></aside>
+
+    <!-- メインコンテンツ -->
+    <div class="main-content">
+      <!-- ヘッダ -->
+      <header data-include="assets/partials/header.html"></header>
+
+      <!-- ページコンテンツ -->
+      <main class="container">
+        <nav class="dashboard-tabs mb-3">
+          <div class="wrap">
+            <button id="tab-shift-create" class="active" data-tab="shift-create">シフト作成</button>
+          </div>
+          <div class="wrap">
+            <button id="tab-shift-list" data-tab="shift-list">シフト一覧</button>
+          </div>
+        </nav>
+        <div id="shift-create" class="wrap">
+          <div class="card mb-4">
+            <div class="card-header">
+              <i class="ti ti-calendar-event"></i> シフト作成
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label">セラピスト</label>
+                  <select class="form-select">
+                    <option>あやか</option>
+                    <option>みさき</option>
+                    <option>ゆい</option>
+                    <option>なお</option>
+                    <option>れな</option>
+                    <option>さくら</option>
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">日付</label>
+                  <input type="date" class="form-control" value="2025-02-09">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">ステータス</label>
+                  <select class="form-select">
+                    <option>出勤</option>
+                    <option>遅番</option>
+                    <option>早番</option>
+                    <option>休み</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">出勤時間</label>
+                  <input type="time" class="form-control" value="12:00">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">退勤時間</label>
+                  <input type="time" class="form-control" value="20:00">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">備考</label>
+                  <input type="text" class="form-control" placeholder="遅番／指名NGなど">
+                </div>
+                <div class="col-12">
+                  <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary">
+                      <i class="ti ti-plus"></i> シフトを追加
+                    </button>
+                    <button class="btn btn-outline-secondary">下書き保存</button>
+                    <button class="btn btn-outline-danger">クリア</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <!-- シフト一覧 -->
+        <div id="shift-list" class="table-list mb-5 d-none">
+          <div class="table-list-header">セラピストシフト（本日）</div>
+          <div class="table-list-body">
+            <div class="table-responsive">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>セラピスト</th>
+                    <th>出勤時間</th>
+                    <th>退勤時間</th>
+                    <th>ステータス</th>
+                    <th>予約数</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>あやか</strong></td>
+                    <td>12:00</td>
+                    <td>20:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>2本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>みさき</strong></td>
+                    <td>12:00</td>
+                    <td>20:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>2本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>ゆい</strong></td>
+                    <td>12:00</td>
+                    <td>19:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>2本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>なお</strong></td>
+                    <td>13:00</td>
+                    <td>20:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>1本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>れな</strong></td>
+                    <td>12:00</td>
+                    <td>18:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>2本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>さくら</strong></td>
+                    <td>14:00</td>
+                    <td>20:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>2本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>まい</strong></td>
+                    <td>11:00</td>
+                    <td>18:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>1本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>あかり</strong></td>
+                    <td>13:00</td>
+                    <td>21:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>3本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>りな</strong></td>
+                    <td>12:00</td>
+                    <td>17:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>1本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>はる</strong></td>
+                    <td>15:00</td>
+                    <td>22:00</td>
+                    <td><span class="badge badge-success">出勤中</span></td>
+                    <td>2本</td>
+                    <td><button class="btn btn-sm btn-outline">編集</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+      <footer data-include="assets/partials/footer.html"></footer>
+      
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

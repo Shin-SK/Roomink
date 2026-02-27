@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>売上管理 - Roomink</title>
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="sales">
+  <div class="app-wrapper">
+    <aside data-include="assets/partials/sidebar-operator.html"></aside>
+
+    <div class="main-content">
+      <haeder data-include="assets/partials/header.html"></haeder>
+
+      <main class="container">
+
+        <!-- 期間セレクター -->
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+          <h5 class="fw-bold m-0"><i class="ti ti-chart-bar"></i> 売上管理</h5>
+          <div class="d-flex align-items-center gap-2">
+            <select class="form-select form-select-sm" style="width: auto;" id="salesMonth">
+              <option value="2025-02" selected>2025年2月</option>
+              <option value="2025-01">2025年1月</option>
+              <option value="2024-12">2024年12月</option>
+              <option value="2024-11">2024年11月</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- KPIカード -->
+        <div class="row g-2 mb-4">
+          <div class="col-12 col-xl-3">
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="stat-label"><i class="ti ti-currency-yen"></i> 今月売上</div>
+                <div class="stat-value">¥4,280,000</div>
+                <div class="stat-change text-success"><i class="ti ti-trending-up"></i> +8.2% vs 先月</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-xl-3">
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="stat-label"><i class="ti ti-calendar-stats"></i> 予約件数</div>
+                <div class="stat-value">186件</div>
+                <div class="stat-change text-success"><i class="ti ti-trending-up"></i> +5.1% vs 先月</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-xl-3">
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="stat-label"><i class="ti ti-user-circle"></i> 客単価</div>
+                <div class="stat-value">¥23,010</div>
+                <div class="stat-change text-muted"><i class="ti ti-minus"></i> -0.3% vs 先月</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-xl-3">
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="stat-label"><i class="ti ti-repeat"></i> リピート率</div>
+                <div class="stat-value">62.4%</div>
+                <div class="stat-change text-success"><i class="ti ti-trending-up"></i> +3.0pt vs 先月</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 月別売上推移グラフ -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <i class="ti ti-chart-area"></i> 月別売上推移
+          </div>
+          <div class="card-body">
+            <canvas id="monthlyChart" height="260"></canvas>
+          </div>
+        </div>
+
+        <!-- 日別売上 + キャスト別売上 -->
+        <div class="row g-3 mb-4">
+          <div class="col-12 col-lg-8">
+            <div class="card h-100">
+              <div class="card-header">
+                <i class="ti ti-chart-line"></i> 日別売上（2月）
+              </div>
+              <div class="card-body">
+                <canvas id="dailyChart" height="240"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-lg-4">
+            <div class="card h-100">
+              <div class="card-header">
+                <i class="ti ti-chart-donut"></i> キャスト別売上
+              </div>
+              <div class="card-body d-flex flex-column align-items-center">
+                <div style="position:relative; width:100%; max-height:220px;">
+                  <canvas id="castChart"></canvas>
+                </div>
+                <ul class="list-unstyled small mt-3 w-100">
+                  <li class="d-flex justify-content-between border-bottom py-1"><span><span style="color:#2A9D8F;">●</span> あやか</span><span>¥820,000</span></li>
+                  <li class="d-flex justify-content-between border-bottom py-1"><span><span style="color:#5BC6A9;">●</span> みさき</span><span>¥740,000</span></li>
+                  <li class="d-flex justify-content-between border-bottom py-1"><span><span style="color:#3B82F6;">●</span> れな</span><span>¥680,000</span></li>
+                  <li class="d-flex justify-content-between border-bottom py-1"><span><span style="color:#F59E0B;">●</span> さくら</span><span>¥620,000</span></li>
+                  <li class="d-flex justify-content-between border-bottom py-1"><span><span style="color:#EF4444;">●</span> ゆい</span><span>¥540,000</span></li>
+                  <li class="d-flex justify-content-between py-1"><span><span style="color:#8B5CF6;">●</span> その他</span><span>¥880,000</span></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- コース別・時間帯別 -->
+        <div class="row g-3 mb-4">
+          <div class="col-12 col-lg-6">
+            <div class="card h-100">
+              <div class="card-header">
+                <i class="ti ti-category-2"></i> コース別売上
+              </div>
+              <div class="card-body">
+                <canvas id="courseChart" height="200"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-lg-6">
+            <div class="card h-100">
+              <div class="card-header">
+                <i class="ti ti-clock-hour-3"></i> 時間帯別予約数
+              </div>
+              <div class="card-body">
+                <canvas id="hourChart" height="200"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 直近の売上明細 -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <i class="ti ti-list-details"></i> 直近の売上明細
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-nowrap mb-0">
+                <thead>
+                  <tr>
+                    <th>日時</th>
+                    <th>顧客</th>
+                    <th>キャスト</th>
+                    <th>コース</th>
+                    <th class="text-end">金額</th>
+                    <th>ステータス</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><small>02/09 18:00</small></td>
+                    <td>山田様</td>
+                    <td>あやか</td>
+                    <td>120分</td>
+                    <td class="text-end fw-bold">¥38,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                  <tr>
+                    <td><small>02/09 16:00</small></td>
+                    <td>佐藤様</td>
+                    <td>あやか</td>
+                    <td>80分</td>
+                    <td class="text-end fw-bold">¥26,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                  <tr>
+                    <td><small>02/09 15:00</small></td>
+                    <td>渡辺様</td>
+                    <td>ゆい</td>
+                    <td>90分</td>
+                    <td class="text-end fw-bold">¥28,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                  <tr>
+                    <td><small>02/09 14:00</small></td>
+                    <td>鈴木様</td>
+                    <td>みさき</td>
+                    <td>80分</td>
+                    <td class="text-end fw-bold">¥26,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                  <tr>
+                    <td><small>02/09 13:00</small></td>
+                    <td>中村様</td>
+                    <td>れな</td>
+                    <td>90分</td>
+                    <td class="text-end fw-bold">¥28,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                  <tr>
+                    <td><small>02/08 19:00</small></td>
+                    <td>伊藤様</td>
+                    <td>さくら</td>
+                    <td>120分</td>
+                    <td class="text-end fw-bold">¥38,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                  <tr>
+                    <td><small>02/08 17:00</small></td>
+                    <td>高橋様</td>
+                    <td>みさき</td>
+                    <td>60分</td>
+                    <td class="text-end fw-bold">¥20,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                  <tr>
+                    <td><small>02/08 15:00</small></td>
+                    <td>田中様</td>
+                    <td>あやか</td>
+                    <td>90分</td>
+                    <td class="text-end fw-bold">¥28,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                  <tr>
+                    <td><small>02/08 14:00</small></td>
+                    <td>小林様</td>
+                    <td>れな</td>
+                    <td>80分</td>
+                    <td class="text-end fw-bold">¥26,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                  <tr>
+                    <td><small>02/08 12:00</small></td>
+                    <td>松本様</td>
+                    <td>ゆい</td>
+                    <td>60分</td>
+                    <td class="text-end fw-bold">¥20,000</td>
+                    <td><span class="badge badge-approved">完了</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+      <footer data-include="assets/partials/footer.html"></footer>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', function () {
+
+    const PRIMARY = '#2A9D8F';
+    const PRIMARY_LIGHT = 'rgba(42,157,143,0.15)';
+    const ACCENT = '#5BC6A9';
+    const BLUE = '#3B82F6';
+    const AMBER = '#F59E0B';
+    const RED = '#EF4444';
+    const PURPLE = '#8B5CF6';
+    const GRID = '#E2E8F0';
+    const TEXT = '#64748B';
+
+    const defaultOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { size: 11 }, color: TEXT, usePointStyle: true, pointStyle: 'circle' } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 }, color: TEXT } },
+        y: { grid: { color: GRID }, ticks: { font: { size: 10 }, color: TEXT,
+          callback: function(v) { return '¥' + (v / 10000).toFixed(0) + '万'; }
+        }, beginAtZero: true }
+      }
+    };
+
+    /* ── 月別売上推移（棒 + 線） ── */
+    new Chart(document.getElementById('monthlyChart'), {
+      type: 'bar',
+      data: {
+        labels: ['3月','4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月'],
+        datasets: [
+          {
+            label: '売上',
+            data: [3200000,3450000,3680000,3520000,3890000,4100000,3750000,3980000,4050000,4320000,3960000,4280000],
+            backgroundColor: PRIMARY_LIGHT,
+            borderColor: PRIMARY,
+            borderWidth: 2,
+            borderRadius: 4,
+            order: 2
+          },
+          {
+            label: '予約件数',
+            data: [142,151,160,154,168,178,163,172,176,188,171,186],
+            type: 'line',
+            borderColor: AMBER,
+            backgroundColor: AMBER,
+            pointRadius: 3,
+            pointBackgroundColor: AMBER,
+            borderWidth: 2,
+            yAxisID: 'y1',
+            order: 1
+          }
+        ]
+      },
+      options: {
+        ...defaultOptions,
+        scales: {
+          ...defaultOptions.scales,
+          y1: {
+            position: 'right',
+            grid: { display: false },
+            ticks: { font: { size: 10 }, color: AMBER, callback: v => v + '件' },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
+    /* ── 日別売上推移 ── */
+    const dailyData = [
+      180000,210000,195000,240000,220000,260000,310000,
+      290000,328000,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    ];
+    new Chart(document.getElementById('dailyChart'), {
+      type: 'line',
+      data: {
+        labels: Array.from({length:28}, (_,i) => (i+1) + '日'),
+        datasets: [{
+          label: '日別売上',
+          data: dailyData,
+          borderColor: PRIMARY,
+          backgroundColor: PRIMARY_LIGHT,
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointBackgroundColor: PRIMARY,
+          borderWidth: 2
+        }]
+      },
+      options: defaultOptions
+    });
+
+    /* ── キャスト別売上（ドーナツ） ── */
+    new Chart(document.getElementById('castChart'), {
+      type: 'doughnut',
+      data: {
+        labels: ['あやか','みさき','れな','さくら','ゆい','その他'],
+        datasets: [{
+          data: [820000,740000,680000,620000,540000,880000],
+          backgroundColor: [PRIMARY, ACCENT, BLUE, AMBER, RED, PURPLE],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '60%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                return ctx.label + ': ¥' + ctx.parsed.toLocaleString();
+              }
+            }
+          }
+        }
+      }
+    });
+
+    /* ── コース別売上（横棒） ── */
+    new Chart(document.getElementById('courseChart'), {
+      type: 'bar',
+      data: {
+        labels: ['60分','80分','90分','120分'],
+        datasets: [{
+          label: '売上',
+          data: [640000,1120000,1280000,1240000],
+          backgroundColor: [ACCENT, PRIMARY, BLUE, PURPLE],
+          borderRadius: 4,
+          barThickness: 28
+        }]
+      },
+      options: {
+        ...defaultOptions,
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: GRID }, ticks: { font: { size: 10 }, color: TEXT,
+            callback: function(v) { return '¥' + (v / 10000).toFixed(0) + '万'; }
+          }, beginAtZero: true },
+          y: { grid: { display: false }, ticks: { font: { size: 11 }, color: TEXT } }
+        }
+      }
+    });
+
+    /* ── 時間帯別予約数 ── */
+    new Chart(document.getElementById('hourChart'), {
+      type: 'bar',
+      data: {
+        labels: ['12時','13時','14時','15時','16時','17時','18時','19時','20時'],
+        datasets: [{
+          label: '予約数',
+          data: [8,14,22,26,24,20,18,12,6],
+          backgroundColor: PRIMARY_LIGHT,
+          borderColor: PRIMARY,
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        ...defaultOptions,
+        plugins: { legend: { display: false } },
+        scales: {
+          ...defaultOptions.scales,
+          y: { grid: { color: GRID }, ticks: { font: { size: 10 }, color: TEXT,
+            callback: v => v + '件'
+          }, beginAtZero: true }
+        }
+      }
+    });
+
+  });
+  </script>
+</body>
+</html>

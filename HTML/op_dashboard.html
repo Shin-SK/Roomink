@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ダッシュボード - Roomink</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body data-page="dashboard">
+  <div class="app-wrapper">
+    <aside data-include="assets/partials/sidebar-operator.html"></aside>
+
+    <div class="main-content">
+      <haeder data-include="assets/partials/header.html"></haeder>
+
+      <main class="container">
+
+        <div
+         class="wrap bg-white overflow-y-auto mb-4"
+         style="max-height: 20vh; ">
+
+          <ul class="d-flex flex-column gap-2">
+            <li>
+              <a href="#kakunin" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
+                <div class="badge badge-attention">未確認</div><small>2件</small>
+              </a>
+            </li>
+            <li>
+              <a href="#kakunin" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
+                <div class="badge badge-pending">承認待ち</div><small>4件</small>
+              </a>
+            </li>
+            <li class="d-flex align-items-center gap-2 border-bottom w-100 pb-2">
+              <small>キャンセル待ちにならないために</small>
+            </li>
+            <li class="d-flex align-items-center gap-2 border-bottom w-100 pb-2">
+              <small>清掃について</small>
+            </li>
+
+
+          </ul>
+        </div>
+        <!-- 統計カード -->
+        <div class="row g-2 mb-5">
+          <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card">
+              <div class="card-body">
+                <div class="wrap d-flex align-items-center gap-3">
+                  <div class="stat-label m-0">
+                    <i class="ti ti-currency-yen"></i> 本日売上（予定）</div>
+                  <div class="stat-change text-success"><i class="ti ti-trending-up"></i> +12% vs 先週</div>
+                </div>
+                <div class="d-flex align-items-center justify-content-between">
+                  <div class="stat-value">¥328,000</div>
+                  <a href="op_sales.html" class="text-decoration-none">
+                    <i class="ti ti-chart-bar" style="font-size: 24px;"></i>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-sm-6 col-xl-3">
+            <div class="card">
+              <div class="card-body">
+                <div class="stat-label"><i class="ti ti-calendar-event"></i> 本日本数</div>
+                <div class="stat-value">18本</div>
+                <div class="stat-change">14 承認済 / 4 申請中</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-sm-6 col-xl-3">
+            <div class="card">
+              <div class="card-body">
+                <div class="stat-label"><i class="ti ti-users"></i> 出勤人数</div>
+                <div class="stat-value">6名</div>
+                <div class="stat-change">稼働中: 4名</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- このナビでタブわけされててタップすると切り替わる -->
+        <nav class="dashboard-tabs mb-3">
+          <div class="wrap">
+            <button id="tab-mikakunin" class="active" data-tab="mikakunin">未確認</button>
+          </div>
+          <div class="wrap">
+            <button id="tab-kakunin" class="" data-tab="kakunin">承認待ち</button>
+          </div>
+        </nav>
+        <!-- この下の二つが切り替わる -->
+        <!-- 未確認アラート -->
+        <div id="mikakunin" class="card border-0 mb-4">
+          <div class="card-header bg-attention">
+            <i class="ti ti-alert-triangle text-dark"></i> 未確認アラート
+          </div>
+          <div class="card-body p-0">
+            <ul class="list-group list-group-flush">
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="badge badge-attention">申請中</span>
+                    <strong>佐藤様</strong>
+                    <span class="text-muted small">あやか / 16:00</span>
+                  </div>
+                  <button class="btn btn-sm btn-attention" onclick="approveOrder('ORD003')"><i class="ti ti-check"></i> 承認</button>
+                </div>
+              </li>
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="badge badge-attention">申請中</span>
+                    <strong>渡辺様</strong>
+                    <span class="text-muted small">ゆい / 15:00</span>
+                  </div>
+                  <button class="btn btn-sm btn-attention" onclick="approveOrder('ORD008')"><i class="ti ti-check"></i> 承認</button>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 承認待ち -->
+        <div id="kakunin" class="card border-0 mb-4 d-none">
+
+          <div class="card-header">
+            <i class="ti ti-inbox"></i> 承認待ち予約申請
+          </div>
+          <div class="card-body p-0">
+            <ul class="list-group list-group-flush">
+
+              <!-- 申請1 -->
+              <li class="list-group-item" data-order-id="ORD003">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div class="flex-grow-1">
+                    <div class="list-header">
+                      <div class="d-flex align-items-center gap-2">
+                        <h5 class="mb-0 fw-bold">鈴木様</h5>
+                        <span class="badge badge-pending">申請中</span>
+                      </div>
+                      <div class="text-muted small">
+                        申請日時: 2025-02-08 23:45
+                      </div>
+                    </div>
+                    <div class="list-body">
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-calendar"></i>2025-02-09 (日) 14:00-15:20</div>
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-user"></i>みさき</div>
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-category-2"></i>80分</div>
+                    </div>
+
+
+                    <div class="list-footer mt-3">
+                      <div class="row g-2">
+                        <div class="col-4">
+                          <button class="btn btn-sm btn-success w-100" onclick="approveOrder('ORD003')">承認</button>
+                        </div>
+                        <div class="col-4">
+                          <button class="btn btn-sm btn-danger w-100" onclick="rejectOrder('ORD003')">否認</button>
+                        </div>
+                        <div class="col-4"><a href="op_order.html?id=ORD003" class="btn btn-sm btn-outline-dark w-100">詳細</a></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </li>
+              <!-- ※申請1を正として、その下の2,3,4を差し替えて欲しい！申請1のものをそのままコピペして、中のキャスト名とかを適当に変えてもらえれば！ -->
+              <!-- 申請2 -->
+              <li class="list-group-item" data-order-id="ORD008">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div class="flex-grow-1">
+                    <div class="list-header">
+                      <div class="d-flex align-items-center gap-2">
+                        <h5 class="mb-0 fw-bold">中村様</h5>
+                        <span class="badge badge-pending">申請中</span>
+                      </div>
+                      <div class="text-muted small">
+                        申請日時: 2025-02-09 01:12
+                      </div>
+                    </div>
+                    <div class="list-body">
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-calendar"></i>2025-02-09 (日) 13:00-14:30</div>
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-user"></i>れな</div>
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-category-2"></i>90分</div>
+                    </div>
+
+
+                    <div class="list-footer mt-3">
+                      <div class="row g-2">
+                        <div class="col-4">
+                          <button class="btn btn-sm btn-success w-100" onclick="approveOrder('ORD008')">承認</button>
+                        </div>
+                        <div class="col-4">
+                          <button class="btn btn-sm btn-danger w-100" onclick="rejectOrder('ORD008')">否認</button>
+                        </div>
+                        <div class="col-4"><a href="op_order.html?id=ORD008" class="btn btn-sm btn-outline-dark w-100">詳細</a></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </li>
+
+              <!-- 申請3 -->
+              <li class="list-group-item" data-order-id="ORD010">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div class="flex-grow-1">
+                    <div class="list-header">
+                      <div class="d-flex align-items-center gap-2">
+                        <h5 class="mb-0 fw-bold">加藤様</h5>
+                        <span class="badge badge-pending">申請中</span>
+                      </div>
+                      <div class="text-muted small">
+                        申請日時: 2025-02-09 07:20
+                      </div>
+                    </div>
+                    <div class="list-body">
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-calendar"></i>2025-02-09 (日) 15:00-16:30</div>
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-user"></i>さくら</div>
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-category-2"></i>90分</div>
+                    </div>
+
+
+                    <div class="list-footer mt-3">
+                      <div class="row g-2">
+                        <div class="col-4">
+                          <button class="btn btn-sm btn-success w-100" onclick="approveOrder('ORD010')">承認</button>
+                        </div>
+                        <div class="col-4">
+                          <button class="btn btn-sm btn-danger w-100" onclick="rejectOrder('ORD010')">否認</button>
+                        </div>
+                        <div class="col-4"><a href="op_order.html?id=ORD010" class="btn btn-sm btn-outline-dark w-100">詳細</a></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </li>
+
+              <!-- 申請4 -->
+              <li class="list-group-item" data-order-id="ORD012">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div class="flex-grow-1">
+                    <div class="list-header">
+                      <div class="d-flex align-items-center gap-2">
+                        <h5 class="mb-0 fw-bold">山田様</h5>
+                        <span class="badge badge-pending">申請中</span>
+                      </div>
+                      <div class="text-muted small">
+                        申請日時: 2025-02-09 09:30
+                      </div>
+                    </div>
+                    <div class="list-body">
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-calendar"></i>2025-02-09 (日) 18:00-20:00</div>
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-user"></i>フリー</div>
+                      <div class="d-flex align-items-center gap-2"><i class="ti ti-category-2"></i>120分</div>
+                    </div>
+
+
+                    <div class="list-footer mt-3">
+                      <div class="row g-2">
+                        <div class="col-4">
+                          <button class="btn btn-sm btn-success w-100" onclick="approveOrder('ORD012')">承認</button>
+                        </div>
+                        <div class="col-4">
+                          <button class="btn btn-sm btn-danger w-100" onclick="rejectOrder('ORD012')">否認</button>
+                        </div>
+                        <div class="col-4"><a href="op_order.html?id=ORD012" class="btn btn-sm btn-outline-dark w-100">詳細</a></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </li>
+
+            </ul>
+          </div>
+
+          <!-- <div class="card-header">
+            <i class="ti ti-inbox"></i> 承認待ち（上位3件）
+          </div>
+          <div class="card-body p-0">
+            <ul class="list-group list-group-flush">
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="badge badge-pending">申請中</span>
+                    <strong>鈴木様</strong>
+                    <span class="text-muted small">みさき / 14:00</span>
+                  </div>
+                  <button class="btn btn-sm btn-success" onclick="approveOrder('ORD003')"><i class="ti ti-check"></i> 承認</button>
+                </div>
+              </li>
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="badge badge-pending">申請中</span>
+                    <strong>中村様</strong>
+                    <span class="text-muted small">れな / 13:00</span>
+                  </div>
+                  <button class="btn btn-sm btn-success" onclick="approveOrder('ORD008')"><i class="ti ti-check"></i> 承認</button>
+                </div>
+              </li>
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="badge badge-pending">申請中</span>
+                    <strong>加藤様</strong>
+                    <span class="text-muted small">さくら / 15:00</span>
+                  </div>
+                  <button class="btn btn-sm btn-success" onclick="approveOrder('ORD010')"><i class="ti ti-check"></i> 承認</button>
+                </div>
+              </li>
+            </ul>
+          </div> -->
+        </div>
+
+      </main>
+
+      <footer data-include="assets/partials/footer.html"></footer>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Custom JS -->
+  <script src="assets/js/include.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
