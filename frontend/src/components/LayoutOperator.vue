@@ -73,8 +73,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         <button class="mobile-menu-btn" @click.stop="toggleSidebar">
           <i class="ti ti-menu-2"></i>
         </button>
-        <h1 class="header-title d-flex align-items-center gap-2 w-100">
-          <img src="/icon.svg" alt="ホーム" style="height: 40px;"><slot name="title">Roomink</slot>
+        <h1 class="header-title d-flex align-items-center gap-2 w-100 justify-content-center">
+          <img src="/icon.svg" alt="ホーム" style="height: 32px;">
+          <!-- <slot name="title">Roomink</slot> -->
         </h1>
         <div class="header-actions">
           <slot name="actions"></slot>

@@ -1,10 +1,11 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 
 const router = useRouter()
+const route = useRoute()
 
 const customers = ref([])
 const casts = ref([])
@@ -13,6 +14,7 @@ const options = ref([])
 const loading = ref(true)
 const submitting = ref(false)
 const errorMsg = ref('')
+const phoneHint = ref('')
 
 const form = ref({
   customer: '',
@@ -40,6 +42,16 @@ onMounted(async () => {
     casts.value = Array.isArray(castData) ? castData : castData.results || []
     courses.value = Array.isArray(courseData) ? courseData : courseData.results || []
     options.value = Array.isArray(optData) ? optData : optData.results || []
+
+    // ?phone= auto-select
+    const qPhone = route.query.phone
+    if (qPhone) {
+      phoneHint.value = qPhone
+      const match = customers.value.find(c => c.phone === qPhone)
+      if (match) {
+        form.value.customer = match.id
+      }
+    }
   } catch (e) {
     console.error(e)
   } finally {
@@ -108,6 +120,11 @@ function formatYen(n) {
       <div class="alert alert-info">
         <strong>電話予約フロー</strong><br>
         1. 顧客を選択 → 2. 日時・セラピスト・コースを選択 → 3. 承認済み予約を作成
+      </div>
+
+      <div v-if="phoneHint && !form.customer" class="alert alert-warning">
+        <i class="ti ti-phone-incoming"></i>
+        着信番号 <strong>{{ phoneHint }}</strong> に一致する顧客が見つかりませんでした。手動で選択してください。
       </div>
 
       <!-- Error -->

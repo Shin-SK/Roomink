@@ -17,8 +17,12 @@
 
 **場所**: `core/services/customer_context.py`
 
+**前提**: ログイン済みであること（未ログインは DRF の `IsAuthenticated` が 403 を返す）。
+`resolve_customer` はログイン済み前提で Customer を解決する責務のみ持つ。
+
 顧客系 API は **すべて** この関数を通して Customer を取得する。
 `request.user.customer_profile` / `customer_profiles` の直接参照は禁止。
+顧客系 View で `resolve_customer` 以外から Customer を触ることも禁止。
 
 ```python
 from core.services.customer_context import resolve_customer
@@ -30,7 +34,7 @@ customer = resolve_customer(request)  # Customer or 例外
 
 | 条件 | 結果 |
 |------|------|
-| 未ログイン | `PermissionDenied` (403)「ログインが必要です」 |
+| 未ログイン | DRF `IsAuthenticated` が 403（resolve_customer の責務外） |
 | Customer 0 件 | `PermissionDenied` (403)「顧客プロフィールが紐づいていません」 |
 | `?store=<ID>` 指定 → 該当あり | その Customer を返す |
 | `?store=<ID>` 指定 → 該当なし | `PermissionDenied` (403)「指定された店舗に所属していません」 |

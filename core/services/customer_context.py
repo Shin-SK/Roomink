@@ -5,18 +5,15 @@ from core.models import Customer
 
 def resolve_customer(request):
     """
-    Multi-store 顧客解決。
+    Multi-store 顧客解決（ログイン済み前提）。
     request.user に紐づく Customer を ?store=<ID> で特定して返す。
+    未ログインの判定は DRF の IsAuthenticated に任せる。
 
-    - 未ログイン        → PermissionDenied (403)
     - Customer 0 件     → PermissionDenied (403)
     - store 指定あり    → 該当 Customer を返す / 無ければ PermissionDenied (403)
     - store 未指定 & 1件 → 自動選択
     - store 未指定 & 複数 → ValidationError (400)
     """
-    if not request.user or not request.user.is_authenticated:
-        raise PermissionDenied("ログインが必要です")
-
     qs = Customer.objects.filter(user=request.user).select_related("store")
     customers = list(qs)
 

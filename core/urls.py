@@ -33,6 +33,13 @@ urlpatterns = [
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),
     path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
 
+    # CTI
+    path("op/cti/inbound/", views.CtiInboundView.as_view(), name="cti-inbound"),
+    path("op/cti/queue/", views.CtiQueueView.as_view(), name="cti-queue"),
+    path("op/cti/calls/<int:pk>/start/", views.CtiCallStartView.as_view(), name="cti-call-start"),
+    path("op/cti/calls/<int:pk>/done/", views.CtiCallDoneView.as_view(), name="cti-call-done"),
+    path("op/cti/calls/<int:pk>/notes/", views.CtiCallNoteView.as_view(), name="cti-call-notes"),
+
     # router (orders, shifts, customers, casts, courses, options, rooms)
     path("", include(router.urls)),
 ]

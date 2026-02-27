@@ -1,9 +1,11 @@
 import csv
 import io
-from datetime import date as date_type
+import os
+from datetime import date as date_type, timedelta
 
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import parsers, viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -11,7 +13,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
-    Cast, CastAck, Course, Customer, Option, Order, OrderOption, Room, ShiftAssignment, Store,
+    CallLog, CallNote, Cast, CastAck, Course, Customer, Option, Order, OrderOption,
+    Room, ShiftAssignment, Store, StorePhoneNumber,
 )
 from .serializers import (
     CastSerializer,
@@ -304,6 +307,7 @@ class CastAckView(APIView):
 
 class CustomerStoresView(APIView):
     """GET /api/cu/stores/ — 顧客が所属する店舗一覧"""
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         customers = Customer.objects.filter(
@@ -373,6 +377,7 @@ def customer_signup(request):
 
 class CustomerMypageView(APIView):
     """GET /api/cu/mypage/ — 顧客マイページ"""
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         customer = resolve_customer(request)
@@ -484,6 +489,7 @@ class CustomerMypageView(APIView):
 
 class CustomerBookingOptionsView(APIView):
     """GET /api/cu/booking/options/ — 予約フォーム選択肢"""
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         customer = resolve_customer(request)
@@ -497,6 +503,7 @@ class CustomerBookingOptionsView(APIView):
 
 class CustomerBookingCreateView(APIView):
     """POST /api/cu/bookings/ — 顧客からの予約申請"""
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         customer = resolve_customer(request)
@@ -720,3 +727,184 @@ class CsvImportView(APIView):
             "created": created,
             "updated": updated,
         })
+
+
+# ──────────────────────────────────────
+# CTI — Webhook / Queue
+# ──────────────────────────────────────
+
+CTI_SHARED_TOKEN = os.getenv("CTI_SHARED_TOKEN", "dev-token")
+
+
+class CtiInboundView(APIView):
+    """
+    POST /api/op/cti/inbound/
+    CTI Webhook: 着信通知を受けて CallLog を作成/更新する。
+    認証: X-CTI-TOKEN ヘッダーのみ。SessionAuth/CSRF は無効化。
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        token = request.META.get("HTTP_X_CTI_TOKEN", "")
+        if token != CTI_SHARED_TOKEN:
+            return Response({"detail": "無効なトークンです"}, status=status.HTTP_403_FORBIDDEN)
+
+        contact_id = request.data.get("contact_id")
+        raw_from = request.data.get("from_phone", "")
+        raw_to = request.data.get("to_phone", "")
+
+        if not contact_id or not raw_from or not raw_to:
+            return Response(
+                {"detail": "contact_id, from_phone, to_phone は必須です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from_phone = normalize_phone(raw_from)
+        to_phone = normalize_phone(raw_to)
+
+        # to_phone → StorePhoneNumber で store 特定
+        try:
+            store_phone = StorePhoneNumber.objects.select_related("store").get(phone=to_phone)
+        except StorePhoneNumber.DoesNotExist:
+            return Response(
+                {"detail": f"着信先番号 {to_phone} に対応する店舗が見つかりません"},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        store = store_phone.store
+
+        # from_phone → Customer 検索
+        customer = Customer.objects.filter(store=store, phone=from_phone).first()
+
+        # is_repeat: 同一 store + from_phone で直近 10 分以内の CallLog
+        threshold = timezone.now() - timedelta(minutes=10)
+        is_repeat = CallLog.objects.filter(
+            store=store, from_phone=from_phone, created_at__gte=threshold,
+        ).exclude(contact_id=contact_id).exists()
+
+        # CallLog upsert
+        call, created = CallLog.objects.update_or_create(
+            contact_id=contact_id,
+            defaults={
+                "store": store,
+                "from_phone": from_phone,
+                "to_phone": to_phone,
+                "customer": customer,
+                "is_repeat": is_repeat,
+            },
+        )
+        # 初回のみ status=NEW（既存は上書きしない）
+        if created:
+            call.status = CallLog.Status.NEW
+            call.save(update_fields=["status"])
+
+        return Response({
+            "id": call.id,
+            "contact_id": call.contact_id,
+            "store_id": store.id,
+            "store_name": store.name,
+            "from_phone": call.from_phone,
+            "customer_id": call.customer_id,
+            "customer_name": str(customer) if customer else None,
+            "is_repeat": call.is_repeat,
+            "status": call.status,
+            "created": created,
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+
+class CtiQueueView(APIView):
+    """GET /api/op/cti/queue/ — 未対応 / 対応中コール一覧"""
+
+    def get(self, request):
+        calls = (
+            CallLog.objects
+            .filter(status__in=[CallLog.Status.NEW, CallLog.Status.IN_PROGRESS])
+            .select_related("store", "customer", "assigned_to")
+            .order_by("-created_at")
+        )
+        data = []
+        for c in calls:
+            data.append({
+                "id": c.id,
+                "contact_id": c.contact_id,
+                "store_id": c.store_id,
+                "store_name": c.store.name,
+                "from_phone": c.from_phone,
+                "to_phone": c.to_phone,
+                "customer_id": c.customer_id,
+                "customer_name": str(c.customer) if c.customer else None,
+                "is_repeat": c.is_repeat,
+                "status": c.status,
+                "assigned_to": c.assigned_to.username if c.assigned_to else None,
+                "created_at": c.created_at,
+                "updated_at": c.updated_at,
+            })
+        return Response({"calls": data})
+
+
+class CtiCallStartView(APIView):
+    """POST /api/op/cti/calls/{id}/start/ — 対応開始"""
+
+    def post(self, request, pk):
+        try:
+            call = CallLog.objects.get(pk=pk)
+        except CallLog.DoesNotExist:
+            return Response({"detail": "コールが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+
+        if call.status not in (CallLog.Status.NEW, CallLog.Status.IN_PROGRESS):
+            return Response(
+                {"detail": f"ステータスが {call.get_status_display()} のため開始できません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        call.status = CallLog.Status.IN_PROGRESS
+        call.assigned_to = request.user
+        call.save(update_fields=["status", "assigned_to", "updated_at"])
+        return Response({"id": call.id, "status": call.status})
+
+
+class CtiCallDoneView(APIView):
+    """POST /api/op/cti/calls/{id}/done/ — 対応完了"""
+
+    def post(self, request, pk):
+        try:
+            call = CallLog.objects.get(pk=pk)
+        except CallLog.DoesNotExist:
+            return Response({"detail": "コールが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+
+        if call.status in (CallLog.Status.DONE, CallLog.Status.MISSED):
+            return Response(
+                {"detail": f"ステータスが {call.get_status_display()} のため完了にできません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        call.status = CallLog.Status.DONE
+        call.save(update_fields=["status", "updated_at"])
+        return Response({"id": call.id, "status": call.status})
+
+
+class CtiCallNoteView(APIView):
+    """POST /api/op/cti/calls/{id}/notes/ — メモ追加"""
+
+    def post(self, request, pk):
+        try:
+            call = CallLog.objects.get(pk=pk)
+        except CallLog.DoesNotExist:
+            return Response({"detail": "コールが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+
+        body = (request.data.get("body") or "").strip()
+        if not body:
+            return Response(
+                {"detail": "body は必須です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        note = CallNote.objects.create(call=call, author=request.user, body=body)
+        return Response({
+            "id": note.id,
+            "call_id": call.id,
+            "author": request.user.username,
+            "body": note.body,
+            "created_at": note.created_at,
+        }, status=status.HTTP_201_CREATED)

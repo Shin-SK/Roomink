@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
@@ -11,9 +11,23 @@ const allOrders = ref([])
 const loading = ref(true)
 const activeTab = ref('mikakunin')
 
+// CTI Queue
+const ctiCalls = ref([])
+const ctiNewCount = computed(() => ctiCalls.value.filter(c => c.status === 'NEW').length)
+let ctiTimer = null
+
 function today() {
   const d = new Date()
   return d.toISOString().slice(0, 10)
+}
+
+async function fetchCtiQueue() {
+  try {
+    const data = await api.getCtiQueue()
+    ctiCalls.value = data.calls || []
+  } catch (e) {
+    // CTI queue fetch failure is non-fatal
+  }
 }
 
 onMounted(async () => {
@@ -27,10 +41,22 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+
+  // CTI polling (2 sec)
+  await fetchCtiQueue()
+  ctiTimer = setInterval(fetchCtiQueue, 2000)
+})
+
+onUnmounted(() => {
+  if (ctiTimer) clearInterval(ctiTimer)
 })
 
 function goOrder(id) {
   router.push(`/op/orders/${id}`)
+}
+
+function goPhone(phone) {
+  router.push(`/op/phone?phone=${encodeURIComponent(phone)}`)
 }
 
 function formatTime(dt) {
@@ -41,6 +67,13 @@ function formatTime(dt) {
 
 function formatYen(n) {
   return `¥${Number(n).toLocaleString()}`
+}
+
+function timeAgo(dt) {
+  const diff = Math.floor((Date.now() - new Date(dt).getTime()) / 1000)
+  if (diff < 60) return `${diff}秒前`
+  if (diff < 3600) return `${Math.floor(diff / 60)}分前`
+  return `${Math.floor(diff / 3600)}時間前`
 }
 </script>
 
@@ -62,6 +95,41 @@ function formatYen(n) {
             </a>
           </li>
         </ul>
+      </div>
+
+      <!-- 未対応コール -->
+      <div v-if="ctiCalls.length" class="card border-0 mb-4 rk-cti-card">
+        <div class="card-header d-flex align-items-center justify-content-between bg-danger text-white">
+          <div>
+            <i class="ti ti-phone-incoming"></i> 未対応コール
+            <span v-if="ctiNewCount" class="badge bg-white text-danger ms-2">{{ ctiNewCount }}</span>
+          </div>
+          <small>{{ ctiCalls.length }}件</small>
+        </div>
+        <div class="card-body p-0">
+          <ul class="list-group list-group-flush">
+            <li
+              v-for="call in ctiCalls.slice(0, 5)"
+              :key="call.id"
+              class="list-group-item d-flex justify-content-between align-items-center"
+            >
+              <div>
+                <div class="d-flex align-items-center gap-2">
+                  <span
+                    class="badge"
+                    :class="call.status === 'NEW' ? 'bg-danger' : 'bg-warning text-dark'"
+                  >{{ call.status === 'NEW' ? '新規' : '対応中' }}</span>
+                  <strong>{{ call.customer_name || call.from_phone }}</strong>
+                  <span v-if="call.is_repeat" class="badge bg-info">再着信</span>
+                </div>
+                <small class="text-muted">{{ call.store_name }} ・ {{ timeAgo(call.created_at) }}</small>
+              </div>
+              <button class="btn btn-sm btn-outline-dark" @click="goPhone(call.from_phone)">
+                <i class="ti ti-phone"></i> 対応
+              </button>
+            </li>
+          </ul>
+        </div>
       </div>
 
       <!-- 統計カード -->

@@ -93,6 +93,12 @@ export const api = {
   getBookingOptions: (storeId) => request('GET', `/cu/booking/options/${storeId ? '?store=' + storeId : ''}`),
   createCustomerBooking: (body, storeId) => request('POST', `/cu/bookings/${storeId ? '?store=' + storeId : ''}`, body),
 
+  // CTI
+  getCtiQueue: () => request('GET', '/op/cti/queue/'),
+  ctiCallStart: (id) => request('POST', `/op/cti/calls/${id}/start/`),
+  ctiCallDone: (id) => request('POST', `/op/cti/calls/${id}/done/`),
+  ctiCallAddNote: (id, body) => request('POST', `/op/cti/calls/${id}/notes/`, { body }),
+
   // CSV Import
   csvPreview: (model, file) => {
     const fd = new FormData()

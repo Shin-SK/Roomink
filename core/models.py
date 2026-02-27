@@ -162,6 +162,67 @@ class CastAck(models.Model):
         return f"CastAck#{self.pk} {status}"
 
 
+class StorePhoneNumber(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="phone_numbers")
+    phone = models.CharField(max_length=20, unique=True)
+    label = models.CharField(max_length=50, blank=True, default="")
+
+    def __str__(self):
+        return f"{self.store.name} - {self.phone}"
+
+
+class CallLog(models.Model):
+    class Status(models.TextChoices):
+        NEW = "NEW", "新規"
+        IN_PROGRESS = "IN_PROGRESS", "対応中"
+        DONE = "DONE", "完了"
+        MISSED = "MISSED", "不在"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="call_logs")
+    contact_id = models.CharField(max_length=128, unique=True)
+    from_phone = models.CharField(max_length=20)
+    to_phone = models.CharField(max_length=20)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.NEW)
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_calls",
+    )
+    customer = models.ForeignKey(
+        Customer, null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="call_logs",
+    )
+    is_repeat = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "status", "created_at"]),
+            models.Index(fields=["store", "from_phone", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Call#{self.pk} {self.from_phone} → {self.to_phone} ({self.status})"
+
+
+class CallNote(models.Model):
+    call = models.ForeignKey(CallLog, on_delete=models.CASCADE, related_name="notes")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="call_notes",
+    )
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Note#{self.pk} on Call#{self.call_id}"
+
+
 class SmsLog(models.Model):
     class Status(models.TextChoices):
         SENT = "SENT", "送信済"
