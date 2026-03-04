@@ -59,6 +59,7 @@ export const api = {
   // Orders
   getOrders: (params = '') => request('GET', `/orders/${params ? '?' + params : ''}`),
   getOrder: (id) => request('GET', `/orders/${id}/`),
+  updateOrder: (id, body) => request('PATCH', `/orders/${id}/`, body),
   createOrder: (body) => request('POST', '/orders/', body),
   confirmOrder: (id) => request('POST', `/orders/${id}/confirm/`),
   cancelOrder: (id) => request('POST', `/orders/${id}/cancel/`),
@@ -66,6 +67,9 @@ export const api = {
 
   // Customers
   getCustomers: () => request('GET', '/customers/'),
+  getCustomer: (id) => request('GET', `/customers/${id}/`),
+  createCustomer: (body) => request('POST', '/customers/', body),
+  updateCustomer: (id, body) => request('PATCH', `/customers/${id}/`, body),
 
   // Casts
   getCasts: () => request('GET', '/casts/'),

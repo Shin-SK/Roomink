@@ -1,20 +1,25 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { api } from '../api.js'
+import { resetAuthCache } from '../router.js'
 
 const route = useRoute()
+const router = useRouter()
 const sidebarOpen = ref(false)
 
 const navItems = [
   { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
   { to: '/op/schedule', icon: 'ti-calendar', label: '予約タイムライン', page: 'schedule' },
   { to: '/op/phone', icon: 'ti-phone', label: '電話予約', page: 'phone' },
+  { to: '/op/customers', icon: 'ti-users', label: '顧客管理', page: 'customer-list' },
 ]
 
 const footerItems = [
   { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
   { to: '/op/schedule', icon: 'ti-timeline-event-exclamation', label: '予約', page: 'schedule' },
   { to: '/op/phone', icon: 'ti-phone', label: '電話', page: 'phone' },
+  { to: '/op/customers', icon: 'ti-users', label: '顧客', page: 'customer-list' },
 ]
 
 function toggleSidebar() {
@@ -23,6 +28,12 @@ function toggleSidebar() {
 
 function closeSidebar() {
   sidebarOpen.value = false
+}
+
+async function onLogout() {
+  try { await api.logout() } catch { /* ignore */ }
+  resetAuthCache()
+  router.push('/op/login')
 }
 
 function onDocClick(e) {
@@ -64,6 +75,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           </li>
         </ul>
       </nav>
+      <div class="sidebar-footer" style="padding: 1rem; margin-top: auto;">
+        <button class="btn btn-outline-primary btn-block" @click="onLogout">
+          <i class="ti ti-logout"></i> ログアウト
+        </button>
+      </div>
     </aside>
 
     <!-- Main content -->

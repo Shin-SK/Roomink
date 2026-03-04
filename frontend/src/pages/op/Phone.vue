@@ -122,9 +122,17 @@ function formatYen(n) {
         1. 顧客を選択 → 2. 日時・セラピスト・コースを選択 → 3. 承認済み予約を作成
       </div>
 
-      <div v-if="phoneHint && !form.customer" class="alert alert-warning">
-        <i class="ti ti-phone-incoming"></i>
-        着信番号 <strong>{{ phoneHint }}</strong> に一致する顧客が見つかりませんでした。手動で選択してください。
+      <div v-if="phoneHint && !form.customer" class="alert alert-warning d-flex justify-content-between align-items-center">
+        <div>
+          <i class="ti ti-phone-incoming"></i>
+          着信番号 <strong>{{ phoneHint }}</strong> に一致する顧客が見つかりませんでした。
+        </div>
+        <router-link
+          :to="`/op/customers/new?phone=${encodeURIComponent(phoneHint)}&return=${encodeURIComponent('/op/phone?phone=' + phoneHint)}`"
+          class="btn btn-sm btn-primary ms-3"
+        >
+          <i class="ti ti-user-plus"></i> この番号で顧客作成
+        </router-link>
       </div>
 
       <!-- Error -->

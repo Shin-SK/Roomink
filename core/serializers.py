@@ -45,6 +45,7 @@ class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = "__all__"
+        read_only_fields = ["store"]
 
     def validate_phone(self, value):
         return normalize_phone(value)
@@ -204,6 +205,66 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         for opt in option_objs:
             OrderOption.objects.get_or_create(order=order, option=opt)
         return order
+
+    def to_representation(self, instance):
+        return OrderSerializer(instance, context=self.context).data
+
+
+# ──────────────────────────────────────
+# Order — update (partial)
+# ──────────────────────────────────────
+
+class OrderUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Order
+        fields = ["cast", "start", "end", "memo"]
+
+    def validate(self, data):
+        instance = self.instance
+        cast = data.get("cast", instance.cast)
+        start = data.get("start", instance.start)
+        end = data.get("end", instance.end)
+
+        time_or_cast_changed = "cast" in data or "start" in data or "end" in data
+        if not time_or_cast_changed:
+            return data
+
+        if end <= start:
+            raise serializers.ValidationError("終了時刻は開始時刻より後にしてください")
+
+        store = instance.store
+
+        # ShiftAssignment → room auto-assign
+        assignment = ShiftAssignment.objects.filter(
+            store=store,
+            date=start.date(),
+            cast=cast,
+            start_time__lte=start.time(),
+            end_time__gte=end.time(),
+        ).first()
+        if assignment is None:
+            raise serializers.ValidationError("このキャストは指定日時にシフトがありません")
+        data["room"] = assignment.room
+
+        # Cast conflict (exclude self)
+        if Order.objects.filter(
+            cast=cast,
+            status__in=Order.ACTIVE_STATUSES,
+            start__lt=end,
+            end__gt=start,
+        ).exclude(pk=instance.pk).exists():
+            raise serializers.ValidationError("このキャストは指定時間に予約が入っています")
+
+        # Room conflict (exclude self)
+        if Order.objects.filter(
+            room=data["room"],
+            status__in=Order.ACTIVE_STATUSES,
+            start__lt=end,
+            end__gt=start,
+        ).exclude(pk=instance.pk).exists():
+            raise serializers.ValidationError("指定ルームは使用中です")
+
+        return data
 
     def to_representation(self, instance):
         return OrderSerializer(instance, context=self.context).data

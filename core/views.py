@@ -24,6 +24,7 @@ from .serializers import (
     OptionSerializer,
     OrderCreateSerializer,
     OrderSerializer,
+    OrderUpdateSerializer,
     RoomSerializer,
     ScheduleResponseSerializer,
     ShiftAssignmentSerializer,
@@ -128,6 +129,8 @@ class OrderViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == "create":
             return OrderCreateSerializer
+        if self.action in ("update", "partial_update"):
+            return OrderUpdateSerializer
         return OrderSerializer
 
     # --- status actions ---
@@ -545,6 +548,13 @@ class CustomerViewSet(viewsets.ModelViewSet):
     search_fields = ["display_name", "phone"]
     ordering_fields = ["id", "display_name"]
     ordering = ["id"]
+
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
 
 
 class CastViewSet(viewsets.ReadOnlyModelViewSet):

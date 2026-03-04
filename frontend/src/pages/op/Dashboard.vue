@@ -14,6 +14,9 @@ const activeTab = ref('mikakunin')
 // CTI Queue
 const ctiCalls = ref([])
 const ctiNewCount = computed(() => ctiCalls.value.filter(c => c.status === 'NEW').length)
+const ctiStarting = ref({})   // { [callId]: true } 二重クリック防止
+const ctiDoning = ref({})
+const ctiError = ref('')
 let ctiTimer = null
 
 function today() {
@@ -55,8 +58,32 @@ function goOrder(id) {
   router.push(`/op/orders/${id}`)
 }
 
-function goPhone(phone) {
-  router.push(`/op/phone?phone=${encodeURIComponent(phone)}`)
+async function handleCall(call) {
+  if (ctiStarting.value[call.id]) return
+  ctiStarting.value[call.id] = true
+  ctiError.value = ''
+  try {
+    await api.ctiCallStart(call.id)
+    router.push(`/op/phone?phone=${encodeURIComponent(call.from_phone)}`)
+  } catch (e) {
+    ctiError.value = e.message || '対応開始に失敗しました'
+    await fetchCtiQueue()
+  } finally {
+    ctiStarting.value[call.id] = false
+  }
+}
+
+async function doneCall(call) {
+  if (ctiDoning.value[call.id]) return
+  ctiDoning.value[call.id] = true
+  try {
+    await api.ctiCallDone(call.id)
+    await fetchCtiQueue()
+  } catch (e) {
+    ctiError.value = e.message || '完了処理に失敗しました'
+  } finally {
+    ctiDoning.value[call.id] = false
+  }
 }
 
 function formatTime(dt) {
@@ -106,6 +133,9 @@ function timeAgo(dt) {
           </div>
           <small>{{ ctiCalls.length }}件</small>
         </div>
+        <div v-if="ctiError" class="alert alert-warning m-2 py-2 px-3 mb-0" style="font-size: 0.875rem;">
+          {{ ctiError }}
+        </div>
         <div class="card-body p-0">
           <ul class="list-group list-group-flush">
             <li
@@ -122,11 +152,31 @@ function timeAgo(dt) {
                   <strong>{{ call.customer_name || call.from_phone }}</strong>
                   <span v-if="call.is_repeat" class="badge bg-info">再着信</span>
                 </div>
-                <small class="text-muted">{{ call.store_name }} ・ {{ timeAgo(call.created_at) }}</small>
+                <small class="text-muted">
+                  {{ call.store_name }} ・ {{ timeAgo(call.created_at) }}
+                  <span v-if="call.assigned_to"> ・ {{ call.assigned_to }}</span>
+                </small>
               </div>
-              <button class="btn btn-sm btn-outline-dark" @click="goPhone(call.from_phone)">
-                <i class="ti ti-phone"></i> 対応
-              </button>
+              <div class="d-flex gap-1">
+                <button
+                  v-if="call.status === 'NEW'"
+                  class="btn btn-sm btn-outline-dark"
+                  :disabled="ctiStarting[call.id]"
+                  @click="handleCall(call)"
+                >
+                  <span v-if="ctiStarting[call.id]" class="spinner-border spinner-border-sm"></span>
+                  <template v-else><i class="ti ti-phone"></i> 対応</template>
+                </button>
+                <button
+                  v-if="call.status === 'IN_PROGRESS'"
+                  class="btn btn-sm btn-outline-success"
+                  :disabled="ctiDoning[call.id]"
+                  @click="doneCall(call)"
+                >
+                  <span v-if="ctiDoning[call.id]" class="spinner-border spinner-border-sm"></span>
+                  <template v-else><i class="ti ti-check"></i> 完了</template>
+                </button>
+              </div>
             </li>
           </ul>
         </div>

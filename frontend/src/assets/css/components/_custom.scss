@@ -1,3 +1,6 @@
+@use "sass:color";
+@use "theme" as *;
+
 .footer{
     z-index: 999;
     img{
@@ -269,7 +272,7 @@
 
   &__time {
     font-size: 0.6875rem;
-    color: lighten($rk-muted, 10%);
+    color: color.adjust($rk-muted, $lightness: 10%);
   }
 
   &__footer {

@@ -3,6 +3,8 @@
    =========================== */
 
 @use "sass:color";
+@use "theme" as *;
+
 .rk-bottomnav {
   position: fixed;
   bottom: 0;

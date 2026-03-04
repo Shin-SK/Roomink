@@ -14,6 +14,13 @@ const loading = ref(true)
 const error = ref('')
 const acting = ref(false)
 
+// Edit mode
+const editing = ref(false)
+const editForm = ref({ start: '', end: '', cast: null, memo: '' })
+const casts = ref([])
+const saving = ref(false)
+const editError = ref('')
+
 const statusMap = {
   REQUESTED: { text: '申請中', cls: 'badge-pending' },
   CONFIRMED: { text: '承認済', cls: 'badge-approved' },
@@ -29,6 +36,9 @@ const canCancel = computed(() =>
 const canDone = computed(() =>
   order.value && ['CONFIRMED', 'IN_PROGRESS'].includes(order.value.status)
 )
+const canEdit = computed(() =>
+  order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
+)
 
 onMounted(async () => {
   try {
@@ -39,6 +49,45 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+function toLocalInput(dt) {
+  if (!dt) return ''
+  const d = new Date(dt)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+async function startEdit() {
+  editError.value = ''
+  editForm.value = {
+    start: toLocalInput(order.value.start),
+    end: toLocalInput(order.value.end),
+    cast: order.value.cast,
+    memo: order.value.memo || '',
+  }
+  if (!casts.value.length) {
+    casts.value = await api.getCasts()
+  }
+  editing.value = true
+}
+
+function cancelEdit() {
+  editing.value = false
+  editError.value = ''
+}
+
+async function saveEdit() {
+  editError.value = ''
+  saving.value = true
+  try {
+    order.value = await api.updateOrder(props.id, editForm.value)
+    editing.value = false
+  } catch (e) {
+    editError.value = e.message
+  } finally {
+    saving.value = false
+  }
+}
 
 async function doConfirm() {
   if (!confirm('この予約を承認しますか？')) return
@@ -114,7 +163,9 @@ function goBack() {
               <div class="card-header">
                 <i class="ti ti-file-text"></i> 予約情報
               </div>
-              <div class="card-body">
+
+              <!-- 閲覧モード -->
+              <div v-if="!editing" class="card-body">
                 <table class="table mb-0">
                   <tbody>
                     <tr>
@@ -153,6 +204,41 @@ function goBack() {
                   </tbody>
                 </table>
               </div>
+
+              <!-- 編集モード -->
+              <div v-else class="card-body">
+                <div v-if="editError" class="alert alert-danger py-2 px-3 mb-3" style="font-size: 0.875rem;">
+                  {{ editError }}
+                </div>
+                <form @submit.prevent="saveEdit">
+                  <div class="mb-3">
+                    <label class="form-label">開始日時</label>
+                    <input v-model="editForm.start" type="datetime-local" class="form-control" required>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">終了日時</label>
+                    <input v-model="editForm.end" type="datetime-local" class="form-control" required>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">担当キャスト</label>
+                    <select v-model="editForm.cast" class="form-select" required>
+                      <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
+                    </select>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">メモ</label>
+                    <textarea v-model="editForm.memo" class="form-control" rows="3"></textarea>
+                  </div>
+                  <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary" :disabled="saving">
+                      {{ saving ? '保存中...' : '保存' }}
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" @click="cancelEdit" :disabled="saving">
+                      キャンセル
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
 
             <!-- 運営メモ -->
@@ -161,7 +247,7 @@ function goBack() {
                 <i class="ti ti-notes"></i> 運営メモ
               </div>
               <div class="card-body">
-                <textarea class="form-control mb-2" rows="3" placeholder="メモを入力...">{{ order.memo }}</textarea>
+                <p class="mb-0" style="white-space: pre-wrap;">{{ order.memo || '—' }}</p>
               </div>
             </div>
 
@@ -178,22 +264,29 @@ function goBack() {
               <div class="card-body">
                 <div class="d-flex flex-column gap-2">
                   <button
+                    class="btn btn-outline-primary w-100"
+                    :disabled="!canEdit || acting || editing"
+                    @click="startEdit"
+                  >
+                    <i class="ti ti-edit"></i> 編集
+                  </button>
+                  <button
                     class="btn btn-success w-100"
-                    :disabled="!canConfirm || acting"
+                    :disabled="!canConfirm || acting || editing"
                     @click="doConfirm"
                   >
                     <i class="ti ti-check"></i> 承認
                   </button>
                   <button
                     class="btn btn-danger w-100"
-                    :disabled="!canCancel || acting"
+                    :disabled="!canCancel || acting || editing"
                     @click="doCancel"
                   >
                     <i class="ti ti-x"></i> キャンセル
                   </button>
                   <button
                     class="btn btn-primary w-100"
-                    :disabled="!canDone || acting"
+                    :disabled="!canDone || acting || editing"
                     @click="doDone"
                   >
                     <i class="ti ti-circle-check"></i> 完了
