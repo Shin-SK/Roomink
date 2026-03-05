@@ -52,6 +52,13 @@ CORS_ALLOW_CREDENTIALS = True
 _csrf_env = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(",") if o.strip()] if _csrf_env else []
 
+# --- Cross-origin cookie settings (for Amplify ↔ App Runner) ---
+if _cors_env:
+    SESSION_COOKIE_SAMESITE = "None"
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SAMESITE = "None"
+    CSRF_COOKIE_SECURE = True
+
 # --- DRF minimal ---
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [

@@ -1,4 +1,5 @@
-const BASE = '/api'
+const API_ORIGIN = import.meta.env.VITE_API_BASE_URL || ''
+const BASE = `${API_ORIGIN}/api`
 
 function getCookie(name) {
   const v = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)')
@@ -9,7 +10,7 @@ async function request(method, path, body) {
   const opts = {
     method,
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
+    credentials: API_ORIGIN ? 'include' : 'same-origin',
   }
   if (method !== 'GET') {
     opts.headers['X-CSRFToken'] = getCookie('csrftoken')
@@ -35,7 +36,7 @@ async function upload(path, formData) {
   const opts = {
     method: 'POST',
     headers: { 'X-CSRFToken': getCookie('csrftoken') },
-    credentials: 'same-origin',
+    credentials: API_ORIGIN ? 'include' : 'same-origin',
     body: formData,
   }
   const res = await fetch(`${BASE}${path}`, opts)
