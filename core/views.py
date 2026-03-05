@@ -7,7 +7,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import parsers, viewsets, status
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -47,6 +47,7 @@ from .services.notify import (
 # ──────────────────────────────────────
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def auth_login(request):
     username = normalize_phone(request.data.get("username", ""))
@@ -331,6 +332,7 @@ class CustomerStoresView(APIView):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def customer_signup(request):
     """POST /api/cu/signup/ — 顧客アカウント作成"""
