@@ -143,3 +143,9 @@ STORAGES = {
     },
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+import os
+print("DB_DEBUG USE_POSTGRES=", os.getenv("USE_POSTGRES"))
+print("DB_DEBUG HOST=", os.getenv("POSTGRES_HOST"))
+print("DB_DEBUG NAME=", os.getenv("POSTGRES_DB"))
