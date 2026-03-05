@@ -50,7 +50,9 @@ from .services.notify import (
 @authentication_classes([])
 @permission_classes([AllowAny])
 def auth_login(request):
-    username = normalize_phone(request.data.get("username", ""))
+    raw_username = request.data.get("username", "")
+    # 数字を含む場合のみ電話番号正規化（admin 等の英字ユーザー名はそのまま）
+    username = normalize_phone(raw_username) if any(c.isdigit() for c in raw_username) else raw_username
     password = request.data.get("password", "")
     user = authenticate(request, username=username, password=password)
     if user is None:
