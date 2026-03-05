@@ -1,5 +1,6 @@
 venv
 .env
+.env.*
 .venv
 .vscode
 .claude
@@ -16,3 +17,5 @@ frontend/dist
 *.swo
 *.DS_Store
 *.egg-info
+
+docs/*

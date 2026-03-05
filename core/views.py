@@ -14,13 +14,15 @@ from rest_framework.views import APIView
 
 from .models import (
     CallLog, CallNote, Cast, CastAck, Course, Customer, Option, Order, OrderOption,
-    Room, ShiftAssignment, Store, StorePhoneNumber,
+    Room, ShiftAssignment, ShiftRequest, Store, StorePhoneNumber,
 )
 from .serializers import (
     CastSerializer,
+    CastShiftRequestSerializer,
     CastTodayOrderSerializer,
     CourseSerializer,
     CustomerSerializer,
+    OpShiftRequestSerializer,
     OptionSerializer,
     OrderCreateSerializer,
     OrderSerializer,
@@ -537,6 +539,13 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     ordering_fields = ["date", "start_time"]
     ordering = ["date", "start_time"]
 
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
+
 
 class CustomerViewSet(viewsets.ModelViewSet):
     queryset = Customer.objects.order_by("id")
@@ -575,6 +584,130 @@ class OptionViewSet(viewsets.ReadOnlyModelViewSet):
 class RoomViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Room.objects.order_by("sort_order")
     serializer_class = RoomSerializer
+
+
+# ──────────────────────────────────────
+# ShiftRequest — Cast API
+# ──────────────────────────────────────
+
+class CastShiftRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = CastShiftRequestSerializer
+    http_method_names = ["get", "post", "patch", "head", "options"]
+    filterset_fields = {
+        "date": ["exact", "gte", "lte"],
+        "status": ["exact"],
+    }
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        cast = getattr(self.request.user, "cast_profile", None)
+        if cast is None:
+            return ShiftRequest.objects.none()
+        return ShiftRequest.objects.filter(cast=cast).select_related("cast", "desired_room").order_by("-created_at")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("このユーザーにキャストが紐づいていません")
+
+    def perform_create(self, serializer):
+        cast = self.request.user.cast_profile
+        serializer.save(cast=cast, store=cast.store)
+
+    def perform_update(self, serializer):
+        if serializer.instance.status != ShiftRequest.Status.REQUESTED:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError("申請中のもののみ編集できます")
+        serializer.save()
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        obj = self.get_object()
+        if obj.status != ShiftRequest.Status.REQUESTED:
+            return Response(
+                {"detail": "申請中のもののみ取消できます"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        obj.status = ShiftRequest.Status.CANCELLED
+        obj.save(update_fields=["status", "updated_at"])
+        return Response(CastShiftRequestSerializer(obj).data)
+
+
+# ──────────────────────────────────────
+# ShiftRequest — Operator API
+# ──────────────────────────────────────
+
+class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = OpShiftRequestSerializer
+    queryset = ShiftRequest.objects.select_related("cast", "desired_room").order_by("-created_at")
+    filterset_fields = {
+        "date": ["exact", "gte", "lte"],
+        "status": ["exact"],
+        "cast": ["exact"],
+    }
+    ordering = ["-created_at"]
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        obj = self.get_object()
+        if obj.status != ShiftRequest.Status.REQUESTED:
+            return Response(
+                {"detail": "申請中のもののみ承認できます"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        room_id = request.data.get("room")
+        if not room_id:
+            return Response(
+                {"detail": "room は必須です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            room = Room.objects.get(pk=room_id)
+        except Room.DoesNotExist:
+            return Response(
+                {"detail": "指定された部屋が見つかりません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        admin_memo = request.data.get("admin_memo", "")
+
+        # ShiftAssignment 作成（重複チェックは serializer に任せる）
+        from .serializers import ShiftAssignmentSerializer
+        sa_data = {
+            "date": obj.date,
+            "cast": obj.cast_id,
+            "room": room.id,
+            "start_time": str(obj.start_time),
+            "end_time": str(obj.end_time),
+        }
+        sa_serializer = ShiftAssignmentSerializer(data=sa_data)
+        if not sa_serializer.is_valid():
+            return Response(sa_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        sa_serializer.save(store=obj.store)
+
+        obj.status = ShiftRequest.Status.APPROVED
+        obj.admin_memo = admin_memo
+        obj.save(update_fields=["status", "admin_memo", "updated_at"])
+        return Response(OpShiftRequestSerializer(obj).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        obj = self.get_object()
+        if obj.status != ShiftRequest.Status.REQUESTED:
+            return Response(
+                {"detail": "申請中のもののみ却下できます"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        admin_memo = request.data.get("admin_memo", "")
+        obj.status = ShiftRequest.Status.REJECTED
+        obj.admin_memo = admin_memo
+        obj.save(update_fields=["status", "admin_memo", "updated_at"])
+        return Response(OpShiftRequestSerializer(obj).data)
 
 
 # ──────────────────────────────────────

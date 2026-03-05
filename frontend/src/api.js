@@ -85,10 +85,22 @@ export const api = {
 
   // Shifts
   getShifts: (params = '') => request('GET', `/shifts/${params ? '?' + params : ''}`),
+  createShift: (body) => request('POST', '/shifts/', body),
+  updateShift: (id, body) => request('PATCH', `/shifts/${id}/`, body),
+  deleteShift: (id) => request('DELETE', `/shifts/${id}/`),
 
   // Cast
   getCastToday: (date) => request('GET', `/cast/today/?date=${date}`),
   ackOrder: (id) => request('POST', `/cast/orders/${id}/ack/`),
+  getCastShiftRequests: (params = '') => request('GET', `/cast/shift-requests/${params ? '?' + params : ''}`),
+  createCastShiftRequest: (body) => request('POST', '/cast/shift-requests/', body),
+  updateCastShiftRequest: (id, body) => request('PATCH', `/cast/shift-requests/${id}/`, body),
+  cancelCastShiftRequest: (id) => request('POST', `/cast/shift-requests/${id}/cancel/`),
+
+  // Op ShiftRequests
+  getOpShiftRequests: (params = '') => request('GET', `/op/shift-requests/${params ? '?' + params : ''}`),
+  approveShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/approve/`, body),
+  rejectShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/reject/`, body),
 
   // Customer
   customerSignup: (phone, password, display_name) => request('POST', '/cu/signup/', { phone, password, display_name }),

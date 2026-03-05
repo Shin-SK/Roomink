@@ -12,6 +12,12 @@ router.register("courses", views.CourseViewSet)
 router.register("options", views.OptionViewSet)
 router.register("rooms", views.RoomViewSet)
 
+cast_sr_router = DefaultRouter()
+cast_sr_router.register("shift-requests", views.CastShiftRequestViewSet, basename="cast-shift-request")
+
+op_sr_router = DefaultRouter()
+op_sr_router.register("shift-requests", views.OpShiftRequestViewSet, basename="op-shift-request")
+
 urlpatterns = [
     # auth
     path("auth/login/", views.auth_login, name="auth-login"),
@@ -21,6 +27,7 @@ urlpatterns = [
     # cast
     path("cast/today/", views.CastTodayView.as_view(), name="cast-today"),
     path("cast/orders/<int:pk>/ack/", views.CastAckView.as_view(), name="cast-ack"),
+    path("cast/", include(cast_sr_router.urls)),
 
     # customer
     path("cu/stores/", views.CustomerStoresView.as_view(), name="cu-stores"),
@@ -32,6 +39,7 @@ urlpatterns = [
     # operator
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),
     path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
+    path("op/", include(op_sr_router.urls)),
 
     # CTI
     path("op/cti/inbound/", views.CtiInboundView.as_view(), name="cti-inbound"),

@@ -317,6 +317,12 @@ onMounted(() => {
             <small>タイムライン</small>
           </a>
         </button>
+        <button class="btn border-0 p-0">
+          <a href="/cast/shift-requests" class="nav-link">
+            <i class="ti ti-calendar-plus"></i>
+            <small>シフト申請</small>
+          </a>
+        </button>
       </div>
     </footer>
   </div>

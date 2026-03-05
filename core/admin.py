@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from .models import (
     CallLog, CallNote, Cast, Course, Customer, Option, Order,
-    Room, ShiftAssignment, SmsLog, Store, StorePhoneNumber,
+    Room, ShiftAssignment, ShiftRequest, SmsLog, Store, StorePhoneNumber,
 )
 
 
@@ -46,6 +46,12 @@ class OptionAdmin(admin.ModelAdmin):
 class ShiftAssignmentAdmin(admin.ModelAdmin):
     list_display = ("id", "store", "date", "cast", "room", "start_time", "end_time")
     list_filter = ("store", "date")
+
+
+@admin.register(ShiftRequest)
+class ShiftRequestAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "date", "cast", "desired_room", "start_time", "end_time", "status", "created_at")
+    list_filter = ("store", "status", "date")
 
 
 @admin.register(Order)

@@ -15,6 +15,7 @@ from .models import (
     OrderOption,
     Room,
     ShiftAssignment,
+    ShiftRequest,
     Store,
 )
 
@@ -68,9 +69,13 @@ class OptionSerializer(serializers.ModelSerializer):
 # ──────────────────────────────────────
 
 class ShiftAssignmentSerializer(serializers.ModelSerializer):
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+    room_name = serializers.CharField(source="room.name", read_only=True)
+
     class Meta:
         model = ShiftAssignment
         fields = "__all__"
+        read_only_fields = ["store"]
 
     def validate(self, data):
         store = data.get("store", getattr(self.instance, "store", None))
@@ -93,6 +98,54 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("このキャストの既存シフトと時間が重複しています")
 
         return data
+
+
+# ──────────────────────────────────────
+# ShiftRequest
+# ──────────────────────────────────────
+
+class CastShiftRequestSerializer(serializers.ModelSerializer):
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+    desired_room_name = serializers.CharField(source="desired_room.name", read_only=True, default=None)
+
+    class Meta:
+        model = ShiftRequest
+        fields = "__all__"
+        read_only_fields = ["store", "cast", "status", "admin_memo"]
+
+    def validate(self, data):
+        start_time = data.get("start_time", getattr(self.instance, "start_time", None))
+        end_time = data.get("end_time", getattr(self.instance, "end_time", None))
+
+        if start_time and end_time and end_time <= start_time:
+            raise serializers.ValidationError("end_time は start_time より後にしてください")
+
+        # 同一キャスト・同一時間帯の REQUESTED 重複チェック
+        cast = data.get("cast", getattr(self.instance, "cast", None))
+        date = data.get("date", getattr(self.instance, "date", None))
+        if cast and date and start_time and end_time:
+            qs = ShiftRequest.objects.filter(
+                cast=cast, date=date,
+                status=ShiftRequest.Status.REQUESTED,
+                start_time__lt=end_time,
+                end_time__gt=start_time,
+            )
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError("同じ時間帯に申請中のシフトがあります")
+
+        return data
+
+
+class OpShiftRequestSerializer(serializers.ModelSerializer):
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+    desired_room_name = serializers.CharField(source="desired_room.name", read_only=True, default=None)
+
+    class Meta:
+        model = ShiftRequest
+        fields = "__all__"
+        read_only_fields = ["store", "cast"]
 
 
 # ──────────────────────────────────────

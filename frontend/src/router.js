@@ -8,7 +8,10 @@ import OrderDetail from './pages/op/OrderDetail.vue'
 import CustomerList from './pages/op/CustomerList.vue'
 import CustomerDetail from './pages/op/CustomerDetail.vue'
 import Login from './pages/op/Login.vue'
+import ShiftList from './pages/op/ShiftList.vue'
+import OpShiftRequests from './pages/op/OpShiftRequests.vue'
 import CastToday from './pages/cast/CastToday.vue'
+import CastShiftRequests from './pages/cast/CastShiftRequests.vue'
 import CuMypage from './pages/cu/CuMypage.vue'
 import CuBooking from './pages/cu/CuBooking.vue'
 import CuSubmitted from './pages/cu/CuSubmitted.vue'
@@ -22,9 +25,12 @@ const routes = [
   { path: '/op/orders/:id', name: 'order-detail', component: OrderDetail, props: true },
   { path: '/op/customers', name: 'customer-list', component: CustomerList },
   { path: '/op/customers/:id', name: 'customer-detail', component: CustomerDetail, props: true },
+  { path: '/op/shifts', name: 'shift-list', component: ShiftList },
+  { path: '/op/shift-requests', name: 'op-shift-requests', component: OpShiftRequests },
 
   // Cast
   { path: '/cast/today', name: 'cast-today', component: CastToday },
+  { path: '/cast/shift-requests', name: 'cast-shift-requests', component: CastShiftRequests },
 
   // Customer
   { path: '/cu/mypage', name: 'cu-mypage', component: CuMypage },

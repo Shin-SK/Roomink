@@ -13,6 +13,8 @@ const navItems = [
   { to: '/op/schedule', icon: 'ti-calendar', label: '予約タイムライン', page: 'schedule' },
   { to: '/op/phone', icon: 'ti-phone', label: '電話予約', page: 'phone' },
   { to: '/op/customers', icon: 'ti-users', label: '顧客管理', page: 'customer-list' },
+  { to: '/op/shifts', icon: 'ti-clock', label: 'シフト管理', page: 'shift-list' },
+  { to: '/op/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
 ]
 
 const footerItems = [
