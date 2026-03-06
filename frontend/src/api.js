@@ -74,15 +74,24 @@ export const api = {
 
   // Casts
   getCasts: () => request('GET', '/casts/'),
+  createCast: (body) => request('POST', '/casts/', body),
+  updateCast: (id, body) => request('PATCH', `/casts/${id}/`, body),
+  deleteCast: (id) => request('DELETE', `/casts/${id}/`),
 
   // Courses
   getCourses: () => request('GET', '/courses/'),
+  createCourse: (body) => request('POST', '/courses/', body),
+  updateCourse: (id, body) => request('PATCH', `/courses/${id}/`, body),
+  deleteCourse: (id) => request('DELETE', `/courses/${id}/`),
 
   // Options
   getOptions: () => request('GET', '/options/'),
 
   // Rooms
   getRooms: () => request('GET', '/rooms/'),
+  createRoom: (body) => request('POST', '/rooms/', body),
+  updateRoom: (id, body) => request('PATCH', `/rooms/${id}/`, body),
+  deleteRoom: (id) => request('DELETE', `/rooms/${id}/`),
 
   // Shifts
   getShifts: (params = '') => request('GET', `/shifts/${params ? '?' + params : ''}`),

@@ -5,6 +5,7 @@ from datetime import date as date_type, timedelta
 
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
+from django.db.models import ProtectedError
 from django.utils import timezone
 from rest_framework import parsers, viewsets, status
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes
@@ -570,14 +571,50 @@ class CustomerViewSet(viewsets.ModelViewSet):
         serializer.save(store=store)
 
 
-class CastViewSet(viewsets.ReadOnlyModelViewSet):
+class CastViewSet(viewsets.ModelViewSet):
     queryset = Cast.objects.order_by("name")
     serializer_class = CastSerializer
 
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
 
-class CourseViewSet(viewsets.ReadOnlyModelViewSet):
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {"detail": "このキャストは予約やシフトで使用されているため削除できません"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CourseViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.order_by("id")
     serializer_class = CourseSerializer
+
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {"detail": "このコースは予約で使用されているため削除できません"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class OptionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -585,9 +622,27 @@ class OptionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = OptionSerializer
 
 
-class RoomViewSet(viewsets.ReadOnlyModelViewSet):
+class RoomViewSet(viewsets.ModelViewSet):
     queryset = Room.objects.order_by("sort_order")
     serializer_class = RoomSerializer
+
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {"detail": "このルームは予約やシフトで使用されているため削除できません"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ──────────────────────────────────────

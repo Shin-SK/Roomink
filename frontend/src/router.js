@@ -10,6 +10,10 @@ import CustomerDetail from './pages/op/CustomerDetail.vue'
 import Login from './pages/op/Login.vue'
 import ShiftList from './pages/op/ShiftList.vue'
 import OpShiftRequests from './pages/op/OpShiftRequests.vue'
+import Settings from './pages/op/Settings.vue'
+import SettingsCasts from './pages/op/SettingsCasts.vue'
+import SettingsRooms from './pages/op/SettingsRooms.vue'
+import SettingsCourses from './pages/op/SettingsCourses.vue'
 import CastToday from './pages/cast/CastToday.vue'
 import CastShiftRequests from './pages/cast/CastShiftRequests.vue'
 import CuMypage from './pages/cu/CuMypage.vue'
@@ -27,6 +31,10 @@ const routes = [
   { path: '/op/customers/:id', name: 'customer-detail', component: CustomerDetail, props: true },
   { path: '/op/shifts', name: 'shift-list', component: ShiftList },
   { path: '/op/shift-requests', name: 'op-shift-requests', component: OpShiftRequests },
+  { path: '/op/settings', name: 'settings', component: Settings },
+  { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts },
+  { path: '/op/settings/rooms', name: 'settings-rooms', component: SettingsRooms },
+  { path: '/op/settings/courses', name: 'settings-courses', component: SettingsCourses },
 
   // Cast
   { path: '/cast/today', name: 'cast-today', component: CastToday },

@@ -15,6 +15,7 @@ const navItems = [
   { to: '/op/customers', icon: 'ti-users', label: '顧客管理', page: 'customer-list' },
   { to: '/op/shifts', icon: 'ti-clock', label: 'シフト管理', page: 'shift-list' },
   { to: '/op/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
+  { to: '/op/settings', icon: 'ti-settings', label: '設定', page: 'settings' },
 ]
 
 const footerItems = [
@@ -69,7 +70,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             <router-link
               :to="item.to"
               class="nav-link"
-              :class="{ active: route.path === item.to }"
+              :class="{ active: item.to === '/op/settings' ? route.path.startsWith('/op/settings') : route.path === item.to }"
               @click="closeSidebar"
             >
               <i class="ti" :class="item.icon"></i>{{ item.label }}
