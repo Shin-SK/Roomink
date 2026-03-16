@@ -48,6 +48,7 @@ CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()] if
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://roomink-0315e6e58623.herokuapp.com",
+    "https://roomink.netlify.app",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
@@ -56,9 +57,10 @@ _csrf_env = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(",") if o.strip()] if _csrf_env else []
 if "DYNO" in os.environ:
     CSRF_TRUSTED_ORIGINS.append("https://roomink-0315e6e58623.herokuapp.com")
+    CSRF_TRUSTED_ORIGINS.append("https://roomink.netlify.app")
 
 # --- Cross-origin cookie settings (for Amplify ↔ App Runner) ---
-if _cors_env:
+if _cors_env or "DYNO" in os.environ:
     SESSION_COOKIE_SAMESITE = "None"
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SAMESITE = "None"
