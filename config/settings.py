@@ -9,6 +9,8 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret-key")
 DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0").split(",")
+if "DYNO" in os.environ:
+    ALLOWED_HOSTS.append("roomink-0315e6e58623.herokuapp.com")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -52,6 +54,8 @@ CORS_ALLOW_CREDENTIALS = True
 # --- CSRF ---
 _csrf_env = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(",") if o.strip()] if _csrf_env else []
+if "DYNO" in os.environ:
+    CSRF_TRUSTED_ORIGINS.append("https://roomink-0315e6e58623.herokuapp.com")
 
 # --- Cross-origin cookie settings (for Amplify ↔ App Runner) ---
 if _cors_env:
