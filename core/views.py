@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
-    CallLog, CallNote, Cast, CastAck, Course, Customer, Option, Order, OrderOption,
+    CallLog, CallNote, Cast, CastAck, Course, Customer, Discount, Extension, Medium, NominationFee, Option, Order, OrderOption,
     Room, ShiftAssignment, ShiftRequest, Store, StorePhoneNumber,
 )
 from .serializers import (
@@ -23,6 +23,10 @@ from .serializers import (
     CastTodayOrderSerializer,
     CourseSerializer,
     CustomerSerializer,
+    DiscountSerializer,
+    ExtensionSerializer,
+    MediumSerializer,
+    NominationFeeSerializer,
     OpShiftRequestSerializer,
     OptionSerializer,
     OrderCreateSerializer,
@@ -36,6 +40,7 @@ from .serializers import (
 )
 from .utils.phone import normalize_phone
 from .services.customer_context import resolve_customer
+from .services.pricing import recalculate_order_total
 from .services.notify import (
     notify_cast_order,
     notify_order_cancelled,
@@ -180,6 +185,97 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.save(update_fields=["status", "updated_at"])
         return Response(OrderSerializer(order).data)
 
+    @action(detail=True, methods=["post"])
+    def apply_extension(self, request, pk=None):
+        order = self.get_object()
+        extension_id = request.data.get("extension_id")
+
+        if extension_id is None:
+            # 解除
+            order.extension = None
+            order.extension_name = ""
+            order.extension_price = 0
+        else:
+            try:
+                ext = Extension.objects.get(pk=extension_id)
+            except Extension.DoesNotExist:
+                return Response({"detail": "延長が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
+            order.extension = ext
+            order.extension_name = ext.name
+            order.extension_price = ext.price
+
+        order.save(update_fields=["extension", "extension_name", "extension_price", "updated_at"])
+        recalculate_order_total(order)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=["post"])
+    def apply_nomination_fee(self, request, pk=None):
+        order = self.get_object()
+        nomination_fee_id = request.data.get("nomination_fee_id")
+
+        if nomination_fee_id is None:
+            order.nomination_fee = None
+            order.nomination_fee_name = ""
+            order.nomination_fee_price = 0
+        else:
+            try:
+                nf = NominationFee.objects.get(pk=nomination_fee_id)
+            except NominationFee.DoesNotExist:
+                return Response({"detail": "指名料が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
+            order.nomination_fee = nf
+            order.nomination_fee_name = nf.name
+            order.nomination_fee_price = nf.price
+
+        order.save(update_fields=["nomination_fee", "nomination_fee_name", "nomination_fee_price", "updated_at"])
+        recalculate_order_total(order)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=["post"])
+    def apply_discount(self, request, pk=None):
+        order = self.get_object()
+        discount_id = request.data.get("discount_id")
+
+        if discount_id is None:
+            order.discount = None
+            order.discount_name = ""
+            order.discount_type_snapshot = ""
+            order.discount_value_snapshot = 0
+            order.discount_amount = 0
+        else:
+            try:
+                dc = Discount.objects.get(pk=discount_id)
+            except Discount.DoesNotExist:
+                return Response({"detail": "割引が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
+            order.discount = dc
+            order.discount_name = dc.name
+            order.discount_type_snapshot = dc.discount_type
+            order.discount_value_snapshot = dc.value
+
+        order.save(update_fields=[
+            "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot", "updated_at",
+        ])
+        recalculate_order_total(order)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=["post"])
+    def apply_medium(self, request, pk=None):
+        order = self.get_object()
+        medium_id = request.data.get("medium_id")
+
+        if medium_id is None:
+            order.medium = None
+            order.medium_name = ""
+        else:
+            try:
+                med = Medium.objects.get(pk=medium_id)
+            except Medium.DoesNotExist:
+                return Response({"detail": "媒体が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
+            order.medium = med
+            order.medium_name = med.name
+
+        order.save(update_fields=["medium", "medium_name", "updated_at"])
+        return Response(OrderSerializer(order).data)
+
 
 # ──────────────────────────────────────
 # Cast Today / ACK
@@ -242,8 +338,8 @@ class CastTodayView(APIView):
                 "room_id": o.room_id,
                 "room_name": o.room.name,
                 "customer_label": build_customer_label(o.customer),
-                "course_name": o.course.name,
-                "course_price": o.course.price,
+                "course_name": o.course_name,
+                "course_price": o.course_price,
                 "memo": o.memo,
                 "is_unconfirmed": o.id not in acked_ids,
             })
@@ -303,8 +399,8 @@ class CastAckView(APIView):
             "room_id": order.room_id,
             "room_name": order.room.name,
             "customer_label": build_customer_label(order.customer),
-            "course_name": order.course.name,
-            "course_price": order.course.price,
+            "course_name": order.course_name,
+            "course_price": order.course_price,
             "memo": order.memo,
             "is_unconfirmed": False,
         })
@@ -392,7 +488,7 @@ class CustomerMypageView(APIView):
     def get(self, request):
         customer = resolve_customer(request)
 
-        from django.db.models import Sum, Count
+        from django.db.models import Count
         from django.utils import timezone
 
         now = timezone.now()
@@ -411,15 +507,14 @@ class CustomerMypageView(APIView):
         )
         next_reservation = None
         if next_order:
-            opt_total = next_order.options.aggregate(t=Sum("price"))["t"] or 0
             next_reservation = {
                 "id": next_order.id,
                 "start": next_order.start,
                 "end": next_order.end,
                 "status": next_order.status,
                 "cast_name": next_order.cast.name,
-                "course_name": next_order.course.name,
-                "total_price": next_order.course.price + opt_total,
+                "course_name": next_order.course_name,
+                "total_price": next_order.total_price,
             }
 
         # ── 推しセラピスト（直近指名キャスト 1名）──
@@ -437,9 +532,7 @@ class CustomerMypageView(APIView):
             fav_cast = Cast.objects.filter(pk=fav_cast_id).first()
             if fav_cast:
                 fav_orders = Order.objects.filter(customer=customer, cast=fav_cast, status=Order.Status.DONE)
-                fav_spend = 0
-                for o in fav_orders.select_related("course").prefetch_related("options"):
-                    fav_spend += o.course.price + (o.options.aggregate(t=Sum("price"))["t"] or 0)
+                fav_spend = sum(o.total_price for o in fav_orders)
                 favorites.append({
                     "id": fav_cast.id,
                     "name": fav_cast.name,
@@ -466,22 +559,19 @@ class CustomerMypageView(APIView):
         )
         history = []
         for o in history_qs:
-            opt_total = o.options.aggregate(t=Sum("price"))["t"] or 0
             history.append({
                 "id": o.id,
                 "date": o.start.date().isoformat(),
                 "cast_name": o.cast.name,
-                "course_name": o.course.name,
-                "total_price": o.course.price + opt_total,
+                "course_name": o.course_name,
+                "total_price": o.total_price,
                 "status": o.status,
             })
 
         # ── 累計 ──
         done_orders = Order.objects.filter(customer=customer, status=Order.Status.DONE)
         total_visits = done_orders.count()
-        total_spend = 0
-        for o in done_orders.select_related("course").prefetch_related("options"):
-            total_spend += o.course.price + (o.options.aggregate(t=Sum("price"))["t"] or 0)
+        total_spend = sum(o.total_price for o in done_orders)
 
         return Response({
             "customer": {
@@ -494,6 +584,71 @@ class CustomerMypageView(APIView):
             "favorites": favorites,
             "recommended": recommended,
             "history": history,
+        })
+
+
+class CustomerAvailableSlotsView(APIView):
+    """GET /api/cu/available-slots/?cast={id}&date={YYYY-MM-DD}"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from datetime import time as time_type, datetime, timedelta
+
+        customer = resolve_customer(request)
+        store = customer.store
+
+        cast_id = request.query_params.get("cast")
+        date_str = request.query_params.get("date")
+        if not cast_id or not date_str:
+            return Response(
+                {"detail": "cast と date は必須です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            d = date_type.fromisoformat(date_str)
+        except ValueError:
+            return Response(
+                {"detail": "date の形式が不正です（YYYY-MM-DD）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cast = Cast.objects.filter(store=store, pk=cast_id).first()
+        if cast is None:
+            return Response({"date": date_str, "cast_id": int(cast_id), "cast_name": "", "slots": []})
+
+        # シフト取得
+        shifts = ShiftAssignment.objects.filter(store=store, date=d, cast=cast)
+
+        # 30分刻みスロット生成
+        slot_minutes = 30
+        raw_slots = []
+        for sh in shifts:
+            current = datetime.combine(d, sh.start_time)
+            end = datetime.combine(d, sh.end_time)
+            while current + timedelta(minutes=slot_minutes) <= end:
+                raw_slots.append((current.time(), (current + timedelta(minutes=slot_minutes)).time()))
+                current += timedelta(minutes=slot_minutes)
+
+        # 既存予約取得（CANCELLED以外）
+        orders = Order.objects.filter(
+            cast=cast,
+            start__date=d,
+            status__in=Order.ACTIVE_STATUSES,
+        )
+        busy = [(o.start.time(), o.end.time()) for o in orders]
+
+        # 重複除外
+        slots = []
+        for s_start, s_end in raw_slots:
+            conflict = any(b_start < s_end and b_end > s_start for b_start, b_end in busy)
+            if not conflict:
+                slots.append({"start": s_start.strftime("%H:%M"), "end": s_end.strftime("%H:%M")})
+
+        return Response({
+            "date": date_str,
+            "cast_id": cast.id,
+            "cast_name": cast.name,
+            "slots": slots,
         })
 
 
@@ -617,9 +772,27 @@ class CourseViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class OptionViewSet(viewsets.ReadOnlyModelViewSet):
+class OptionViewSet(viewsets.ModelViewSet):
     queryset = Option.objects.order_by("id")
     serializer_class = OptionSerializer
+
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {"detail": "このオプションは予約で使用されているため削除できません"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RoomViewSet(viewsets.ModelViewSet):
@@ -640,6 +813,98 @@ class RoomViewSet(viewsets.ModelViewSet):
         except ProtectedError:
             return Response(
                 {"detail": "このルームは予約やシフトで使用されているため削除できません"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ExtensionViewSet(viewsets.ModelViewSet):
+    queryset = Extension.objects.order_by("sort_order", "id")
+    serializer_class = ExtensionSerializer
+
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {"detail": "この延長は使用されているため削除できません"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class NominationFeeViewSet(viewsets.ModelViewSet):
+    queryset = NominationFee.objects.order_by("sort_order", "id")
+    serializer_class = NominationFeeSerializer
+
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {"detail": "この指名料は使用されているため削除できません"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DiscountViewSet(viewsets.ModelViewSet):
+    queryset = Discount.objects.order_by("sort_order", "id")
+    serializer_class = DiscountSerializer
+
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {"detail": "この割引は使用されているため削除できません"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MediumViewSet(viewsets.ModelViewSet):
+    queryset = Medium.objects.order_by("sort_order", "id")
+    serializer_class = MediumSerializer
+
+    def perform_create(self, serializer):
+        store = Store.objects.order_by("id").first()
+        if store is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"store": "店舗が登録されていません"})
+        serializer.save(store=store)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {"detail": "この媒体は使用されているため削除できません"},
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(status=status.HTTP_204_NO_CONTENT)

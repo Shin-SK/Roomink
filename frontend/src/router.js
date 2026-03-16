@@ -14,6 +14,11 @@ import Settings from './pages/op/Settings.vue'
 import SettingsCasts from './pages/op/SettingsCasts.vue'
 import SettingsRooms from './pages/op/SettingsRooms.vue'
 import SettingsCourses from './pages/op/SettingsCourses.vue'
+import SettingsOptions from './pages/op/SettingsOptions.vue'
+import SettingsExtensions from './pages/op/SettingsExtensions.vue'
+import SettingsNominationFees from './pages/op/SettingsNominationFees.vue'
+import SettingsDiscounts from './pages/op/SettingsDiscounts.vue'
+import SettingsMedia from './pages/op/SettingsMedia.vue'
 import CastToday from './pages/cast/CastToday.vue'
 import CastShiftRequests from './pages/cast/CastShiftRequests.vue'
 import CuMypage from './pages/cu/CuMypage.vue'
@@ -35,6 +40,11 @@ const routes = [
   { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts },
   { path: '/op/settings/rooms', name: 'settings-rooms', component: SettingsRooms },
   { path: '/op/settings/courses', name: 'settings-courses', component: SettingsCourses },
+  { path: '/op/settings/options', name: 'settings-options', component: SettingsOptions },
+  { path: '/op/settings/extensions', name: 'settings-extensions', component: SettingsExtensions },
+  { path: '/op/settings/nomination-fees', name: 'settings-nomination-fees', component: SettingsNominationFees },
+  { path: '/op/settings/discounts', name: 'settings-discounts', component: SettingsDiscounts },
+  { path: '/op/settings/media', name: 'settings-media', component: SettingsMedia },
 
   // Cast
   { path: '/cast/today', name: 'cast-today', component: CastToday },

@@ -133,6 +133,67 @@ class Option(models.Model):
         return self.name
 
 
+class Extension(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="extensions")
+    name = models.CharField(max_length=50)
+    duration = models.PositiveIntegerField(help_text="分")
+    price = models.PositiveIntegerField()
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("sort_order", "id")
+
+    def __str__(self):
+        return self.name
+
+
+class NominationFee(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="nomination_fees")
+    name = models.CharField(max_length=50)
+    price = models.PositiveIntegerField()
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("sort_order", "id")
+
+    def __str__(self):
+        return self.name
+
+
+class Discount(models.Model):
+    class DiscountType(models.TextChoices):
+        FIXED = "fixed", "固定額"
+        PERCENT = "percent", "パーセント"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="discounts")
+    name = models.CharField(max_length=50)
+    discount_type = models.CharField(max_length=10, choices=DiscountType.choices, default=DiscountType.FIXED)
+    value = models.PositiveIntegerField()
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("sort_order", "id")
+
+    def __str__(self):
+        return self.name
+
+
+class Medium(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="media")
+    name = models.CharField(max_length=50)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("sort_order", "id")
+
+    def __str__(self):
+        return self.name
+
+
 class Order(models.Model):
     class Status(models.TextChoices):
         REQUESTED = "REQUESTED", "リクエスト"
@@ -153,6 +214,31 @@ class Order(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="orders")
     course = models.ForeignKey(Course, on_delete=models.PROTECT, related_name="orders")
     options = models.ManyToManyField("Option", through="OrderOption", blank=True)
+    extension = models.ForeignKey(
+        "Extension", null=True, blank=True, on_delete=models.SET_NULL, related_name="orders",
+    )
+    nomination_fee = models.ForeignKey(
+        "NominationFee", null=True, blank=True, on_delete=models.SET_NULL, related_name="orders",
+    )
+    discount = models.ForeignKey(
+        "Discount", null=True, blank=True, on_delete=models.SET_NULL, related_name="orders",
+    )
+    medium = models.ForeignKey(
+        "Medium", null=True, blank=True, on_delete=models.SET_NULL, related_name="orders",
+    )
+    course_name = models.CharField(max_length=50, default="")
+    course_price = models.PositiveIntegerField(default=0)
+    options_price = models.PositiveIntegerField(default=0)
+    extension_name = models.CharField(max_length=50, default="")
+    extension_price = models.PositiveIntegerField(default=0)
+    nomination_fee_name = models.CharField(max_length=50, default="")
+    nomination_fee_price = models.PositiveIntegerField(default=0)
+    discount_name = models.CharField(max_length=50, default="")
+    discount_type_snapshot = models.CharField(max_length=10, default="")
+    discount_value_snapshot = models.PositiveIntegerField(default=0)
+    discount_amount = models.PositiveIntegerField(default=0)
+    medium_name = models.CharField(max_length=50, default="")
+    total_price = models.PositiveIntegerField(default=0)
     start = models.DateTimeField()
     end = models.DateTimeField()
     status = models.CharField(

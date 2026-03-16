@@ -11,6 +11,7 @@ const customers = ref([])
 const casts = ref([])
 const courses = ref([])
 const options = ref([])
+const media = ref([])
 const loading = ref(true)
 const submitting = ref(false)
 const errorMsg = ref('')
@@ -23,6 +24,7 @@ const form = ref({
   startDate: new Date().toISOString().slice(0, 10),
   startTime: '15:00',
   options: [],
+  medium: '',
   memo: '',
 })
 
@@ -32,16 +34,19 @@ const selectedCourse = computed(() =>
 
 onMounted(async () => {
   try {
-    const [custData, castData, courseData, optData] = await Promise.all([
+    const [custData, castData, courseData, optData, mdData] = await Promise.all([
       api.getCustomers(),
       api.getCasts(),
       api.getCourses(),
       api.getOptions(),
+      api.getMedia(),
     ])
     customers.value = Array.isArray(custData) ? custData : custData.results || []
     casts.value = Array.isArray(castData) ? castData : castData.results || []
     courses.value = Array.isArray(courseData) ? courseData : courseData.results || []
     options.value = Array.isArray(optData) ? optData : optData.results || []
+    const allMedia = Array.isArray(mdData) ? mdData : mdData.results || []
+    media.value = allMedia.filter(m => m.is_active)
 
     // ?phone= auto-select
     const qPhone = route.query.phone
@@ -87,11 +92,19 @@ async function submit() {
   if (form.value.options.length) {
     body.options = form.value.options
   }
+  if (form.value.medium) {
+    body.medium = Number(form.value.medium)
+  }
 
   submitting.value = true
   try {
-    await api.createOrder(body)
-    router.push('/op/schedule')
+    const order = await api.createOrder(body)
+    try {
+      await api.confirmOrder(order.id)
+    } catch (_) {
+      // confirm 失敗しても詳細画面で手動承認できる
+    }
+    router.push(`/op/orders/${order.id}`)
   } catch (e) {
     errorMsg.value = e.message
   } finally {
@@ -217,6 +230,18 @@ function formatYen(n) {
                   <label class="form-check-label" :for="'op-' + opt.id">
                     {{ opt.name }}（+{{ formatYen(opt.price) }}）
                   </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="col-md-6">
+                <div class="mb-3">
+                  <label class="form-label">媒体</label>
+                  <select class="form-select" v-model="form.medium">
+                    <option value="">-- 未設定 --</option>
+                    <option v-for="m in media" :key="m.id" :value="m.id">{{ m.name }}</option>
+                  </select>
                 </div>
               </div>
             </div>

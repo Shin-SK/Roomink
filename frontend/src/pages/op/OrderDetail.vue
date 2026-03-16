@@ -21,6 +21,18 @@ const casts = ref([])
 const saving = ref(false)
 const editError = ref('')
 
+// Addon
+const addonError = ref('')
+const addonActing = ref(false)
+const extensions = ref([])
+const nominationFees = ref([])
+const discounts = ref([])
+const media = ref([])
+const selectedExtension = ref(null)
+const selectedNominationFee = ref(null)
+const selectedDiscount = ref(null)
+const selectedMedium = ref(null)
+
 const statusMap = {
   REQUESTED: { text: '申請中', cls: 'badge-pending' },
   CONFIRMED: { text: '承認済', cls: 'badge-approved' },
@@ -42,7 +54,23 @@ const canEdit = computed(() =>
 
 onMounted(async () => {
   try {
-    order.value = await api.getOrder(props.id)
+    const [o, exts, nfs, dcs, mds] = await Promise.all([
+      api.getOrder(props.id),
+      api.getExtensions(),
+      api.getNominationFees(),
+      api.getDiscounts(),
+      api.getMedia(),
+    ])
+    order.value = o
+    extensions.value = Array.isArray(exts) ? exts : exts.results || []
+    nominationFees.value = Array.isArray(nfs) ? nfs : nfs.results || []
+    discounts.value = Array.isArray(dcs) ? dcs : dcs.results || []
+    const allMedia = Array.isArray(mds) ? mds : mds.results || []
+    media.value = allMedia.filter(m => m.is_active)
+    selectedExtension.value = o.extension ?? null
+    selectedNominationFee.value = o.nomination_fee ?? null
+    selectedDiscount.value = o.discount ?? null
+    selectedMedium.value = o.medium ?? null
   } catch (e) {
     error.value = e.message
   } finally {
@@ -140,6 +168,54 @@ function formatTime(dt) {
 function goBack() {
   router.back()
 }
+
+async function doApplyExtension() {
+  addonError.value = ''
+  addonActing.value = true
+  try {
+    order.value = await api.applyExtension(props.id, selectedExtension.value)
+  } catch (e) {
+    addonError.value = e.message
+  } finally {
+    addonActing.value = false
+  }
+}
+
+async function doApplyNominationFee() {
+  addonError.value = ''
+  addonActing.value = true
+  try {
+    order.value = await api.applyNominationFee(props.id, selectedNominationFee.value)
+  } catch (e) {
+    addonError.value = e.message
+  } finally {
+    addonActing.value = false
+  }
+}
+
+async function doApplyDiscount() {
+  addonError.value = ''
+  addonActing.value = true
+  try {
+    order.value = await api.applyDiscount(props.id, selectedDiscount.value)
+  } catch (e) {
+    addonError.value = e.message
+  } finally {
+    addonActing.value = false
+  }
+}
+
+async function doApplyMedium() {
+  addonError.value = ''
+  addonActing.value = true
+  try {
+    order.value = await api.applyMedium(props.id, selectedMedium.value)
+  } catch (e) {
+    addonError.value = e.message
+  } finally {
+    addonActing.value = false
+  }
+}
 </script>
 
 <template>
@@ -173,6 +249,14 @@ function goBack() {
                       <td>{{ formatDt(order.start) }} – {{ formatTime(order.end) }}</td>
                     </tr>
                     <tr>
+                      <th>担当キャスト</th>
+                      <td>{{ order.cast_name }}</td>
+                    </tr>
+                    <tr>
+                      <th>ルーム</th>
+                      <td>{{ order.room_name }}</td>
+                    </tr>
+                    <tr>
                       <th>コース</th>
                       <td>{{ order.course_name }}</td>
                     </tr>
@@ -192,6 +276,10 @@ function goBack() {
                     <tr>
                       <th>顧客</th>
                       <td>{{ order.customer_label }}</td>
+                    </tr>
+                    <tr>
+                      <th>媒体</th>
+                      <td>{{ order.medium_name || '—' }}</td>
                     </tr>
                     <tr>
                       <th>メモ</th>
@@ -248,6 +336,109 @@ function goBack() {
               </div>
               <div class="card-body">
                 <p class="mb-0" style="white-space: pre-wrap;">{{ order.memo || '—' }}</p>
+              </div>
+            </div>
+
+            <!-- 料金サマリー -->
+            <div class="card mb-4">
+              <div class="card-header">
+                <i class="ti ti-receipt"></i> 料金内訳
+              </div>
+              <div class="card-body">
+                <table class="table table-sm mb-0">
+                  <tbody>
+                    <tr>
+                      <td>コース（{{ order.course_name }}）</td>
+                      <td class="text-end">{{ order.course_price.toLocaleString() }}円</td>
+                    </tr>
+                    <tr v-if="order.options_price > 0">
+                      <td>オプション</td>
+                      <td class="text-end">{{ order.options_price.toLocaleString() }}円</td>
+                    </tr>
+                    <tr v-if="order.extension_name">
+                      <td>延長（{{ order.extension_name }}）</td>
+                      <td class="text-end">{{ order.extension_price.toLocaleString() }}円</td>
+                    </tr>
+                    <tr v-if="order.nomination_fee_name">
+                      <td>指名料（{{ order.nomination_fee_name }}）</td>
+                      <td class="text-end">{{ order.nomination_fee_price.toLocaleString() }}円</td>
+                    </tr>
+                    <tr v-if="order.discount_name">
+                      <td>割引（{{ order.discount_name }}）</td>
+                      <td class="text-end text-danger">−{{ order.discount_amount.toLocaleString() }}円</td>
+                    </tr>
+                    <tr class="fw-bold">
+                      <td>合計</td>
+                      <td class="text-end">{{ order.total_price.toLocaleString() }}円</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- addon 適用 -->
+            <div class="card mb-4">
+              <div class="card-header">
+                <i class="ti ti-adjustments"></i> addon 適用
+              </div>
+              <div class="card-body">
+                <div v-if="addonError" class="alert alert-danger py-2 px-3 mb-3" style="font-size:0.875rem;">{{ addonError }}</div>
+
+                <!-- 延長 -->
+                <div class="mb-3">
+                  <label class="form-label small fw-bold">延長</label>
+                  <div class="d-flex gap-2">
+                    <select v-model="selectedExtension" class="form-select form-select-sm">
+                      <option :value="null">なし</option>
+                      <option v-for="e in extensions" :key="e.id" :value="e.id">
+                        {{ e.name }}（{{ e.duration }}分 / {{ e.price.toLocaleString() }}円）
+                      </option>
+                    </select>
+                    <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyExtension">適用</button>
+                  </div>
+                </div>
+
+                <!-- 指名料 -->
+                <div class="mb-3">
+                  <label class="form-label small fw-bold">指名料</label>
+                  <div class="d-flex gap-2">
+                    <select v-model="selectedNominationFee" class="form-select form-select-sm">
+                      <option :value="null">なし</option>
+                      <option v-for="n in nominationFees" :key="n.id" :value="n.id">
+                        {{ n.name }}（{{ n.price.toLocaleString() }}円）
+                      </option>
+                    </select>
+                    <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyNominationFee">適用</button>
+                  </div>
+                </div>
+
+                <!-- 割引 -->
+                <div class="mb-3">
+                  <label class="form-label small fw-bold">割引</label>
+                  <div class="d-flex gap-2">
+                    <select v-model="selectedDiscount" class="form-select form-select-sm">
+                      <option :value="null">なし</option>
+                      <option v-for="d in discounts" :key="d.id" :value="d.id">
+                        {{ d.name }}（{{ d.discount_type === 'percent' ? d.value + '%' : d.value.toLocaleString() + '円' }}引き）
+                      </option>
+                    </select>
+                    <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyDiscount">適用</button>
+                  </div>
+                </div>
+
+                <!-- 媒体 -->
+                <div class="mb-0">
+                  <label class="form-label small fw-bold">媒体</label>
+                  <div class="d-flex gap-2">
+                    <select v-model="selectedMedium" class="form-select form-select-sm">
+                      <option :value="null">なし</option>
+                      <option v-for="m in media" :key="m.id" :value="m.id">
+                        {{ m.name }}
+                      </option>
+                    </select>
+                    <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyMedium">適用</button>
+                  </div>
+                </div>
               </div>
             </div>
 

@@ -65,6 +65,10 @@ export const api = {
   confirmOrder: (id) => request('POST', `/orders/${id}/confirm/`),
   cancelOrder: (id) => request('POST', `/orders/${id}/cancel/`),
   doneOrder: (id) => request('POST', `/orders/${id}/done/`),
+  applyExtension: (id, extension_id) => request('POST', `/orders/${id}/apply_extension/`, { extension_id }),
+  applyNominationFee: (id, nomination_fee_id) => request('POST', `/orders/${id}/apply_nomination_fee/`, { nomination_fee_id }),
+  applyDiscount: (id, discount_id) => request('POST', `/orders/${id}/apply_discount/`, { discount_id }),
+  applyMedium: (id, medium_id) => request('POST', `/orders/${id}/apply_medium/`, { medium_id }),
 
   // Customers
   getCustomers: () => request('GET', '/customers/'),
@@ -86,12 +90,39 @@ export const api = {
 
   // Options
   getOptions: () => request('GET', '/options/'),
+  createOption: (body) => request('POST', '/options/', body),
+  updateOption: (id, body) => request('PATCH', `/options/${id}/`, body),
+  deleteOption: (id) => request('DELETE', `/options/${id}/`),
 
   // Rooms
   getRooms: () => request('GET', '/rooms/'),
   createRoom: (body) => request('POST', '/rooms/', body),
   updateRoom: (id, body) => request('PATCH', `/rooms/${id}/`, body),
   deleteRoom: (id) => request('DELETE', `/rooms/${id}/`),
+
+  // Extensions
+  getExtensions: () => request('GET', '/extensions/'),
+  createExtension: (body) => request('POST', '/extensions/', body),
+  updateExtension: (id, body) => request('PATCH', `/extensions/${id}/`, body),
+  deleteExtension: (id) => request('DELETE', `/extensions/${id}/`),
+
+  // NominationFees
+  getNominationFees: () => request('GET', '/nomination-fees/'),
+  createNominationFee: (body) => request('POST', '/nomination-fees/', body),
+  updateNominationFee: (id, body) => request('PATCH', `/nomination-fees/${id}/`, body),
+  deleteNominationFee: (id) => request('DELETE', `/nomination-fees/${id}/`),
+
+  // Discounts
+  getDiscounts: () => request('GET', '/discounts/'),
+  createDiscount: (body) => request('POST', '/discounts/', body),
+  updateDiscount: (id, body) => request('PATCH', `/discounts/${id}/`, body),
+  deleteDiscount: (id) => request('DELETE', `/discounts/${id}/`),
+
+  // Media
+  getMedia: () => request('GET', '/media/'),
+  createMedium: (body) => request('POST', '/media/', body),
+  updateMedium: (id, body) => request('PATCH', `/media/${id}/`, body),
+  deleteMedium: (id) => request('DELETE', `/media/${id}/`),
 
   // Shifts
   getShifts: (params = '') => request('GET', `/shifts/${params ? '?' + params : ''}`),
@@ -117,6 +148,7 @@ export const api = {
   getCustomerStores: () => request('GET', '/cu/stores/'),
   getCustomerMypage: (storeId) => request('GET', `/cu/mypage/${storeId ? '?store=' + storeId : ''}`),
   getBookingOptions: (storeId) => request('GET', `/cu/booking/options/${storeId ? '?store=' + storeId : ''}`),
+  getAvailableSlots: (castId, date, storeId) => request('GET', `/cu/available-slots/?cast=${castId}&date=${date}${storeId ? '&store=' + storeId : ''}`),
   createCustomerBooking: (body, storeId) => request('POST', `/cu/bookings/${storeId ? '?store=' + storeId : ''}`, body),
 
   // CTI

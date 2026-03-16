@@ -1,7 +1,6 @@
 from datetime import timedelta
 from collections import defaultdict
 
-from django.db.models import Sum
 from rest_framework import serializers
 
 from .utils.phone import normalize_phone
@@ -10,6 +9,10 @@ from .models import (
     CastAck,
     Course,
     Customer,
+    Discount,
+    Extension,
+    Medium,
+    NominationFee,
     Option,
     Order,
     OrderOption,
@@ -65,6 +68,35 @@ class OptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Option
         fields = "__all__"
+        read_only_fields = ["store"]
+
+
+class ExtensionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Extension
+        fields = "__all__"
+        read_only_fields = ["store"]
+
+
+class NominationFeeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NominationFee
+        fields = "__all__"
+        read_only_fields = ["store"]
+
+
+class DiscountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Discount
+        fields = "__all__"
+        read_only_fields = ["store"]
+
+
+class MediumSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Medium
+        fields = "__all__"
+        read_only_fields = ["store"]
 
 
 # ──────────────────────────────────────
@@ -167,14 +199,22 @@ def build_customer_label(customer):
 class OrderSerializer(serializers.ModelSerializer):
     customer_label = serializers.SerializerMethodField()
     options = serializers.SerializerMethodField()
-    course_name = serializers.CharField(source="course.name", read_only=True)
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+    room_name = serializers.CharField(source="room.name", read_only=True)
+    # course_name is now a snapshot field on Order; no source override needed
 
     class Meta:
         model = Order
         fields = [
             "id", "store", "cast", "room", "customer", "course",
-            "course_name", "customer_label",
+            "cast_name", "room_name", "course_name", "customer_label",
             "start", "end", "status", "options", "memo",
+            "course_price", "options_price",
+            "extension", "extension_name", "extension_price",
+            "nomination_fee", "nomination_fee_name", "nomination_fee_price",
+            "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot", "discount_amount",
+            "medium", "medium_name",
+            "total_price",
             "created_at", "updated_at",
         ]
 
@@ -193,12 +233,15 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     options = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Option.objects.all(), required=False,
     )
+    medium = serializers.PrimaryKeyRelatedField(
+        queryset=Medium.objects.all(), required=False, allow_null=True,
+    )
 
     class Meta:
         model = Order
         fields = [
             "cast", "customer", "course", "start", "end",
-            "memo", "options",
+            "memo", "options", "medium",
         ]
         extra_kwargs = {
             "end": {"required": False},
@@ -257,6 +300,15 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         option_objs = validated_data.pop("options", [])
+        course = validated_data["course"]
+        validated_data["course_name"] = course.name
+        validated_data["course_price"] = course.price
+        opts_total = sum(o.price for o in option_objs)
+        validated_data["options_price"] = opts_total
+        validated_data["total_price"] = course.price + opts_total
+        medium = validated_data.get("medium")
+        if medium:
+            validated_data["medium_name"] = medium.name
         order = Order.objects.create(**validated_data)
         for opt in option_objs:
             OrderOption.objects.get_or_create(order=order, option=opt)
@@ -439,7 +491,7 @@ def build_schedule_data(store, date):
             "cast_id": o.cast_id,
             "room_id": o.room_id,
             "customer_label": build_customer_label(o.customer),
-            "course_name": o.course.name,
+            "course_name": o.course_name,
             "start": o.start,
             "end": o.end,
             "status": o.status,
@@ -448,12 +500,7 @@ def build_schedule_data(store, date):
         })
 
     active_orders = [o for o in orders if o.status in Order.ACTIVE_STATUSES]
-    estimated_sales = 0
-    for o in active_orders:
-        estimated_sales += o.course.price
-        estimated_sales += (
-            o.options.aggregate(total=Sum("price"))["total"] or 0
-        )
+    estimated_sales = sum(o.total_price for o in active_orders)
 
     kpi = {
         "total_orders": orders.count(),

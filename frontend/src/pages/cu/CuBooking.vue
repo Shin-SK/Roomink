@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '../../api.js'
 
@@ -17,6 +17,10 @@ const options = ref([])
 const stores = ref([])
 const drawerOpen = ref(false)
 const selectedStoreId = ref(null)
+
+const slots = ref([])
+const slotsLoading = ref(false)
+const slotsFetched = ref(false)
 
 const currentStoreName = computed(() => {
   const s = stores.value.find(s => s.store_id === selectedStoreId.value)
@@ -63,13 +67,38 @@ onMounted(async () => {
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     form.value.date = tomorrow.toISOString().slice(0, 10)
-    form.value.time = '15:00'
+    form.value.time = ''
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
 })
+
+watch(
+  () => [form.value.cast, form.value.date],
+  async ([cast, date]) => {
+    slots.value = []
+    slotsFetched.value = false
+    form.value.time = ''
+    if (!cast || !date) return
+    slotsLoading.value = true
+    try {
+      const data = await api.getAvailableSlots(cast, date, selectedStoreId.value)
+      slots.value = data.slots
+      slotsFetched.value = true
+    } catch (e) {
+      slots.value = []
+      slotsFetched.value = true
+    } finally {
+      slotsLoading.value = false
+    }
+  },
+)
+
+function selectSlot(slot) {
+  form.value.time = slot.start
+}
 
 function switchStore(storeId) {
   drawerOpen.value = false
@@ -181,22 +210,6 @@ async function submit() {
             <div class="card-header">予約情報</div>
             <div class="card-body">
 
-              <!-- 予約日時 -->
-              <div class="row">
-                <div class="col-md-6">
-                  <div class="mb-3">
-                    <label class="form-label">予約日 <span class="text-danger">*</span></label>
-                    <input type="date" class="form-control" v-model="form.date">
-                  </div>
-                </div>
-                <div class="col-md-6">
-                  <div class="mb-3">
-                    <label class="form-label">希望時間 <span class="text-danger">*</span></label>
-                    <input type="time" class="form-control" v-model="form.time">
-                  </div>
-                </div>
-              </div>
-
               <!-- セラピスト指名 -->
               <div class="mb-3">
                 <label class="form-label">セラピスト指名 <span class="text-danger">*</span></label>
@@ -204,6 +217,34 @@ async function submit() {
                   <option value="">選択してください</option>
                   <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
                 </select>
+              </div>
+
+              <!-- 予約日 -->
+              <div class="mb-3">
+                <label class="form-label">予約日 <span class="text-danger">*</span></label>
+                <input type="date" class="form-control" v-model="form.date">
+              </div>
+
+              <!-- 希望時間（空き枠） -->
+              <div class="mb-3">
+                <label class="form-label">希望時間 <span class="text-danger">*</span></label>
+                <div v-if="!form.cast || !form.date" class="text-muted small">セラピストと予約日を選択すると、空き時間が表示されます</div>
+                <div v-else-if="slotsLoading" class="text-center py-2">
+                  <span class="spinner-border spinner-border-sm text-primary"></span> 空き枠を取得中...
+                </div>
+                <div v-else-if="slotsFetched && slots.length === 0" class="text-muted small">この日は予約可能な時間帯がありません</div>
+                <div v-else-if="slots.length > 0" class="d-flex flex-wrap gap-2">
+                  <button
+                    v-for="slot in slots" :key="slot.start"
+                    type="button"
+                    class="btn btn-sm"
+                    :class="form.time === slot.start ? 'btn-primary' : 'btn-outline-primary'"
+                    @click="selectSlot(slot)"
+                  >
+                    {{ slot.start }}
+                  </button>
+                </div>
+                <div v-if="form.time" class="mt-2 small text-muted">選択中: {{ form.time }}</div>
               </div>
 
               <!-- コース -->

@@ -11,6 +11,10 @@ router.register("casts", views.CastViewSet)
 router.register("courses", views.CourseViewSet)
 router.register("options", views.OptionViewSet)
 router.register("rooms", views.RoomViewSet)
+router.register("extensions", views.ExtensionViewSet)
+router.register("nomination-fees", views.NominationFeeViewSet)
+router.register("discounts", views.DiscountViewSet)
+router.register("media", views.MediumViewSet)
 
 cast_sr_router = DefaultRouter()
 cast_sr_router.register("shift-requests", views.CastShiftRequestViewSet, basename="cast-shift-request")
@@ -33,6 +37,7 @@ urlpatterns = [
     path("cu/stores/", views.CustomerStoresView.as_view(), name="cu-stores"),
     path("cu/signup/", views.customer_signup, name="cu-signup"),
     path("cu/mypage/", views.CustomerMypageView.as_view(), name="cu-mypage"),
+    path("cu/available-slots/", views.CustomerAvailableSlotsView.as_view(), name="cu-available-slots"),
     path("cu/booking/options/", views.CustomerBookingOptionsView.as_view(), name="cu-booking-options"),
     path("cu/bookings/", views.CustomerBookingCreateView.as_view(), name="cu-bookings"),
 

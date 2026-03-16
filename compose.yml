@@ -1,15 +1,8 @@
 services:
-  web:
-    build: .
-    env_file:
-      - .env
-    ports:
-      - "8000:8000"
-    depends_on:
-      - db
-
   db:
     image: postgres:16
+    container_name: roomink-db
+    restart: unless-stopped
     environment:
       POSTGRES_DB: roomink
       POSTGRES_USER: roomink
@@ -21,6 +14,8 @@ services:
 
   mailpit:
     image: axllent/mailpit:latest
+    container_name: roomink-mailpit
+    restart: unless-stopped
     ports:
       - "8025:8025"
       - "1125:1025"
