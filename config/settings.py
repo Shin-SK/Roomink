@@ -101,10 +101,23 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 # --- Database ---
-# USE_POSTGRES=1 のとき Postgres に切替
-USE_POSTGRES = os.getenv("USE_POSTGRES", "0") == "1"
+# DATABASE_URL があれば Postgres（Heroku等）、なければ個別環境変数 or sqlite3
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-if USE_POSTGRES:
+if DATABASE_URL:
+    import urllib.parse
+    url = urllib.parse.urlparse(DATABASE_URL)
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": url.path.lstrip("/"),
+            "USER": url.username or "",
+            "PASSWORD": url.password or "",
+            "HOST": url.hostname or "localhost",
+            "PORT": url.port or 5432,
+        }
+    }
+elif os.getenv("USE_POSTGRES", "0") == "1":
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -143,9 +156,3 @@ STORAGES = {
     },
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
-
-import os
-print("DB_DEBUG USE_POSTGRES=", os.getenv("USE_POSTGRES"))
-print("DB_DEBUG HOST=", os.getenv("POSTGRES_HOST"))
-print("DB_DEBUG NAME=", os.getenv("POSTGRES_DB"))
