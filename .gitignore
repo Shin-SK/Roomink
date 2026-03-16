@@ -17,5 +17,5 @@ frontend/dist
 *.swo
 *.DS_Store
 *.egg-info
-
+CLAUDE.md
 docs/*
