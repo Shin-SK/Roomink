@@ -44,7 +44,8 @@ urlpatterns = [
 
     # operator
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),
-    path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
+    path("op/room-schedule/", views.RoomScheduleView.as_view(), name="op-room-schedule"),
+path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
     path("op/", include(op_sr_router.urls)),
 
     # CTI

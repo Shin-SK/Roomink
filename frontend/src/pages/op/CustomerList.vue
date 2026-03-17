@@ -64,29 +64,37 @@ function goDetail(id) {
           <i class="ti ti-users"></i> 顧客一覧
         </div>
         <div class="card-body">
-          <!-- 検索・フィルタ -->
-          <div class="row mb-3">
-            <div class="col-md-6 col-lg-5">
-              <input
-                v-model="search"
-                type="text"
-                class="form-control"
-                placeholder="電話番号 or 名前で検索..."
-              >
-            </div>
-            <div class="col-md-3">
-              <select v-model="flagFilter" class="form-select">
-                <option value="">すべて</option>
-                <option value="ATTENTION">要注意</option>
-                <option value="BAN">出禁</option>
-                <option value="NONE">フラグなし</option>
-              </select>
-            </div>
-            <div class="col-md-3 col-lg-2 d-flex align-items-start">
-              <router-link to="/op/customers/new" class="btn btn-primary w-100">
-                <i class="ti ti-plus"></i> 新規作成
-              </router-link>
-            </div>
+          <!-- 検索 -->
+          <div class="mb-3">
+            <input
+              v-model="search"
+              type="text"
+              class="form-control"
+              placeholder="電話番号 or 名前で検索..."
+            >
+          </div>
+          <!-- フィルタpill -->
+          <div class="d-flex gap-2 mb-3 flex-wrap">
+            <button
+              class="btn btn-sm rounded-pill"
+              :class="flagFilter === '' ? 'btn-dark' : 'btn-outline-secondary'"
+              @click="flagFilter = ''"
+            >すべて</button>
+            <button
+              class="btn btn-sm rounded-pill"
+              :class="flagFilter === 'NONE' ? 'btn-dark' : 'btn-outline-secondary'"
+              @click="flagFilter = 'NONE'"
+            >フラグなし</button>
+            <button
+              class="btn btn-sm rounded-pill"
+              :class="flagFilter === 'ATTENTION' ? 'btn-warning' : 'btn-outline-warning'"
+              @click="flagFilter = 'ATTENTION'"
+            >要注意</button>
+            <button
+              class="btn btn-sm rounded-pill"
+              :class="flagFilter === 'BAN' ? 'btn-danger' : 'btn-outline-danger'"
+              @click="flagFilter = 'BAN'"
+            >出禁</button>
           </div>
 
           <div v-if="!filtered.length" class="text-muted py-3 text-center">
@@ -123,5 +131,35 @@ function goDetail(id) {
         </div>
       </div>
     </template>
+
+    <!-- FAB 新規作成 -->
+    <router-link to="/op/customers/new" class="fab-btn">
+      <i class="ti ti-plus"></i>
+    </router-link>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.fab-btn {
+  position: fixed;
+  bottom: 90px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--bs-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  text-decoration: none;
+  z-index: 100;
+  transition: transform 0.15s;
+}
+.fab-btn:hover {
+  transform: scale(1.1);
+  color: #fff;
+}
+</style>

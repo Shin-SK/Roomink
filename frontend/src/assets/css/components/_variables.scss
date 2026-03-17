@@ -41,3 +41,16 @@
   color: #C62828;
   font-weight: 600;
 }
+
+.card{
+  border: 0;
+  .card-body{
+    padding: 1rem 0;
+  }
+}
+
+.df-center{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -11,7 +11,8 @@ const sidebarOpen = ref(false)
 const navItems = [
   { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
   { to: '/op/schedule', icon: 'ti-calendar', label: '予約タイムライン', page: 'schedule' },
-  { to: '/op/phone', icon: 'ti-phone', label: '電話予約', page: 'phone' },
+  { to: '/op/rooms', icon: 'ti-door', label: 'ルーム', page: 'room-schedule' },
+  { to: '/op/phone', icon: 'ti-clipboard-plus', label: '予約作成', page: 'phone' },
   { to: '/op/customers', icon: 'ti-users', label: '顧客管理', page: 'customer-list' },
   { to: '/op/shifts', icon: 'ti-clock', label: 'シフト管理', page: 'shift-list' },
   { to: '/op/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
@@ -21,7 +22,8 @@ const navItems = [
 const footerItems = [
   { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
   { to: '/op/schedule', icon: 'ti-timeline-event-exclamation', label: '予約', page: 'schedule' },
-  { to: '/op/phone', icon: 'ti-phone', label: '電話', page: 'phone' },
+  { to: '/op/phone', icon: 'ti-plus', label: '新規', page: 'phone' },
+  { to: '/op/rooms', icon: 'ti-door', label: 'ルーム', page: 'rooms' },
   { to: '/op/customers', icon: 'ti-users', label: '顧客', page: 'customer-list' },
 ]
 

@@ -285,3 +285,14 @@
   background: rgba(239, 68, 68, 0.2);
   border-color: #ef4444;
 }
+
+/* highlight：予約作成後のフォーカスアニメーション */
+.rk-block--highlight {
+  animation: rk-pulse 0.6s ease-in-out 3;
+  z-index: 10;
+}
+
+@keyframes rk-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(42, 157, 143, 0.5); }
+  50% { box-shadow: 0 0 0 8px rgba(42, 157, 143, 0); }
+}

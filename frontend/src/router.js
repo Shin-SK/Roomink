@@ -22,6 +22,8 @@ const SettingsExtensions = () => import('./pages/op/SettingsExtensions.vue')
 const SettingsNominationFees = () => import('./pages/op/SettingsNominationFees.vue')
 const SettingsDiscounts = () => import('./pages/op/SettingsDiscounts.vue')
 const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
+const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
+const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
 const CastToday = () => import('./pages/cast/CastToday.vue')
 const CastShiftRequests = () => import('./pages/cast/CastShiftRequests.vue')
 const CuMypage = () => import('./pages/cu/CuMypage.vue')
@@ -39,6 +41,7 @@ const routes = [
   { path: '/op/customers/:id', name: 'customer-detail', component: CustomerDetail, props: true },
   { path: '/op/shifts', name: 'shift-list', component: ShiftList },
   { path: '/op/shift-requests', name: 'op-shift-requests', component: OpShiftRequests },
+  { path: '/op/rooms', name: 'room-schedule', component: RoomSchedule },
   { path: '/op/settings', name: 'settings', component: Settings },
   { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts },
   { path: '/op/settings/rooms', name: 'settings-rooms', component: SettingsRooms },
@@ -48,6 +51,7 @@ const routes = [
   { path: '/op/settings/nomination-fees', name: 'settings-nomination-fees', component: SettingsNominationFees },
   { path: '/op/settings/discounts', name: 'settings-discounts', component: SettingsDiscounts },
   { path: '/op/settings/media', name: 'settings-media', component: SettingsMedia },
+  { path: '/op/settings/csv-import', name: 'settings-csv-import', component: SettingsCsvImport },
 
   // Cast
   { path: '/cast/today', name: 'cast-today', component: CastToday },

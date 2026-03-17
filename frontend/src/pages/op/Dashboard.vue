@@ -7,6 +7,7 @@ import { api } from '../../api.js'
 const router = useRouter()
 const kpi = ref({ estimated_sales: 0, requested: 0, confirmed: 0, total_orders: 0 })
 const requestedOrders = ref([])
+const unconfirmedOrders = ref([])
 const allOrders = ref([])
 const loading = ref(true)
 const activeTab = ref('mikakunin')
@@ -16,6 +17,7 @@ const ctiCalls = ref([])
 const ctiNewCount = computed(() => ctiCalls.value.filter(c => c.status === 'NEW').length)
 const ctiCallsTop5 = computed(() => ctiCalls.value.slice(0, 5))
 const requestedTop3 = computed(() => requestedOrders.value.slice(0, 3))
+const unconfirmedTop3 = computed(() => unconfirmedOrders.value.slice(0, 3))
 const ctiStarting = ref({})   // { [callId]: true } 二重クリック防止
 const ctiDoning = ref({})
 const ctiError = ref('')
@@ -41,6 +43,7 @@ onMounted(async () => {
     kpi.value = data.kpi
     allOrders.value = data.orders
     requestedOrders.value = data.orders.filter(o => o.status === 'REQUESTED')
+    unconfirmedOrders.value = data.orders.filter(o => o.is_unconfirmed && o.status !== 'REQUESTED' && o.status !== 'CANCELLED' && o.status !== 'DONE')
   } catch (e) {
     console.error(e)
   } finally {
@@ -118,9 +121,14 @@ function timeAgo(dt) {
       <!-- 通知エリア -->
       <div class="wrap bg-white overflow-y-auto mb-4" style="max-height: 20vh;">
         <ul class="d-flex flex-column gap-2">
+          <li v-if="unconfirmedOrders.length">
+            <a href="#" @click.prevent="activeTab = 'mikakunin'" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
+              <div class="badge badge-attention">キャスト未確認</div><small>{{ unconfirmedOrders.length }}件</small>
+            </a>
+          </li>
           <li v-if="requestedOrders.length">
             <a href="#" @click.prevent="activeTab = 'kakunin'" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
-              <div class="badge badge-pending">承認待ち</div><small>{{ requestedOrders.length }}件</small>
+              <div class="badge badge-pending">確定待ち</div><small>{{ requestedOrders.length }}件</small>
             </a>
           </li>
         </ul>
@@ -187,35 +195,26 @@ function timeAgo(dt) {
       <!-- 統計カード -->
       <div class="row g-2 mb-5">
         <div class="col-12 col-sm-6 col-xl-3">
-          <div class="card">
-            <div class="card-body">
-              <div class="wrap d-flex align-items-center gap-3">
-                <div class="stat-label m-0">
-                  <i class="ti ti-currency-yen"></i> 本日売上（予定）</div>
-              </div>
-              <div class="d-flex align-items-center justify-content-between">
-                <div class="stat-value">{{ formatYen(kpi.estimated_sales) }}</div>
-              </div>
+          <div class="stat-box">
+            <div class="stat-label">
+              <i class="ti ti-currency-yen"></i> 本日売上（確定）
             </div>
+            <div class="stat-value">{{ formatYen(kpi.estimated_sales) }}</div>
           </div>
         </div>
         <div class="col-6 col-sm-6 col-xl-3">
-          <div class="card">
-            <div class="card-body">
-              <div class="stat-label"><i class="ti ti-calendar-event"></i> 本日本数</div>
-              <div class="stat-value">{{ kpi.total_orders }}本</div>
-              <div class="stat-change">{{ kpi.confirmed }} 承認済 / {{ kpi.requested }} 申請中</div>
-            </div>
+          <div class="stat-box">
+            <div class="stat-label"><i class="ti ti-calendar-event"></i> 本日本数</div>
+            <div class="stat-value">{{ kpi.total_orders }}</div>
+            <div class="stat-change">{{ kpi.confirmed }} 確定 / {{ kpi.requested }} 確定待ち</div>
           </div>
         </div>
         <div class="col-6 col-sm-6 col-xl-3">
-          <div class="card">
-            <div class="card-body">
-              <div class="stat-label"><i class="ti ti-users"></i> 出勤キャスト</div>
-              <div class="stat-value">—</div>
-              <div class="stat-change">
-                <router-link to="/op/schedule">スケジュールで確認</router-link>
-              </div>
+          <div class="stat-box">
+            <div class="stat-label"><i class="ti ti-users"></i> 出勤キャスト</div>
+            <div class="stat-value">—</div>
+            <div class="stat-change">
+              <router-link to="/op/schedule">スケジュールで確認</router-link>
             </div>
           </div>
         </div>
@@ -227,31 +226,31 @@ function timeAgo(dt) {
           <button
             :class="{ active: activeTab === 'mikakunin' }"
             @click="activeTab = 'mikakunin'"
-          >未確認</button>
+          >キャスト未確認</button>
         </div>
         <div class="wrap">
           <button
             :class="{ active: activeTab === 'kakunin' }"
             @click="activeTab = 'kakunin'"
-          >承認待ち</button>
+          >確定待ち</button>
         </div>
       </nav>
 
       <!-- 未確認アラート -->
       <div v-show="activeTab === 'mikakunin'" class="card border-0 mb-4">
         <div class="card-header bg-attention">
-          <i class="ti ti-alert-triangle text-dark"></i> 未確認アラート
+          <i class="ti ti-alert-triangle text-dark"></i> キャスト未確認
         </div>
         <div class="card-body p-0">
           <ul class="list-group list-group-flush">
             <li
-              v-for="order in requestedTop3"
+              v-for="order in unconfirmedTop3"
               :key="'alert-' + order.id"
               class="list-group-item"
             >
               <div class="d-flex justify-content-between align-items-center">
                 <div class="d-flex align-items-center gap-2">
-                  <span class="badge badge-attention">申請中</span>
+                  <span class="badge badge-attention">キャスト未確認</span>
                   <strong>{{ order.customer_label }}</strong>
                   <span class="text-muted small">{{ formatTime(order.start) }}</span>
                 </div>
@@ -260,8 +259,8 @@ function timeAgo(dt) {
                 </a>
               </div>
             </li>
-            <li v-if="requestedOrders.length === 0" class="list-group-item text-muted text-center py-3">
-              未確認の予約はありません
+            <li v-if="unconfirmedOrders.length === 0" class="list-group-item text-muted text-center py-3">
+              キャスト未確認の予約はありません
             </li>
           </ul>
         </div>
@@ -270,7 +269,7 @@ function timeAgo(dt) {
       <!-- 承認待ち -->
       <div v-show="activeTab === 'kakunin'" class="card border-0 mb-4">
         <div class="card-header">
-          <i class="ti ti-inbox"></i> 承認待ち予約申請
+          <i class="ti ti-inbox"></i> 確定待ち予約
         </div>
         <div class="card-body p-0">
           <ul class="list-group list-group-flush">
@@ -284,7 +283,7 @@ function timeAgo(dt) {
                   <div class="list-header">
                     <div class="d-flex align-items-center gap-2">
                       <h5 class="mb-0 fw-bold">{{ order.customer_label }}</h5>
-                      <span class="badge badge-pending">申請中</span>
+                      <span class="badge badge-pending">確定待ち</span>
                     </div>
                   </div>
                   <div class="list-body">
@@ -316,7 +315,7 @@ function timeAgo(dt) {
               </div>
             </li>
             <li v-if="requestedOrders.length === 0" class="list-group-item text-muted text-center py-3">
-              承認待ちの予約はありません
+              確定待ちの予約はありません
             </li>
           </ul>
         </div>

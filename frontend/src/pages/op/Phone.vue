@@ -28,9 +28,32 @@ const form = ref({
   memo: '',
 })
 
+const castSearch = ref('')
+
+const filteredCasts = computed(() => {
+  const q = castSearch.value.trim()
+  if (!q) return casts.value
+  return casts.value.filter(c => c.name.includes(q))
+})
+
+const selectedCastName = computed(() => {
+  const c = casts.value.find(c => c.id === form.value.cast)
+  return c ? c.name : ''
+})
+
 const selectedCourse = computed(() =>
   courses.value.find(c => c.id === Number(form.value.course))
 )
+
+const selectedOptions = computed(() =>
+  options.value.filter(o => form.value.options.includes(o.id))
+)
+
+const totalPrice = computed(() => {
+  let total = selectedCourse.value ? selectedCourse.value.price : 0
+  total += selectedOptions.value.reduce((sum, o) => sum + o.price, 0)
+  return total
+})
 
 onMounted(async () => {
   try {
@@ -104,7 +127,7 @@ async function submit() {
     } catch (_) {
       // confirm 失敗しても詳細画面で手動承認できる
     }
-    router.push(`/op/orders/${order.id}`)
+    router.push(`/op/schedule?date=${form.value.startDate}&highlight=${order.id}`)
   } catch (e) {
     errorMsg.value = e.message
   } finally {
@@ -119,20 +142,17 @@ function formatYen(n) {
 
 <template>
   <LayoutOperator>
-    <template #title>Phone Booking</template>
-    <template #actions>
-      <span class="text-muted">電話予約クイック作成</span>
-    </template>
+    <template #title>予約フロー</template>
 
     <div v-if="loading" class="text-center py-5">
       <div class="spinner-border text-primary"></div>
     </div>
 
-    <div v-else class="container">
+    <div v-else>
 
       <div class="alert alert-info">
-        <strong>電話予約フロー</strong><br>
-        1. 顧客を選択 → 2. 日時・セラピスト・コースを選択 → 3. 承認済み予約を作成
+        <strong>予約フロー</strong><br>
+        1. 顧客を選択 → 2. 日時・キャスト・コースを選択 → 3. 予約を作成
       </div>
 
       <div v-if="phoneHint && !form.customer" class="alert alert-warning d-flex justify-content-between align-items-center">
@@ -193,44 +213,71 @@ function formatYen(n) {
               </div>
             </div>
 
-            <div class="row">
-              <div class="col-md-6">
-                <div class="mb-3">
-                  <label class="form-label">セラピスト</label>
-                  <select class="form-select" v-model="form.cast">
-                    <option value="">-- 選択 --</option>
-                    <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
-                  </select>
+            <div class="mb-3">
+              <label class="form-label">キャスト</label>
+              <input
+                type="text"
+                class="form-control form-control-sm mb-2"
+                placeholder="名前で検索..."
+                v-model="castSearch"
+              />
+              <div class="cast-scroll">
+                <div
+                  v-for="c in filteredCasts"
+                  :key="c.id"
+                  class="cast-chip"
+                  :class="{ active: form.cast === c.id }"
+                  @click="form.cast = c.id"
+                >
+                  <img
+                    v-if="c.avatar_url"
+                    :src="c.avatar_url"
+                    :alt="c.name"
+                    class="cast-chip__avatar"
+                  >
+                  <div v-else class="cast-chip__avatar cast-chip__avatar--placeholder">
+                    <i class="ti ti-user"></i>
+                  </div>
+                  <span class="cast-chip__name">{{ c.name }}</span>
+                </div>
+                <div v-if="filteredCasts.length === 0" class="text-muted small py-2 px-1">
+                  該当なし
                 </div>
               </div>
-              <div class="col-md-6">
-                <div class="mb-3">
-                  <label class="form-label">コース</label>
-                  <select class="form-select" v-model="form.course">
-                    <option value="">-- 選択 --</option>
-                    <option v-for="c in courses" :key="c.id" :value="c.id">
-                      {{ c.name }}（{{ formatYen(c.price) }}）
-                    </option>
-                  </select>
-                </div>
+              <div v-if="selectedCastName" class="small text-muted mt-1">
+                選択中: <strong>{{ selectedCastName }}</strong>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">コース</label>
+              <div class="select-grid">
+                <button
+                  v-for="c in courses"
+                  :key="c.id"
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.course == c.id ? 'active' : ''"
+                  @click="form.course = c.id"
+                >
+                  {{ c.name }}<br><small>{{ formatYen(c.price) }}</small>
+                </button>
               </div>
             </div>
 
             <div class="mb-3" v-if="options.length">
               <label class="form-label">オプション</label>
-              <div class="d-flex gap-3">
-                <div v-for="opt in options" :key="opt.id" class="form-check">
-                  <input
-                    class="form-check-input"
-                    type="checkbox"
-                    :id="'op-' + opt.id"
-                    :checked="form.options.includes(opt.id)"
-                    @change="toggleOption(opt.id)"
-                  >
-                  <label class="form-check-label" :for="'op-' + opt.id">
-                    {{ opt.name }}（+{{ formatYen(opt.price) }}）
-                  </label>
-                </div>
+              <div class="select-grid">
+                <button
+                  v-for="opt in options"
+                  :key="opt.id"
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.options.includes(opt.id) ? 'active' : ''"
+                  @click="toggleOption(opt.id)"
+                >
+                  {{ opt.name }}<br><small>+{{ formatYen(opt.price) }}</small>
+                </button>
               </div>
             </div>
 
@@ -253,17 +300,15 @@ function formatYen(n) {
 
             <hr>
 
-            <div class="d-flex justify-content-between align-items-center">
-              <div>
-                <h5 v-if="selectedCourse" class="mb-0">合計料金: <strong>{{ formatYen(selectedCourse.price) }}</strong></h5>
-              </div>
-              <div class="btn-group gap-2">
-                <router-link to="/op/schedule" class="btn btn-outline-secondary">キャンセル</router-link>
-                <button type="submit" class="btn btn-success" :disabled="submitting">
-                  <span v-if="submitting" class="spinner-border spinner-border-sm me-1"></span>
-                  <i v-else class="ti ti-check"></i> 予約を確定
-                </button>
-              </div>
+            <div class="text-center mb-3">
+              <h5 v-if="selectedCourse" class="mb-0">合計料金: <strong>{{ formatYen(totalPrice) }}</strong></h5>
+            </div>
+            <div class="d-flex gap-2">
+              <router-link to="/op/schedule" class="btn btn-outline-secondary flex-fill">キャンセル</router-link>
+              <button type="submit" class="btn btn-success flex-fill" :disabled="submitting">
+                <span v-if="submitting" class="spinner-border spinner-border-sm me-1"></span>
+                <i v-else class="ti ti-check"></i> 予約を確定
+              </button>
             </div>
           </form>
         </div>
@@ -271,3 +316,112 @@ function formatYen(n) {
     </div>
   </LayoutOperator>
 </template>
+
+
+<style scoped lang="scss">
+
+.form-label{
+  font-weight: bold;
+}
+
+.cast-scroll {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, auto);
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  -webkit-overflow-scrolling: touch;
+  align-items: center;
+  justify-content: start;
+
+  &::-webkit-scrollbar {
+    height: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 2px;
+  }
+}
+
+.cast-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 72px;
+  transition: all 0.15s;
+
+  &:hover {
+    border-color: var(--bs-primary);
+  }
+
+  &.active {
+    border-color: var(--bs-primary);
+    background: rgba(var(--bs-primary-rgb), 0.08);
+  }
+
+  &__avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    object-fit: cover;
+
+    &--placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f0f0;
+      color: #aaa;
+      font-size: 20px;
+    }
+  }
+
+  &__name {
+    font-size: 0.7rem;
+    text-align: center;
+    line-height: 1.2;
+    word-break: keep-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+}
+
+.select-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.5rem;
+
+  @media (max-width: 575.98px) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.select-btn {
+  border: 1px solid #dee2e6;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.5rem 0.25rem;
+  text-align: center;
+  line-height: 1.3;
+  transition: all 0.15s;
+  width: 100%;
+
+  &:hover {
+    border-color: var(--bs-primary);
+  }
+
+  &.active {
+    background: var(--bs-primary);
+    border-color: var(--bs-primary);
+    color: #fff;
+  }
+}
+
+</style>

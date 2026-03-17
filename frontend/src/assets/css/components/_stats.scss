@@ -3,6 +3,13 @@
    Dashboard/Today用の統計カード
    =========================== */
 
+.stat-box {
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 1rem;
+}
+
 // 統計ラベル（上部の小さいラベル）
 .stat-label {
   font-size: 0.875rem;

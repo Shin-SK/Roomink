@@ -147,6 +147,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
             class="rk-block"
             :class="statusClass(order)"
             href="#"
+            :data-order-id="order.id"
             :data-col="castIndexMap[order.cast_id] ?? 0"
             :data-start="formatTime(order.start)"
             :data-end="formatTime(order.end)"

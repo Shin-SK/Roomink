@@ -1,12 +1,14 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, watch, nextTick } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import TimelineGrid from '../../components/TimelineGrid.vue'
 import { api } from '../../api.js'
 
 const router = useRouter()
-const selectedDate = ref(today())
+const route = useRoute()
+const selectedDate = ref(route.query.date || today())
+const highlightId = ref(route.query.highlight ? Number(route.query.highlight) : null)
 const casts = ref([])
 const orders = ref([])
 const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 0 })
@@ -31,6 +33,18 @@ async function fetchSchedule() {
     casts.value = data.casts
     orders.value = data.orders
     kpi.value = data.kpi
+
+    if (highlightId.value) {
+      nextTick(() => {
+        const el = document.querySelector(`.rk-block[data-order-id="${highlightId.value}"]`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
+          el.classList.add('rk-block--highlight')
+          setTimeout(() => el.classList.remove('rk-block--highlight'), 3000)
+        }
+        highlightId.value = null
+      })
+    }
   } catch (e) {
     console.error(e)
   } finally {
@@ -103,16 +117,16 @@ onMounted(fetchSchedule)
               </button>
               <div v-show="showLegend" class="wrap d-flex flex-wrap align-items-center gap-2 mt-2">
                 <span class="d-flex align-items-center gap-1 me-3">
-                  <span class="badge badge-approved">承認済</span> <small class="text-muted">確定した予約</small>
+                  <span class="badge badge-approved">確定済</span> <small class="text-muted">確定した予約</small>
                 </span>
                 <span class="d-flex align-items-center gap-1">
-                  <span class="badge badge-pending">申請中</span> <small class="text-muted">承認待ちの予約</small>
+                  <span class="badge badge-pending">確定待ち</span> <small class="text-muted">確定待ちの予約</small>
                 </span>
                 <span class="d-flex align-items-center gap-1 me-3">
                   <span class="badge badge-attention">要注意</span> <small class="text-muted">要注意フラグ</small>
                 </span>
                 <span class="d-flex align-items-center gap-1">
-                  <span class="badge badge-unconfirmed">未確認</span> <small class="text-muted">未確認の予約</small>
+                  <span class="badge badge-unconfirmed">キャスト未確認</span> <small class="text-muted">キャストが未確認</small>
                 </span>
               </div>
             </div>
@@ -126,15 +140,15 @@ onMounted(fetchSchedule)
       <div class="spinner-border text-primary"></div>
     </div>
 
-    <div v-else-if="casts.length === 0" class="text-muted text-center py-5">
-      この日にシフトが登録されたキャストがいません
+    <div v-else class="position-relative">
+      <TimelineGrid
+        :casts="casts"
+        :orders="orders"
+        @block-click="onBlockClick"
+      />
+      <div v-if="casts.length === 0" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="pointer-events: none;">
+        <span class="text-muted bg-white px-3 py-2 rounded shadow-sm">この日にシフトが登録されたキャストがいません</span>
+      </div>
     </div>
-
-    <TimelineGrid
-      v-else
-      :casts="casts"
-      :orders="orders"
-      @block-click="onBlockClick"
-    />
   </LayoutOperator>
 </template>

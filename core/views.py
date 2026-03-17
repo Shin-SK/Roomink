@@ -38,6 +38,7 @@ from .serializers import (
     ShiftAssignmentSerializer,
     build_customer_label,
     build_schedule_data,
+    build_room_schedule_data,
 )
 from .utils.phone import normalize_phone
 from .services.customer_context import resolve_customer
@@ -125,6 +126,33 @@ class ScheduleView(APIView):
         data = build_schedule_data(store, d)
         serializer = ScheduleResponseSerializer(data)
         return Response(serializer.data)
+
+
+class RoomScheduleView(APIView):
+    def get(self, request):
+        date_str = request.query_params.get("date")
+        if not date_str:
+            return Response(
+                {"detail": "date パラメータは必須です（YYYY-MM-DD）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            d = date_type.fromisoformat(date_str)
+        except ValueError:
+            return Response(
+                {"detail": "date の形式が不正です（YYYY-MM-DD）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        store = Store.objects.first()
+        if store is None:
+            return Response(
+                {"detail": "店舗が登録されていません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = build_room_schedule_data(store, d)
+        return Response(data)
 
 
 # ──────────────────────────────────────
@@ -1046,6 +1074,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         obj.admin_memo = admin_memo
         obj.save(update_fields=["status", "admin_memo", "updated_at"])
         return Response(OpShiftRequestSerializer(obj).data)
+
 
 
 # ──────────────────────────────────────

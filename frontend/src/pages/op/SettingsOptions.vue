@@ -111,7 +111,7 @@ async function onDelete(o) {
             <tr>
               <th>名前</th>
               <th style="width: 120px;">料金</th>
-              <th style="width: 120px;">操作</th>
+              <th style="width: 50px;"></th>
             </tr>
           </thead>
           <tbody>
@@ -119,11 +119,8 @@ async function onDelete(o) {
               <td>{{ o.name }}</td>
               <td>{{ o.price.toLocaleString() }}円</td>
               <td>
-                <button class="btn btn-outline-primary btn-sm me-1" @click="openEdit(o)">
-                  <i class="ti ti-edit"></i>
-                </button>
-                <button class="btn btn-outline-danger btn-sm" @click="onDelete(o)">
-                  <i class="ti ti-trash"></i>
+                <button class="btn btn-link p-0" @click="openEdit(o)">
+                  <i class="ti ti-edit" style="font-size: 1.25rem;"></i>
                 </button>
               </td>
             </tr>
@@ -152,7 +149,10 @@ async function onDelete(o) {
               <input v-model.number="form.price" type="number" class="form-control" min="0" />
             </div>
           </div>
-          <div class="modal-footer">
+          <div class="modal-footer d-flex">
+            <button v-if="editingId" class="btn btn-outline-danger me-auto" @click="onDelete({ id: editingId, name: form.name })">
+              <i class="ti ti-trash"></i> 削除
+            </button>
             <button class="btn btn-secondary" @click="showForm = false">キャンセル</button>
             <button class="btn btn-primary" :disabled="saving || !form.name.trim()" @click="onSave">
               {{ saving ? '保存中...' : '保存' }}

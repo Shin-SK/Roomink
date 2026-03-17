@@ -62,7 +62,10 @@ CORS_ALLOW_HEADERS = [
 
 # --- CSRF ---
 _csrf_env = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "")
-CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(",") if o.strip()] if _csrf_env else []
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(",") if o.strip()] if _csrf_env else [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 if "DYNO" in os.environ:
     CSRF_TRUSTED_ORIGINS.append("https://roomink-0315e6e58623.herokuapp.com")
     CSRF_TRUSTED_ORIGINS.append("https://roomink.netlify.app")

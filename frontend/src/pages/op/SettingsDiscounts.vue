@@ -123,7 +123,7 @@ function typeLabel(type) {
               <th style="width: 100px;">値</th>
               <th style="width: 80px;">順序</th>
               <th style="width: 80px;">有効</th>
-              <th style="width: 120px;">操作</th>
+              <th style="width: 50px;"></th>
             </tr>
           </thead>
           <tbody>
@@ -137,11 +137,8 @@ function typeLabel(type) {
                 <span v-else class="badge bg-secondary">無効</span>
               </td>
               <td>
-                <button class="btn btn-outline-primary btn-sm me-1" @click="openEdit(o)">
-                  <i class="ti ti-edit"></i>
-                </button>
-                <button class="btn btn-outline-danger btn-sm" @click="onDelete(o)">
-                  <i class="ti ti-trash"></i>
+                <button class="btn btn-link p-0" @click="openEdit(o)">
+                  <i class="ti ti-edit" style="font-size: 1.25rem;"></i>
                 </button>
               </td>
             </tr>
@@ -188,7 +185,10 @@ function typeLabel(type) {
               <label class="form-check-label" for="isActive">有効</label>
             </div>
           </div>
-          <div class="modal-footer">
+          <div class="modal-footer d-flex">
+            <button v-if="editingId" class="btn btn-outline-danger me-auto" @click="onDelete({ id: editingId, name: form.name })">
+              <i class="ti ti-trash"></i> 削除
+            </button>
             <button class="btn btn-secondary" @click="showForm = false">キャンセル</button>
             <button class="btn btn-primary" :disabled="saving || !form.name.trim()" @click="onSave">
               {{ saving ? '保存中...' : '保存' }}

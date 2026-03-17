@@ -88,14 +88,14 @@ $rk-shadow-lg: $box-shadow-lg;
   // タイムライン用
   --rk-time-col-w: 46px;
   --rk-col-w: 120px;
-  --rk-row-hour-h: 80px;
+  --rk-row-hour-h: 160px;
   --rk-grid-border: #E6EEF0;
 }
 
 @media (max-width: 576px) {
   :root {
     --rk-col-w: 104px;
-    --rk-row-hour-h: 72px;
+    --rk-row-hour-h: 140px;
   }
 }
 
@@ -117,6 +117,17 @@ a {
 
   &:hover {
     color: color.adjust($rk-primary, $lightness: -10%);
+  }
+}
+
+/* Settings 共通: アイコンボタン */
+.btn-link {
+  color: $rk-primary;
+  text-decoration: none;
+
+  &:hover, &:focus {
+    color: color.adjust($rk-primary, $lightness: -10%);
+    text-decoration: none;
   }
 }
 

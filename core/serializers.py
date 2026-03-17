@@ -199,6 +199,8 @@ def build_customer_label(customer):
 class OrderSerializer(serializers.ModelSerializer):
     customer_label = serializers.SerializerMethodField()
     options = serializers.SerializerMethodField()
+    option_ids = serializers.SerializerMethodField()
+    is_unconfirmed = serializers.SerializerMethodField()
     cast_name = serializers.CharField(source="cast.name", read_only=True)
     room_name = serializers.CharField(source="room.name", read_only=True)
     # course_name is now a snapshot field on Order; no source override needed
@@ -208,7 +210,7 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = [
             "id", "store", "cast", "room", "customer", "course",
             "cast_name", "room_name", "course_name", "customer_label",
-            "start", "end", "status", "options", "memo",
+            "start", "end", "status", "options", "option_ids", "is_unconfirmed", "memo",
             "course_price", "options_price",
             "extension", "extension_name", "extension_price",
             "nomination_fee", "nomination_fee_name", "nomination_fee_price",
@@ -226,6 +228,12 @@ class OrderSerializer(serializers.ModelSerializer):
         if hasattr(obj, '_prefetched_objects_cache') and 'options' in obj._prefetched_objects_cache:
             return [o.name for o in obj.options.all()]
         return list(obj.options.values_list("name", flat=True))
+
+    def get_option_ids(self, obj):
+        return list(obj.options.values_list("id", flat=True))
+
+    def get_is_unconfirmed(self, obj):
+        return not CastAck.objects.filter(order=obj, acked_at__isnull=False).exists()
 
 
 # ──────────────────────────────────────
@@ -326,9 +334,13 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 # ──────────────────────────────────────
 
 class OrderUpdateSerializer(serializers.ModelSerializer):
+    options = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Option.objects.all(), required=False,
+    )
+
     class Meta:
         model = Order
-        fields = ["cast", "start", "end", "memo"]
+        fields = ["cast", "course", "start", "end", "memo", "options"]
 
     def validate(self, data):
         instance = self.instance
@@ -336,46 +348,74 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
         start = data.get("start", instance.start)
         end = data.get("end", instance.end)
 
-        time_or_cast_changed = "cast" in data or "start" in data or "end" in data
-        if not time_or_cast_changed:
-            return data
+        # course changed → recalc end if not explicitly set
+        if "course" in data and "end" not in data:
+            end = start + timedelta(minutes=data["course"].duration)
+            data["end"] = end
 
         if end <= start:
             raise serializers.ValidationError("終了時刻は開始時刻より後にしてください")
 
-        store = instance.store
+        time_or_cast_changed = "cast" in data or "start" in data or "end" in data
+        if time_or_cast_changed:
+            store = instance.store
 
-        # ShiftAssignment → room auto-assign
-        assignment = ShiftAssignment.objects.filter(
-            store=store,
-            date=start.date(),
-            cast=cast,
-            start_time__lte=start.time(),
-            end_time__gte=end.time(),
-        ).first()
-        if assignment is None:
-            raise serializers.ValidationError("このキャストは指定日時にシフトがありません")
-        data["room"] = assignment.room
+            # ShiftAssignment → room auto-assign
+            assignment = ShiftAssignment.objects.filter(
+                store=store,
+                date=start.date(),
+                cast=cast,
+                start_time__lte=start.time(),
+                end_time__gte=end.time(),
+            ).first()
+            if assignment is None:
+                raise serializers.ValidationError("このキャストは指定日時にシフトがありません")
+            data["room"] = assignment.room
 
-        # Cast conflict (exclude self)
-        if Order.objects.filter(
-            cast=cast,
-            status__in=Order.ACTIVE_STATUSES,
-            start__lt=end,
-            end__gt=start,
-        ).exclude(pk=instance.pk).exists():
-            raise serializers.ValidationError("このキャストは指定時間に予約が入っています")
+            # Cast conflict (exclude self)
+            if Order.objects.filter(
+                cast=cast,
+                status__in=Order.ACTIVE_STATUSES,
+                start__lt=end,
+                end__gt=start,
+            ).exclude(pk=instance.pk).exists():
+                raise serializers.ValidationError("このキャストは指定時間に予約が入っています")
 
-        # Room conflict (exclude self)
-        if Order.objects.filter(
-            room=data["room"],
-            status__in=Order.ACTIVE_STATUSES,
-            start__lt=end,
-            end__gt=start,
-        ).exclude(pk=instance.pk).exists():
-            raise serializers.ValidationError("指定ルームは使用中です")
+            # Room conflict (exclude self)
+            if Order.objects.filter(
+                room=data["room"],
+                status__in=Order.ACTIVE_STATUSES,
+                start__lt=end,
+                end__gt=start,
+            ).exclude(pk=instance.pk).exists():
+                raise serializers.ValidationError("指定ルームは使用中です")
 
         return data
+
+    def update(self, instance, validated_data):
+        option_objs = validated_data.pop("options", None)
+
+        # course snapshot
+        if "course" in validated_data:
+            course = validated_data["course"]
+            validated_data["course_name"] = course.name
+            validated_data["course_price"] = course.price
+
+        instance = super().update(instance, validated_data)
+
+        # options
+        if option_objs is not None:
+            OrderOption.objects.filter(order=instance).delete()
+            for opt in option_objs:
+                OrderOption.objects.create(order=instance, option=opt)
+            instance.options_price = sum(o.price for o in option_objs)
+
+        # recalc total
+        from .services.pricing import recalculate_order_total
+        recalculate_order_total(instance)
+        instance.save()
+
+        return instance
 
     def to_representation(self, instance):
         return OrderSerializer(instance, context=self.context).data
@@ -504,8 +544,8 @@ def build_schedule_data(store, date):
 
     # orders は既に評価済み（上の for o in orders で）なので list 化して再利用
     orders_list = list(orders)
-    active_orders = [o for o in orders_list if o.status in Order.ACTIVE_STATUSES]
-    estimated_sales = sum(o.total_price for o in active_orders)
+    done_orders = [o for o in orders_list if o.status == Order.Status.DONE]
+    estimated_sales = sum(o.total_price for o in done_orders)
 
     kpi = {
         "total_orders": len(orders_list),
@@ -518,6 +558,57 @@ def build_schedule_data(store, date):
         "date": date,
         "store_id": store.id,
         "casts": cast_data,
+        "orders": order_data,
+        "kpi": kpi,
+    }
+
+
+def build_room_schedule_data(store, date):
+    rooms = Room.objects.filter(store=store).order_by("sort_order")
+
+    orders = (
+        Order.objects
+        .filter(store=store, start__date=date, room__isnull=False)
+        .select_related("customer", "course", "cast")
+        .prefetch_related("options")
+    )
+
+    acked_order_ids = set(
+        CastAck.objects
+        .filter(order__in=orders, acked_at__isnull=False)
+        .values_list("order_id", flat=True)
+    )
+
+    order_data = []
+    for o in orders:
+        order_data.append({
+            "id": o.id,
+            "room_id": o.room_id,
+            "cast_name": o.cast.name if o.cast else "",
+            "customer_label": build_customer_label(o.customer),
+            "course_name": o.course_name,
+            "start": o.start,
+            "end": o.end,
+            "status": o.status,
+            "options": [opt.name for opt in o.options.all()],
+            "is_unconfirmed": o.id not in acked_order_ids,
+        })
+
+    orders_list = list(orders)
+    done_orders = [o for o in orders_list if o.status == Order.Status.DONE]
+    estimated_sales = sum(o.total_price for o in done_orders)
+
+    kpi = {
+        "total_orders": len(orders_list),
+        "confirmed": sum(1 for o in orders_list if o.status == Order.Status.CONFIRMED),
+        "requested": sum(1 for o in orders_list if o.status == Order.Status.REQUESTED),
+        "estimated_sales": estimated_sales,
+    }
+
+    return {
+        "date": date,
+        "store_id": store.id,
+        "rooms": [{"id": r.id, "name": r.name, "sort_order": r.sort_order} for r in rooms],
         "orders": order_data,
         "kpi": kpi,
     }

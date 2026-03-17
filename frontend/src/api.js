@@ -66,6 +66,7 @@ export const api = {
 
   // Schedule
   getSchedule: (date) => request('GET', `/op/schedule/?date=${date}`),
+  getRoomSchedule: (date) => request('GET', `/op/room-schedule/?date=${date}`),
 
   // Orders
   getOrders: (params = '') => listRequest('GET', `/orders/${params ? '?' + params : '?limit=200'}`),
