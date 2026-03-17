@@ -24,6 +24,7 @@ op_sr_router.register("shift-requests", views.OpShiftRequestViewSet, basename="o
 
 urlpatterns = [
     # auth
+    path("auth/csrf/", views.csrf_token_view, name="auth-csrf"),
     path("auth/login/", views.auth_login, name="auth-login"),
     path("auth/logout/", views.auth_logout, name="auth-logout"),
     path("auth/me/", views.auth_me, name="auth-me"),

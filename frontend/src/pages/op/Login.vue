@@ -11,13 +11,14 @@ const error = ref('')
 const loading = ref(false)
 
 onMounted(async () => {
-  // 1. csrftoken cookieを確実に発行させる
+  // 1. csrftoken cookieを確実に発行させる（クロスオリジン対応）
+  try { await api.csrf() } catch { /* ignore */ }
   // 2. 既にログイン済みならdashboardへ飛ばす
   try {
     await api.me()
     router.replace('/op/dashboard')
   } catch {
-    // 未ログイン — そのまま表示（csrftoken cookieはレスポンスで発行済み）
+    // 未ログイン — そのまま表示
   }
 })
 
@@ -81,12 +82,15 @@ async function onSubmit() {
 
 <style scoped>
 .login-wrapper {
-  min-height: 100vh;
+  height: 100dvh;
+  height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--bg-main);
-  padding: 1rem;
+  padding: 0 1rem;
+  margin: 0;
+  overflow: hidden;
 }
 .login-card {
   width: 100%;

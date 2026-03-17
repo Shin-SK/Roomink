@@ -50,6 +50,7 @@ async function upload(path, formData) {
 
 export const api = {
   // Auth
+  csrf: () => request('GET', '/auth/csrf/'),
   login: (username, password) => request('POST', '/auth/login/', { username, password }),
   logout: () => request('POST', '/auth/logout/'),
   me: () => request('GET', '/auth/me/'),

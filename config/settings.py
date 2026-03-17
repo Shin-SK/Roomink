@@ -51,6 +51,14 @@ CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()] if
     "https://roomink.netlify.app",
 ]
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "authorization",
+    "content-type",
+    "origin",
+    "x-csrftoken",
+    "x-requested-with",
+]
 
 # --- CSRF ---
 _csrf_env = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "")

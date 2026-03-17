@@ -4,6 +4,7 @@ import os
 from datetime import date as date_type, timedelta
 
 from django.contrib.auth import authenticate, login, logout
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
 from django.db.models import ProtectedError
 from django.utils import timezone
@@ -77,11 +78,21 @@ def auth_logout(request):
 
 
 @api_view(["GET"])
+@ensure_csrf_cookie
 def auth_me(request):
     return Response({
         "id": request.user.id,
         "username": request.user.username,
     })
+
+
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+@ensure_csrf_cookie
+def csrf_token_view(request):
+    """CSRF cookieを発行するだけのエンドポイント（クロスオリジン用）"""
+    return Response({"ok": True})
 
 
 # ──────────────────────────────────────
