@@ -25,8 +25,8 @@ function emptyForm() {
 
 async function loadMasters() {
   const [c, r] = await Promise.all([api.getCasts(), api.getRooms()])
-  casts.value = Array.isArray(c) ? c : c.results || []
-  rooms.value = Array.isArray(r) ? r : r.results || []
+  casts.value = Array.isArray(c) ? c : []
+  rooms.value = Array.isArray(r) ? r : []
 }
 
 async function loadShifts() {
@@ -34,7 +34,7 @@ async function loadShifts() {
   error.value = ''
   try {
     const data = await api.getShifts(`date=${filterDate.value}`)
-    shifts.value = Array.isArray(data) ? data : data.results || []
+    shifts.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

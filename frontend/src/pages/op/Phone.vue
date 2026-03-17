@@ -41,11 +41,11 @@ onMounted(async () => {
       api.getOptions(),
       api.getMedia(),
     ])
-    customers.value = Array.isArray(custData) ? custData : custData.results || []
-    casts.value = Array.isArray(castData) ? castData : castData.results || []
-    courses.value = Array.isArray(courseData) ? courseData : courseData.results || []
-    options.value = Array.isArray(optData) ? optData : optData.results || []
-    const allMedia = Array.isArray(mdData) ? mdData : mdData.results || []
+    customers.value = Array.isArray(custData) ? custData : []
+    casts.value = Array.isArray(castData) ? castData : []
+    courses.value = Array.isArray(courseData) ? courseData : []
+    options.value = Array.isArray(optData) ? optData : []
+    const allMedia = Array.isArray(mdData) ? mdData : []
     media.value = allMedia.filter(m => m.is_active)
 
     // ?phone= auto-select

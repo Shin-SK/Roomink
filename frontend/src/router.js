@@ -1,29 +1,32 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { api } from './api.js'
 
+// Eager: 初回表示に必要なページのみ
 import Dashboard from './pages/op/Dashboard.vue'
-import Schedule from './pages/op/Schedule.vue'
-import Phone from './pages/op/Phone.vue'
-import OrderDetail from './pages/op/OrderDetail.vue'
-import CustomerList from './pages/op/CustomerList.vue'
-import CustomerDetail from './pages/op/CustomerDetail.vue'
 import Login from './pages/op/Login.vue'
-import ShiftList from './pages/op/ShiftList.vue'
-import OpShiftRequests from './pages/op/OpShiftRequests.vue'
-import Settings from './pages/op/Settings.vue'
-import SettingsCasts from './pages/op/SettingsCasts.vue'
-import SettingsRooms from './pages/op/SettingsRooms.vue'
-import SettingsCourses from './pages/op/SettingsCourses.vue'
-import SettingsOptions from './pages/op/SettingsOptions.vue'
-import SettingsExtensions from './pages/op/SettingsExtensions.vue'
-import SettingsNominationFees from './pages/op/SettingsNominationFees.vue'
-import SettingsDiscounts from './pages/op/SettingsDiscounts.vue'
-import SettingsMedia from './pages/op/SettingsMedia.vue'
-import CastToday from './pages/cast/CastToday.vue'
-import CastShiftRequests from './pages/cast/CastShiftRequests.vue'
-import CuMypage from './pages/cu/CuMypage.vue'
-import CuBooking from './pages/cu/CuBooking.vue'
-import CuSubmitted from './pages/cu/CuSubmitted.vue'
+
+// Lazy: それ以外は遅延ロード
+const Schedule = () => import('./pages/op/Schedule.vue')
+const Phone = () => import('./pages/op/Phone.vue')
+const OrderDetail = () => import('./pages/op/OrderDetail.vue')
+const CustomerList = () => import('./pages/op/CustomerList.vue')
+const CustomerDetail = () => import('./pages/op/CustomerDetail.vue')
+const ShiftList = () => import('./pages/op/ShiftList.vue')
+const OpShiftRequests = () => import('./pages/op/OpShiftRequests.vue')
+const Settings = () => import('./pages/op/Settings.vue')
+const SettingsCasts = () => import('./pages/op/SettingsCasts.vue')
+const SettingsRooms = () => import('./pages/op/SettingsRooms.vue')
+const SettingsCourses = () => import('./pages/op/SettingsCourses.vue')
+const SettingsOptions = () => import('./pages/op/SettingsOptions.vue')
+const SettingsExtensions = () => import('./pages/op/SettingsExtensions.vue')
+const SettingsNominationFees = () => import('./pages/op/SettingsNominationFees.vue')
+const SettingsDiscounts = () => import('./pages/op/SettingsDiscounts.vue')
+const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
+const CastToday = () => import('./pages/cast/CastToday.vue')
+const CastShiftRequests = () => import('./pages/cast/CastShiftRequests.vue')
+const CuMypage = () => import('./pages/cu/CuMypage.vue')
+const CuBooking = () => import('./pages/cu/CuBooking.vue')
+const CuSubmitted = () => import('./pages/cu/CuSubmitted.vue')
 
 const routes = [
   { path: '/', redirect: '/op/dashboard' },

@@ -23,7 +23,7 @@ async function loadCourses() {
   error.value = ''
   try {
     const data = await api.getCourses()
-    courses.value = Array.isArray(data) ? data : data.results || []
+    courses.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

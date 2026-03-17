@@ -499,7 +499,7 @@ class CustomerMypageView(APIView):
     def get(self, request):
         customer = resolve_customer(request)
 
-        from django.db.models import Count
+        from django.db.models import Count, Sum
         from django.utils import timezone
 
         now = timezone.now()
@@ -542,14 +542,15 @@ class CustomerMypageView(APIView):
         if fav_cast_id:
             fav_cast = Cast.objects.filter(pk=fav_cast_id).first()
             if fav_cast:
-                fav_orders = Order.objects.filter(customer=customer, cast=fav_cast, status=Order.Status.DONE)
-                fav_spend = sum(o.total_price for o in fav_orders)
+                fav_agg = Order.objects.filter(
+                    customer=customer, cast=fav_cast, status=Order.Status.DONE,
+                ).aggregate(visit_count=Count("id"), total_spend=Sum("total_price"))
                 favorites.append({
                     "id": fav_cast.id,
                     "name": fav_cast.name,
                     "avatar_url": fav_cast.avatar_url,
-                    "visit_count": fav_orders.count(),
-                    "total_spend": fav_spend,
+                    "visit_count": fav_agg["visit_count"],
+                    "total_spend": fav_agg["total_spend"] or 0,
                 })
 
         # ── おすすめ（store 内キャスト最大3名、推し除外）──
@@ -580,9 +581,11 @@ class CustomerMypageView(APIView):
             })
 
         # ── 累計 ──
-        done_orders = Order.objects.filter(customer=customer, status=Order.Status.DONE)
-        total_visits = done_orders.count()
-        total_spend = sum(o.total_price for o in done_orders)
+        done_agg = Order.objects.filter(
+            customer=customer, status=Order.Status.DONE,
+        ).aggregate(total_visits=Count("id"), total_spend=Sum("total_price"))
+        total_visits = done_agg["total_visits"]
+        total_spend = done_agg["total_spend"] or 0
 
         return Response({
             "customer": {

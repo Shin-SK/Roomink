@@ -23,7 +23,7 @@ async function loadCasts() {
   error.value = ''
   try {
     const data = await api.getCasts()
-    casts.value = Array.isArray(data) ? data : data.results || []
+    casts.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

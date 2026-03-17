@@ -23,7 +23,7 @@ async function loadOptions() {
   error.value = ''
   try {
     const data = await api.getOptions()
-    options.value = Array.isArray(data) ? data : data.results || []
+    options.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

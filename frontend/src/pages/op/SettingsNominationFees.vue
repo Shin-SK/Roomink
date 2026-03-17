@@ -22,7 +22,7 @@ async function loadFees() {
   error.value = ''
   try {
     const data = await api.getNominationFees()
-    fees.value = Array.isArray(data) ? data : data.results || []
+    fees.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

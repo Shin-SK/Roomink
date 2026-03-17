@@ -14,6 +14,8 @@ const activeTab = ref('mikakunin')
 // CTI Queue
 const ctiCalls = ref([])
 const ctiNewCount = computed(() => ctiCalls.value.filter(c => c.status === 'NEW').length)
+const ctiCallsTop5 = computed(() => ctiCalls.value.slice(0, 5))
+const requestedTop3 = computed(() => requestedOrders.value.slice(0, 3))
 const ctiStarting = ref({})   // { [callId]: true } 二重クリック防止
 const ctiDoning = ref({})
 const ctiError = ref('')
@@ -47,7 +49,7 @@ onMounted(async () => {
 
   // CTI polling (2 sec)
   await fetchCtiQueue()
-  ctiTimer = setInterval(fetchCtiQueue, 2000)
+  ctiTimer = setInterval(fetchCtiQueue, 10000)
 })
 
 onUnmounted(() => {
@@ -139,7 +141,7 @@ function timeAgo(dt) {
         <div class="card-body p-0">
           <ul class="list-group list-group-flush">
             <li
-              v-for="call in ctiCalls.slice(0, 5)"
+              v-for="call in ctiCallsTop5"
               :key="call.id"
               class="list-group-item d-flex justify-content-between align-items-center"
             >
@@ -243,7 +245,7 @@ function timeAgo(dt) {
         <div class="card-body p-0">
           <ul class="list-group list-group-flush">
             <li
-              v-for="order in requestedOrders.slice(0, 3)"
+              v-for="order in requestedTop3"
               :key="'alert-' + order.id"
               class="list-group-item"
             >

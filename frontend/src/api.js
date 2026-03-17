@@ -48,6 +48,15 @@ async function upload(path, formData) {
   return data
 }
 
+// ページネーション対応: results 配列があればそちらを返す
+async function listRequest(method, path) {
+  const data = await request(method, path)
+  if (data && typeof data === 'object' && Array.isArray(data.results)) {
+    return data.results
+  }
+  return data
+}
+
 export const api = {
   // Auth
   csrf: () => request('GET', '/auth/csrf/'),
@@ -59,7 +68,7 @@ export const api = {
   getSchedule: (date) => request('GET', `/op/schedule/?date=${date}`),
 
   // Orders
-  getOrders: (params = '') => request('GET', `/orders/${params ? '?' + params : ''}`),
+  getOrders: (params = '') => listRequest('GET', `/orders/${params ? '?' + params : '?limit=200'}`),
   getOrder: (id) => request('GET', `/orders/${id}/`),
   updateOrder: (id, body) => request('PATCH', `/orders/${id}/`, body),
   createOrder: (body) => request('POST', '/orders/', body),
@@ -72,61 +81,61 @@ export const api = {
   applyMedium: (id, medium_id) => request('POST', `/orders/${id}/apply_medium/`, { medium_id }),
 
   // Customers
-  getCustomers: () => request('GET', '/customers/'),
+  getCustomers: (params = '') => listRequest('GET', `/customers/${params ? '?' + params : '?limit=1000'}`),
   getCustomer: (id) => request('GET', `/customers/${id}/`),
   createCustomer: (body) => request('POST', '/customers/', body),
   updateCustomer: (id, body) => request('PATCH', `/customers/${id}/`, body),
 
   // Casts
-  getCasts: () => request('GET', '/casts/'),
+  getCasts: () => listRequest('GET', '/casts/?limit=200'),
   createCast: (body) => request('POST', '/casts/', body),
   updateCast: (id, body) => request('PATCH', `/casts/${id}/`, body),
   deleteCast: (id) => request('DELETE', `/casts/${id}/`),
 
   // Courses
-  getCourses: () => request('GET', '/courses/'),
+  getCourses: () => listRequest('GET', '/courses/?limit=200'),
   createCourse: (body) => request('POST', '/courses/', body),
   updateCourse: (id, body) => request('PATCH', `/courses/${id}/`, body),
   deleteCourse: (id) => request('DELETE', `/courses/${id}/`),
 
   // Options
-  getOptions: () => request('GET', '/options/'),
+  getOptions: () => listRequest('GET', '/options/?limit=200'),
   createOption: (body) => request('POST', '/options/', body),
   updateOption: (id, body) => request('PATCH', `/options/${id}/`, body),
   deleteOption: (id) => request('DELETE', `/options/${id}/`),
 
   // Rooms
-  getRooms: () => request('GET', '/rooms/'),
+  getRooms: () => listRequest('GET', '/rooms/?limit=200'),
   createRoom: (body) => request('POST', '/rooms/', body),
   updateRoom: (id, body) => request('PATCH', `/rooms/${id}/`, body),
   deleteRoom: (id) => request('DELETE', `/rooms/${id}/`),
 
   // Extensions
-  getExtensions: () => request('GET', '/extensions/'),
+  getExtensions: () => listRequest('GET', '/extensions/?limit=200'),
   createExtension: (body) => request('POST', '/extensions/', body),
   updateExtension: (id, body) => request('PATCH', `/extensions/${id}/`, body),
   deleteExtension: (id) => request('DELETE', `/extensions/${id}/`),
 
   // NominationFees
-  getNominationFees: () => request('GET', '/nomination-fees/'),
+  getNominationFees: () => listRequest('GET', '/nomination-fees/?limit=200'),
   createNominationFee: (body) => request('POST', '/nomination-fees/', body),
   updateNominationFee: (id, body) => request('PATCH', `/nomination-fees/${id}/`, body),
   deleteNominationFee: (id) => request('DELETE', `/nomination-fees/${id}/`),
 
   // Discounts
-  getDiscounts: () => request('GET', '/discounts/'),
+  getDiscounts: () => listRequest('GET', '/discounts/?limit=200'),
   createDiscount: (body) => request('POST', '/discounts/', body),
   updateDiscount: (id, body) => request('PATCH', `/discounts/${id}/`, body),
   deleteDiscount: (id) => request('DELETE', `/discounts/${id}/`),
 
   // Media
-  getMedia: () => request('GET', '/media/'),
+  getMedia: () => listRequest('GET', '/media/?limit=200'),
   createMedium: (body) => request('POST', '/media/', body),
   updateMedium: (id, body) => request('PATCH', `/media/${id}/`, body),
   deleteMedium: (id) => request('DELETE', `/media/${id}/`),
 
   // Shifts
-  getShifts: (params = '') => request('GET', `/shifts/${params ? '?' + params : ''}`),
+  getShifts: (params = '') => listRequest('GET', `/shifts/${params ? '?' + params : '?limit=500'}`),
   createShift: (body) => request('POST', '/shifts/', body),
   updateShift: (id, body) => request('PATCH', `/shifts/${id}/`, body),
   deleteShift: (id) => request('DELETE', `/shifts/${id}/`),
@@ -134,13 +143,13 @@ export const api = {
   // Cast
   getCastToday: (date) => request('GET', `/cast/today/?date=${date}`),
   ackOrder: (id) => request('POST', `/cast/orders/${id}/ack/`),
-  getCastShiftRequests: (params = '') => request('GET', `/cast/shift-requests/${params ? '?' + params : ''}`),
+  getCastShiftRequests: (params = '') => listRequest('GET', `/cast/shift-requests/${params ? '?' + params : '?limit=200'}`),
   createCastShiftRequest: (body) => request('POST', '/cast/shift-requests/', body),
   updateCastShiftRequest: (id, body) => request('PATCH', `/cast/shift-requests/${id}/`, body),
   cancelCastShiftRequest: (id) => request('POST', `/cast/shift-requests/${id}/cancel/`),
 
   // Op ShiftRequests
-  getOpShiftRequests: (params = '') => request('GET', `/op/shift-requests/${params ? '?' + params : ''}`),
+  getOpShiftRequests: (params = '') => listRequest('GET', `/op/shift-requests/${params ? '?' + params : '?limit=200'}`),
   approveShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/approve/`, body),
   rejectShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/reject/`, body),
 

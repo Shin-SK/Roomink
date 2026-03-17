@@ -12,7 +12,7 @@ const filterStatus = ref('REQUESTED')
 
 async function loadRooms() {
   const r = await api.getRooms()
-  rooms.value = Array.isArray(r) ? r : r.results || []
+  rooms.value = Array.isArray(r) ? r : []
 }
 
 async function load() {
@@ -21,7 +21,7 @@ async function load() {
   try {
     const params = filterStatus.value ? `status=${filterStatus.value}` : ''
     const data = await api.getOpShiftRequests(params)
-    requests.value = Array.isArray(data) ? data : data.results || []
+    requests.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

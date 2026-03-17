@@ -62,10 +62,10 @@ onMounted(async () => {
       api.getMedia(),
     ])
     order.value = o
-    extensions.value = Array.isArray(exts) ? exts : exts.results || []
-    nominationFees.value = Array.isArray(nfs) ? nfs : nfs.results || []
-    discounts.value = Array.isArray(dcs) ? dcs : dcs.results || []
-    const allMedia = Array.isArray(mds) ? mds : mds.results || []
+    extensions.value = Array.isArray(exts) ? exts : []
+    nominationFees.value = Array.isArray(nfs) ? nfs : []
+    discounts.value = Array.isArray(dcs) ? dcs : []
+    const allMedia = Array.isArray(mds) ? mds : []
     media.value = allMedia.filter(m => m.is_active)
     selectedExtension.value = o.extension ?? null
     selectedNominationFee.value = o.nomination_fee ?? null

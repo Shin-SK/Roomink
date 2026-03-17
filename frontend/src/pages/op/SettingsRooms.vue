@@ -23,7 +23,7 @@ async function loadRooms() {
   error.value = ''
   try {
     const data = await api.getRooms()
-    rooms.value = Array.isArray(data) ? data : data.results || []
+    rooms.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUpdated, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 const props = defineProps({
   casts: { type: Array, default: () => [] },
@@ -97,7 +97,8 @@ onMounted(() => {
   nextTick(layoutBlocks)
   window.addEventListener('resize', onResize)
 })
-onUpdated(() => nextTick(layoutBlocks))
+// props変更時のみ再計算（onUpdated は毎レンダーで走り重い）
+watch(() => [props.casts, props.orders], () => nextTick(layoutBlocks))
 onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 </script>
 

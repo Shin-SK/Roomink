@@ -21,7 +21,7 @@ async function load() {
   error.value = ''
   try {
     const data = await api.getCastShiftRequests()
-    requests.value = Array.isArray(data) ? data : data.results || []
+    requests.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {
@@ -32,7 +32,7 @@ async function load() {
 onMounted(async () => {
   try {
     const r = await api.getRooms()
-    rooms.value = Array.isArray(r) ? r : r.results || []
+    rooms.value = Array.isArray(r) ? r : []
   } catch (e) {
     error.value = e.message
   }

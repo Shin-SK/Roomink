@@ -35,7 +35,7 @@ const filtered = computed(() => {
 onMounted(async () => {
   try {
     const data = await api.getCustomers()
-    customers.value = Array.isArray(data) ? data : data.results || []
+    customers.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

@@ -22,7 +22,7 @@ async function loadDiscounts() {
   error.value = ''
   try {
     const data = await api.getDiscounts()
-    discounts.value = Array.isArray(data) ? data : data.results || []
+    discounts.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

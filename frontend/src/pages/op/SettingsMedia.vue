@@ -22,7 +22,7 @@ async function loadMedia() {
   error.value = ''
   try {
     const data = await api.getMedia()
-    media.value = Array.isArray(data) ? data : data.results || []
+    media.value = Array.isArray(data) ? data : []
   } catch (e) {
     error.value = e.message
   } finally {

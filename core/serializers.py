@@ -222,6 +222,9 @@ class OrderSerializer(serializers.ModelSerializer):
         return build_customer_label(obj.customer)
 
     def get_options(self, obj):
+        # prefetch_related 済みの場合 DB クエリを避ける
+        if hasattr(obj, '_prefetched_objects_cache') and 'options' in obj._prefetched_objects_cache:
+            return [o.name for o in obj.options.all()]
         return list(obj.options.values_list("name", flat=True))
 
 
@@ -495,17 +498,19 @@ def build_schedule_data(store, date):
             "start": o.start,
             "end": o.end,
             "status": o.status,
-            "options": list(o.options.values_list("name", flat=True)),
+            "options": [opt.name for opt in o.options.all()],
             "is_unconfirmed": o.id not in acked_order_ids,
         })
 
-    active_orders = [o for o in orders if o.status in Order.ACTIVE_STATUSES]
+    # orders は既に評価済み（上の for o in orders で）なので list 化して再利用
+    orders_list = list(orders)
+    active_orders = [o for o in orders_list if o.status in Order.ACTIVE_STATUSES]
     estimated_sales = sum(o.total_price for o in active_orders)
 
     kpi = {
-        "total_orders": orders.count(),
-        "confirmed": sum(1 for o in orders if o.status == Order.Status.CONFIRMED),
-        "requested": sum(1 for o in orders if o.status == Order.Status.REQUESTED),
+        "total_orders": len(orders_list),
+        "confirmed": sum(1 for o in orders_list if o.status == Order.Status.CONFIRMED),
+        "requested": sum(1 for o in orders_list if o.status == Order.Status.REQUESTED),
         "estimated_sales": estimated_sales,
     }
 
