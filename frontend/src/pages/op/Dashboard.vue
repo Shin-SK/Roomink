@@ -225,6 +225,7 @@ function timeAgo(dt) {
         <div class="wrap">
           <button
             :class="{ active: activeTab === 'mikakunin' }"
+            class="tab-mikakunin"
             @click="activeTab = 'mikakunin'"
           >キャスト未確認</button>
         </div>

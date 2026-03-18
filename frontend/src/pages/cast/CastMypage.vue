@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 
 const loading = ref(true)
@@ -48,70 +49,19 @@ function formatTime(dt) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function formatYen(n) {
+  return `¥${Number(n).toLocaleString()}`
+}
+
 function durationMin(order) {
   const s = new Date(order.start)
   const e = new Date(order.end)
   return Math.round((e - s) / 60000)
 }
-
-function formatYen(n) {
-  return `¥${Number(n).toLocaleString()}`
-}
-
-const hours = computed(() => {
-  const startH = shift.value ? parseInt(shift.value.start_time) : 12
-  const endH = shift.value ? parseInt(shift.value.end_time) : 20
-  const arr = []
-  for (let h = startH; h <= endH; h++) {
-    arr.push(`${String(h).padStart(2, '0')}:00`)
-  }
-  return arr
-})
-
-const startHour = computed(() => shift.value ? parseInt(shift.value.start_time) : 12)
-const endHour = computed(() => shift.value ? parseInt(shift.value.end_time) : 20)
-
-function parseTimeToMin(t) {
-  const [h, m] = String(t).split(':').map(Number)
-  return h * 60 + m
-}
-
-const gridRef = ref(null)
-
-function layoutBlocks() {
-  if (!gridRef.value) return
-  const grid = gridRef.value
-  const hourH = 80
-  const startMin = startHour.value * 60
-
-  const totalH = (endHour.value - startHour.value + 1)
-  grid.style.height = `${hourH * totalH}px`
-
-  grid.querySelectorAll('.rk-block').forEach(el => {
-    const s = parseTimeToMin(el.dataset.start)
-    const e = parseTimeToMin(el.dataset.end)
-    const top = ((s - startMin) / 60) * hourH
-    const height = Math.max(24, ((e - s) / 60) * hourH)
-    el.style.top = `${top + 6}px`
-    el.style.height = `${height - 12}px`
-  })
-}
-
-onMounted(() => {
-  setTimeout(layoutBlocks, 100)
-})
 </script>
 
 <template>
-  <div class="cast-layout">
-    <header class="cast-header">
-      <div class="cast-nav">
-        <a href="/cast/today"><img src="/icon.svg" alt="" style="width: 24px;"></a>
-      </div>
-    </header>
-
-    <main class="cast-content container">
-
+  <LayoutCast>
       <div v-if="loading" class="text-center py-5">
         <div class="spinner-border text-primary"></div>
       </div>
@@ -175,9 +125,9 @@ onMounted(() => {
           </div>
         </div>
 
-        <div id="res-list" class="rk-section-header"><i class="ti ti-calendar-event"></i> 予約一覧</div>
+        <!-- 予約一覧 -->
+        <div class="rk-section-header"><i class="ti ti-calendar-event"></i> 予約一覧</div>
 
-        <!-- 予約カード -->
         <div
           v-for="order in orders"
           :key="order.id"
@@ -223,38 +173,6 @@ onMounted(() => {
           本日の予約はありません
         </div>
 
-        <!-- タイムライン -->
-        <div id="timeline" class="rk-section-header mt-4"><i class="ti ti-timeline-event"></i> タイムライン</div>
-
-        <section class="ca-schedule mb-4">
-          <div class="rk-sheet-scroll">
-            <div class="rk-sheet" data-cols="1" :data-start="`${String(startHour).padStart(2,'0')}:00`" :data-end="`${String(endHour).padStart(2,'0')}:00`">
-
-              <div class="rk-timecol">
-                <div v-for="hour in hours" :key="hour" class="rk-time">{{ hour }}</div>
-              </div>
-
-              <div ref="gridRef" class="rk-grid" data-cols="1">
-                <a
-                  v-for="order in orders"
-                  :key="'tl-' + order.id"
-                  class="rk-block is-approved"
-                  :class="order.is_unconfirmed ? 'is-unconfirmed' : ''"
-                  href="#"
-                  @click.prevent
-                  data-col="0"
-                  :data-start="formatTime(order.start)"
-                  :data-end="formatTime(order.end)"
-                >
-                  <div class="rk-block__title">{{ formatTime(order.start) }} – {{ formatTime(order.end) }} / {{ durationMin(order) }}分</div>
-                  <div class="rk-block__meta">{{ order.room_name }} / {{ order.is_unconfirmed ? '未確認' : '確認済' }}</div>
-                </a>
-              </div>
-
-            </div>
-          </div>
-        </section>
-
         <!-- 注意事項 -->
         <div class="card mb-3">
           <button class="card-header btn btn-link w-100 text-start d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#castNotes" aria-expanded="false">
@@ -282,9 +200,9 @@ onMounted(() => {
             </div>
             <div class="flex-grow-1">
               <div class="fw-bold mb-1">困ったときは運営へ</div>
-              <div class="small text-muted">タップして電話する</div>
+              <div class="small text-muted">タップして電話する<i class="ti ti-chevron-right text-muted"></i>
+              </div>
             </div>
-            <i class="ti ti-chevron-right text-muted"></i>
           </div>
         </a>
 
@@ -294,36 +212,5 @@ onMounted(() => {
         </div>
 
       </template>
-    </main>
-
-    <!-- フッター -->
-    <footer class="footer position-fixed bottom-0 w-100 p-3 bg-white border-top">
-      <div class="container d-flex align-items-center justify-content-between">
-        <button class="btn border-0 p-0">
-          <a href="/cast/today" class="nav-link active">
-            <i class="ti ti-home"></i>
-            <small>マイページ</small>
-          </a>
-        </button>
-        <button class="btn border-0 p-0">
-          <a href="/cast/today#res-list" class="nav-link">
-            <i class="ti ti-timeline-event-exclamation"></i>
-            <small>予約リスト</small>
-          </a>
-        </button>
-        <button class="btn border-0 p-0">
-          <a href="/cast/today#timeline" class="nav-link">
-            <i class="ti ti-users"></i>
-            <small>タイムライン</small>
-          </a>
-        </button>
-        <button class="btn border-0 p-0">
-          <a href="/cast/shift-requests" class="nav-link">
-            <i class="ti ti-calendar-plus"></i>
-            <small>シフト申請</small>
-          </a>
-        </button>
-      </div>
-    </footer>
-  </div>
+  </LayoutCast>
 </template>

@@ -14,23 +14,18 @@ onMounted(async () => {
   try { currentUser.value = await api.me() } catch { /* ignore */ }
 })
 
-const navItems = [
-  { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
-  { to: '/op/schedule', icon: 'ti-calendar', label: '予約タイムライン', page: 'schedule' },
-  { to: '/op/rooms', icon: 'ti-door', label: 'ルーム', page: 'room-schedule' },
-  { to: '/op/phone', icon: 'ti-clipboard-plus', label: '予約作成', page: 'phone' },
-  { to: '/op/customers', icon: 'ti-users', label: '顧客管理', page: 'customer-list' },
-  { to: '/op/shifts', icon: 'ti-clock', label: 'シフト管理', page: 'shift-list' },
-  { to: '/op/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
-  { to: '/op/settings', icon: 'ti-settings', label: '設定', page: 'settings' },
+const sidebarItems = [
+  { to: '/cast/mypage', icon: 'ti-home', label: 'マイページ' },
+  { to: '/cast/orders', icon: 'ti-calendar-event', label: 'タイムライン' },
+  { to: '/cast/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請' },
+  { to: '/cast/profile', icon: 'ti-user', label: 'プロフィール' },
 ]
 
 const footerItems = [
-  { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
-  { to: '/op/schedule', icon: 'ti-timeline-event-exclamation', label: '予約', page: 'schedule' },
-  { to: '/op/phone', icon: 'ti-plus', label: '新規', page: 'phone' },
-  { to: '/op/rooms', icon: 'ti-door', label: 'ルーム', page: 'rooms' },
-  { to: '/op/customers', icon: 'ti-users', label: '顧客', page: 'customer-list' },
+  { to: '/cast/mypage', icon: 'ti-home', label: 'ホーム' },
+  { to: '/cast/orders', icon: 'ti-calendar-event', label: 'タイムライン' },
+  { to: '/cast/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請' },
+  { to: '/cast/profile', icon: 'ti-user', label: 'プロフィール' },
 ]
 
 function toggleSidebar() {
@@ -44,12 +39,12 @@ function closeSidebar() {
 async function onLogout() {
   try { await api.logout() } catch { /* ignore */ }
   resetAuthCache()
-  router.push('/op/login')
+  router.push('/cast/login')
 }
 
 function onDocClick(e) {
-  const sidebar = document.querySelector('.sidebar')
-  const btn = document.querySelector('.mobile-menu-btn')
+  const sidebar = document.querySelector('.cast-sidebar')
+  const btn = document.querySelector('.cast-menu-btn')
   if (
     sidebarOpen.value &&
     sidebar && !sidebar.contains(e.target) &&
@@ -65,20 +60,20 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
 <template>
   <div class="app-wrapper">
-    <!-- Sidebar (matches sidebar-operator.html) -->
-    <aside class="sidebar" :class="{ show: sidebarOpen }">
+    <!-- Sidebar -->
+    <aside class="sidebar cast-sidebar" :class="{ show: sidebarOpen }">
       <div class="sidebar-header">
-        <router-link to="/op/dashboard" class="sidebar-brand" @click="closeSidebar">
+        <router-link to="/cast/mypage" class="sidebar-brand" @click="closeSidebar">
           <img style="height: 40px;" src="/logo.svg" alt="Roomink Logo">
         </router-link>
       </div>
       <nav class="sidebar-nav">
         <ul class="nav-item">
-          <li v-for="item in navItems" :key="item.to">
+          <li v-for="item in sidebarItems" :key="item.to">
             <router-link
               :to="item.to"
               class="nav-link"
-              :class="{ active: item.to === '/op/settings' ? route.path.startsWith('/op/settings') : route.path === item.to }"
+              :class="{ active: route.path === item.to }"
               @click="closeSidebar"
             >
               <i class="ti" :class="item.icon"></i>{{ item.label }}
@@ -95,19 +90,19 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
     <!-- Main content -->
     <div class="main-content">
-      <!-- Header (matches header.html) -->
+      <!-- Header -->
       <header class="app-header position-relative">
-        <button class="mobile-menu-btn" @click.stop="toggleSidebar">
+        <button class="mobile-menu-btn cast-menu-btn" @click.stop="toggleSidebar">
           <i class="ti ti-menu-2"></i>
         </button>
         <h1 class="position-absolute top-50 start-50 translate-middle m-0 d-flex align-items-center gap-2">
-          <img src="/icon.svg" alt="ホーム" style="height: 32px;">
-          <!-- <span v-if="currentUser?.store_name" class="store-name">{{ currentUser.store_name }}</span> -->
+          <!-- <img src="/icon.svg" alt="ホーム" style="height: 32px;"> -->
+          <span v-if="currentUser?.store_name" class="store-name">{{ currentUser.store_name }}</span>
         </h1>
         <div class="header-actions">
           <slot name="actions"></slot>
         </div>
-        <router-link to="/op/profile" class="header-avator">
+        <router-link to="/cast/profile" class="header-avator">
           <UserAvatar :name="currentUser?.display_name" :avatar-url="currentUser?.avatar_url" :size="32" />
         </router-link>
       </header>
@@ -116,9 +111,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         <slot></slot>
       </main>
 
-      <!-- Footer (matches footer.html) -->
+      <!-- Footer -->
       <footer class="footer position-fixed bottom-0 w-100 p-3 bg-white border-top">
-        <div class="container d-flex align-items-center justify-content-between">
+        <div class="container d-flex align-items-center justify-content-around">
           <button
             v-for="item in footerItems"
             :key="item.to"

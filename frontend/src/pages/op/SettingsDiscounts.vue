@@ -103,7 +103,7 @@ function typeLabel(type) {
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="ti ti-discount"></i> 割引一覧</span>
         <button class="btn btn-primary btn-sm" @click="openCreate">
-          <i class="ti ti-plus"></i> 割引追加
+          <i class="ti ti-plus text-white"></i> 割引追加
         </button>
       </div>
       <div class="card-body">

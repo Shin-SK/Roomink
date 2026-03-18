@@ -24,11 +24,20 @@ const SettingsDiscounts = () => import('./pages/op/SettingsDiscounts.vue')
 const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
 const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
 const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
-const CastToday = () => import('./pages/cast/CastToday.vue')
+const Profile = () => import('./pages/op/Profile.vue')
+const CastLogin = () => import('./pages/cast/CastLogin.vue')
+const CastMypage = () => import('./pages/cast/CastMypage.vue')
+const CastOrders = () => import('./pages/cast/CastOrders.vue')
 const CastShiftRequests = () => import('./pages/cast/CastShiftRequests.vue')
+const CastProfile = () => import('./pages/cast/CastProfile.vue')
+const CuLogin = () => import('./pages/cu/CuLogin.vue')
+const CuSignup = () => import('./pages/cu/CuSignup.vue')
 const CuMypage = () => import('./pages/cu/CuMypage.vue')
 const CuBooking = () => import('./pages/cu/CuBooking.vue')
 const CuSubmitted = () => import('./pages/cu/CuSubmitted.vue')
+const CuReservation = () => import('./pages/cu/CuReservation.vue')
+const CuProfile = () => import('./pages/cu/CuProfile.vue')
+const CuContact = () => import('./pages/cu/CuContact.vue')
 
 const routes = [
   { path: '/', redirect: '/op/dashboard' },
@@ -52,46 +61,95 @@ const routes = [
   { path: '/op/settings/discounts', name: 'settings-discounts', component: SettingsDiscounts },
   { path: '/op/settings/media', name: 'settings-media', component: SettingsMedia },
   { path: '/op/settings/csv-import', name: 'settings-csv-import', component: SettingsCsvImport },
+  { path: '/op/profile', name: 'op-profile', component: Profile },
 
   // Cast
-  { path: '/cast/today', name: 'cast-today', component: CastToday },
+  { path: '/cast/login', name: 'cast-login', component: CastLogin, meta: { public: true } },
+  { path: '/cast/mypage', name: 'cast-mypage', component: CastMypage },
+  { path: '/cast/orders', name: 'cast-orders', component: CastOrders },
   { path: '/cast/shift-requests', name: 'cast-shift-requests', component: CastShiftRequests },
+  { path: '/cast/profile', name: 'cast-profile', component: CastProfile },
 
   // Customer
+  { path: '/cu/login', name: 'cu-login', component: CuLogin, meta: { public: true } },
+  { path: '/cu/signup', name: 'cu-signup', component: CuSignup, meta: { public: true } },
   { path: '/cu/mypage', name: 'cu-mypage', component: CuMypage },
   { path: '/cu/booking', name: 'cu-booking', component: CuBooking },
   { path: '/cu/submitted', name: 'cu-submitted', component: CuSubmitted },
+  { path: '/cu/reservations/:id', name: 'cu-reservation', component: CuReservation, props: true },
+  { path: '/cu/profile', name: 'cu-profile', component: CuProfile },
+  { path: '/cu/contact', name: 'cu-contact', component: CuContact },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes,
+  scrollBehavior() {
+    return { top: 0 }
+  },
 })
 
-// 認証キャッシュ（ページ遷移のたびにme()を叩かないようにする）
-let authed = null // null=未確認, true/false
+// 認証キャッシュ（role を含む）
+let authCache = null // null=未確認, { authed: true, role: '...' } or { authed: false }
+
+async function ensureAuth() {
+  if (authCache) return authCache
+  try {
+    const me = await api.me()
+    authCache = { authed: true, role: me.role }
+  } catch {
+    authCache = { authed: false, role: null }
+  }
+  return authCache
+}
+
+function homeForRole(role) {
+  return role === 'cast' ? '/cast/mypage' : '/op/dashboard'
+}
 
 router.beforeEach(async (to) => {
-  // /op/* 以外、または public フラグ付きはガード不要
-  if (!to.path.startsWith('/op/') || to.meta.public) return
+  const isOp = to.path.startsWith('/op/')
+  const isCast = to.path.startsWith('/cast/')
+  const isCu = to.path.startsWith('/cu/')
 
-  // キャッシュがあればそれを使う
-  if (authed === true) return
-  if (authed === false) return { name: 'op-login' }
+  // public ページはガード不要
+  if (to.meta.public) return
 
-  // 初回：me()で判定
-  try {
-    await api.me()
-    authed = true
-  } catch {
-    authed = false
+  // /cu/* のガード（op/cast とは別系統）
+  if (isCu) {
+    const auth = await ensureAuth()
+    if (!auth.authed) return { name: 'cu-login', query: { next: to.fullPath } }
+    return
+  }
+
+  // /op/* と /cast/* 以外はガード不要
+  if (!isOp && !isCast) return
+
+  const auth = await ensureAuth()
+
+  // 未ログイン → 各系統のログインページへ
+  if (!auth.authed) {
+    if (isCast) return { name: 'cast-login', query: { next: to.fullPath } }
     return { name: 'op-login' }
+  }
+
+  // role 別アクセス制御
+  if (auth.role === 'cast') {
+    // cast が /op/* に来た場合、/op/profile (castAllowed) 以外は拒否
+    if (isOp && !to.meta.castAllowed) return { path: '/cast/mypage' }
+  } else {
+    // staff / manager が /cast/* に来た場合は拒否
+    if (isCast) return { path: '/op/dashboard' }
   }
 })
 
 // ログイン/ログアウト時にキャッシュをリセットするヘルパー
 export function resetAuthCache() {
-  authed = null
+  authCache = null
+}
+
+export function getAuthRole() {
+  return authCache?.role || null
 }
 
 export default router

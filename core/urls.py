@@ -28,6 +28,7 @@ urlpatterns = [
     path("auth/login/", views.auth_login, name="auth-login"),
     path("auth/logout/", views.auth_logout, name="auth-logout"),
     path("auth/me/", views.auth_me, name="auth-me"),
+    path("auth/profile/", views.auth_profile_update, name="auth-profile-update"),
 
     # cast
     path("cast/today/", views.CastTodayView.as_view(), name="cast-today"),
@@ -35,12 +36,14 @@ urlpatterns = [
     path("cast/", include(cast_sr_router.urls)),
 
     # customer
+    path("cu/store-list/", views.StoreListPublicView.as_view(), name="cu-store-list"),
     path("cu/stores/", views.CustomerStoresView.as_view(), name="cu-stores"),
     path("cu/signup/", views.customer_signup, name="cu-signup"),
     path("cu/mypage/", views.CustomerMypageView.as_view(), name="cu-mypage"),
     path("cu/available-slots/", views.CustomerAvailableSlotsView.as_view(), name="cu-available-slots"),
     path("cu/booking/options/", views.CustomerBookingOptionsView.as_view(), name="cu-booking-options"),
     path("cu/bookings/", views.CustomerBookingCreateView.as_view(), name="cu-bookings"),
+    path("cu/reservations/<int:pk>/", views.CustomerReservationDetailView.as_view(), name="cu-reservation-detail"),
 
     # operator
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),

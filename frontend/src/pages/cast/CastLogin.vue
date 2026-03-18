@@ -1,26 +1,25 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { api } from '../../api.js'
 import { resetAuthCache } from '../../router.js'
 
 const router = useRouter()
+const route = useRoute()
 const username = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
 
-function homeForRole(role) {
-  return role === 'cast' ? '/cast/mypage' : '/op/dashboard'
-}
-
 onMounted(async () => {
   try { await api.csrf() } catch { /* ignore */ }
   try {
     const me = await api.me()
-    router.replace(homeForRole(me.role))
+    if (me.role === 'cast') {
+      router.replace(route.query.next || '/cast/mypage')
+    }
   } catch {
-    // 未ログイン — そのまま表示
+    // 未ログイン
   }
 })
 
@@ -31,7 +30,11 @@ async function onSubmit() {
     await api.login(username.value, password.value)
     resetAuthCache()
     const me = await api.me()
-    router.push(homeForRole(me.role))
+    if (me.role === 'cast') {
+      router.push(route.query.next || '/cast/mypage')
+    } else {
+      error.value = 'キャストアカウントではありません'
+    }
   } catch (e) {
     error.value = e.message || 'ログインに失敗しました'
   } finally {
@@ -47,7 +50,7 @@ async function onSubmit() {
         <div class="text-center mb-4">
           <img src="/logo.svg" alt="Roomink" style="height: 48px;">
         </div>
-        <h2 class="text-center mb-4" style="font-size: 1.25rem; font-weight: 600;">ログイン</h2>
+        <h2 class="text-center mb-4" style="font-size: 1.25rem; font-weight: 600;">キャストログイン</h2>
 
         <div v-if="error" class="alert alert-danger py-2 px-3" style="font-size: 0.875rem;">
           {{ error }}
@@ -82,7 +85,6 @@ async function onSubmit() {
     </div>
   </div>
 </template>
-
 
 <style scoped>
 .login-wrapper {

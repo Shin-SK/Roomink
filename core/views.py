@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 
 from .models import (
     CallLog, CallNote, Cast, CastAck, Course, Customer, Discount, Extension, Medium, NominationFee, Option, Order, OrderOption,
-    Room, ShiftAssignment, ShiftRequest, Store, StorePhoneNumber,
+    Room, ShiftAssignment, ShiftRequest, Store, StorePhoneNumber, UserProfile,
 )
 from .serializers import (
     CastSerializer,
@@ -50,6 +50,18 @@ from .services.notify import (
 )
 
 
+def get_user_store(request):
+    """request.user の所属 Store を返す。未設定なら明示エラー。"""
+    profile = getattr(request.user, "profile", None)
+    if profile is None:
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("ユーザープロフィールが未作成です。管理者に連絡してください。")
+    if not hasattr(profile, "store") or profile.store_id is None:
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("所属店舗が設定されていません。管理者に連絡してください。")
+    return profile.store
+
+
 # ──────────────────────────────────────
 # Auth
 # ──────────────────────────────────────
@@ -81,9 +93,50 @@ def auth_logout(request):
 @api_view(["GET"])
 @ensure_csrf_cookie
 def auth_me(request):
+    try:
+        profile = UserProfile.objects.select_related("store").get(user=request.user)
+    except UserProfile.DoesNotExist:
+        return Response(
+            {"detail": "プロフィールが未作成です。管理者に連絡してください。"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    store = profile.store
     return Response({
         "id": request.user.id,
         "username": request.user.username,
+        "display_name": request.user.first_name or request.user.username,
+        "avatar_url": profile.avatar_url,
+        "store_id": store.id,
+        "store_name": store.name,
+        "role": profile.role,
+    })
+
+
+@api_view(["PATCH"])
+def auth_profile_update(request):
+    user = request.user
+    try:
+        profile = UserProfile.objects.select_related("store").get(user=user)
+    except UserProfile.DoesNotExist:
+        return Response(
+            {"detail": "プロフィールが未作成です。管理者に連絡してください。"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if "display_name" in request.data:
+        user.first_name = request.data["display_name"]
+        user.save(update_fields=["first_name"])
+    if "avatar_url" in request.data:
+        profile.avatar_url = request.data["avatar_url"]
+        profile.save(update_fields=["avatar_url"])
+    store = profile.store
+    return Response({
+        "id": user.id,
+        "username": user.username,
+        "display_name": user.first_name or user.username,
+        "avatar_url": profile.avatar_url,
+        "store_id": store.id,
+        "store_name": store.name,
+        "role": profile.role,
     })
 
 
@@ -116,13 +169,7 @@ class ScheduleView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        store = Store.objects.first()
-        if store is None:
-            return Response(
-                {"detail": "店舗が登録されていません"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        store = get_user_store(request)
         data = build_schedule_data(store, d)
         serializer = ScheduleResponseSerializer(data)
         return Response(serializer.data)
@@ -144,13 +191,7 @@ class RoomScheduleView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        store = Store.objects.first()
-        if store is None:
-            return Response(
-                {"detail": "店舗が登録されていません"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        store = get_user_store(request)
         data = build_room_schedule_data(store, d)
         return Response(data)
 
@@ -175,6 +216,10 @@ class OrderViewSet(viewsets.ModelViewSet):
     search_fields = ["memo", "customer__display_name", "customer__phone"]
     ordering_fields = ["start", "end", "created_at", "updated_at"]
     ordering = ["start"]
+
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -227,6 +272,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def apply_extension(self, request, pk=None):
         order = self.get_object()
+        store = get_user_store(request)
         extension_id = request.data.get("extension_id")
 
         if extension_id is None:
@@ -236,7 +282,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.extension_price = 0
         else:
             try:
-                ext = Extension.objects.get(pk=extension_id)
+                ext = Extension.objects.get(pk=extension_id, store=store)
             except Extension.DoesNotExist:
                 return Response({"detail": "延長が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
             order.extension = ext
@@ -250,6 +296,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def apply_nomination_fee(self, request, pk=None):
         order = self.get_object()
+        store = get_user_store(request)
         nomination_fee_id = request.data.get("nomination_fee_id")
 
         if nomination_fee_id is None:
@@ -258,7 +305,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.nomination_fee_price = 0
         else:
             try:
-                nf = NominationFee.objects.get(pk=nomination_fee_id)
+                nf = NominationFee.objects.get(pk=nomination_fee_id, store=store)
             except NominationFee.DoesNotExist:
                 return Response({"detail": "指名料が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
             order.nomination_fee = nf
@@ -272,6 +319,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def apply_discount(self, request, pk=None):
         order = self.get_object()
+        store = get_user_store(request)
         discount_id = request.data.get("discount_id")
 
         if discount_id is None:
@@ -282,7 +330,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.discount_amount = 0
         else:
             try:
-                dc = Discount.objects.get(pk=discount_id)
+                dc = Discount.objects.get(pk=discount_id, store=store)
             except Discount.DoesNotExist:
                 return Response({"detail": "割引が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
             order.discount = dc
@@ -299,6 +347,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def apply_medium(self, request, pk=None):
         order = self.get_object()
+        store = get_user_store(request)
         medium_id = request.data.get("medium_id")
 
         if medium_id is None:
@@ -306,7 +355,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.medium_name = ""
         else:
             try:
-                med = Medium.objects.get(pk=medium_id)
+                med = Medium.objects.get(pk=medium_id, store=store)
             except Medium.DoesNotExist:
                 return Response({"detail": "媒体が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
             order.medium = med
@@ -449,6 +498,21 @@ class CastAckView(APIView):
 # Customer — signup / mypage / booking
 # ──────────────────────────────────────
 
+class StoreListPublicView(APIView):
+    """GET /api/cu/store-list/ — 全店舗一覧（サインアップ用、認証不要）"""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        stores = Store.objects.order_by("id")
+        return Response({
+            "stores": [
+                {"store_id": s.id, "store_name": s.name}
+                for s in stores
+            ]
+        })
+
+
 class CustomerStoresView(APIView):
     """GET /api/cu/stores/ — 顧客が所属する店舗一覧"""
     permission_classes = [IsAuthenticated]
@@ -492,10 +556,16 @@ def customer_signup(request):
             status=status.HTTP_409_CONFLICT,
         )
 
-    store = Store.objects.first()
+    store_id = request.data.get("store_id")
+    if not store_id:
+        return Response(
+            {"detail": "store_id は必須です"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    store = Store.objects.filter(id=store_id).first()
     if store is None:
         return Response(
-            {"detail": "店舗が登録されていません"},
+            {"detail": "指定された店舗が見つかりません"},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -724,6 +794,49 @@ class CustomerBookingCreateView(APIView):
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
 
+class CustomerReservationDetailView(APIView):
+    """GET /api/cu/reservations/<id>/ — 顧客向け予約詳細"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        customer = resolve_customer(request)
+        try:
+            order = Order.objects.select_related(
+                "cast", "room", "course", "customer", "extension",
+                "nomination_fee", "discount", "medium",
+            ).prefetch_related("options").get(pk=pk, customer=customer)
+        except Order.DoesNotExist:
+            return Response(
+                {"detail": "予約が見つかりません"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({
+            "id": order.id,
+            "status": order.status,
+            "status_display": order.get_status_display(),
+            "start": order.start,
+            "end": order.end,
+            "cast_name": order.cast.name if order.cast else "",
+            "cast_avatar_url": order.cast.avatar_url if order.cast else "",
+            "room_name": order.room.name if order.room else "",
+            "course_name": order.course_name,
+            "course_price": order.course_price,
+            "options": [o.name for o in order.options.all()],
+            "options_price": order.options_price,
+            "extension_name": order.extension_name,
+            "extension_price": order.extension_price,
+            "nomination_fee_name": order.nomination_fee_name,
+            "nomination_fee_price": order.nomination_fee_price,
+            "discount_name": order.discount_name,
+            "discount_amount": order.discount_amount,
+            "total_price": order.total_price,
+            "memo": order.memo,
+            "store_name": order.store.name if order.store_id else "",
+            "created_at": order.created_at,
+        })
+
+
 # ──────────────────────────────────────
 # Shift / Customer / Master
 # ──────────────────────────────────────
@@ -741,12 +854,12 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     ordering_fields = ["date", "start_time"]
     ordering = ["date", "start_time"]
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
 
 class CustomerViewSet(viewsets.ModelViewSet):
@@ -760,24 +873,24 @@ class CustomerViewSet(viewsets.ModelViewSet):
     ordering_fields = ["id", "display_name"]
     ordering = ["id"]
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
 
 class CastViewSet(viewsets.ModelViewSet):
     queryset = Cast.objects.order_by("name")
     serializer_class = CastSerializer
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -795,12 +908,12 @@ class CourseViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.order_by("id")
     serializer_class = CourseSerializer
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -818,12 +931,12 @@ class OptionViewSet(viewsets.ModelViewSet):
     queryset = Option.objects.order_by("id")
     serializer_class = OptionSerializer
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -841,12 +954,12 @@ class RoomViewSet(viewsets.ModelViewSet):
     queryset = Room.objects.order_by("sort_order")
     serializer_class = RoomSerializer
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -864,12 +977,12 @@ class ExtensionViewSet(viewsets.ModelViewSet):
     queryset = Extension.objects.order_by("sort_order", "id")
     serializer_class = ExtensionSerializer
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -887,12 +1000,12 @@ class NominationFeeViewSet(viewsets.ModelViewSet):
     queryset = NominationFee.objects.order_by("sort_order", "id")
     serializer_class = NominationFeeSerializer
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -910,12 +1023,12 @@ class DiscountViewSet(viewsets.ModelViewSet):
     queryset = Discount.objects.order_by("sort_order", "id")
     serializer_class = DiscountSerializer
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -933,12 +1046,12 @@ class MediumViewSet(viewsets.ModelViewSet):
     queryset = Medium.objects.order_by("sort_order", "id")
     serializer_class = MediumSerializer
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     def perform_create(self, serializer):
-        store = Store.objects.order_by("id").first()
-        if store is None:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"store": "店舗が登録されていません"})
-        serializer.save(store=store)
+        serializer.save(store=get_user_store(self.request))
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -1015,9 +1128,14 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
     }
     ordering = ["-created_at"]
 
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         obj = self.get_object()
+        store = get_user_store(request)
         if obj.status != ShiftRequest.Status.REQUESTED:
             return Response(
                 {"detail": "申請中のもののみ承認できます"},
@@ -1032,7 +1150,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
         try:
-            room = Room.objects.get(pk=room_id)
+            room = Room.objects.get(pk=room_id, store=store)
         except Room.DoesNotExist:
             return Response(
                 {"detail": "指定された部屋が見つかりません"},
@@ -1215,12 +1333,7 @@ class CsvImportView(APIView):
                 "preview": rows[:10],
             })
 
-        store = Store.objects.first()
-        if store is None:
-            return Response(
-                {"detail": "店舗が登録されていません"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        store = get_user_store(request)
 
         try:
             with transaction.atomic():

@@ -97,7 +97,7 @@ async function onDelete(o) {
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="ti ti-antenna"></i> 媒体一覧</span>
         <button class="btn btn-primary btn-sm" @click="openCreate">
-          <i class="ti ti-plus"></i> 媒体追加
+          <i class="ti ti-plus text-white"></i> 媒体追加
         </button>
       </div>
       <div class="card-body">

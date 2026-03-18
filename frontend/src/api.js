@@ -63,6 +63,7 @@ export const api = {
   login: (username, password) => request('POST', '/auth/login/', { username, password }),
   logout: () => request('POST', '/auth/logout/'),
   me: () => request('GET', '/auth/me/'),
+  updateProfile: (body) => request('PATCH', '/auth/profile/', body),
 
   // Schedule
   getSchedule: (date) => request('GET', `/op/schedule/?date=${date}`),
@@ -155,12 +156,14 @@ export const api = {
   rejectShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/reject/`, body),
 
   // Customer
-  customerSignup: (phone, password, display_name) => request('POST', '/cu/signup/', { phone, password, display_name }),
+  customerSignup: (phone, password, display_name, store_id) => request('POST', '/cu/signup/', { phone, password, display_name, store_id }),
+  getStoreListPublic: () => request('GET', '/cu/store-list/'),
   getCustomerStores: () => request('GET', '/cu/stores/'),
   getCustomerMypage: (storeId) => request('GET', `/cu/mypage/${storeId ? '?store=' + storeId : ''}`),
   getBookingOptions: (storeId) => request('GET', `/cu/booking/options/${storeId ? '?store=' + storeId : ''}`),
   getAvailableSlots: (castId, date, storeId) => request('GET', `/cu/available-slots/?cast=${castId}&date=${date}${storeId ? '&store=' + storeId : ''}`),
   createCustomerBooking: (body, storeId) => request('POST', `/cu/bookings/${storeId ? '?store=' + storeId : ''}`, body),
+  getCustomerReservation: (id) => request('GET', `/cu/reservations/${id}/`),
 
   // CTI
   getCtiQueue: () => request('GET', '/op/cti/queue/'),

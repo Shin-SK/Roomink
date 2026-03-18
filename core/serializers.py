@@ -48,6 +48,8 @@ class CastSerializer(serializers.ModelSerializer):
 
 
 class CustomerSerializer(serializers.ModelSerializer):
+    store_name = serializers.CharField(source="store.name", read_only=True)
+
     class Meta:
         model = Customer
         fields = "__all__"

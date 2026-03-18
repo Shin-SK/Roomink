@@ -99,7 +99,7 @@ async function onDelete(o) {
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="ti ti-clock-plus"></i> 延長一覧</span>
         <button class="btn btn-primary btn-sm" @click="openCreate">
-          <i class="ti ti-plus"></i> 延長追加
+          <i class="ti ti-plus text-white"></i> 延長追加
         </button>
       </div>
       <div class="card-body">

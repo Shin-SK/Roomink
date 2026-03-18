@@ -98,7 +98,7 @@
    =========================== */
 .rk-booking-card {
   background: linear-gradient(135deg, $rk-primary 0%, color.adjust($rk-primary, $lightness: -10%) 100%);
-  color: #fff;
+  color: #fff !important;
   border-radius: 16px;
   padding: 1.5rem;
   box-shadow: 0 8px 24px rgba($rk-primary, 0.3);
@@ -123,6 +123,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 0.75rem;
+    font-weight: bold;
   }
 
   &__date {
@@ -355,7 +356,8 @@
   font-size: 1rem;
   color: $rk-text;
   margin-bottom: 0.75rem;
-
+  background-color: var(--bs-light);
+  padding: 0.5rem;
   i {
     color: $rk-primary;
   }
@@ -368,7 +370,6 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 1rem;
 }
 
 .rk-store-btn {

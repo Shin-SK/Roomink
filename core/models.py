@@ -352,3 +352,26 @@ class SmsLog(models.Model):
 
     def __str__(self):
         return f"SMS→{self.to_phone} {self.status}"
+
+
+class UserProfile(models.Model):
+    class Role(models.TextChoices):
+        CAST = "cast", "キャスト"
+        STAFF = "staff", "スタッフ"
+        MANAGER = "manager", "マネージャー"
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="profile",
+    )
+    store = models.ForeignKey(
+        Store, on_delete=models.CASCADE, related_name="user_profiles",
+    )
+    role = models.CharField(
+        max_length=10, choices=Role.choices, default=Role.STAFF,
+    )
+    avatar_url = models.URLField(blank=True, default="")
+
+    def __str__(self):
+        return f"Profile({self.user.username})"

@@ -1,5 +1,6 @@
 <script setup>
 import { useRoute } from 'vue-router'
+import LayoutCustomer from '../../components/LayoutCustomer.vue'
 
 const route = useRoute()
 
@@ -16,14 +17,8 @@ function formatYen(n) {
 </script>
 
 <template>
-  <div class="customer-layout">
-    <header class="customer-header">
-      <div class="customer-nav">
-        <a href="/cu/mypage"><img src="/icon.svg" alt="" style="width: 24px;"></a>
-      </div>
-    </header>
-
-    <main class="customer-content container customer-submitted">
+  <LayoutCustomer>
+    <div class="customer-submitted">
 
       <!-- 成功アイコン -->
       <div class="my-5">
@@ -113,6 +108,6 @@ function formatYen(n) {
           <i class="ti ti-mail"></i> support@roomink.example.com
         </p>
       </div>
-    </main>
-  </div>
+    </div>
+  </LayoutCustomer>
 </template>

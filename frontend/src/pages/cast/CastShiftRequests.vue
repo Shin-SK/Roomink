@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 
 const loading = ref(true)
@@ -81,15 +82,7 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
 </script>
 
 <template>
-  <div class="cast-layout">
-    <header class="cast-header">
-      <div class="cast-nav d-flex align-items-center gap-3">
-        <a href="/cast/today"><img src="/icon.svg" alt="" style="width: 24px;"></a>
-        <span class="fw-bold">シフト申請</span>
-      </div>
-    </header>
-
-    <main class="cast-content container">
+  <LayoutCast>
       <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
       <div class="d-flex justify-content-between align-items-center mb-3 mt-3">
@@ -180,23 +173,5 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
           </div>
         </div>
       </div>
-    </main>
-
-    <footer class="footer position-fixed bottom-0 w-100 p-3 bg-white border-top">
-      <div class="container d-flex align-items-center justify-content-between">
-        <button class="btn border-0 p-0">
-          <a href="/cast/today" class="nav-link">
-            <i class="ti ti-home"></i>
-            <small>マイページ</small>
-          </a>
-        </button>
-        <button class="btn border-0 p-0">
-          <a href="/cast/shift-requests" class="nav-link active">
-            <i class="ti ti-calendar-plus"></i>
-            <small>シフト申請</small>
-          </a>
-        </button>
-      </div>
-    </footer>
-  </div>
+  </LayoutCast>
 </template>

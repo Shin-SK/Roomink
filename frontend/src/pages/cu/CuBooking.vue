@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import LayoutCustomer from '../../components/LayoutCustomer.vue'
 import { api } from '../../api.js'
 
 const router = useRouter()
@@ -15,17 +16,11 @@ const courses = ref([])
 const options = ref([])
 
 const stores = ref([])
-const drawerOpen = ref(false)
 const selectedStoreId = ref(null)
 
 const slots = ref([])
 const slotsLoading = ref(false)
 const slotsFetched = ref(false)
-
-const currentStoreName = computed(() => {
-  const s = stores.value.find(s => s.store_id === selectedStoreId.value)
-  return s ? s.store_name : ''
-})
 
 const storeQ = computed(() => selectedStoreId.value ? '?store=' + selectedStoreId.value : '')
 
@@ -47,10 +42,6 @@ onMounted(async () => {
       selectedStoreId.value = Number(route.query.store)
     } else if (stores.value.length === 1) {
       selectedStoreId.value = stores.value[0].store_id
-    } else if (stores.value.length > 1) {
-      drawerOpen.value = true
-      loading.value = false
-      return
     }
 
     const data = await api.getBookingOptions(selectedStoreId.value)
@@ -58,12 +49,10 @@ onMounted(async () => {
     courses.value = data.courses
     options.value = data.options
 
-    // pre-select cast from query param
     if (route.query.cast) {
       form.value.cast = Number(route.query.cast)
     }
 
-    // default date = tomorrow
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     form.value.date = tomorrow.toISOString().slice(0, 10)
@@ -100,10 +89,27 @@ function selectSlot(slot) {
   form.value.time = slot.start
 }
 
-function switchStore(storeId) {
-  drawerOpen.value = false
-  window.location.href = '/cu/booking?store=' + storeId
+function toggleOption(optId) {
+  const idx = form.value.options.indexOf(optId)
+  if (idx >= 0) {
+    form.value.options.splice(idx, 1)
+  } else {
+    form.value.options.push(optId)
+  }
 }
+
+const castSearch = ref('')
+
+const filteredCasts = computed(() => {
+  const q = castSearch.value.trim()
+  if (!q) return casts.value
+  return casts.value.filter(c => c.name.includes(q))
+})
+
+const selectedCastName = computed(() => {
+  const c = casts.value.find(c => c.id === form.value.cast)
+  return c ? c.name : ''
+})
 
 const selectedCourse = computed(() => courses.value.find(c => c.id === Number(form.value.course)))
 
@@ -144,7 +150,7 @@ async function submit() {
       query: {
         store: selectedStoreId.value || undefined,
         id: order.id,
-        cast_name: casts.value.find(c => c.id === Number(form.value.cast))?.name || '',
+        cast_name: selectedCastName.value,
         course_name: selectedCourse.value?.name || '',
         date: form.value.date,
         time: form.value.time,
@@ -160,148 +166,263 @@ async function submit() {
 </script>
 
 <template>
-  <div class="customer-layout">
-    <!-- Store Drawer -->
-    <div v-if="stores.length > 1" class="rk-store-overlay" :class="{ show: drawerOpen }" @click="drawerOpen = false"></div>
-    <aside v-if="stores.length > 1" class="rk-store-drawer" :class="{ show: drawerOpen }">
-      <div class="rk-store-drawer__header">
-        <span>店舗を選択</span>
-        <button class="btn-close" @click="drawerOpen = false"></button>
-      </div>
-      <div class="rk-store-drawer__list">
-        <button
-          v-for="s in stores" :key="s.store_id"
-          class="rk-store-drawer__item" :class="{ active: s.store_id === selectedStoreId }"
-          @click="switchStore(s.store_id)"
-        >
-          <div class="rk-store-drawer__logo">
-            <i class="ti ti-building-store" style="font-size:20px; color:var(--rk-primary)"></i>
-          </div>
-          <span class="rk-store-drawer__name">{{ s.store_name }}</span>
-        </button>
-      </div>
-    </aside>
+  <LayoutCustomer>
+    <div v-if="loading" class="text-center py-5">
+      <div class="spinner-border text-primary"></div>
+    </div>
 
-    <header class="customer-header">
-      <div class="customer-nav">
-        <a href="/cu/mypage"><img src="/icon.svg" alt="" style="width: 24px;"></a>
-        <button v-if="stores.length > 1" class="rk-store-btn" @click="drawerOpen = true">
-          <i class="ti ti-building-store"></i>
-          {{ currentStoreName }}
-          <i class="ti ti-chevron-down" style="font-size:14px;"></i>
-        </button>
-      </div>
-    </header>
+    <div class="customer-booking" v-else>
+      <div v-if="error" class="alert alert-danger mb-3">{{ error }}</div>
 
-    <main class="customer-content container customer-booking">
-
-      <div v-if="loading" class="text-center py-5">
-        <div class="spinner-border text-primary"></div>
-      </div>
-
-      <template v-else>
-        <h1 class="fs-3 mb-3 fw-bold">Web予約</h1>
-        <p class="text-muted mb-4">ご希望の内容を入力して予約申請してください。内容を確認後、SMSで結果をお知らせします。</p>
-
-        <div v-if="error" class="alert alert-danger mb-3">{{ error }}</div>
-
-        <form @submit.prevent="submit">
-          <div class="card">
-            <div class="card-header">予約情報</div>
-            <div class="card-body">
-
-              <!-- セラピスト指名 -->
-              <div class="mb-3">
-                <label class="form-label">セラピスト指名 <span class="text-danger">*</span></label>
-                <select class="form-select" v-model="form.cast">
-                  <option value="">選択してください</option>
-                  <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
-                </select>
-              </div>
-
-              <!-- 予約日 -->
-              <div class="mb-3">
-                <label class="form-label">予約日 <span class="text-danger">*</span></label>
-                <input type="date" class="form-control" v-model="form.date">
-              </div>
-
-              <!-- 希望時間（空き枠） -->
-              <div class="mb-3">
-                <label class="form-label">希望時間 <span class="text-danger">*</span></label>
-                <div v-if="!form.cast || !form.date" class="text-muted small">セラピストと予約日を選択すると、空き時間が表示されます</div>
-                <div v-else-if="slotsLoading" class="text-center py-2">
-                  <span class="spinner-border spinner-border-sm text-primary"></span> 空き枠を取得中...
+      <form @submit.prevent="submit">
+        <!-- セラピスト選択 -->
+        <div class="card">
+          <div class="card-header"><i class="ti ti-user-heart"></i> セラピスト指名</div>
+          <div class="card-body">
+            <input
+              type="text"
+              class="form-control form-control-sm mb-2"
+              placeholder="名前で検索..."
+              v-model="castSearch"
+            />
+            <div class="cast-scroll">
+              <div
+                v-for="c in filteredCasts"
+                :key="c.id"
+                class="cast-chip"
+                :class="{ active: form.cast === c.id }"
+                @click="form.cast = c.id"
+              >
+                <img
+                  v-if="c.avatar_url"
+                  :src="c.avatar_url"
+                  :alt="c.name"
+                  class="cast-chip__avatar"
+                >
+                <div v-else class="cast-chip__avatar cast-chip__avatar--placeholder">
+                  <i class="ti ti-user"></i>
                 </div>
-                <div v-else-if="slotsFetched && slots.length === 0" class="text-muted small">この日は予約可能な時間帯がありません</div>
-                <div v-else-if="slots.length > 0" class="d-flex flex-wrap gap-2">
-                  <button
-                    v-for="slot in slots" :key="slot.start"
-                    type="button"
-                    class="btn btn-sm"
-                    :class="form.time === slot.start ? 'btn-primary' : 'btn-outline-primary'"
-                    @click="selectSlot(slot)"
-                  >
-                    {{ slot.start }}
-                  </button>
-                </div>
-                <div v-if="form.time" class="mt-2 small text-muted">選択中: {{ form.time }}</div>
+                <span class="cast-chip__name">{{ c.name }}</span>
               </div>
-
-              <!-- コース -->
-              <div class="mb-3">
-                <label class="form-label">コース <span class="text-danger">*</span></label>
-                <div class="d-flex flex-column gap-2">
-                  <div v-for="c in courses" :key="c.id" class="form-check">
-                    <input class="form-check-input" type="radio" :id="'course-' + c.id" :value="c.id" v-model="form.course">
-                    <label class="form-check-label" :for="'course-' + c.id">
-                      <strong>{{ c.name }}</strong> - {{ formatYen(c.price) }}
-                    </label>
-                  </div>
-                </div>
+              <div v-if="filteredCasts.length === 0" class="text-muted small py-2">
+                該当なし
               </div>
-
-              <!-- オプション -->
-              <div class="mb-3">
-                <label class="form-label">オプション</label>
-                <div class="d-flex flex-column gap-2">
-                  <div v-for="o in options" :key="o.id" class="form-check">
-                    <input class="form-check-input" type="checkbox" :id="'opt-' + o.id" :value="o.id" v-model="form.options">
-                    <label class="form-check-label" :for="'opt-' + o.id">
-                      {{ o.name }}（+{{ formatYen(o.price) }}）
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 備考 -->
-              <div class="mb-3">
-                <label class="form-label">備考・ご要望</label>
-                <textarea class="form-control" v-model="form.memo" rows="3" placeholder="駐車場利用希望、初回、その他ご要望など"></textarea>
-              </div>
-
+            </div>
+            <div v-if="selectedCastName" class="small text-muted mt-1">
+              選択中: <strong>{{ selectedCastName }}</strong>
             </div>
           </div>
+        </div>
 
-          <!-- 注意事項 -->
-          <div class="alert alert-info mb-4">
-            <strong>ご予約について</strong>
-            <ul class="mb-0">
-              <li>予約は「申請」として受け付けられます。内容を確認後、SMSで承認結果をお知らせします。</li>
-              <li>承認後、場所や詳細情報をSMSでお送りします。</li>
-              <li>キャンセルは予約の24時間前までにお願いします。</li>
-            </ul>
-          </div>
+        <!-- 日時選択 -->
+        <div class="card">
+          <div class="card-header"><i class="ti ti-calendar-event"></i> 日時</div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label">予約日 <span class="text-danger">*</span></label>
+              <input type="date" class="form-control" v-model="form.date">
+            </div>
 
-          <!-- 送信ボタン -->
-          <div class="d-flex flex-column align-items-center mb-4">
-            <button type="submit" class="btn btn-primary btn-sm w-100 text-center" :disabled="submitting">
-              <span v-if="submitting" class="spinner-border spinner-border-sm me-1"></span>
-              <i v-else class="ti ti-send"></i> 予約を申請
-            </button>
-            <a :href="'/cu/mypage' + storeQ" class="btn btn-sm btn-outline">戻る</a>
+            <div class="mb-0">
+              <label class="form-label">希望時間 <span class="text-danger">*</span></label>
+              <div v-if="!form.cast || !form.date" class="text-muted small">セラピストと予約日を選択すると、空き時間が表示されます</div>
+              <div v-else-if="slotsLoading" class="text-center py-2">
+                <span class="spinner-border spinner-border-sm text-primary"></span> 空き枠を取得中...
+              </div>
+              <div v-else-if="slotsFetched && slots.length === 0" class="text-muted small">この日は予約可能な時間帯がありません</div>
+              <div v-else-if="slots.length > 0" class="select-grid">
+                <button
+                  v-for="slot in slots" :key="slot.start"
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="{ active: form.time === slot.start }"
+                  @click="selectSlot(slot)"
+                >
+                  {{ slot.start }}
+                </button>
+              </div>
+              <div v-if="form.time" class="mt-2 small text-muted">選択中: {{ form.time }}</div>
+            </div>
           </div>
-        </form>
-      </template>
-    </main>
-  </div>
+        </div>
+
+        <!-- コース選択 -->
+        <div class="card">
+          <div class="card-header"><i class="ti ti-clock-hour-4"></i> コース <span class="text-danger">*</span></div>
+          <div class="card-body">
+            <div class="select-grid">
+              <button
+                v-for="c in courses"
+                :key="c.id"
+                type="button"
+                class="btn btn-sm select-btn"
+                :class="{ active: form.course == c.id }"
+                @click="form.course = c.id"
+              >
+                {{ c.name }}<br><small>{{ formatYen(c.price) }}</small>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- オプション選択 -->
+        <div class="card" v-if="options.length">
+          <div class="card-header"><i class="ti ti-sparkles"></i> オプション</div>
+          <div class="card-body">
+            <div class="select-grid">
+              <button
+                v-for="opt in options"
+                :key="opt.id"
+                type="button"
+                class="btn btn-sm select-btn"
+                :class="{ active: form.options.includes(opt.id) }"
+                @click="toggleOption(opt.id)"
+              >
+                {{ opt.name }}<br><small>+{{ formatYen(opt.price) }}</small>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 備考 -->
+        <div class="card">
+          <div class="card-header"><i class="ti ti-message-dots"></i> 備考・ご要望</div>
+          <div class="card-body">
+            <textarea class="form-control" v-model="form.memo" rows="3" placeholder="駐車場利用希望、初回、その他ご要望など"></textarea>
+          </div>
+        </div>
+
+        <!-- 合計金額 + 送信 -->
+        <div class="card">
+          <div class="card-body">
+            <div class="text-center mb-3">
+              <h5 v-if="selectedCourse" class="mb-0">合計料金: <strong>{{ formatYen(totalPrice) }}</strong></h5>
+            </div>
+
+            <div class="alert alert-info mb-3 small">
+              <ul class="mb-0 ps-3">
+                <li>予約は「申請」として受け付けられます</li>
+                <li>内容確認後、SMSで承認結果をお知らせします</li>
+                <li>キャンセルは24時間前までにお願いします</li>
+              </ul>
+            </div>
+
+            <div class="d-flex gap-2">
+              <router-link :to="'/cu/mypage' + storeQ" class="btn btn-outline-secondary flex-fill">戻る</router-link>
+              <button type="submit" class="btn btn-primary flex-fill" :disabled="submitting">
+                <span v-if="submitting" class="spinner-border spinner-border-sm me-1"></span>
+                <i v-else class="ti ti-send"></i> 予約を申請
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  </LayoutCustomer>
 </template>
+
+<style scoped lang="scss">
+.form-label {
+  font-weight: bold;
+}
+
+.cast-scroll {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, auto);
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  -webkit-overflow-scrolling: touch;
+  align-items: center;
+  justify-content: start;
+
+  &::-webkit-scrollbar {
+    height: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 2px;
+  }
+}
+
+.cast-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 72px;
+  transition: all 0.15s;
+
+  &:hover {
+    border-color: var(--bs-primary);
+  }
+
+  &.active {
+    border-color: var(--bs-primary);
+    background: rgba(var(--bs-primary-rgb), 0.08);
+  }
+
+  &__avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    object-fit: cover;
+
+    &--placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f0f0;
+      color: #aaa;
+      font-size: 20px;
+    }
+  }
+
+  &__name {
+    font-size: 0.7rem;
+    text-align: center;
+    line-height: 1.2;
+    word-break: keep-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+}
+
+.select-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 0.5rem;
+
+  @media (max-width: 575.98px) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.select-btn {
+  border: 1px solid #dee2e6;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.5rem 0.25rem;
+  text-align: center;
+  line-height: 1.3;
+  transition: all 0.15s;
+  width: 100%;
+
+  &:hover {
+    border-color: var(--bs-primary);
+  }
+
+  &.active {
+    background: var(--bs-primary);
+    border-color: var(--bs-primary);
+    color: #fff;
+  }
+}
+</style>

@@ -58,6 +58,16 @@
     right: 8px;
     width: auto !important;
   }
+
+  // 個人用: 横スクロール不要、幅100%で縦だけ
+  &--single {
+    .rk-sheet {
+      overflow-x: hidden;
+    }
+    .rk-grid {
+      min-width: 0;
+    }
+  }
 }
 
 // 縦タイムライン（カスタム）※レガシー

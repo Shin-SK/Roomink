@@ -25,6 +25,9 @@
             small{
                 font-size: 12px;
             }
+            &.active{
+                color: var(--rk-primary);
+            }
         }
     }
 }
@@ -49,6 +52,11 @@
     &.active {
       border-bottom: 2px solid var(--rk-primary);
       color: var(--rk-primary);
+    }
+
+    &.tab-mikakunin.active {
+      border-bottom-color: #E65100;
+      color: #E65100;
     }
   }
 }

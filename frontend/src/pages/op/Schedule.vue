@@ -146,8 +146,8 @@ onMounted(fetchSchedule)
         :orders="orders"
         @block-click="onBlockClick"
       />
-      <div v-if="casts.length === 0" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="pointer-events: none;">
-        <span class="text-muted bg-white px-3 py-2 rounded shadow-sm">この日にシフトが登録されたキャストがいません</span>
+      <div v-if="casts.length === 0" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="pointer-events: none; z-index: 9999;">
+        <span class="text-muted bg-white px-3 py-2 rounded shadow-sm text-center" style="max-width: 240px;">この日にシフトが登録されたキャストがいません</span>
       </div>
     </div>
   </LayoutOperator>

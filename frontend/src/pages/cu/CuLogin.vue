@@ -1,26 +1,23 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { api } from '../../api.js'
 import { resetAuthCache } from '../../router.js'
 
 const router = useRouter()
-const username = ref('')
+const route = useRoute()
+const phone = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
 
-function homeForRole(role) {
-  return role === 'cast' ? '/cast/mypage' : '/op/dashboard'
-}
-
 onMounted(async () => {
   try { await api.csrf() } catch { /* ignore */ }
   try {
-    const me = await api.me()
-    router.replace(homeForRole(me.role))
+    await api.me()
+    router.replace(route.query.next || '/cu/mypage')
   } catch {
-    // 未ログイン — そのまま表示
+    // 未ログイン
   }
 })
 
@@ -28,10 +25,9 @@ async function onSubmit() {
   error.value = ''
   loading.value = true
   try {
-    await api.login(username.value, password.value)
+    await api.login(phone.value, password.value)
     resetAuthCache()
-    const me = await api.me()
-    router.push(homeForRole(me.role))
+    router.push(route.query.next || '/cu/mypage')
   } catch (e) {
     error.value = e.message || 'ログインに失敗しました'
   } finally {
@@ -55,12 +51,13 @@ async function onSubmit() {
 
         <form @submit.prevent="onSubmit">
           <div class="mb-3">
-            <label class="form-label">ユーザー名</label>
+            <label class="form-label">電話番号</label>
             <input
-              v-model="username"
-              type="text"
+              v-model="phone"
+              type="tel"
               class="form-control"
               autocomplete="username"
+              placeholder="090-1234-5678"
               required
             >
           </div>
@@ -78,11 +75,14 @@ async function onSubmit() {
             {{ loading ? 'ログイン中...' : 'ログイン' }}
           </button>
         </form>
+
+        <div class="text-center mt-3">
+          <router-link to="/cu/signup" class="small">アカウントをお持ちでない方はこちら</router-link>
+        </div>
       </div>
     </div>
   </div>
 </template>
-
 
 <style scoped>
 .login-wrapper {
