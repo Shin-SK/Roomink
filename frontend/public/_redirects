@@ -1,1 +1,3 @@
+/api/*  https://roomink-0315e6e58623.herokuapp.com/api/:splat  200
+/admin/*  https://roomink-0315e6e58623.herokuapp.com/admin/:splat  200
 /*    /index.html   200
