@@ -22,6 +22,7 @@ const SettingsExtensions = () => import('./pages/op/SettingsExtensions.vue')
 const SettingsNominationFees = () => import('./pages/op/SettingsNominationFees.vue')
 const SettingsDiscounts = () => import('./pages/op/SettingsDiscounts.vue')
 const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
+const SettingsStaffs = () => import('./pages/op/SettingsStaffs.vue')
 const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
 const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
 const Profile = () => import('./pages/op/Profile.vue')
@@ -53,6 +54,7 @@ const routes = [
   { path: '/op/rooms', name: 'room-schedule', component: RoomSchedule },
   { path: '/op/settings', name: 'settings', component: Settings },
   { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts },
+  { path: '/op/settings/staffs', name: 'settings-staffs', component: SettingsStaffs },
   { path: '/op/settings/rooms', name: 'settings-rooms', component: SettingsRooms },
   { path: '/op/settings/courses', name: 'settings-courses', component: SettingsCourses },
   { path: '/op/settings/options', name: 'settings-options', component: SettingsOptions },

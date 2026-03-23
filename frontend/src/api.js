@@ -94,6 +94,12 @@ export const api = {
   updateCast: (id, body) => request('PATCH', `/casts/${id}/`, body),
   deleteCast: (id) => request('DELETE', `/casts/${id}/`),
 
+  // Staffs
+  getStaffs: () => listRequest('GET', '/staffs/?limit=200'),
+  createStaff: (body) => request('POST', '/staffs/', body),
+  updateStaff: (id, body) => request('PATCH', `/staffs/${id}/`, body),
+  deleteStaff: (id) => request('DELETE', `/staffs/${id}/`),
+
   // Courses
   getCourses: () => listRequest('GET', '/courses/?limit=200'),
   createCourse: (body) => request('POST', '/courses/', body),

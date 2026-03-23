@@ -28,6 +28,9 @@ from .serializers import (
     CourseSerializer,
     CustomerSerializer,
     DiscountSerializer,
+    StaffSerializer,
+    StaffCreateSerializer,
+    StaffUpdateSerializer,
     ExtensionSerializer,
     MediumSerializer,
     NominationFeeSerializer,
@@ -907,6 +910,56 @@ class CastViewSet(viewsets.ModelViewSet):
                 {"detail": "このキャストは予約やシフトで使用されているため削除できません"},
                 status=status.HTTP_409_CONFLICT,
             )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StaffViewSet(viewsets.ViewSet):
+    """スタッフ (role=staff/manager) の CRUD"""
+
+    def list(self, request):
+        store = get_user_store(request)
+        qs = UserProfile.objects.filter(
+            store=store, role__in=["staff", "manager"],
+        ).select_related("user").order_by("user__username")
+        serializer = StaffSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    def create(self, request):
+        store = get_user_store(request)
+        serializer = StaffCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        profile = serializer.save(store=store)
+        return Response(StaffSerializer(profile).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, pk=None):
+        store = get_user_store(request)
+        try:
+            profile = UserProfile.objects.select_related("user").get(
+                pk=pk, store=store, role__in=["staff", "manager"],
+            )
+        except UserProfile.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = StaffUpdateSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        profile = serializer.save()
+        return Response(StaffSerializer(profile).data)
+
+    def destroy(self, request, pk=None):
+        store = get_user_store(request)
+        try:
+            profile = UserProfile.objects.select_related("user").get(
+                pk=pk, store=store, role__in=["staff", "manager"],
+            )
+        except UserProfile.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if profile.user == request.user:
+            return Response(
+                {"detail": "自分自身は削除できません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = profile.user
+        profile.delete()
+        user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

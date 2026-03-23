@@ -4,6 +4,8 @@ from collections import defaultdict
 from rest_framework import serializers
 
 from .utils.phone import normalize_phone
+from django.contrib.auth import get_user_model
+
 from .models import (
     Cast,
     CastAck,
@@ -20,7 +22,10 @@ from .models import (
     ShiftAssignment,
     ShiftRequest,
     Store,
+    UserProfile,
 )
+
+User = get_user_model()
 
 
 # ──────────────────────────────────────
@@ -99,6 +104,72 @@ class MediumSerializer(serializers.ModelSerializer):
         model = Medium
         fields = "__all__"
         read_only_fields = ["store"]
+
+
+class StaffSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+    email = serializers.CharField(source="user.email", read_only=True)
+
+    class Meta:
+        model = UserProfile
+        fields = ["id", "username", "email", "role", "avatar_url", "store"]
+        read_only_fields = ["store"]
+
+
+class StaffCreateSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    password = serializers.CharField(max_length=128, write_only=True)
+    email = serializers.EmailField(required=False, default="")
+    role = serializers.ChoiceField(
+        choices=[("staff", "スタッフ"), ("manager", "マネージャー")],
+        default="staff",
+    )
+    avatar_url = serializers.URLField(required=False, default="")
+
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("このユーザー名は既に使用されています")
+        return value
+
+    def create(self, validated_data):
+        store = validated_data.pop("store")
+        role = validated_data.pop("role", "staff")
+        avatar_url = validated_data.pop("avatar_url", "")
+        user = User.objects.create_user(
+            username=validated_data["username"],
+            password=validated_data["password"],
+            email=validated_data.get("email", ""),
+        )
+        profile = UserProfile.objects.create(
+            user=user, store=store, role=role, avatar_url=avatar_url,
+        )
+        return profile
+
+
+class StaffUpdateSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False)
+    role = serializers.ChoiceField(
+        choices=[("staff", "スタッフ"), ("manager", "マネージャー")],
+        required=False,
+    )
+    avatar_url = serializers.URLField(required=False, allow_blank=True)
+    password = serializers.CharField(max_length=128, write_only=True, required=False)
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        email = validated_data.pop("email", None)
+        if "role" in validated_data:
+            instance.role = validated_data["role"]
+        if "avatar_url" in validated_data:
+            instance.avatar_url = validated_data["avatar_url"]
+        instance.save()
+        if email is not None:
+            instance.user.email = email
+            instance.user.save(update_fields=["email"])
+        if password:
+            instance.user.set_password(password)
+            instance.user.save(update_fields=["password"])
+        return instance
 
 
 # ──────────────────────────────────────

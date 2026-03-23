@@ -15,6 +15,7 @@ router.register("extensions", views.ExtensionViewSet)
 router.register("nomination-fees", views.NominationFeeViewSet)
 router.register("discounts", views.DiscountViewSet)
 router.register("media", views.MediumViewSet)
+router.register("staffs", views.StaffViewSet, basename="staff")
 
 cast_sr_router = DefaultRouter()
 cast_sr_router.register("shift-requests", views.CastShiftRequestViewSet, basename="cast-shift-request")
