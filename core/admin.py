@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     CallLog, CallNote, Cast, Course, Customer, Option, Order,
     Room, ShiftAssignment, ShiftRequest, SmsLog, Store, StorePhoneNumber,
+    UserProfile,
 )
 
 
@@ -89,3 +90,9 @@ class CallNoteAdmin(admin.ModelAdmin):
 @admin.register(SmsLog)
 class SmsLogAdmin(admin.ModelAdmin):
     list_display = ("id", "order", "to_phone", "status", "sent_at")
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "store", "role")
+    list_filter = ("store", "role")
