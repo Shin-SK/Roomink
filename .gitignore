@@ -1,6 +1,7 @@
 venv
 .env
 .env.*
+!frontend/.env.production
 .venv
 .vscode
 .claude
