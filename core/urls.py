@@ -49,7 +49,13 @@ urlpatterns = [
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),
     path("op/room-schedule/", views.RoomScheduleView.as_view(), name="op-room-schedule"),
 path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
+    path("op/sales-summary/", views.SalesSummaryView.as_view(), name="sales-summary"),
+    path("op/sales-export.csv", views.SalesExportView.as_view(), name="sales-export"),
     path("op/", include(op_sr_router.urls)),
+
+    # Twilio webhook
+    path("webhook/twilio/voice/", views.twilio_voice_webhook, name="twilio-voice-webhook"),
+    path("webhook/twilio/status/", views.twilio_status_webhook, name="twilio-status-webhook"),
 
     # CTI
     path("op/cti/inbound/", views.CtiInboundView.as_view(), name="cti-inbound"),

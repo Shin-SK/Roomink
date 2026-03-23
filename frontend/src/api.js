@@ -171,6 +171,10 @@ export const api = {
   ctiCallDone: (id) => request('POST', `/op/cti/calls/${id}/done/`),
   ctiCallAddNote: (id, body) => request('POST', `/op/cti/calls/${id}/notes/`, { body }),
 
+  // Sales
+  getSalesSummary: (params) => request('GET', `/op/sales-summary/?${params}`),
+  getSalesExportUrl: (params) => `${BASE}/op/sales-export.csv?${params}`,
+
   // CSV Import
   csvPreview: (model, file) => {
     const fd = new FormData()

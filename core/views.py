@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 import os
 from datetime import date as date_type, timedelta
 
@@ -8,6 +9,8 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
 from django.db.models import ProtectedError
 from django.utils import timezone
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import parsers, viewsets, status
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -41,8 +44,11 @@ from .serializers import (
     build_room_schedule_data,
 )
 from .utils.phone import normalize_phone
+
+logger = logging.getLogger(__name__)
 from .services.customer_context import resolve_customer
 from .services.pricing import recalculate_order_total
+from .services.sales import get_sales_summary, get_sales_csv
 from .services.notify import (
     notify_cast_order,
     notify_order_cancelled,
@@ -1440,9 +1446,10 @@ class CtiQueueView(APIView):
     """GET /api/op/cti/queue/ — 未対応 / 対応中コール一覧"""
 
     def get(self, request):
+        store = get_user_store(request)
         calls = (
             CallLog.objects
-            .filter(status__in=[CallLog.Status.NEW, CallLog.Status.IN_PROGRESS])
+            .filter(store=store, status__in=[CallLog.Status.NEW, CallLog.Status.IN_PROGRESS])
             .select_related("store", "customer", "assigned_to")
             .order_by("-created_at")
         )
@@ -1531,3 +1538,227 @@ class CtiCallNoteView(APIView):
             "body": note.body,
             "created_at": note.created_at,
         }, status=status.HTTP_201_CREATED)
+
+
+# ──────────────────────────────────────
+# Twilio Webhook
+# ──────────────────────────────────────
+
+@csrf_exempt
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def twilio_voice_webhook(request):
+    """
+    POST /api/webhook/twilio/voice/
+    Twilio Voice webhook: 着信時に呼ばれる。
+    form-encoded で From, To, CallSid, CallStatus が届く。
+    既存 CTI ロジックで CallLog を作成し、TwiML を返す。
+    """
+    call_sid = request.data.get("CallSid", "")
+    raw_from = request.data.get("From", "")
+    raw_to = request.data.get("To", "")
+    call_status = request.data.get("CallStatus", "")
+
+    logger.info("Twilio voice webhook: CallSid=%s From=%s To=%s Status=%s", call_sid, raw_from, raw_to, call_status)
+
+    if not call_sid or not raw_from or not raw_to:
+        logger.warning("Twilio voice webhook: missing required fields")
+        return HttpResponse(
+            '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="ja-JP">エラーが発生しました</Say></Response>',
+            content_type="application/xml",
+            status=400,
+        )
+
+    from_phone = normalize_phone(raw_from)
+    to_phone = normalize_phone(raw_to)
+    logger.info("Twilio voice: normalized from=%s to=%s", from_phone, to_phone)
+
+    # to_phone → StorePhoneNumber で store 特定
+    store_phone = StorePhoneNumber.objects.select_related("store").filter(phone=to_phone).first()
+    if not store_phone:
+        logger.warning("Twilio voice: StorePhoneNumber not found for to=%s (raw=%s)", to_phone, raw_to)
+        return HttpResponse(
+            '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="ja-JP">この番号は登録されていません</Say></Response>',
+            content_type="application/xml",
+        )
+
+    store = store_phone.store
+
+    # from_phone → Customer 検索
+    customer = Customer.objects.filter(store=store, phone=from_phone).first()
+
+    # is_repeat: 同一 store + from_phone で直近 10 分以内
+    threshold = timezone.now() - timedelta(minutes=10)
+    is_repeat = CallLog.objects.filter(
+        store=store, from_phone=from_phone, created_at__gte=threshold,
+    ).exclude(contact_id=call_sid).exists()
+
+    # CallLog upsert
+    call, created = CallLog.objects.update_or_create(
+        contact_id=call_sid,
+        defaults={
+            "store": store,
+            "from_phone": from_phone,
+            "to_phone": to_phone,
+            "customer": customer,
+            "is_repeat": is_repeat,
+        },
+    )
+    if created:
+        call.status = CallLog.Status.NEW
+        call.save(update_fields=["status"])
+
+    # TwiML レスポンス（受付メッセージ + StatusCallback）
+    customer_name = customer.display_name if customer and customer.display_name else ""
+    if customer_name:
+        say_text = f"お電話ありがとうございます。{customer_name}様ですね。少々お待ちください。"
+    else:
+        say_text = "お電話ありがとうございます。少々お待ちください。"
+
+    # StatusCallback URL を構築
+    status_url = os.getenv("TWILIO_STATUS_CALLBACK_URL", "")
+    status_attr = f' statusCallback="{status_url}" statusCallbackMethod="POST"' if status_url else ""
+
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f"<Response{status_attr}>"
+        f'<Say language="ja-JP">{say_text}</Say>'
+        "</Response>"
+    )
+    return HttpResponse(twiml, content_type="application/xml")
+
+
+@csrf_exempt
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def twilio_status_webhook(request):
+    """
+    POST /api/webhook/twilio/status/
+    Twilio StatusCallback: 通話ステータス変更時に呼ばれる。
+    completed / no-answer / busy / failed / canceled を CallLog に反映。
+    """
+    call_sid = request.data.get("CallSid", "")
+    call_status = request.data.get("CallStatus", "")
+    raw_from = request.data.get("From", "")
+    raw_to = request.data.get("To", "")
+
+    logger.info("Twilio status webhook: CallSid=%s Status=%s From=%s To=%s", call_sid, call_status, raw_from, raw_to)
+
+    if not call_sid:
+        return HttpResponse("ok", content_type="text/plain")
+
+    try:
+        call = CallLog.objects.get(contact_id=call_sid)
+    except CallLog.DoesNotExist:
+        # Fallback: voice webhook で CallLog が作られなかった場合、ここで作成を試みる
+        if raw_from and raw_to:
+            from_phone = normalize_phone(raw_from)
+            to_phone = normalize_phone(raw_to)
+            store_phone = StorePhoneNumber.objects.select_related("store").filter(phone=to_phone).first()
+            if store_phone:
+                store = store_phone.store
+                customer = Customer.objects.filter(store=store, phone=from_phone).first()
+                call = CallLog.objects.create(
+                    contact_id=call_sid,
+                    store=store,
+                    from_phone=from_phone,
+                    to_phone=to_phone,
+                    customer=customer,
+                    status=CallLog.Status.NEW,
+                )
+                logger.info("Twilio status fallback: created CallLog#%s for %s", call.pk, call_sid)
+            else:
+                logger.warning("Twilio status fallback: StorePhoneNumber not found for to=%s", to_phone)
+                return HttpResponse("ok", content_type="text/plain")
+        else:
+            logger.warning("Twilio status webhook: CallLog not found for %s and no From/To for fallback", call_sid)
+            return HttpResponse("ok", content_type="text/plain")
+
+    # オペレーターが既に対応完了にしている場合は上書きしない
+    if call.status in (CallLog.Status.DONE,):
+        return HttpResponse("ok", content_type="text/plain")
+
+    # Twilio ステータス → Roomink ステータスへのマッピング
+    if call_status in ("no-answer", "busy", "failed", "canceled"):
+        call.status = CallLog.Status.MISSED
+        call.save(update_fields=["status", "updated_at"])
+    elif call_status == "completed" and call.status == CallLog.Status.NEW:
+        # 誰も対応していないまま完了 → 不在扱い
+        call.status = CallLog.Status.MISSED
+        call.save(update_fields=["status", "updated_at"])
+
+    return HttpResponse("ok", content_type="text/plain")
+
+
+# ──────────────────────────────────────
+# Sales
+# ──────────────────────────────────────
+
+def _parse_sales_range(request):
+    """range / date_from / date_to パラメータを解析して (date_from, date_to) を返す。"""
+    today = date_type.today()
+    range_key = request.query_params.get("range")
+
+    if range_key == "today":
+        return today, today
+    elif range_key == "week":
+        # 月曜始まり
+        mon = today - timedelta(days=today.weekday())
+        return mon, today
+    elif range_key == "month":
+        return today.replace(day=1), today
+    else:
+        df = request.query_params.get("date_from")
+        dt = request.query_params.get("date_to")
+        if not df or not dt:
+            return None, None
+        try:
+            return date_type.fromisoformat(df), date_type.fromisoformat(dt)
+        except ValueError:
+            return None, None
+
+
+def _require_manager(request):
+    """manager でなければ PermissionDenied を返す。OK なら None。"""
+    profile = getattr(request.user, "profile", None)
+    if profile is None or profile.role != "manager":
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("この機能はマネージャーのみ利用できます。")
+
+
+class SalesSummaryView(APIView):
+    """GET /api/op/sales-summary/?range=today|week|month or date_from&date_to"""
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        date_from, date_to = _parse_sales_range(request)
+        if date_from is None:
+            return Response(
+                {"detail": "range (today/week/month) または date_from, date_to を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(get_sales_summary(store, date_from, date_to))
+
+
+class SalesExportView(APIView):
+    """GET /api/op/sales-export.csv?range=..."""
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        date_from, date_to = _parse_sales_range(request)
+        if date_from is None:
+            return Response(
+                {"detail": "range (today/week/month) または date_from, date_to を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from django.http import HttpResponse
+        csv_content = get_sales_csv(store, date_from, date_to)
+        resp = HttpResponse(csv_content, content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = (
+            f'attachment; filename="sales_{date_from}_{date_to}.csv"'
+        )
+        return resp

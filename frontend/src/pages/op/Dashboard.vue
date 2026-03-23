@@ -1,10 +1,12 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
+import { getAuthRole } from '../../router.js'
 
 const router = useRouter()
+const isManager = computed(() => getAuthRole() === 'manager')
 const kpi = ref({ estimated_sales: 0, requested: 0, confirmed: 0, total_orders: 0 })
 const requestedOrders = ref([])
 const unconfirmedOrders = ref([])
@@ -21,7 +23,9 @@ const unconfirmedTop3 = computed(() => unconfirmedOrders.value.slice(0, 3))
 const ctiStarting = ref({})   // { [callId]: true } 二重クリック防止
 const ctiDoning = ref({})
 const ctiError = ref('')
+const ctiPopup = ref(null)    // 新規着信ポップアップ用
 let ctiTimer = null
+let prevCtiIds = new Set()
 
 function today() {
   const d = new Date()
@@ -31,10 +35,25 @@ function today() {
 async function fetchCtiQueue() {
   try {
     const data = await api.getCtiQueue()
-    ctiCalls.value = data.calls || []
+    const calls = data.calls || []
+    // 新規着信を検知してポップアップ
+    const newIds = new Set(calls.filter(c => c.status === 'NEW').map(c => c.id))
+    for (const c of calls) {
+      if (c.status === 'NEW' && !prevCtiIds.has(c.id)) {
+        ctiPopup.value = c
+        setTimeout(() => { if (ctiPopup.value?.id === c.id) ctiPopup.value = null }, 10000)
+        break
+      }
+    }
+    prevCtiIds = newIds
+    ctiCalls.value = calls
   } catch (e) {
     // CTI queue fetch failure is non-fatal
   }
+}
+
+function dismissPopup() {
+  ctiPopup.value = null
 }
 
 onMounted(async () => {
@@ -50,9 +69,12 @@ onMounted(async () => {
     loading.value = false
   }
 
-  // CTI polling (2 sec)
+  // Sales (manager only)
+  if (isManager.value) fetchSales()
+
+  // CTI polling (3 sec)
   await fetchCtiQueue()
-  ctiTimer = setInterval(fetchCtiQueue, 10000)
+  ctiTimer = setInterval(fetchCtiQueue, 3000)
 })
 
 onUnmounted(() => {
@@ -101,6 +123,44 @@ function formatYen(n) {
   return `¥${Number(n).toLocaleString()}`
 }
 
+// ── Sales ──
+const salesRange = ref('today')
+const salesDateFrom = ref('')
+const salesDateTo = ref('')
+const sales = ref(null)
+const salesLoading = ref(false)
+
+function buildSalesParams() {
+  if (salesRange.value === 'custom') {
+    if (!salesDateFrom.value || !salesDateTo.value) return null
+    return `date_from=${salesDateFrom.value}&date_to=${salesDateTo.value}`
+  }
+  return `range=${salesRange.value}`
+}
+
+async function fetchSales() {
+  const params = buildSalesParams()
+  if (!params) return
+  salesLoading.value = true
+  try {
+    sales.value = await api.getSalesSummary(params)
+  } catch (e) {
+    console.error(e)
+  } finally {
+    salesLoading.value = false
+  }
+}
+
+function exportCsv() {
+  const params = buildSalesParams()
+  if (!params) return
+  window.open(api.getSalesExportUrl(params), '_blank')
+}
+
+watch([salesRange, salesDateFrom, salesDateTo], () => {
+  if (isManager.value) fetchSales()
+})
+
 function timeAgo(dt) {
   const diff = Math.floor((Date.now() - new Date(dt).getTime()) / 1000)
   if (diff < 60) return `${diff}秒前`
@@ -118,6 +178,23 @@ function timeAgo(dt) {
     </div>
 
     <template v-else>
+      <!-- 着信ポップアップ -->
+      <div v-if="ctiPopup" class="rk-cti-popup" @click="handleCall(ctiPopup)">
+        <div class="d-flex align-items-center justify-content-between">
+          <div class="d-flex align-items-center gap-2">
+            <i class="ti ti-phone-incoming fs-4"></i>
+            <div>
+              <div class="fw-bold">
+                {{ ctiPopup.customer_name || ctiPopup.from_phone }}
+                <span v-if="!ctiPopup.customer_id" class="badge bg-light text-dark ms-1">未登録</span>
+              </div>
+              <small>着信中 ・ タップして対応</small>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-outline-light" @click.stop="dismissPopup">&times;</button>
+        </div>
+      </div>
+
       <!-- 通知エリア -->
       <div class="wrap bg-white overflow-y-auto mb-4" style="max-height: 20vh;">
         <ul class="d-flex flex-column gap-2">
@@ -160,6 +237,8 @@ function timeAgo(dt) {
                     :class="call.status === 'NEW' ? 'bg-danger' : 'bg-warning text-dark'"
                   >{{ call.status === 'NEW' ? '新規' : '対応中' }}</span>
                   <strong>{{ call.customer_name || call.from_phone }}</strong>
+                  <span v-if="!call.customer_id" class="badge bg-secondary">未登録</span>
+                  <span v-if="call.customer_name" class="text-muted" style="font-size:0.8em">{{ call.from_phone }}</span>
                   <span v-if="call.is_repeat" class="badge bg-info">再着信</span>
                 </div>
                 <small class="text-muted">
@@ -217,6 +296,75 @@ function timeAgo(dt) {
               <router-link to="/op/schedule">スケジュールで確認</router-link>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 売上管理 (manager only) -->
+      <div v-if="isManager" class="card border-0 mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <div><i class="ti ti-chart-bar"></i> 売上管理</div>
+          <button class="btn btn-sm btn-outline-dark" @click="exportCsv">
+            <i class="ti ti-download"></i> CSV
+          </button>
+        </div>
+        <div class="card-body">
+          <!-- 期間切替 -->
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <button
+              v-for="r in [{key:'today',label:'今日'},{key:'week',label:'今週'},{key:'month',label:'今月'},{key:'custom',label:'期間指定'}]"
+              :key="r.key"
+              class="btn btn-sm"
+              :class="salesRange === r.key ? 'btn-dark' : 'btn-outline-dark'"
+              @click="salesRange = r.key"
+            >{{ r.label }}</button>
+          </div>
+          <div v-if="salesRange === 'custom'" class="d-flex gap-2 mb-3">
+            <input type="date" class="form-control form-control-sm" v-model="salesDateFrom">
+            <span class="align-self-center">〜</span>
+            <input type="date" class="form-control form-control-sm" v-model="salesDateTo">
+          </div>
+
+          <div v-if="salesLoading" class="text-center py-3">
+            <div class="spinner-border spinner-border-sm text-primary"></div>
+          </div>
+          <template v-else-if="sales">
+            <!-- KPI -->
+            <div class="row g-2 mb-3">
+              <div class="col-4">
+                <div class="stat-box">
+                  <div class="stat-label">売上合計</div>
+                  <div class="stat-value">{{ formatYen(sales.total_sales) }}</div>
+                </div>
+              </div>
+              <div class="col-4">
+                <div class="stat-box">
+                  <div class="stat-label">注文数</div>
+                  <div class="stat-value">{{ sales.total_orders }}</div>
+                </div>
+              </div>
+              <div class="col-4">
+                <div class="stat-box">
+                  <div class="stat-label">平均単価</div>
+                  <div class="stat-value">{{ formatYen(sales.avg_order_value) }}</div>
+                </div>
+              </div>
+            </div>
+            <!-- 日別一覧 -->
+            <div v-if="sales.by_day.length > 1" class="table-responsive">
+              <table class="table table-sm table-bordered mb-0">
+                <thead>
+                  <tr><th>日付</th><th class="text-end">売上</th><th class="text-end">件数</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="d in sales.by_day" :key="d.date">
+                    <td>{{ d.date }}</td>
+                    <td class="text-end">{{ formatYen(d.sales) }}</td>
+                    <td class="text-end">{{ d.orders }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -324,3 +472,23 @@ function timeAgo(dt) {
     </template>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.rk-cti-popup {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: #dc3545;
+  color: #fff;
+  padding: 12px 16px;
+  cursor: pointer;
+  animation: rk-popup-pulse 1s ease-in-out infinite alternate;
+  box-shadow: 0 2px 12px rgba(220, 53, 69, 0.5);
+}
+@keyframes rk-popup-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.85; }
+}
+</style>
