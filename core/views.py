@@ -1912,8 +1912,9 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
             cast.line_linked_at = timezone.now()
             cast.save(update_fields=["line_user_id", "line_linked_at"])
 
+            app_url = os.getenv("FRONTEND_URL", "https://roomink.netlify.app")
             _line_reply(channel_token, reply_token,
-                        f"連携が完了しました！\n{cast.name}さん、よろしくお願いします。\n出勤リマインド通知をお届けします。")
+                        f"連携が完了しました！\n{cast.name}さん、よろしくお願いします。\n出勤リマインド通知をお届けします。\n\nアプリに戻る:\n{app_url}/cast/mypage")
 
     return Response({"ok": True})
 
@@ -2066,6 +2067,10 @@ class StoreLineSettingsView(APIView):
             "line_channel_secret": store.line_channel_secret,
             "line_channel_access_token": store.line_channel_access_token,
             "line_webhook_url": self._webhook_url(request, store),
+            "line_morning_enabled": store.line_morning_enabled,
+            "line_morning_time": store.line_morning_time.strftime("%H:%M") if store.line_morning_time else "09:00",
+            "line_two_hours_enabled": store.line_two_hours_enabled,
+            "line_fifteen_minutes_enabled": store.line_fifteen_minutes_enabled,
         })
 
     def patch(self, request):
@@ -2073,10 +2078,20 @@ class StoreLineSettingsView(APIView):
         store = get_user_store(request)
         fields = []
         for key in ("line_is_enabled", "line_add_friend_url",
-                     "line_channel_secret", "line_channel_access_token"):
+                     "line_channel_secret", "line_channel_access_token",
+                     "line_morning_enabled", "line_two_hours_enabled",
+                     "line_fifteen_minutes_enabled"):
             if key in request.data:
                 setattr(store, key, request.data[key])
                 fields.append(key)
+        if "line_morning_time" in request.data:
+            from datetime import time as dt_time
+            val = request.data["line_morning_time"]
+            if isinstance(val, str):
+                parts = val.split(":")
+                val = dt_time(int(parts[0]), int(parts[1]))
+            store.line_morning_time = val
+            fields.append("line_morning_time")
         if fields:
             store.save(update_fields=fields)
         return Response({
@@ -2085,4 +2100,8 @@ class StoreLineSettingsView(APIView):
             "line_channel_secret": store.line_channel_secret,
             "line_channel_access_token": store.line_channel_access_token,
             "line_webhook_url": self._webhook_url(request, store),
+            "line_morning_enabled": store.line_morning_enabled,
+            "line_morning_time": store.line_morning_time.strftime("%H:%M") if store.line_morning_time else "09:00",
+            "line_two_hours_enabled": store.line_two_hours_enabled,
+            "line_fifteen_minutes_enabled": store.line_fifteen_minutes_enabled,
         })

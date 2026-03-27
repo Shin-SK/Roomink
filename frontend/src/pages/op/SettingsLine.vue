@@ -15,6 +15,10 @@ const form = ref({
   line_add_friend_url: '',
   line_channel_secret: '',
   line_channel_access_token: '',
+  line_morning_enabled: true,
+  line_morning_time: '09:00',
+  line_two_hours_enabled: true,
+  line_fifteen_minutes_enabled: true,
 })
 const webhookUrl = ref('')
 
@@ -29,6 +33,10 @@ async function load() {
     form.value.line_add_friend_url = data.line_add_friend_url
     form.value.line_channel_secret = data.line_channel_secret
     form.value.line_channel_access_token = data.line_channel_access_token
+    form.value.line_morning_enabled = data.line_morning_enabled
+    form.value.line_morning_time = data.line_morning_time
+    form.value.line_two_hours_enabled = data.line_two_hours_enabled
+    form.value.line_fifteen_minutes_enabled = data.line_fifteen_minutes_enabled
     webhookUrl.value = data.line_webhook_url
   } catch (e) {
     error.value = e.message
@@ -81,42 +89,78 @@ onMounted(load)
     </template>
 
     <template v-else>
-      <!-- 設定手順ガイド -->
+      <!-- LINE連携 有効/無効 + Webhook URL -->
       <div class="card mb-4">
-        <div class="card-body">
-          <h6 class="card-title mb-3"><i class="ti ti-info-circle"></i> 設定手順</h6>
-          <ol class="mb-0 small">
-            <li class="mb-1"><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">LINE Developers</a> でプロバイダー &gt; チャネルを作成（Messaging API）</li>
-            <li class="mb-1">チャネルの「Messaging API設定」タブで Webhook URL に下記の URL を設定</li>
-            <li class="mb-1">「チャネル基本設定」の Channel secret と「Messaging API設定」の Channel access token をコピー</li>
-            <li class="mb-0">下の入力欄に貼り付けて「保存」</li>
-          </ol>
-        </div>
-      </div>
-
-      <!-- Webhook URL (読み取り専用) -->
-      <div class="card mb-4">
-        <div class="card-body">
-          <label class="form-label fw-bold">Webhook URL（LINE Developers に貼り付け）</label>
-          <div class="input-group">
-            <input type="text" class="form-control bg-light" :value="webhookUrl" readonly>
-            <button class="btn btn-outline-secondary" type="button" @click="copyToClipboard(webhookUrl, 'webhook')">
-              <i class="ti" :class="copied === 'webhook' ? 'ti-check' : 'ti-copy'"></i>
-              {{ copied === 'webhook' ? 'コピー済' : 'コピー' }}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 設定フォーム -->
-      <div class="card">
         <div class="card-body">
           <div class="mb-3">
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" id="lineEnabled" v-model="form.line_is_enabled">
               <label class="form-check-label fw-bold" for="lineEnabled">LINE連携を有効にする</label>
             </div>
+            <div class="form-text">通常はONのままで問題ありません</div>
           </div>
+
+          <div>
+            <label class="form-label fw-bold">Webhook URL（LINE Developers に貼り付け）</label>
+            <div class="input-group">
+              <input type="text" class="form-control bg-light" :value="webhookUrl" readonly>
+              <button class="btn btn-outline-secondary" type="button" @click="copyToClipboard(webhookUrl, 'webhook')">
+                <i class="ti" :class="copied === 'webhook' ? 'ti-check' : 'ti-copy'"></i>
+                {{ copied === 'webhook' ? 'コピー済' : 'コピー' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 通知設定 -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <h6 class="card-title mb-3"><i class="ti ti-bell"></i> 通知設定</h6>
+
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="morningEnabled" v-model="form.line_morning_enabled">
+              <label class="form-check-label" for="morningEnabled">朝通知を送信する</label>
+            </div>
+            <div v-if="form.line_morning_enabled" class="mt-2 ms-4">
+              <label class="form-label small">送信時刻</label>
+              <input type="time" class="form-control form-control-sm" style="max-width: 140px" v-model="form.line_morning_time">
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="twoHoursEnabled" v-model="form.line_two_hours_enabled">
+              <label class="form-check-label" for="twoHoursEnabled">出勤2時間前通知を送信する</label>
+            </div>
+          </div>
+
+          <div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="fifteenMinEnabled" v-model="form.line_fifteen_minutes_enabled">
+              <label class="form-check-label" for="fifteenMinEnabled">出勤15分前通知を送信する</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 設定手順ガイド -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <h6 class="card-title mb-3"><i class="ti ti-info-circle"></i> 設定手順</h6>
+          <ol class="mb-0 small">
+            <li class="mb-1"><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">LINE Developers</a> でプロバイダー &gt; チャネルを作成（Messaging API）</li>
+            <li class="mb-1">チャネルの「Messaging API設定」タブで Webhook URL に上記の URL を設定</li>
+            <li class="mb-1">「チャネル基本設定」の Channel secret と「Messaging API設定」の Channel access token をコピー</li>
+            <li class="mb-0">下の入力欄に貼り付けて「保存」</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- 設定フォーム -->
+      <div class="card">
+        <div class="card-body">
 
           <div class="mb-3">
             <label class="form-label fw-bold">友だち追加URL</label>

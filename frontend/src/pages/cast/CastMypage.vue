@@ -190,17 +190,7 @@ function durationMin(order) {
                 <div class="line-step">
                   <div class="line-step-num">1</div>
                   <div class="line-step-content">
-                    <div class="fw-bold mb-2">公式LINEを友だち追加</div>
-                    <button class="btn w-100 text-white fw-bold" style="background: #06C755;" @click="openLineFriend">
-                      <i class="ti ti-brand-line me-1"></i> 友だち追加する
-                    </button>
-                  </div>
-                </div>
-
-                <div class="line-step">
-                  <div class="line-step-num">2</div>
-                  <div class="line-step-content">
-                    <div class="fw-bold mb-2">このコードをトークで送信</div>
+                    <div class="fw-bold mb-2">連携コードをコピー</div>
                     <div class="line-code-box" @click="copyCode">
                       <span class="line-code">{{ lineLinkCode }}</span>
                       <span class="line-code-copy" :class="{ copied: codeCopied }">
@@ -212,10 +202,24 @@ function durationMin(order) {
                 </div>
 
                 <div class="line-step">
+                  <div class="line-step-num">2</div>
+                  <div class="line-step-content">
+                    <div class="fw-bold mb-2">公式LINEを友だち追加してコードを送信</div>
+                    <button class="btn w-100 text-white fw-bold" style="background: #06C755;" @click="openLineFriend">
+                      <i class="ti ti-brand-line me-1"></i> 友だち追加する
+                    </button>
+                    <div class="small text-muted mt-2">友だち追加後、トーク画面でコピーしたコードを送信してください</div>
+                  </div>
+                </div>
+
+                <div class="line-step">
                   <div class="line-step-num">3</div>
                   <div class="line-step-content">
                     <div class="fw-bold">連携完了！</div>
-                    <div class="small text-muted">送信後、自動で連携されます。このページを再読み込みすると反映されます。</div>
+                    <div class="small text-muted mb-2">コード送信後、自動で連携されます。</div>
+                    <button class="btn btn-sm btn-outline-success w-100" @click="location.reload()">
+                      <i class="ti ti-refresh me-1"></i> ページを再読み込み
+                    </button>
                   </div>
                 </div>
               </div>

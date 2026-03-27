@@ -24,6 +24,10 @@ class Store(models.Model):
     line_channel_secret = models.TextField(blank=True, default="")
     line_channel_access_token = models.TextField(blank=True, default="")
     line_is_enabled = models.BooleanField(default=False)
+    line_morning_enabled = models.BooleanField(default=True)
+    line_morning_time = models.TimeField(default="09:00")
+    line_two_hours_enabled = models.BooleanField(default=True)
+    line_fifteen_minutes_enabled = models.BooleanField(default=True)
     line_webhook_token = models.CharField(
         max_length=64, blank=True, default="", unique=True,
         help_text="webhook URL に埋め込む store 識別トークン",
