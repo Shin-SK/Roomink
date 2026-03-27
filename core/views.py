@@ -2052,6 +2052,11 @@ class LineAlertsView(APIView):
 class StoreLineSettingsView(APIView):
     """GET / PATCH /api/op/line-settings/"""
 
+    @staticmethod
+    def _webhook_url(request, store):
+        origin = request.build_absolute_uri("/").rstrip("/")
+        return f"{origin}/api/webhook/line/{store.line_webhook_token}/"
+
     def get(self, request):
         _require_manager(request)
         store = get_user_store(request)
@@ -2060,7 +2065,7 @@ class StoreLineSettingsView(APIView):
             "line_add_friend_url": store.line_add_friend_url,
             "line_channel_secret": store.line_channel_secret,
             "line_channel_access_token": store.line_channel_access_token,
-            "line_webhook_url": f"/api/webhook/line/{store.line_webhook_token}/",
+            "line_webhook_url": self._webhook_url(request, store),
         })
 
     def patch(self, request):
@@ -2079,5 +2084,5 @@ class StoreLineSettingsView(APIView):
             "line_add_friend_url": store.line_add_friend_url,
             "line_channel_secret": store.line_channel_secret,
             "line_channel_access_token": store.line_channel_access_token,
-            "line_webhook_url": f"/api/webhook/line/{store.line_webhook_token}/",
+            "line_webhook_url": self._webhook_url(request, store),
         })

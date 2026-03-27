@@ -29,7 +29,7 @@ async function load() {
     form.value.line_add_friend_url = data.line_add_friend_url
     form.value.line_channel_secret = data.line_channel_secret
     form.value.line_channel_access_token = data.line_channel_access_token
-    webhookUrl.value = location.origin + data.line_webhook_url
+    webhookUrl.value = data.line_webhook_url
   } catch (e) {
     error.value = e.message
   } finally {
