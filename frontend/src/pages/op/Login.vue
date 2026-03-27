@@ -1,24 +1,26 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { api } from '../../api.js'
 import { resetAuthCache } from '../../router.js'
 
 const router = useRouter()
+const route = useRoute()
 const username = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
 
 function homeForRole(role) {
-  return role === 'cast' ? '/cast/mypage' : '/op/dashboard'
+  if (role === 'cast') return '/cast/mypage'
+  return '/op/dashboard'
 }
 
 onMounted(async () => {
   try { await api.csrf() } catch { /* ignore */ }
   try {
     const me = await api.me()
-    router.replace(homeForRole(me.role))
+    router.replace(route.query.next || homeForRole(me.role))
   } catch {
     // 未ログイン — そのまま表示
   }
@@ -31,7 +33,7 @@ async function onSubmit() {
     await api.login(username.value, password.value)
     resetAuthCache()
     const me = await api.me()
-    router.push(homeForRole(me.role))
+    router.push(route.query.next || homeForRole(me.role))
   } catch (e) {
     error.value = e.message || 'ログインに失敗しました'
   } finally {

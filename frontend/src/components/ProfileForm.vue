@@ -5,7 +5,7 @@ import { uploadToCloudinary } from '../cloudinary.js'
 import UserAvatar from './UserAvatar.vue'
 
 const props = defineProps({
-  logoutPath: { type: String, default: '/op/login' },
+  logoutPath: { type: String, default: '/login' },
 })
 const emit = defineEmits(['logout'])
 

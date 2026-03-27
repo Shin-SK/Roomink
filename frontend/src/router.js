@@ -25,9 +25,10 @@ const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
 const SettingsStaffs = () => import('./pages/op/SettingsStaffs.vue')
 const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
 const SettingsLine = () => import('./pages/op/SettingsLine.vue')
+const SettingsManual = () => import('./pages/op/SettingsManual.vue')
+const ManualArticle = () => import('./pages/op/ManualArticle.vue')
 const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
 const Profile = () => import('./pages/op/Profile.vue')
-const CastLogin = () => import('./pages/cast/CastLogin.vue')
 const CastMypage = () => import('./pages/cast/CastMypage.vue')
 const CastOrders = () => import('./pages/cast/CastOrders.vue')
 const CastShiftRequests = () => import('./pages/cast/CastShiftRequests.vue')
@@ -43,7 +44,8 @@ const CuContact = () => import('./pages/cu/CuContact.vue')
 
 const routes = [
   { path: '/', redirect: '/op/dashboard' },
-  { path: '/op/login', name: 'op-login', component: Login, meta: { public: true } },
+  { path: '/login', name: 'login', component: Login, meta: { public: true } },
+  { path: '/op/login', redirect: '/login' },
   { path: '/op/dashboard', name: 'dashboard', component: Dashboard },
   { path: '/op/schedule', name: 'schedule', component: Schedule },
   { path: '/op/phone', name: 'phone', component: Phone },
@@ -65,10 +67,12 @@ const routes = [
   { path: '/op/settings/media', name: 'settings-media', component: SettingsMedia },
   { path: '/op/settings/csv-import', name: 'settings-csv-import', component: SettingsCsvImport },
   { path: '/op/settings/line', name: 'settings-line', component: SettingsLine },
+  { path: '/op/settings/manual', name: 'settings-manual', component: SettingsManual },
+  { path: '/op/settings/manual/:slug', name: 'manual-article', component: ManualArticle, props: true },
   { path: '/op/profile', name: 'op-profile', component: Profile },
 
   // Cast
-  { path: '/cast/login', name: 'cast-login', component: CastLogin, meta: { public: true } },
+  { path: '/cast/login', redirect: '/login' },
   { path: '/cast/mypage', name: 'cast-mypage', component: CastMypage },
   { path: '/cast/orders', name: 'cast-orders', component: CastOrders },
   { path: '/cast/shift-requests', name: 'cast-shift-requests', component: CastShiftRequests },
@@ -131,10 +135,9 @@ router.beforeEach(async (to) => {
 
   const auth = await ensureAuth()
 
-  // 未ログイン → 各系統のログインページへ
+  // 未ログイン → 統一ログインページへ
   if (!auth.authed) {
-    if (isCast) return { name: 'cast-login', query: { next: to.fullPath } }
-    return { name: 'op-login' }
+    return { name: 'login', query: { next: to.fullPath } }
   }
 
   // role 別アクセス制御

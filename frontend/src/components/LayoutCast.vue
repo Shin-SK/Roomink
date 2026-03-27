@@ -39,7 +39,7 @@ function closeSidebar() {
 async function onLogout() {
   try { await api.logout() } catch { /* ignore */ }
   resetAuthCache()
-  router.push('/cast/login')
+  router.push('/login')
 }
 
 function onDocClick(e) {

@@ -10,7 +10,7 @@ const router = useRouter()
 async function onLogout() {
   try { await api.logout() } catch { /* ignore */ }
   resetAuthCache()
-  router.push('/op/login')
+  router.push('/login')
 }
 </script>
 
