@@ -1,9 +1,9 @@
 from django.contrib import admin
 
 from .models import (
-    CallLog, CallNote, Cast, Course, Customer, Option, Order,
-    Room, ShiftAssignment, ShiftRequest, SmsLog, Store, StorePhoneNumber,
-    UserProfile,
+    CallLog, CallNote, Cast, Course, Customer, LineNotificationLog,
+    Option, Order, Room, ShiftAssignment, ShiftRequest, SmsLog, Store,
+    StorePhoneNumber, UserProfile,
 )
 
 
@@ -20,8 +20,9 @@ class RoomAdmin(admin.ModelAdmin):
 
 @admin.register(Cast)
 class CastAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "name", "user")
+    list_display = ("id", "store", "name", "user", "line_link_code", "line_linked_at")
     list_filter = ("store",)
+    readonly_fields = ("line_user_id", "line_linked_at")
 
 
 @admin.register(Customer)
@@ -90,6 +91,14 @@ class CallNoteAdmin(admin.ModelAdmin):
 @admin.register(SmsLog)
 class SmsLogAdmin(admin.ModelAdmin):
     list_display = ("id", "order", "to_phone", "status", "sent_at")
+
+
+@admin.register(LineNotificationLog)
+class LineNotificationLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "cast", "notification_type", "status", "sent_at")
+    list_filter = ("store", "status", "notification_type")
+    search_fields = ("cast__name",)
+    readonly_fields = ("store", "cast", "shift_assignment", "notification_type", "status", "error_message", "sent_at")
 
 
 @admin.register(UserProfile)

@@ -34,6 +34,7 @@ urlpatterns = [
     # cast
     path("cast/today/", views.CastTodayView.as_view(), name="cast-today"),
     path("cast/orders/<int:pk>/ack/", views.CastAckView.as_view(), name="cast-ack"),
+    path("cast/line-link/", views.CastLineLinkView.as_view(), name="cast-line-link"),
     path("cast/", include(cast_sr_router.urls)),
 
     # customer
@@ -52,11 +53,15 @@ urlpatterns = [
 path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
     path("op/sales-summary/", views.SalesSummaryView.as_view(), name="sales-summary"),
     path("op/sales-export.csv", views.SalesExportView.as_view(), name="sales-export"),
+    path("op/line-alerts/", views.LineAlertsView.as_view(), name="line-alerts"),
     path("op/", include(op_sr_router.urls)),
 
     # Twilio webhook
     path("webhook/twilio/voice/", views.twilio_voice_webhook, name="twilio-voice-webhook"),
     path("webhook/twilio/status/", views.twilio_status_webhook, name="twilio-status-webhook"),
+
+    # LINE webhook
+    path("webhook/line/", views.line_webhook, name="line-webhook"),
 
     # CTI
     path("op/cti/inbound/", views.CtiInboundView.as_view(), name="cti-inbound"),

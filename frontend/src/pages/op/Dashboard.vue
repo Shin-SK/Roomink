@@ -27,6 +27,11 @@ const ctiPopup = ref(null)    // 新規着信ポップアップ用
 let ctiTimer = null
 let prevCtiIds = new Set()
 
+// LINE Alerts
+const lineUnlinked = ref([])
+const lineFailed = ref([])
+let lineAlertTimer = null
+
 function today() {
   const d = new Date()
   return d.toISOString().slice(0, 10)
@@ -75,11 +80,26 @@ onMounted(async () => {
   // CTI polling (3 sec)
   await fetchCtiQueue()
   ctiTimer = setInterval(fetchCtiQueue, 3000)
+
+  // LINE alerts (30 sec)
+  await fetchLineAlerts()
+  lineAlertTimer = setInterval(fetchLineAlerts, 30000)
 })
 
 onUnmounted(() => {
   if (ctiTimer) clearInterval(ctiTimer)
+  if (lineAlertTimer) clearInterval(lineAlertTimer)
 })
+
+async function fetchLineAlerts() {
+  try {
+    const data = await api.getLineAlerts()
+    lineUnlinked.value = data.unlinked_casts || []
+    lineFailed.value = data.failed_notifications || []
+  } catch (e) {
+    // non-fatal
+  }
+}
 
 function goOrder(id) {
   router.push(`/op/orders/${id}`)
@@ -192,6 +212,26 @@ function timeAgo(dt) {
             </div>
           </div>
           <button class="btn btn-sm btn-outline-light" @click.stop="dismissPopup">&times;</button>
+        </div>
+      </div>
+
+      <!-- LINE アラート -->
+      <div v-if="lineUnlinked.length" class="alert alert-warning mb-3 py-2 px-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <i class="ti ti-brand-line"></i>
+          <strong>LINE未連携キャストが本日出勤予定</strong>
+        </div>
+        <div v-for="c in lineUnlinked" :key="'lu-'+c.id" class="small">
+          {{ c.name }}（{{ c.start_time }}〜）
+        </div>
+      </div>
+      <div v-if="lineFailed.length" class="alert alert-danger mb-3 py-2 px-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <i class="ti ti-brand-line"></i>
+          <strong>LINE通知の送信失敗</strong>
+        </div>
+        <div v-for="f in lineFailed" :key="'lf-'+f.id" class="small">
+          {{ f.cast_name }} — {{ f.notification_type }}（{{ f.error_message }}）
         </div>
       </div>
 

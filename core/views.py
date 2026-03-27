@@ -18,8 +18,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
-    CallLog, CallNote, Cast, CastAck, Course, Customer, Discount, Extension, Medium, NominationFee, Option, Order, OrderOption,
+    CallLog, CallNote, Cast, CastAck, Course, Customer, Discount, Extension, Medium,
+    LineNotificationLog, NominationFee, Option, Order, OrderOption,
     Room, ShiftAssignment, ShiftRequest, Store, StorePhoneNumber, UserProfile,
+    generate_line_link_code,
 )
 from .serializers import (
     CastSerializer,
@@ -455,6 +457,8 @@ class CastTodayView(APIView):
             "total_orders": len(data),
             "unconfirmed_count": sum(1 for o in data if o["is_unconfirmed"]),
             "orders": serializer.data,
+            "line_linked": cast.line_user_id is not None,
+            "line_link_code": cast.line_link_code,
         })
 
 
@@ -1815,3 +1819,206 @@ class SalesExportView(APIView):
             f'attachment; filename="sales_{date_from}_{date_to}.csv"'
         )
         return resp
+
+
+# ──────────────────────────────────────
+# LINE Webhook
+# ──────────────────────────────────────
+
+@csrf_exempt
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def line_webhook(request):
+    """POST /api/webhook/line/ — LINE Messaging API webhook"""
+    from django.conf import settings as djsettings
+    import hashlib
+    import hmac
+    import base64
+    import json
+
+    channel_secret = djsettings.LINE_CHANNEL_SECRET
+    channel_token = djsettings.LINE_CHANNEL_ACCESS_TOKEN
+
+    # 署名検証
+    signature = request.headers.get("X-Line-Signature", "")
+    if channel_secret:
+        body_bytes = request.body
+        hash_val = hmac.new(
+            channel_secret.encode("utf-8"),
+            body_bytes,
+            hashlib.sha256,
+        ).digest()
+        expected = base64.b64encode(hash_val).decode("utf-8")
+        if not hmac.compare_digest(signature, expected):
+            return Response({"detail": "Invalid signature"}, status=status.HTTP_403_FORBIDDEN)
+
+    body = request.data
+    events = body.get("events", [])
+
+    for event in events:
+        event_type = event.get("type")
+        reply_token = event.get("replyToken")
+        source = event.get("source", {})
+        line_user_id = source.get("userId", "")
+
+        if event_type == "follow":
+            _line_reply(channel_token, reply_token,
+                        "Roomink LINE連携へようこそ！\n管理画面に表示されている連携コード（6桁）を送信してください。")
+
+        elif event_type == "message":
+            msg = event.get("message", {})
+            if msg.get("type") != "text":
+                continue
+            code = msg.get("text", "").strip().upper()
+
+            # 既に別 Cast に連携済みの LINE userId か
+            existing = Cast.objects.filter(line_user_id=line_user_id).first()
+            if existing:
+                _line_reply(channel_token, reply_token,
+                            f"既に {existing.name} さんとして連携済みです。\n再連携が必要な場合は管理者にお問い合わせください。")
+                continue
+
+            # コード照合
+            cast = Cast.objects.filter(line_link_code=code, line_user_id__isnull=True).first()
+            if cast is None:
+                _line_reply(channel_token, reply_token,
+                            "無効なコードです。コードをご確認のうえ、再度お試しください。")
+                continue
+
+            # 連携実行
+            cast.line_user_id = line_user_id
+            cast.line_linked_at = timezone.now()
+            cast.save(update_fields=["line_user_id", "line_linked_at"])
+
+            _line_reply(channel_token, reply_token,
+                        f"連携が完了しました！\n{cast.name}さん、よろしくお願いします。\n出勤リマインド通知をお届けします。")
+
+    return Response({"ok": True})
+
+
+def _line_reply(channel_token, reply_token, text):
+    """LINE Reply Message API でテキストを返す"""
+    if not channel_token or not reply_token:
+        logger.info("LINE reply skip (no token): %s", text[:40])
+        return
+    import requests as http_requests
+    http_requests.post(
+        "https://api.line.me/v2/bot/message/reply",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {channel_token}",
+        },
+        json={
+            "replyToken": reply_token,
+            "messages": [{"type": "text", "text": text}],
+        },
+        timeout=5,
+    )
+
+
+# ──────────────────────────────────────
+# LINE 連携コード再発行
+# ──────────────────────────────────────
+
+class CastLineLinkView(APIView):
+    """GET  /api/cast/line-link/ — 連携状態取得
+       POST /api/cast/line-link/regenerate/ — 連携コード再発行
+       POST /api/cast/line-link/unlink/ — 連携解除
+    """
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response({"detail": "キャストが紐づいていません"}, status=status.HTTP_403_FORBIDDEN)
+        return Response({
+            "line_link_code": cast.line_link_code,
+            "line_linked": cast.line_user_id is not None,
+            "line_linked_at": cast.line_linked_at,
+        })
+
+    def post(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response({"detail": "キャストが紐づいていません"}, status=status.HTTP_403_FORBIDDEN)
+
+        action = request.data.get("action", "regenerate")
+
+        if action == "unlink":
+            cast.line_user_id = None
+            cast.line_linked_at = None
+            cast.line_link_code = generate_line_link_code()
+            cast.save(update_fields=["line_user_id", "line_linked_at", "line_link_code"])
+            return Response({"ok": True, "line_link_code": cast.line_link_code, "line_linked": False})
+
+        # regenerate
+        if cast.line_user_id:
+            return Response({"detail": "連携済みです。解除してから再発行してください。"}, status=status.HTTP_400_BAD_REQUEST)
+        cast.line_link_code = generate_line_link_code()
+        cast.save(update_fields=["line_link_code"])
+        return Response({"ok": True, "line_link_code": cast.line_link_code})
+
+
+# ──────────────────────────────────────
+# LINE アラート API（operator 向け）
+# ──────────────────────────────────────
+
+class LineAlertsView(APIView):
+    """GET /api/op/line-alerts/ — 当日の LINE 未連携 cast + 送信失敗を返す"""
+
+    def get(self, request):
+        store = get_user_store(request)
+        today = date_type.today()
+
+        # 当日出勤予定で LINE 未連携の Cast
+        today_shift_cast_ids = (
+            ShiftAssignment.objects
+            .filter(store=store, date=today)
+            .values_list("cast_id", flat=True)
+        )
+        unlinked = (
+            Cast.objects
+            .filter(id__in=today_shift_cast_ids, line_user_id__isnull=True)
+            .values("id", "name")
+        )
+        # 各 unlinked cast の最初のシフト時間を取得
+        unlinked_list = []
+        for c in unlinked:
+            shift = (
+                ShiftAssignment.objects
+                .filter(store=store, date=today, cast_id=c["id"])
+                .order_by("start_time")
+                .first()
+            )
+            unlinked_list.append({
+                "id": c["id"],
+                "name": c["name"],
+                "start_time": str(shift.start_time)[:5] if shift else None,
+            })
+
+        # 当日の送信失敗ログ
+        failed = (
+            LineNotificationLog.objects
+            .filter(
+                store=store,
+                shift_assignment__date=today,
+                status=LineNotificationLog.Status.FAILED,
+            )
+            .select_related("cast")
+            .order_by("-sent_at")[:20]
+        )
+        failed_list = [
+            {
+                "id": f.id,
+                "cast_name": f.cast.name,
+                "notification_type": f.notification_type,
+                "error_message": f.error_message[:100],
+                "sent_at": f.sent_at.isoformat(),
+            }
+            for f in failed
+        ]
+
+        return Response({
+            "unlinked_casts": unlinked_list,
+            "failed_notifications": failed_list,
+        })

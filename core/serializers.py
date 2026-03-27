@@ -46,10 +46,15 @@ class RoomSerializer(serializers.ModelSerializer):
 
 
 class CastSerializer(serializers.ModelSerializer):
+    line_linked = serializers.SerializerMethodField()
+
     class Meta:
         model = Cast
         fields = "__all__"
-        read_only_fields = ["store"]
+        read_only_fields = ["store", "line_user_id", "line_linked_at"]
+
+    def get_line_linked(self, obj):
+        return obj.line_user_id is not None
 
 
 class CustomerSerializer(serializers.ModelSerializer):

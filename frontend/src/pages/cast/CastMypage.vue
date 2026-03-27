@@ -11,6 +11,8 @@ const shift = ref(null)
 const orders = ref([])
 const totalOrders = ref(0)
 const unconfirmedCount = ref(0)
+const lineLinked = ref(false)
+const lineLinkCode = ref('')
 
 function today() {
   return new Date().toISOString().slice(0, 10)
@@ -25,6 +27,8 @@ onMounted(async () => {
     orders.value = data.orders
     totalOrders.value = data.total_orders
     unconfirmedCount.value = data.unconfirmed_count
+    lineLinked.value = data.line_linked || false
+    lineLinkCode.value = data.line_link_code || ''
   } catch (e) {
     error.value = e.message
   } finally {
@@ -111,6 +115,35 @@ function durationMin(order) {
               <div class="card-body p-3">
                 <div class="small text-muted mb-2">未確認</div>
                 <div class="fs-4 fw-bold" :class="unconfirmedCount > 0 ? 'text-danger' : ''">{{ unconfirmedCount }}本</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LINE連携カード -->
+        <div class="card mb-3" :class="lineLinked ? 'border-success' : 'border-warning border-2'">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-3">
+              <div class="flex-shrink-0">
+                <div
+                  class="rounded-circle d-flex align-items-center justify-content-center"
+                  :class="lineLinked ? 'bg-success' : 'bg-warning'"
+                  style="width: 40px; height: 40px;"
+                >
+                  <i class="ti ti-brand-line" style="font-size: 20px; color: #fff;"></i>
+                </div>
+              </div>
+              <div class="flex-grow-1">
+                <div class="fw-bold mb-1">LINE連携</div>
+                <div v-if="lineLinked" class="small text-success">
+                  <i class="ti ti-check"></i> 連携済み — リマインド通知が届きます
+                </div>
+                <template v-else>
+                  <div class="small text-muted mb-2">公式LINEに以下のコードを送信してください</div>
+                  <div class="bg-light rounded p-2 text-center">
+                    <span class="fw-bold fs-4 font-monospace letter-spacing-2">{{ lineLinkCode }}</span>
+                  </div>
+                </template>
               </div>
             </div>
           </div>

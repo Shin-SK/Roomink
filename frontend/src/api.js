@@ -151,6 +151,8 @@ export const api = {
   // Cast
   getCastToday: (date) => request('GET', `/cast/today/?date=${date}`),
   ackOrder: (id) => request('POST', `/cast/orders/${id}/ack/`),
+  getCastLineLink: () => request('GET', '/cast/line-link/'),
+  castLineLinkAction: (action) => request('POST', '/cast/line-link/', { action }),
   getCastShiftRequests: (params = '') => listRequest('GET', `/cast/shift-requests/${params ? '?' + params : '?limit=200'}`),
   createCastShiftRequest: (body) => request('POST', '/cast/shift-requests/', body),
   updateCastShiftRequest: (id, body) => request('PATCH', `/cast/shift-requests/${id}/`, body),
@@ -176,6 +178,9 @@ export const api = {
   ctiCallStart: (id) => request('POST', `/op/cti/calls/${id}/start/`),
   ctiCallDone: (id) => request('POST', `/op/cti/calls/${id}/done/`),
   ctiCallAddNote: (id, body) => request('POST', `/op/cti/calls/${id}/notes/`, { body }),
+
+  // LINE Alerts
+  getLineAlerts: () => request('GET', '/op/line-alerts/'),
 
   // Sales
   getSalesSummary: (params) => request('GET', `/op/sales-summary/?${params}`),

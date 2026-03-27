@@ -1,7 +1,15 @@
+import secrets
+import string
 import uuid
 
 from django.conf import settings
 from django.db import models
+
+
+def generate_line_link_code():
+    """6桁の英数字連携コードを生成"""
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(6))
 
 
 class Store(models.Model):
@@ -35,6 +43,12 @@ class Cast(models.Model):
     )
     name = models.CharField(max_length=50)
     avatar_url = models.URLField(blank=True, default="")
+    line_user_id = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    line_link_code = models.CharField(
+        max_length=8, null=True, blank=True, unique=True,
+        default=generate_line_link_code,
+    )
+    line_linked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ("store", "name")
@@ -352,6 +366,34 @@ class SmsLog(models.Model):
 
     def __str__(self):
         return f"SMS→{self.to_phone} {self.status}"
+
+
+class LineNotificationLog(models.Model):
+    class NotificationType(models.TextChoices):
+        MORNING = "MORNING", "朝通知"
+        TWO_HOURS_BEFORE = "TWO_HOURS_BEFORE", "2時間前"
+        FIFTEEN_MIN_BEFORE = "FIFTEEN_MIN_BEFORE", "15分前"
+
+    class Status(models.TextChoices):
+        SENT = "SENT", "送信済"
+        FAILED = "FAILED", "失敗"
+        SKIPPED = "SKIPPED", "スキップ"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="line_notification_logs")
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="line_notification_logs")
+    shift_assignment = models.ForeignKey(ShiftAssignment, on_delete=models.CASCADE, related_name="line_notification_logs")
+    notification_type = models.CharField(max_length=20, choices=NotificationType.choices)
+    status = models.CharField(max_length=10, choices=Status.choices)
+    error_message = models.TextField(blank=True, default="")
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "shift_assignment", "notification_type"]),
+        ]
+
+    def __str__(self):
+        return f"LINE→{self.cast} {self.notification_type} {self.status}"
 
 
 class UserProfile(models.Model):
