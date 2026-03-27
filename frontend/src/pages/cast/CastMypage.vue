@@ -13,6 +13,9 @@ const totalOrders = ref(0)
 const unconfirmedCount = ref(0)
 const lineLinked = ref(false)
 const lineLinkCode = ref('')
+const lineAddFriendUrl = ref('')
+const showLineModal = ref(false)
+const codeCopied = ref(false)
 
 function today() {
   return new Date().toISOString().slice(0, 10)
@@ -29,6 +32,8 @@ onMounted(async () => {
     unconfirmedCount.value = data.unconfirmed_count
     lineLinked.value = data.line_linked || false
     lineLinkCode.value = data.line_link_code || ''
+    lineAddFriendUrl.value = data.line_add_friend_url || ''
+    if (!lineLinked.value) showLineModal.value = true
   } catch (e) {
     error.value = e.message
   } finally {
@@ -51,6 +56,16 @@ function formatTime(dt) {
   if (!dt) return ''
   const d = new Date(dt)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function copyCode() {
+  navigator.clipboard.writeText(lineLinkCode.value)
+  codeCopied.value = true
+  setTimeout(() => { codeCopied.value = false }, 2000)
+}
+
+function openLineFriend() {
+  window.open(lineAddFriendUrl.value, '_blank')
 }
 
 function formatYen(n) {
@@ -121,33 +136,96 @@ function durationMin(order) {
         </div>
 
         <!-- LINE連携カード -->
-        <div class="card mb-3" :class="lineLinked ? 'border-success' : 'border-warning border-2'">
+        <div v-if="lineLinked" class="card mb-3 border-success">
           <div class="card-body">
             <div class="d-flex align-items-center gap-3">
               <div class="flex-shrink-0">
-                <div
-                  class="rounded-circle d-flex align-items-center justify-content-center"
-                  :class="lineLinked ? 'bg-success' : 'bg-warning'"
-                  style="width: 40px; height: 40px;"
-                >
+                <div class="rounded-circle d-flex align-items-center justify-content-center bg-success" style="width: 40px; height: 40px;">
                   <i class="ti ti-brand-line" style="font-size: 20px; color: #fff;"></i>
                 </div>
               </div>
               <div class="flex-grow-1">
                 <div class="fw-bold mb-1">LINE連携</div>
-                <div v-if="lineLinked" class="small text-success">
-                  <i class="ti ti-check"></i> 連携済み — リマインド通知が届きます
-                </div>
-                <template v-else>
-                  <div class="small text-muted mb-2">公式LINEに以下のコードを送信してください</div>
-                  <div class="bg-light rounded p-2 text-center">
-                    <span class="fw-bold fs-4 font-monospace letter-spacing-2">{{ lineLinkCode }}</span>
-                  </div>
-                </template>
+                <div class="small text-success"><i class="ti ti-check"></i> 連携済み — リマインド通知が届きます</div>
               </div>
             </div>
           </div>
         </div>
+        <div v-else class="card mb-3 border-warning border-2" style="cursor: pointer;" @click="showLineModal = true">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-3">
+              <div class="flex-shrink-0">
+                <div class="rounded-circle d-flex align-items-center justify-content-center bg-warning" style="width: 40px; height: 40px;">
+                  <i class="ti ti-brand-line" style="font-size: 20px; color: #fff;"></i>
+                </div>
+              </div>
+              <div class="flex-grow-1">
+                <div class="fw-bold mb-1">LINE連携が必要です</div>
+                <div class="small text-muted">タップして連携手順を確認 <i class="ti ti-chevron-right"></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LINE連携モーダル -->
+        <Teleport to="body">
+          <div v-if="showLineModal && !lineLinked" class="line-modal-overlay" @click.self="showLineModal = false">
+            <div class="line-modal">
+              <div class="line-modal-header">
+                <div class="d-flex align-items-center gap-2">
+                  <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; background: #06C755;">
+                    <i class="ti ti-brand-line" style="font-size: 18px; color: #fff;"></i>
+                  </div>
+                  <span class="fw-bold fs-5">LINE連携</span>
+                </div>
+                <button class="btn btn-sm btn-light rounded-circle" @click="showLineModal = false" style="width: 32px; height: 32px; padding: 0;">
+                  <i class="ti ti-x"></i>
+                </button>
+              </div>
+
+              <div class="line-modal-body">
+                <p class="text-muted small mb-3">出勤リマインドを受け取るためにLINE連携が必要です。</p>
+
+                <!-- ステップ -->
+                <div class="line-step">
+                  <div class="line-step-num">1</div>
+                  <div class="line-step-content">
+                    <div class="fw-bold mb-2">公式LINEを友だち追加</div>
+                    <button class="btn w-100 text-white fw-bold" style="background: #06C755;" @click="openLineFriend">
+                      <i class="ti ti-brand-line me-1"></i> 友だち追加する
+                    </button>
+                  </div>
+                </div>
+
+                <div class="line-step">
+                  <div class="line-step-num">2</div>
+                  <div class="line-step-content">
+                    <div class="fw-bold mb-2">このコードをトークで送信</div>
+                    <div class="line-code-box" @click="copyCode">
+                      <span class="line-code">{{ lineLinkCode }}</span>
+                      <span class="line-code-copy" :class="{ copied: codeCopied }">
+                        <i :class="codeCopied ? 'ti ti-check' : 'ti ti-copy'"></i>
+                        {{ codeCopied ? 'コピー済' : 'コピー' }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="line-step">
+                  <div class="line-step-num">3</div>
+                  <div class="line-step-content">
+                    <div class="fw-bold">連携完了！</div>
+                    <div class="small text-muted">送信後、自動で連携されます。このページを再読み込みすると反映されます。</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="line-modal-footer">
+                <button class="btn btn-outline-secondary w-100" @click="showLineModal = false">あとで設定する</button>
+              </div>
+            </div>
+          </div>
+        </Teleport>
 
         <!-- 未確認警告カード -->
         <div v-if="unconfirmedCount > 0" class="alert alert-warning d-flex align-items-center gap-3 mb-4">
@@ -247,3 +325,95 @@ function durationMin(order) {
       </template>
   </LayoutCast>
 </template>
+
+<style scoped>
+.line-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+}
+.line-modal {
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: slideUp 0.25s ease-out;
+}
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.line-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 12px;
+  border-bottom: 1px solid #eee;
+}
+.line-modal-body {
+  padding: 20px;
+}
+.line-modal-footer {
+  padding: 12px 20px 24px;
+}
+.line-step {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.line-step-num {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #06C755;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 14px;
+}
+.line-step-content {
+  flex: 1;
+  min-width: 0;
+}
+.line-code-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f5f5f5;
+  border: 2px dashed #ccc;
+  border-radius: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.line-code-box:active {
+  border-color: #06C755;
+}
+.line-code {
+  font-family: monospace;
+  font-size: 1.5rem;
+  font-weight: bold;
+  letter-spacing: 4px;
+}
+.line-code-copy {
+  font-size: 0.75rem;
+  color: #888;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.line-code-copy.copied {
+  color: #06C755;
+}
+</style>

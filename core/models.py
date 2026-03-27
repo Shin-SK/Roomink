@@ -12,12 +12,30 @@ def generate_line_link_code():
     return "".join(secrets.choice(alphabet) for _ in range(6))
 
 
+def generate_line_webhook_token():
+    """Store 識別用 webhook パストークン (32文字 hex)"""
+    return secrets.token_hex(16)
+
+
 class Store(models.Model):
     name = models.CharField(max_length=100)
     timezone = models.CharField(max_length=40, default="Asia/Tokyo")
+    line_add_friend_url = models.URLField(blank=True, default="")
+    line_channel_secret = models.TextField(blank=True, default="")
+    line_channel_access_token = models.TextField(blank=True, default="")
+    line_is_enabled = models.BooleanField(default=False)
+    line_webhook_token = models.CharField(
+        max_length=64, blank=True, default="", unique=True,
+        help_text="webhook URL に埋め込む store 識別トークン",
+    )
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.line_webhook_token:
+            self.line_webhook_token = generate_line_webhook_token()
+        super().save(*args, **kwargs)
 
 
 class Room(models.Model):

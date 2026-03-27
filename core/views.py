@@ -4,6 +4,7 @@ import logging
 import os
 from datetime import date as date_type, timedelta
 
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
@@ -51,6 +52,7 @@ from .serializers import (
 from .utils.phone import normalize_phone
 
 logger = logging.getLogger(__name__)
+from .services.cast_user import ensure_user_profile, update_or_create_cast_with_user
 from .services.customer_context import resolve_customer
 from .services.pricing import recalculate_order_total
 from .services.sales import get_sales_summary, get_sales_csv
@@ -459,6 +461,7 @@ class CastTodayView(APIView):
             "orders": serializer.data,
             "line_linked": cast.line_user_id is not None,
             "line_link_code": cast.line_link_code,
+            "line_add_friend_url": cast.store.line_add_friend_url if cast.store else "",
         })
 
 
@@ -903,7 +906,9 @@ class CastViewSet(viewsets.ModelViewSet):
         return super().get_queryset().filter(store=store)
 
     def perform_create(self, serializer):
-        serializer.save(store=get_user_store(self.request))
+        cast = serializer.save(store=get_user_store(self.request))
+        if cast.user:
+            ensure_user_profile(cast.user, cast.store, role=UserProfile.Role.CAST)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -1318,7 +1323,7 @@ def _upsert_rows(store, model_key, rows):
                 defaults={"sort_order": int(row.get("sort_order") or 0)},
             )
         elif model_key == "cast":
-            obj, is_new = Cast.objects.update_or_create(
+            obj, is_new = update_or_create_cast_with_user(
                 store=store, name=row["name"],
                 defaults={"avatar_url": row.get("avatar_url") or ""},
             )
@@ -1830,15 +1835,28 @@ class SalesExportView(APIView):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def line_webhook(request):
-    """POST /api/webhook/line/ — LINE Messaging API webhook"""
-    from django.conf import settings as djsettings
+    """POST /api/webhook/line/ — レガシー (グローバル env) LINE webhook"""
+    channel_secret = getattr(settings, "LINE_CHANNEL_SECRET", "")
+    channel_token = getattr(settings, "LINE_CHANNEL_ACCESS_TOKEN", "")
+    return _handle_line_webhook(request, channel_secret, channel_token)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def line_webhook_store(request, webhook_token):
+    """POST /api/webhook/line/<webhook_token>/ — Store 別 LINE webhook"""
+    store = Store.objects.filter(line_webhook_token=webhook_token, line_is_enabled=True).first()
+    if store is None:
+        return Response({"detail": "Unknown webhook"}, status=status.HTTP_403_FORBIDDEN)
+    return _handle_line_webhook(request, store.line_channel_secret, store.line_channel_access_token, store=store)
+
+
+def _handle_line_webhook(request, channel_secret, channel_token, store=None):
     import hashlib
     import hmac
     import base64
-    import json
-
-    channel_secret = djsettings.LINE_CHANNEL_SECRET
-    channel_token = djsettings.LINE_CHANNEL_ACCESS_TOKEN
 
     # 署名検証
     signature = request.headers.get("X-Line-Signature", "")
@@ -1879,8 +1897,11 @@ def line_webhook(request):
                             f"既に {existing.name} さんとして連携済みです。\n再連携が必要な場合は管理者にお問い合わせください。")
                 continue
 
-            # コード照合
-            cast = Cast.objects.filter(line_link_code=code, line_user_id__isnull=True).first()
+            # コード照合 — store 指定がある場合はその store のキャストのみ
+            cast_qs = Cast.objects.filter(line_link_code=code, line_user_id__isnull=True)
+            if store:
+                cast_qs = cast_qs.filter(store=store)
+            cast = cast_qs.first()
             if cast is None:
                 _line_reply(channel_token, reply_token,
                             "無効なコードです。コードをご確認のうえ、再度お試しください。")

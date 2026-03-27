@@ -62,6 +62,7 @@ path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
 
     # LINE webhook
     path("webhook/line/", views.line_webhook, name="line-webhook"),
+    path("webhook/line/<str:webhook_token>/", views.line_webhook_store, name="line-webhook-store"),
 
     # CTI
     path("op/cti/inbound/", views.CtiInboundView.as_view(), name="cti-inbound"),

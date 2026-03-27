@@ -1,0 +1,31 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<h2>{{ title }}</h2>
+
+<div style="background:#fef3cd;border:1px solid #ffc107;padding:16px;border-radius:6px;margin:16px 0;">
+  <strong>以下の LINE連携を解除します。この操作は元に戻せません。</strong>
+  <table style="margin-top:12px;">
+    <tr><th style="text-align:left;padding-right:16px;">キャスト</th><td>{{ cast.name }}（ID: {{ cast.pk }}）</td></tr>
+    <tr><th style="text-align:left;padding-right:16px;">Store</th><td>{{ cast.store }}</td></tr>
+    <tr><th style="text-align:left;padding-right:16px;">LINE User ID</th><td>{{ cast.line_user_id }}</td></tr>
+    <tr><th style="text-align:left;padding-right:16px;">連携日時</th><td>{{ cast.line_linked_at }}</td></tr>
+  </table>
+</div>
+
+<p>解除すると以下が実行されます:</p>
+<ul>
+  <li>line_user_id → null</li>
+  <li>line_linked_at → null</li>
+  <li>line_link_code → 新しいコードを再生成</li>
+</ul>
+
+<form method="post">
+  {% csrf_token %}
+  <input type="submit" value="LINE連携を解除する" style="background:#ba2121;color:#fff;padding:8px 24px;border:none;border-radius:4px;cursor:pointer;font-size:14px;">
+  <a href="{% url 'admin:core_cast_change' cast.pk %}" style="margin-left:12px;">キャンセル</a>
+</form>
+{% endblock %}

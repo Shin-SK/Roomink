@@ -1,15 +1,31 @@
 from django.contrib import admin
+from django.http import HttpResponseRedirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils.html import format_html
 
 from .models import (
     CallLog, CallNote, Cast, Course, Customer, LineNotificationLog,
     Option, Order, Room, ShiftAssignment, ShiftRequest, SmsLog, Store,
-    StorePhoneNumber, UserProfile,
+    StorePhoneNumber, UserProfile, generate_line_link_code,
 )
+from .services.cast_user import ensure_user_profile, create_staff_with_user
 
 
 @admin.register(Store)
 class StoreAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "timezone")
+    list_display = ("id", "name", "timezone", "line_is_enabled", "line_add_friend_url")
+    fieldsets = (
+        (None, {"fields": ("name", "timezone")}),
+        ("LINE設定", {"fields": (
+            "line_is_enabled",
+            "line_channel_secret",
+            "line_channel_access_token",
+            "line_add_friend_url",
+            "line_webhook_token",
+        )}),
+    )
+    readonly_fields = ("line_webhook_token",)
 
 
 @admin.register(Room)
@@ -22,7 +38,60 @@ class RoomAdmin(admin.ModelAdmin):
 class CastAdmin(admin.ModelAdmin):
     list_display = ("id", "store", "name", "user", "line_link_code", "line_linked_at")
     list_filter = ("store",)
-    readonly_fields = ("line_user_id", "line_linked_at")
+    readonly_fields = ("line_user_id", "line_linked_at", "line_unlink_button")
+
+    def line_unlink_button(self, obj):
+        if not obj.pk or not obj.line_user_id:
+            return "-"
+        url = reverse("admin:core_cast_line_unlink", args=[obj.pk])
+        return format_html(
+            '<a class="button" style="background:#ba2121;color:#fff;padding:4px 12px;border-radius:4px;text-decoration:none" '
+            'href="{}">LINE連携を解除する</a>',
+            url,
+        )
+    line_unlink_button.short_description = "LINE連携解除"
+
+    def get_urls(self):
+        custom = [
+            path(
+                "<path:object_id>/line-unlink/",
+                self.admin_site.admin_view(self.line_unlink_view),
+                name="core_cast_line_unlink",
+            ),
+        ]
+        return custom + super().get_urls()
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if obj.user:
+            ensure_user_profile(obj.user, obj.store, role=UserProfile.Role.CAST)
+
+    def line_unlink_view(self, request, object_id):
+        cast = self.get_object(request, object_id)
+        if cast is None:
+            return HttpResponseRedirect(reverse("admin:core_cast_changelist"))
+
+        if request.method == "POST":
+            old_uid = cast.line_user_id
+            cast.line_user_id = None
+            cast.line_linked_at = None
+            cast.line_link_code = generate_line_link_code()
+            cast.save(update_fields=["line_user_id", "line_linked_at", "line_link_code"])
+            self.message_user(
+                request,
+                f"{cast.name} の LINE連携を解除しました（旧 userId: {old_uid}）。新しい連携コード: {cast.line_link_code}",
+            )
+            return HttpResponseRedirect(
+                reverse("admin:core_cast_change", args=[cast.pk])
+            )
+
+        context = {
+            **self.admin_site.each_context(request),
+            "opts": self.model._meta,
+            "cast": cast,
+            "title": f"LINE連携解除: {cast.name}",
+        }
+        return TemplateResponse(request, "admin/core/cast/line_unlink_confirm.html", context)
 
 
 @admin.register(Customer)
@@ -105,3 +174,8 @@ class LineNotificationLogAdmin(admin.ModelAdmin):
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "store", "role")
     list_filter = ("store", "role")
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if obj.user:
+            ensure_user_profile(obj.user, obj.store, role=obj.role)

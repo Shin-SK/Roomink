@@ -137,16 +137,15 @@ class StaffCreateSerializer(serializers.Serializer):
         return value
 
     def create(self, validated_data):
+        from .services.cast_user import create_staff_with_user
         store = validated_data.pop("store")
-        role = validated_data.pop("role", "staff")
-        avatar_url = validated_data.pop("avatar_url", "")
-        user = User.objects.create_user(
+        profile = create_staff_with_user(
+            store=store,
             username=validated_data["username"],
             password=validated_data["password"],
             email=validated_data.get("email", ""),
-        )
-        profile = UserProfile.objects.create(
-            user=user, store=store, role=role, avatar_url=avatar_url,
+            role=validated_data.pop("role", "staff"),
+            avatar_url=validated_data.pop("avatar_url", ""),
         )
         return profile
 
