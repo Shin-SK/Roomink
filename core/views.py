@@ -2043,3 +2043,41 @@ class LineAlertsView(APIView):
             "unlinked_casts": unlinked_list,
             "failed_notifications": failed_list,
         })
+
+
+# ──────────────────────────────────────
+# Store LINE設定 (manager only)
+# ──────────────────────────────────────
+
+class StoreLineSettingsView(APIView):
+    """GET / PATCH /api/op/line-settings/"""
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        return Response({
+            "line_is_enabled": store.line_is_enabled,
+            "line_add_friend_url": store.line_add_friend_url,
+            "line_channel_secret": store.line_channel_secret,
+            "line_channel_access_token": store.line_channel_access_token,
+            "line_webhook_url": f"/api/webhook/line/{store.line_webhook_token}/",
+        })
+
+    def patch(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        fields = []
+        for key in ("line_is_enabled", "line_add_friend_url",
+                     "line_channel_secret", "line_channel_access_token"):
+            if key in request.data:
+                setattr(store, key, request.data[key])
+                fields.append(key)
+        if fields:
+            store.save(update_fields=fields)
+        return Response({
+            "line_is_enabled": store.line_is_enabled,
+            "line_add_friend_url": store.line_add_friend_url,
+            "line_channel_secret": store.line_channel_secret,
+            "line_channel_access_token": store.line_channel_access_token,
+            "line_webhook_url": f"/api/webhook/line/{store.line_webhook_token}/",
+        })

@@ -182,6 +182,10 @@ export const api = {
   // LINE Alerts
   getLineAlerts: () => request('GET', '/op/line-alerts/'),
 
+  // LINE Settings (store)
+  getLineSettings: () => request('GET', '/op/line-settings/'),
+  updateLineSettings: (body) => request('PATCH', '/op/line-settings/', body),
+
   // Sales
   getSalesSummary: (params) => request('GET', `/op/sales-summary/?${params}`),
   getSalesExportUrl: (params) => `${BASE}/op/sales-export.csv?${params}`,

@@ -24,6 +24,7 @@ const SettingsDiscounts = () => import('./pages/op/SettingsDiscounts.vue')
 const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
 const SettingsStaffs = () => import('./pages/op/SettingsStaffs.vue')
 const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
+const SettingsLine = () => import('./pages/op/SettingsLine.vue')
 const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
 const Profile = () => import('./pages/op/Profile.vue')
 const CastLogin = () => import('./pages/cast/CastLogin.vue')
@@ -63,6 +64,7 @@ const routes = [
   { path: '/op/settings/discounts', name: 'settings-discounts', component: SettingsDiscounts },
   { path: '/op/settings/media', name: 'settings-media', component: SettingsMedia },
   { path: '/op/settings/csv-import', name: 'settings-csv-import', component: SettingsCsvImport },
+  { path: '/op/settings/line', name: 'settings-line', component: SettingsLine },
   { path: '/op/profile', name: 'op-profile', component: Profile },
 
   // Cast

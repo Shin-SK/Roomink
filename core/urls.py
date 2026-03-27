@@ -54,6 +54,7 @@ path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
     path("op/sales-summary/", views.SalesSummaryView.as_view(), name="sales-summary"),
     path("op/sales-export.csv", views.SalesExportView.as_view(), name="sales-export"),
     path("op/line-alerts/", views.LineAlertsView.as_view(), name="line-alerts"),
+    path("op/line-settings/", views.StoreLineSettingsView.as_view(), name="store-line-settings"),
     path("op/", include(op_sr_router.urls)),
 
     # Twilio webhook
