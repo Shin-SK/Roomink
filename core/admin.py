@@ -5,9 +5,10 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 
 from .models import (
-    CallLog, CallNote, Cast, Course, Customer, LineNotificationLog,
-    Option, Order, Room, ShiftAssignment, ShiftRequest, SmsLog, Store,
-    StorePhoneNumber, UserProfile, generate_line_link_code,
+    CallLog, CallNote, Cast, CastExpense, Course, Customer, CustomerMergeLog,
+    DailySettlement, LineNotificationLog, Option, Order, PointLog, Room,
+    ShiftAssignment, ShiftRequest, SmsLog, Store, StorePhoneNumber, UserProfile,
+    generate_line_link_code,
 )
 from .services.cast_user import ensure_user_profile, create_staff_with_user
 
@@ -36,7 +37,7 @@ class RoomAdmin(admin.ModelAdmin):
 
 @admin.register(Cast)
 class CastAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "name", "user", "line_link_code", "line_linked_at")
+    list_display = ("id", "store", "name", "age", "interval_minutes", "course_back_rate", "user", "line_link_code", "line_linked_at")
     list_filter = ("store",)
     readonly_fields = ("line_user_id", "line_linked_at", "line_unlink_button")
 
@@ -96,8 +97,8 @@ class CastAdmin(admin.ModelAdmin):
 
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "phone", "display_name", "flag", "user")
-    list_filter = ("store", "flag")
+    list_display = ("id", "store", "phone", "display_name", "flag", "ban_type", "user")
+    list_filter = ("store", "flag", "ban_type")
     search_fields = ("phone", "display_name")
 
 
@@ -105,6 +106,7 @@ class CustomerAdmin(admin.ModelAdmin):
 class CourseAdmin(admin.ModelAdmin):
     list_display = ("id", "store", "name", "duration", "price")
     list_filter = ("store",)
+    filter_horizontal = ("target_casts",)
 
 
 @admin.register(Option)
@@ -168,6 +170,35 @@ class LineNotificationLogAdmin(admin.ModelAdmin):
     list_filter = ("store", "status", "notification_type")
     search_fields = ("cast__name",)
     readonly_fields = ("store", "cast", "shift_assignment", "notification_type", "status", "error_message", "sent_at")
+
+
+@admin.register(CustomerMergeLog)
+class CustomerMergeLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "keep_customer", "merged_customer_id", "merged_customer_name", "merged_customer_phone", "orders_moved", "call_logs_moved", "executed_by", "executed_at")
+    list_filter = ("store",)
+    readonly_fields = ("store", "keep_customer", "merged_customer_id", "merged_customer_name", "merged_customer_phone", "orders_moved", "call_logs_moved", "executed_by", "executed_at")
+    search_fields = ("merged_customer_name", "merged_customer_phone")
+
+
+@admin.register(DailySettlement)
+class DailySettlementAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "date", "status", "locked_at", "locked_by")
+    list_filter = ("store", "status")
+    readonly_fields = ("snapshot_json",)
+
+
+@admin.register(PointLog)
+class PointLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "cast", "date", "points", "reason", "created_by")
+    list_filter = ("store", "date")
+    search_fields = ("cast__name", "reason")
+
+
+@admin.register(CastExpense)
+class CastExpenseAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "cast", "date", "name", "amount", "per_order")
+    list_filter = ("store", "date", "per_order")
+    search_fields = ("cast__name", "name")
 
 
 @admin.register(UserProfile)

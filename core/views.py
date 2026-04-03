@@ -19,13 +19,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
-    CallLog, CallNote, Cast, CastAck, Course, Customer, Discount, Extension, Medium,
-    LineNotificationLog, NominationFee, Option, Order, OrderOption,
+    CallLog, CallNote, Cast, CastAck, CastExpense, Course, Customer,
+    CustomerMergeLog, DailySettlement, Discount, Extension, Medium,
+    LineNotificationLog, NominationFee, Option, Order, OrderOption, PointLog,
     Room, ShiftAssignment, ShiftRequest, Store, StorePhoneNumber, UserProfile,
     generate_line_link_code,
 )
 from .serializers import (
+    CastExpenseSerializer,
     CastSerializer,
+    PointLogSerializer,
     CastShiftRequestSerializer,
     CastTodayOrderSerializer,
     CourseSerializer,
@@ -670,7 +673,7 @@ class CustomerMypageView(APIView):
         # ── おすすめ（store 内キャスト最大3名、推し除外）──
         rec_qs = Cast.objects.filter(store=customer.store).exclude(pk=fav_cast_id or 0).order_by("name")[:3]
         recommended = [
-            {"id": c.id, "name": c.name, "avatar_url": c.avatar_url}
+            {"id": c.id, "name": c.name, "avatar_url": c.avatar_url, "introduction": c.introduction}
             for c in rec_qs
         ]
 
@@ -757,13 +760,17 @@ class CustomerAvailableSlotsView(APIView):
                 raw_slots.append((current.time(), (current + timedelta(minutes=slot_minutes)).time()))
                 current += timedelta(minutes=slot_minutes)
 
-        # 既存予約取得（CANCELLED以外）
+        # 既存予約取得（CANCELLED以外）+ インターバル反映
         orders = Order.objects.filter(
             cast=cast,
             start__date=d,
             status__in=Order.ACTIVE_STATUSES,
         )
-        busy = [(o.start.time(), o.end.time()) for o in orders]
+        interval = cast.interval_minutes or 0
+        busy = []
+        for o in orders:
+            busy_end = (datetime.combine(d, o.end.time()) + timedelta(minutes=interval)).time()
+            busy.append((o.start.time(), busy_end))
 
         # 重複除外
         slots = []
@@ -787,8 +794,15 @@ class CustomerBookingOptionsView(APIView):
     def get(self, request):
         customer = resolve_customer(request)
         store = customer.store
-        casts = [{"id": c.id, "name": c.name, "avatar_url": c.avatar_url} for c in Cast.objects.filter(store=store).order_by("name")]
-        courses = [{"id": c.id, "name": c.name, "duration": c.duration, "price": c.price} for c in Course.objects.filter(store=store).order_by("id")]
+        casts = [{"id": c.id, "name": c.name, "avatar_url": c.avatar_url, "introduction": c.introduction} for c in Cast.objects.filter(store=store).order_by("name")]
+        courses_qs = Course.objects.filter(store=store).prefetch_related("target_casts").order_by("id")
+        courses = []
+        for c in courses_qs:
+            tc_ids = list(c.target_casts.values_list("id", flat=True))
+            courses.append({
+                "id": c.id, "name": c.name, "duration": c.duration,
+                "price": c.price, "target_cast_ids": tc_ids,
+            })
         options = [{"id": o.id, "name": o.name, "price": o.price} for o in Option.objects.filter(store=store).order_by("id")]
 
         return Response({"casts": casts, "courses": courses, "options": options})
@@ -893,8 +907,195 @@ class CustomerViewSet(viewsets.ModelViewSet):
         store = get_user_store(self.request)
         return super().get_queryset().filter(store=store)
 
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        customers_data = response.data
+        if isinstance(customers_data, dict) and "results" in customers_data:
+            items = customers_data["results"]
+        elif isinstance(customers_data, list):
+            items = customers_data
+        else:
+            return response
+
+        # 重複候補カウントを一括計算
+        phone_map = {}
+        name_map = {}
+        for item in items:
+            digits = normalize_phone(item.get("phone", ""))
+            if digits:
+                phone_map.setdefault(digits, []).append(item["id"])
+            name = (item.get("display_name") or "").strip().lower()
+            if name:
+                name_map.setdefault(name, []).append(item["id"])
+
+        dup_counts = {}
+        for ids in phone_map.values():
+            if len(ids) > 1:
+                for cid in ids:
+                    dup_counts[cid] = dup_counts.get(cid, 0) + len(ids) - 1
+        for ids in name_map.values():
+            if len(ids) > 1:
+                for cid in ids:
+                    dup_counts[cid] = dup_counts.get(cid, 0) + len(ids) - 1
+
+        for item in items:
+            item["duplicate_count"] = dup_counts.get(item["id"], 0)
+
+        return response
+
     def perform_create(self, serializer):
         serializer.save(store=get_user_store(self.request))
+
+    @action(detail=False, methods=["get"], url_path="check-duplicate")
+    def check_duplicate(self, request):
+        """GET /api/customers/check-duplicate/?phone=...&name=... — 新規作成前の重複チェック"""
+        store = get_user_store(request)
+        phone = request.query_params.get("phone", "").strip()
+        name = request.query_params.get("name", "").strip()
+
+        phone_digits = normalize_phone(phone) if phone else ""
+        name_lower = name.lower() if name else ""
+
+        qs = Customer.objects.filter(store=store)
+        candidates = []
+        seen = set()
+
+        if phone_digits:
+            for c in qs:
+                c_digits = normalize_phone(c.phone)
+                if c_digits and c_digits == phone_digits and c.pk not in seen:
+                    seen.add(c.pk)
+                    candidates.append({"id": c.id, "phone": c.phone, "display_name": c.display_name, "flag": c.flag, "ban_type": c.ban_type, "reason": "電話番号一致"})
+
+        if name_lower:
+            for c in qs:
+                c_name = (c.display_name or "").strip().lower()
+                if c_name and c_name == name_lower and c.pk not in seen:
+                    seen.add(c.pk)
+                    candidates.append({"id": c.id, "phone": c.phone, "display_name": c.display_name, "flag": c.flag, "ban_type": c.ban_type, "reason": "名前一致"})
+
+        return Response(candidates[:10])
+
+    @action(detail=True, methods=["post"], url_path="merge")
+    def merge(self, request, pk=None):
+        """POST /api/customers/{keep_id}/merge/ { merge_id }
+        keep_id を残し、merge_id の参照を keep_id に寄せてから merge_id を削除する。
+        """
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != "manager":
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("この操作はマネージャーのみ利用可能です")
+
+        keep = self.get_object()
+        store = get_user_store(request)
+        merge_id = request.data.get("merge_id")
+        if not merge_id:
+            return Response({"detail": "merge_id は必須です"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            merge_customer = Customer.objects.get(pk=merge_id, store=store)
+        except Customer.DoesNotExist:
+            return Response({"detail": "統合対象の顧客が見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+
+        if keep.pk == merge_customer.pk:
+            return Response({"detail": "同じ���客には統合できません"}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            # スナップショット（削除前に保存）
+            snap_name = merge_customer.display_name or ""
+            snap_phone = merge_customer.phone or ""
+            snap_id = merge_customer.pk
+
+            # 1) FK 付け替え
+            orders_moved = Order.objects.filter(customer=merge_customer).update(customer=keep)
+            calls_moved = CallLog.objects.filter(customer=merge_customer).update(customer=keep)
+
+            # 2) 空欄補完
+            if not keep.display_name and merge_customer.display_name:
+                keep.display_name = merge_customer.display_name
+            if not keep.phone and merge_customer.phone:
+                keep.phone = merge_customer.phone
+
+            # 3) flag / ban_type — 強い方を優先
+            flag_priority = {"BAN": 3, "ATTENTION": 2, "NONE": 1}
+            if flag_priority.get(merge_customer.flag, 0) > flag_priority.get(keep.flag, 0):
+                keep.flag = merge_customer.flag
+            ban_priority = {"STORE_BAN": 3, "CAST_NG": 2, "NONE": 1}
+            if ban_priority.get(merge_customer.ban_type, 0) > ban_priority.get(keep.ban_type, 0):
+                keep.ban_type = merge_customer.ban_type
+
+            # 4) user 引き継ぎ
+            if not keep.user and merge_customer.user:
+                keep.user = merge_customer.user
+                merge_customer.user = None
+                merge_customer.save(update_fields=["user"])
+
+            keep.save()
+
+            # 5) merge 顧客を削除
+            merge_customer.delete()
+
+            # 6) 監査ログ
+            CustomerMergeLog.objects.create(
+                store=store,
+                keep_customer=keep,
+                merged_customer_id=snap_id,
+                merged_customer_name=snap_name,
+                merged_customer_phone=snap_phone,
+                orders_moved=orders_moved,
+                call_logs_moved=calls_moved,
+                executed_by=request.user,
+            )
+
+        return Response({
+            "ok": True,
+            "keep_id": keep.pk,
+            "merged_id": int(merge_id),
+        })
+
+    @action(detail=True, methods=["get"], url_path="duplicates")
+    def duplicates(self, request, pk=None):
+        """GET /api/customers/{id}/duplicates/ — 重複候補を返す"""
+        customer = self.get_object()
+        store = get_user_store(request)
+        qs = Customer.objects.filter(store=store).exclude(pk=customer.pk)
+
+        candidates = []
+        seen = set()
+
+        phone_digits = normalize_phone(customer.phone)
+        name_lower = (customer.display_name or "").strip().lower()
+
+        # 1) phone 数字一致
+        if phone_digits:
+            for c in qs:
+                c_digits = normalize_phone(c.phone)
+                if c_digits and c_digits == phone_digits and c.pk not in seen:
+                    seen.add(c.pk)
+                    candidates.append({"customer": c, "reason": "電話番号一致"})
+
+        # 2) display_name 一致（空でない場合のみ）
+        if name_lower:
+            for c in qs:
+                c_name = (c.display_name or "").strip().lower()
+                if c_name and c_name == name_lower and c.pk not in seen:
+                    seen.add(c.pk)
+                    candidates.append({"customer": c, "reason": "名前一致"})
+
+        result = []
+        for item in candidates[:20]:
+            c = item["customer"]
+            result.append({
+                "id": c.id,
+                "phone": c.phone,
+                "display_name": c.display_name,
+                "flag": c.flag,
+                "ban_type": c.ban_type,
+                "memo": (c.memo or "")[:50],
+                "reason": item["reason"],
+            })
+
+        return Response(result)
 
 
 class CastViewSet(viewsets.ModelViewSet):
@@ -1131,6 +1332,137 @@ class MediumViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ──────────────────────────────────────
+# CastExpense — manager only
+# ──────────────────────────────────────
+
+class CastExpenseViewSet(viewsets.ModelViewSet):
+    """雑費（キャスト控除）の CRUD — manager のみ"""
+    queryset = CastExpense.objects.select_related("cast").order_by("-date", "cast", "id")
+    serializer_class = CastExpenseSerializer
+    filterset_fields = {
+        "date": ["exact", "gte", "lte"],
+        "cast": ["exact"],
+    }
+    ordering_fields = ["date", "cast"]
+    ordering = ["-date", "cast"]
+
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
+    def check_manager(self, request):
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != "manager":
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("この操作はマネージャーのみ利用可能です")
+
+    def create(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(store=get_user_store(self.request))
+
+
+# ──────────────────────────────────────
+# PointLog — manager only
+# ──────────────────────────────────────
+
+class PointLogViewSet(viewsets.ModelViewSet):
+    """ポイント記録の CRUD — manager のみ"""
+    queryset = PointLog.objects.select_related("cast", "created_by").order_by("-date", "-created_at")
+    serializer_class = PointLogSerializer
+    filterset_fields = {
+        "date": ["exact", "gte", "lte"],
+        "cast": ["exact"],
+    }
+    ordering_fields = ["date", "cast"]
+    ordering = ["-date", "-created_at"]
+
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
+    def check_manager(self, request):
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != "manager":
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("この操作はマネージャーのみ利用可能です")
+
+    def create(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(
+            store=get_user_store(self.request),
+            created_by=self.request.user,
+        )
+
+
+# ──────────────────────────────────────
+# Cast Point Summary API
+# ──────────────────────────────────────
+
+class CastPointSummaryView(APIView):
+    """GET /api/cast/points/ — cast 本人のポイント累計 + 直近履歴"""
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from django.db.models import Sum
+
+        total = PointLog.objects.filter(cast=cast).aggregate(
+            total=Sum("points")
+        )["total"] or 0
+
+        recent = PointLog.objects.filter(cast=cast).order_by("-date", "-created_at")[:20]
+        history = [
+            {
+                "id": p.id,
+                "date": p.date.isoformat(),
+                "points": p.points,
+                "reason": p.reason,
+            }
+            for p in recent
+        ]
+
+        return Response({
+            "total_points": total,
+            "history": history,
+        })
 
 
 # ──────────────────────────────────────
@@ -1823,6 +2155,334 @@ class SalesExportView(APIView):
         resp["Content-Disposition"] = (
             f'attachment; filename="sales_{date_from}_{date_to}.csv"'
         )
+        return resp
+
+
+# ──────────────────────────────────────
+# Daily Settlement — manager only
+# ──────────────────────────────────────
+
+class DailySettlementView(APIView):
+    """GET /api/op/daily-settlement/?date=YYYY-MM-DD"""
+
+    def _parse_date(self, request):
+        date_str = request.query_params.get("date") or request.data.get("date")
+        if not date_str:
+            return None, Response(
+                {"detail": "date は必須です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            return date_type.fromisoformat(date_str), None
+        except ValueError:
+            return None, Response(
+                {"detail": "date の形式が不正です（YYYY-MM-DD）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+
+        d, err = self._parse_date(request)
+        if err:
+            return err
+        date_str = d.isoformat()
+
+        # LOCKED ならスナップショットを返す
+        settlement = DailySettlement.objects.filter(store=store, date=d).first()
+        if settlement and settlement.status == DailySettlement.Status.LOCKED:
+            snap = settlement.snapshot_json or {}
+            snap["settlement_status"] = "LOCKED"
+            snap["locked_at"] = settlement.locked_at.isoformat() if settlement.locked_at else None
+            snap["locked_by"] = settlement.locked_by.username if settlement.locked_by else None
+            return Response(snap)
+
+        # 出勤キャスト: ShiftAssignment ベース
+        shifts = (
+            ShiftAssignment.objects
+            .filter(store=store, date=d)
+            .select_related("cast", "room")
+        )
+        cast_ids = set()
+        cast_shifts = {}
+        for s in shifts:
+            cast_ids.add(s.cast_id)
+            if s.cast_id not in cast_shifts:
+                cast_shifts[s.cast_id] = []
+            cast_shifts[s.cast_id].append(
+                f"{str(s.start_time)[:5]}-{str(s.end_time)[:5]}"
+            )
+
+        if not cast_ids:
+            return Response({"date": date_str, "rows": [], "totals": {}})
+
+        casts = {c.id: c for c in Cast.objects.filter(pk__in=cast_ids)}
+
+        # DONE 注文
+        done_orders = (
+            Order.objects
+            .filter(store=store, start__date=d, status=Order.Status.DONE, cast_id__in=cast_ids)
+        )
+        from collections import defaultdict
+        orders_by_cast = defaultdict(list)
+        for o in done_orders:
+            orders_by_cast[o.cast_id].append(o)
+
+        # 雑費
+        expenses = CastExpense.objects.filter(store=store, date=d, cast_id__in=cast_ids)
+        expenses_by_cast = defaultdict(list)
+        for exp in expenses:
+            expenses_by_cast[exp.cast_id].append(exp)
+
+        # ポイント
+        from django.db.models import Sum
+        point_agg = (
+            PointLog.objects
+            .filter(store=store, date=d, cast_id__in=cast_ids)
+            .values("cast_id")
+            .annotate(total=Sum("points"))
+        )
+        points_by_cast = {row["cast_id"]: row["total"] or 0 for row in point_agg}
+
+        import math
+
+        rows = []
+        total_course = 0
+        total_options = 0
+        total_back = 0
+        total_expense = 0
+        total_points = 0
+        total_cash_count = 0
+        total_cash_sales = 0
+        total_net = 0
+
+        for cast_id in sorted(cast_ids, key=lambda cid: casts[cid].name):
+            cast = casts[cast_id]
+            cast_orders = orders_by_cast.get(cast_id, [])
+            order_count = len(cast_orders)
+
+            course_sales = sum(o.course_price for o in cast_orders)
+            options_sales = sum(o.options_price for o in cast_orders)
+
+            course_back = math.floor(course_sales * cast.course_back_rate / 100)
+            option_back = options_sales if cast.option_fullback_enabled else 0
+            back_amount = course_back + option_back
+
+            # 雑費控除
+            expense_total = 0
+            for exp in expenses_by_cast.get(cast_id, []):
+                if exp.per_order:
+                    expense_total += exp.amount * order_count
+                else:
+                    expense_total += exp.amount
+
+            # ポイント
+            point_total = points_by_cast.get(cast_id, 0)
+
+            # 現金情報（キャスト預かり分を振込額から控除）
+            cash_orders = [o for o in cast_orders if o.payment_method == Order.PaymentMethod.CASH]
+            cash_order_count = len(cash_orders)
+            cash_sales_total = sum(o.total_price for o in cash_orders)
+
+            net_pay = back_amount - expense_total + point_total - cash_sales_total
+
+            shift_text = " / ".join(cast_shifts.get(cast_id, []))
+
+            rows.append({
+                "cast_id": cast.id,
+                "cast_name": cast.name,
+                "shift": shift_text,
+                "order_count": order_count,
+                "course_sales": course_sales,
+                "options_sales": options_sales,
+                "course_back_rate": cast.course_back_rate,
+                "option_fullback_enabled": cast.option_fullback_enabled,
+                "back_amount": back_amount,
+                "expense_total": expense_total,
+                "point_total": point_total,
+                "cash_order_count": cash_order_count,
+                "cash_sales_total": cash_sales_total,
+                "net_pay": net_pay,
+            })
+
+            total_course += course_sales
+            total_options += options_sales
+            total_back += back_amount
+            total_expense += expense_total
+            total_points += point_total
+            total_cash_count += cash_order_count
+            total_cash_sales += cash_sales_total
+            total_net += net_pay
+
+        return Response({
+            "date": date_str,
+            "settlement_status": "OPEN",
+            "locked_at": None,
+            "locked_by": None,
+            "rows": rows,
+            "totals": {
+                "course_sales": total_course,
+                "options_sales": total_options,
+                "back_amount": total_back,
+                "expense_total": total_expense,
+                "point_total": total_points,
+                "cash_order_count": total_cash_count,
+                "cash_sales_total": total_cash_sales,
+                "net_pay": total_net,
+            },
+        })
+
+
+class DailySettlementLockView(APIView):
+    """POST /api/op/daily-settlement/lock/ — 清算確定
+    body: { date, rows, totals }
+    フロントが表示中のスナップショットをそのまま送る。
+    """
+
+    def post(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+
+        date_str = request.data.get("date")
+        if not date_str:
+            return Response({"detail": "date は必須です"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            d = date_type.fromisoformat(date_str)
+        except ValueError:
+            return Response({"detail": "date の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+
+        existing = DailySettlement.objects.filter(store=store, date=d, status=DailySettlement.Status.LOCKED).first()
+        if existing:
+            return Response({"detail": "この日は既に確定済みです"}, status=status.HTTP_400_BAD_REQUEST)
+
+        snapshot = {
+            "date": date_str,
+            "rows": request.data.get("rows", []),
+            "totals": request.data.get("totals", {}),
+        }
+
+        settlement, _ = DailySettlement.objects.get_or_create(
+            store=store, date=d,
+            defaults={"status": DailySettlement.Status.OPEN},
+        )
+        settlement.status = DailySettlement.Status.LOCKED
+        settlement.snapshot_json = snapshot
+        settlement.locked_at = timezone.now()
+        settlement.locked_by = request.user
+        settlement.save()
+
+        return Response({"ok": True, "status": "LOCKED", "date": date_str})
+
+
+class DailySettlementUnlockView(APIView):
+    """POST /api/op/daily-settlement/unlock/ — 清算ロック解除"""
+
+    def post(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+
+        date_str = request.data.get("date")
+        if not date_str:
+            return Response({"detail": "date は必須です"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            d = date_type.fromisoformat(date_str)
+        except ValueError:
+            return Response({"detail": "date の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+
+        settlement = DailySettlement.objects.filter(store=store, date=d).first()
+        if not settlement or settlement.status != DailySettlement.Status.LOCKED:
+            return Response({"detail": "この日は確定されていません"}, status=status.HTTP_400_BAD_REQUEST)
+
+        settlement.status = DailySettlement.Status.OPEN
+        settlement.snapshot_json = {}
+        settlement.locked_at = None
+        settlement.locked_by = None
+        settlement.save()
+
+        return Response({"ok": True, "status": "OPEN", "date": date_str})
+
+
+class DailySettlementExportView(APIView):
+    """GET /api/op/daily-settlement/export/?date=YYYY-MM-DD — CSV出力"""
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+
+        date_str = request.query_params.get("date")
+        if not date_str:
+            return Response({"detail": "date は必須です"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            d = date_type.fromisoformat(date_str)
+        except ValueError:
+            return Response({"detail": "date の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # LOCKED ならスナップショット、OPEN なら都度計算
+        settlement = DailySettlement.objects.filter(store=store, date=d).first()
+        if settlement and settlement.status == DailySettlement.Status.LOCKED:
+            data = settlement.snapshot_json or {}
+        else:
+            # DailySettlementView の GET を再利用
+            view = DailySettlementView()
+            view._parse_date = lambda req: (d, None)
+            fake_resp = view.get(request)
+            data = fake_resp.data
+
+        rows = data.get("rows", [])
+        totals = data.get("totals", {})
+        settlement_status = data.get("settlement_status", "OPEN")
+
+        output = io.StringIO()
+        output.write("\ufeff")  # BOM
+        writer = csv.writer(output)
+
+        # ヘッダー
+        writer.writerow([
+            "キャスト名", "出勤", "予約件数",
+            "コース売上", "オプション売上",
+            "バック率(%)", "OP全額バック",
+            "バック額", "雑費", "ポイント",
+            "現金件数", "現金預り", "振込額",
+        ])
+
+        for r in rows:
+            writer.writerow([
+                r.get("cast_name", ""),
+                r.get("shift", ""),
+                r.get("order_count", 0),
+                r.get("course_sales", 0),
+                r.get("options_sales", 0),
+                r.get("course_back_rate", 0),
+                "○" if r.get("option_fullback_enabled") else "",
+                r.get("back_amount", 0),
+                r.get("expense_total", 0),
+                r.get("point_total", 0),
+                r.get("cash_order_count", 0),
+                r.get("cash_sales_total", 0),
+                r.get("net_pay", 0),
+            ])
+
+        # 合計行
+        writer.writerow([
+            "合計", "", "",
+            totals.get("course_sales", 0),
+            totals.get("options_sales", 0),
+            "", "",
+            totals.get("back_amount", 0),
+            totals.get("expense_total", 0),
+            totals.get("point_total", 0),
+            totals.get("cash_order_count", 0),
+            totals.get("cash_sales_total", 0),
+            totals.get("net_pay", 0),
+        ])
+
+        # 状態行
+        writer.writerow([])
+        writer.writerow(["状態", settlement_status])
+
+        resp = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = f'attachment; filename="daily-settlement-{date_str}.csv"'
         return resp
 
 

@@ -17,6 +17,11 @@ const flagMap = {
   BAN: { text: '出禁', cls: 'badge-banned' },
 }
 
+const banTypeMap = {
+  STORE_BAN: '店出禁',
+  CAST_NG: '個別セラピNG',
+}
+
 const filtered = computed(() => {
   let list = customers.value
   if (flagFilter.value) {
@@ -116,7 +121,12 @@ function goDetail(id) {
                 style="cursor: pointer;"
                 @click="goDetail(c.id)"
               >
-                <td>{{ c.display_name || '—' }}</td>
+                <td>
+                  {{ c.display_name || '—' }}
+                  <span v-if="c.duplicate_count" class="badge bg-warning text-dark ms-1" style="font-size: 0.65rem;">
+                    <i class="ti ti-copy"></i> 重複{{ c.duplicate_count }}件
+                  </span>
+                </td>
                 <td>{{ c.phone }}</td>
                 <td>
                   <span
@@ -124,6 +134,7 @@ function goDetail(id) {
                     class="badge"
                     :class="flagMap[c.flag]?.cls || 'bg-secondary'"
                   >{{ flagMap[c.flag]?.text || c.flag }}</span>
+                  <small v-if="c.flag === 'BAN' && banTypeMap[c.ban_type]" class="text-muted ms-1">{{ banTypeMap[c.ban_type] }}</small>
                 </td>
               </tr>
             </tbody>

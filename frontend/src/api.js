@@ -87,6 +87,14 @@ export const api = {
   getCustomer: (id) => request('GET', `/customers/${id}/`),
   createCustomer: (body) => request('POST', '/customers/', body),
   updateCustomer: (id, body) => request('PATCH', `/customers/${id}/`, body),
+  getCustomerDuplicates: (id) => request('GET', `/customers/${id}/duplicates/`),
+  mergeCustomer: (keepId, mergeId) => request('POST', `/customers/${keepId}/merge/`, { merge_id: mergeId }),
+  checkCustomerDuplicate: (phone, name) => {
+    const params = new URLSearchParams()
+    if (phone) params.set('phone', phone)
+    if (name) params.set('name', name)
+    return request('GET', `/customers/check-duplicate/?${params}`)
+  },
 
   // Casts
   getCasts: () => listRequest('GET', '/casts/?limit=200'),
@@ -142,6 +150,18 @@ export const api = {
   updateMedium: (id, body) => request('PATCH', `/media/${id}/`, body),
   deleteMedium: (id) => request('DELETE', `/media/${id}/`),
 
+  // PointLogs
+  getPointLogs: (params = '') => listRequest('GET', `/point-logs/${params ? '?' + params : '?limit=500'}`),
+  createPointLog: (body) => request('POST', '/point-logs/', body),
+  updatePointLog: (id, body) => request('PATCH', `/point-logs/${id}/`, body),
+  deletePointLog: (id) => request('DELETE', `/point-logs/${id}/`),
+
+  // CastExpenses
+  getCastExpenses: (params = '') => listRequest('GET', `/cast-expenses/${params ? '?' + params : '?limit=500'}`),
+  createCastExpense: (body) => request('POST', '/cast-expenses/', body),
+  updateCastExpense: (id, body) => request('PATCH', `/cast-expenses/${id}/`, body),
+  deleteCastExpense: (id) => request('DELETE', `/cast-expenses/${id}/`),
+
   // Shifts
   getShifts: (params = '') => listRequest('GET', `/shifts/${params ? '?' + params : '?limit=500'}`),
   createShift: (body) => request('POST', '/shifts/', body),
@@ -153,6 +173,7 @@ export const api = {
   ackOrder: (id) => request('POST', `/cast/orders/${id}/ack/`),
   getCastLineLink: () => request('GET', '/cast/line-link/'),
   castLineLinkAction: (action) => request('POST', '/cast/line-link/', { action }),
+  getCastPoints: () => request('GET', '/cast/points/'),
   getCastShiftRequests: (params = '') => listRequest('GET', `/cast/shift-requests/${params ? '?' + params : '?limit=200'}`),
   createCastShiftRequest: (body) => request('POST', '/cast/shift-requests/', body),
   updateCastShiftRequest: (id, body) => request('PATCH', `/cast/shift-requests/${id}/`, body),
@@ -185,6 +206,12 @@ export const api = {
   // LINE Settings (store)
   getLineSettings: () => request('GET', '/op/line-settings/'),
   updateLineSettings: (body) => request('PATCH', '/op/line-settings/', body),
+
+  // Daily Settlement
+  getDailySettlement: (date) => request('GET', `/op/daily-settlement/?date=${date}`),
+  lockDailySettlement: (body) => request('POST', '/op/daily-settlement/lock/', body),
+  unlockDailySettlement: (body) => request('POST', '/op/daily-settlement/unlock/', body),
+  getDailySettlementExportUrl: (date) => `${BASE}/op/daily-settlement/export/?date=${date}`,
 
   // Sales
   getSalesSummary: (params) => request('GET', `/op/sales-summary/?${params}`),

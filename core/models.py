@@ -65,6 +65,13 @@ class Cast(models.Model):
     )
     name = models.CharField(max_length=50)
     avatar_url = models.URLField(blank=True, default="")
+    age = models.PositiveSmallIntegerField(null=True, blank=True, help_text="年齢")
+    hp_url = models.URLField(blank=True, default="", help_text="HPのURL")
+    staff_memo = models.TextField(blank=True, default="", help_text="運営専用メモ（manager/staffのみ閲覧可）")
+    introduction = models.TextField(blank=True, default="", help_text="店側紹介用コメント（お客様マイページ表示用）")
+    interval_minutes = models.PositiveSmallIntegerField(default=15, help_text="イ��ターバル時間（分）")
+    course_back_rate = models.PositiveSmallIntegerField(default=0, help_text="コースバック率（%）")
+    option_fullback_enabled = models.BooleanField(default=False, help_text="オプション全額バック")
     line_user_id = models.CharField(max_length=64, null=True, blank=True, unique=True)
     line_link_code = models.CharField(
         max_length=8, null=True, blank=True, unique=True,
@@ -85,6 +92,11 @@ class Customer(models.Model):
         BAN = "BAN", "出禁"
         ATTENTION = "ATTENTION", "要注意"
 
+    class BanType(models.TextChoices):
+        NONE = "NONE", "なし"
+        STORE_BAN = "STORE_BAN", "店出禁"
+        CAST_NG = "CAST_NG", "個別セラピNG"
+
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="customers")
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -95,7 +107,12 @@ class Customer(models.Model):
     phone = models.CharField(max_length=20)
     display_name = models.CharField(max_length=50, blank=True, default="")
     flag = models.CharField(max_length=12, choices=Flag.choices, default=Flag.NONE)
+    ban_type = models.CharField(
+        max_length=12, choices=BanType.choices, default=BanType.NONE,
+        help_text="出禁種別（flag=BAN 時に参照）",
+    )
     memo = models.TextField(blank=True, default="")
+    staff_memo = models.TextField(blank=True, default="", help_text="運営専用メモ（manager/staffのみ閲覧可）")
 
     class Meta:
         unique_together = ("store", "phone")
@@ -155,6 +172,10 @@ class Course(models.Model):
     name = models.CharField(max_length=50)
     duration = models.PositiveIntegerField(help_text="分")
     price = models.PositiveIntegerField()
+    target_casts = models.ManyToManyField(
+        "Cast", blank=True, related_name="available_courses",
+        help_text="表示対象キャスト（空なら全員に表示）",
+    )
 
     def __str__(self):
         return self.name
@@ -238,6 +259,11 @@ class Order(models.Model):
         DONE = "DONE", "完了"
         CANCELLED = "CANCELLED", "キャンセル"
 
+    class PaymentMethod(models.TextChoices):
+        UNSET = "UNSET", "未設定"
+        CARD = "CARD", "カード"
+        CASH = "CASH", "現金"
+
     ACTIVE_STATUSES = (
         Status.REQUESTED,
         Status.CONFIRMED,
@@ -279,6 +305,9 @@ class Order(models.Model):
     end = models.DateTimeField()
     status = models.CharField(
         max_length=12, choices=Status.choices, default=Status.REQUESTED,
+    )
+    payment_method = models.CharField(
+        max_length=10, choices=PaymentMethod.choices, default=PaymentMethod.UNSET,
     )
     memo = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -416,6 +445,103 @@ class LineNotificationLog(models.Model):
 
     def __str__(self):
         return f"LINE→{self.cast} {self.notification_type} {self.status}"
+
+
+class CustomerMergeLog(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="merge_logs")
+    keep_customer = models.ForeignKey(
+        "Customer", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="merge_logs_as_keep",
+    )
+    merged_customer_id = models.IntegerField(help_text="削除された顧客の元ID")
+    merged_customer_name = models.CharField(max_length=50, blank=True, default="")
+    merged_customer_phone = models.CharField(max_length=20, blank=True, default="")
+    orders_moved = models.PositiveIntegerField(default=0)
+    call_logs_moved = models.PositiveIntegerField(default=0)
+    executed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="executed_merges",
+    )
+    executed_at = models.DateTimeField(auto_now_add=True)
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-executed_at"]
+
+    def __str__(self):
+        return f"Merge#{self.pk} keep={self.keep_customer_id} merged={self.merged_customer_id}"
+
+
+class DailySettlement(models.Model):
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "未確定"
+        LOCKED = "LOCKED", "確定済"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="daily_settlements")
+    date = models.DateField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    snapshot_json = models.JSONField(default=dict, blank=True)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    locked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="locked_settlements",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("store", "date")
+        ordering = ["-date"]
+
+    def __str__(self):
+        return f"{self.store.name} {self.date} ({self.status})"
+
+
+class PointLog(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="point_logs")
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="point_logs")
+    date = models.DateField()
+    points = models.IntegerField(help_text="正=加点 / 負=減点")
+    reason = models.CharField(max_length=100, blank=True, default="")
+    memo = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="created_point_logs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "cast", "date"]),
+        ]
+        ordering = ["-date", "-created_at"]
+
+    def __str__(self):
+        sign = "+" if self.points >= 0 else ""
+        return f"{self.cast.name} {self.date} {sign}{self.points}pt"
+
+
+class CastExpense(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="cast_expenses")
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="expenses")
+    date = models.DateField()
+    name = models.CharField(max_length=50, help_text="名目（例: 雑費, 交通費, 備品代）")
+    amount = models.PositiveIntegerField(help_text="金額（円）")
+    per_order = models.BooleanField(default=False, help_text="True=予約件数×amount / False=日額amount")
+    memo = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "cast", "date"]),
+        ]
+        ordering = ["-date", "cast", "id"]
+
+    def __str__(self):
+        mode = "×件" if self.per_order else "日額"
+        return f"{self.cast.name} {self.date} {self.name} ¥{self.amount}({mode})"
 
 
 class UserProfile(models.Model):

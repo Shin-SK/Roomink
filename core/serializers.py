@@ -9,7 +9,9 @@ from django.contrib.auth import get_user_model
 from .models import (
     Cast,
     CastAck,
+    CastExpense,
     Course,
+    PointLog,
     Customer,
     Discount,
     Extension,
@@ -70,9 +72,14 @@ class CustomerSerializer(serializers.ModelSerializer):
 
 
 class CourseSerializer(serializers.ModelSerializer):
+    target_cast_ids = serializers.PrimaryKeyRelatedField(
+        source="target_casts", many=True,
+        queryset=Cast.objects.all(), required=False,
+    )
+
     class Meta:
         model = Course
-        fields = "__all__"
+        fields = ["id", "store", "name", "duration", "price", "target_cast_ids"]
         read_only_fields = ["store"]
 
 
@@ -107,6 +114,30 @@ class DiscountSerializer(serializers.ModelSerializer):
 class MediumSerializer(serializers.ModelSerializer):
     class Meta:
         model = Medium
+        fields = "__all__"
+        read_only_fields = ["store"]
+
+
+class PointLogSerializer(serializers.ModelSerializer):
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PointLog
+        fields = "__all__"
+        read_only_fields = ["store", "created_by"]
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.username
+        return None
+
+
+class CastExpenseSerializer(serializers.ModelSerializer):
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+
+    class Meta:
+        model = CastExpense
         fields = "__all__"
         read_only_fields = ["store"]
 
@@ -267,7 +298,8 @@ class OpShiftRequestSerializer(serializers.ModelSerializer):
 def build_customer_label(customer):
     name = customer.display_name or customer.phone
     if customer.flag == Customer.Flag.BAN:
-        return f"{name} ★BAN"
+        ban_label = customer.get_ban_type_display() if customer.ban_type and customer.ban_type != Customer.BanType.NONE else "出禁"
+        return f"{name} ★{ban_label}"
     if customer.flag == Customer.Flag.ATTENTION:
         return f"{name} ★注意"
     return name
@@ -293,7 +325,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "nomination_fee", "nomination_fee_name", "nomination_fee_price",
             "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot", "discount_amount",
             "medium", "medium_name",
-            "total_price",
+            "total_price", "payment_method",
             "created_at", "updated_at",
         ]
 
@@ -366,14 +398,20 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("このキャストは指定日時にシフトがありません")
         data["room"] = assignment.room
 
-        # D) cast conflict
-        if Order.objects.filter(
-            cast=data["cast"],
+        # D) cast conflict (既存予約の end + interval_minutes をインターバル占有終端とみなす)
+        cast_obj = data["cast"]
+        iv = timedelta(minutes=cast_obj.interval_minutes or 0)
+        conflict_qs = Order.objects.filter(
+            cast=cast_obj,
             status__in=Order.ACTIVE_STATUSES,
-            start__lt=end,
-            end__gt=start,
-        ).exists():
-            raise serializers.ValidationError("このキャストは指定時間に予約が入っています")
+            start__date=start.date(),
+        )
+        for existing in conflict_qs:
+            occupied_end = existing.end + iv
+            if existing.start < end and occupied_end > start:
+                raise serializers.ValidationError(
+                    "このキャストは指定時間に予約が入っています（インターバル含む）"
+                )
 
         # E) room conflict
         if Order.objects.filter(
@@ -417,7 +455,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Order
-        fields = ["cast", "course", "start", "end", "memo", "options"]
+        fields = ["cast", "course", "start", "end", "memo", "options", "payment_method"]
 
     def validate(self, data):
         instance = self.instance
@@ -449,14 +487,19 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("このキャストは指定日時にシフトがありません")
             data["room"] = assignment.room
 
-            # Cast conflict (exclude self)
-            if Order.objects.filter(
+            # Cast conflict (exclude self, インターバル考慮)
+            iv = timedelta(minutes=cast.interval_minutes or 0)
+            conflict_qs = Order.objects.filter(
                 cast=cast,
                 status__in=Order.ACTIVE_STATUSES,
-                start__lt=end,
-                end__gt=start,
-            ).exclude(pk=instance.pk).exists():
-                raise serializers.ValidationError("このキャストは指定時間に予約が入っています")
+                start__date=start.date(),
+            ).exclude(pk=instance.pk)
+            for existing in conflict_qs:
+                occupied_end = existing.end + iv
+                if existing.start < end and occupied_end > start:
+                    raise serializers.ValidationError(
+                        "このキャストは指定時間に予約が入っています（インターバル含む）"
+                    )
 
             # Room conflict (exclude self)
             if Order.objects.filter(
@@ -536,6 +579,7 @@ class ScheduleCastSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField()
     avatar_url = serializers.CharField()
+    interval_minutes = serializers.IntegerField()
     shifts = ScheduleShiftSerializer(many=True)
 
 
@@ -587,6 +631,7 @@ def build_schedule_data(store, date):
             "id": c.id,
             "name": c.name,
             "avatar_url": c.avatar_url,
+            "interval_minutes": c.interval_minutes,
             "shifts": shifts_by_cast.get(c.id, []),
         })
 

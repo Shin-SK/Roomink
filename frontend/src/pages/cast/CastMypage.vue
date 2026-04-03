@@ -16,6 +16,8 @@ const lineLinkCode = ref('')
 const lineAddFriendUrl = ref('')
 const showLineModal = ref(false)
 const codeCopied = ref(false)
+const totalPoints = ref(0)
+const pointHistory = ref([])
 
 function today() {
   return new Date().toISOString().slice(0, 10)
@@ -34,6 +36,12 @@ onMounted(async () => {
     lineLinkCode.value = data.line_link_code || ''
     lineAddFriendUrl.value = data.line_add_friend_url || ''
     if (!lineLinked.value) showLineModal.value = true
+    // ポイント取得
+    try {
+      const pts = await api.getCastPoints()
+      totalPoints.value = pts.total_points || 0
+      pointHistory.value = pts.history || []
+    } catch (_) { /* ポイント取得失敗は致命的でない */ }
   } catch (e) {
     error.value = e.message
   } finally {
@@ -130,6 +138,22 @@ function durationMin(order) {
               <div class="card-body p-3">
                 <div class="small text-muted mb-2">未確認</div>
                 <div class="fs-4 fw-bold" :class="unconfirmedCount > 0 ? 'text-danger' : ''">{{ unconfirmedCount }}本</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ポイントカード -->
+        <div v-if="totalPoints !== 0 || pointHistory.length" class="card mb-3">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <div class="fw-bold"><i class="ti ti-star text-warning"></i> ポイント</div>
+              <div class="fs-4 fw-bold">{{ totalPoints }} pt</div>
+            </div>
+            <div v-if="pointHistory.length" class="small">
+              <div v-for="p in pointHistory.slice(0, 5)" :key="p.id" class="d-flex justify-content-between text-muted border-bottom py-1">
+                <span>{{ p.date }} {{ p.reason || '' }}</span>
+                <span :class="p.points >= 0 ? 'text-success' : 'text-danger'" class="fw-bold">{{ p.points >= 0 ? '+' : '' }}{{ p.points }}</span>
               </div>
             </div>
           </div>

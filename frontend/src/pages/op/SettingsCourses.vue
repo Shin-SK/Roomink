@@ -6,6 +6,7 @@ import { api } from '../../api.js'
 const loading = ref(true)
 const error = ref('')
 const courses = ref([])
+const casts = ref([])
 
 // Form
 const showForm = ref(false)
@@ -15,15 +16,16 @@ const formError = ref('')
 const saving = ref(false)
 
 function emptyForm() {
-  return { name: '', duration: 60, price: 0 }
+  return { name: '', duration: 60, price: 0, target_cast_ids: [] }
 }
 
 async function loadCourses() {
   loading.value = true
   error.value = ''
   try {
-    const data = await api.getCourses()
-    courses.value = Array.isArray(data) ? data : []
+    const [courseData, castData] = await Promise.all([api.getCourses(), api.getCasts()])
+    courses.value = Array.isArray(courseData) ? courseData : []
+    casts.value = Array.isArray(castData) ? castData : []
   } catch (e) {
     error.value = e.message
   } finally {
@@ -42,16 +44,25 @@ function openCreate() {
 
 function openEdit(c) {
   editingId.value = c.id
-  form.value = { name: c.name, duration: c.duration, price: c.price }
+  form.value = { name: c.name, duration: c.duration, price: c.price, target_cast_ids: c.target_cast_ids || [] }
   formError.value = ''
   showForm.value = true
+}
+
+function toggleTargetCast(castId) {
+  const idx = form.value.target_cast_ids.indexOf(castId)
+  if (idx >= 0) {
+    form.value.target_cast_ids.splice(idx, 1)
+  } else {
+    form.value.target_cast_ids.push(castId)
+  }
 }
 
 async function onSave() {
   saving.value = true
   formError.value = ''
   try {
-    const payload = { name: form.value.name, duration: form.value.duration, price: form.value.price }
+    const payload = { name: form.value.name, duration: form.value.duration, price: form.value.price, target_cast_ids: form.value.target_cast_ids }
     if (editingId.value) {
       await api.updateCourse(editingId.value, payload)
     } else {
@@ -112,6 +123,7 @@ async function onDelete(c) {
               <th>名前</th>
               <th style="width: 100px;">時間(分)</th>
               <th style="width: 120px;">料金</th>
+              <th>対象キャスト</th>
               <th style="width: 50px;"></th>
             </tr>
           </thead>
@@ -120,6 +132,10 @@ async function onDelete(c) {
               <td>{{ c.name }}</td>
               <td>{{ c.duration }}</td>
               <td>{{ c.price.toLocaleString() }}円</td>
+              <td>
+                <span v-if="!c.target_cast_ids || !c.target_cast_ids.length" class="text-muted">全員</span>
+                <span v-else>{{ c.target_cast_ids.map(id => casts.find(ca => ca.id === id)?.name || id).join(', ') }}</span>
+              </td>
               <td>
                 <button class="btn btn-link p-0" @click="openEdit(c)">
                   <i class="ti ti-edit" style="font-size: 1.25rem;"></i>
@@ -153,6 +169,21 @@ async function onDelete(c) {
             <div class="mb-3">
               <label class="form-label">料金 <span class="text-danger">*</span></label>
               <input v-model.number="form.price" type="number" class="form-control" min="0" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">表示対象キャスト <small class="text-muted">（未選択＝全員に表示）</small></label>
+              <div class="d-flex flex-wrap gap-1">
+                <button
+                  v-for="c in casts" :key="c.id"
+                  type="button"
+                  class="btn btn-sm"
+                  :class="form.target_cast_ids.includes(c.id) ? 'btn-primary' : 'btn-outline-secondary'"
+                  @click="toggleTargetCast(c.id)"
+                >{{ c.name }}</button>
+              </div>
+              <small v-if="form.target_cast_ids.length" class="text-muted mt-1 d-block">
+                {{ form.target_cast_ids.length }}名選択中
+              </small>
             </div>
           </div>
           <div class="modal-footer d-flex">

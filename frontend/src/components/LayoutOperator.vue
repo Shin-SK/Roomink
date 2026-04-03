@@ -22,6 +22,9 @@ const navItems = [
   { to: '/op/customers', icon: 'ti-users', label: '顧客管理', page: 'customer-list' },
   { to: '/op/shifts', icon: 'ti-clock', label: 'シフト管理', page: 'shift-list' },
   { to: '/op/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
+  { to: '/op/cast-expenses', icon: 'ti-receipt', label: '雑費管理', page: 'cast-expenses' },
+  { to: '/op/daily-settlement', icon: 'ti-calculator', label: '日給一覧', page: 'daily-settlement' },
+  { to: '/op/point-logs', icon: 'ti-star', label: 'ポイント', page: 'point-logs' },
   { to: '/op/settings', icon: 'ti-settings', label: '設定', page: 'settings' },
 ]
 

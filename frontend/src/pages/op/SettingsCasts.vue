@@ -17,7 +17,7 @@ const saving = ref(false)
 const uploading = ref(false)
 
 function emptyForm() {
-  return { name: '', avatar_url: '' }
+  return { name: '', avatar_url: '', age: '', hp_url: '', introduction: '', staff_memo: '', interval_minutes: 15, course_back_rate: 0, option_fullback_enabled: false }
 }
 
 async function loadCasts() {
@@ -44,7 +44,17 @@ function openCreate() {
 
 function openEdit(c) {
   editingId.value = c.id
-  form.value = { name: c.name, avatar_url: c.avatar_url || '' }
+  form.value = {
+    name: c.name,
+    avatar_url: c.avatar_url || '',
+    age: c.age ?? '',
+    hp_url: c.hp_url || '',
+    introduction: c.introduction || '',
+    staff_memo: c.staff_memo || '',
+    interval_minutes: c.interval_minutes ?? 15,
+    course_back_rate: c.course_back_rate ?? 0,
+    option_fullback_enabled: c.option_fullback_enabled ?? false,
+  }
   formError.value = ''
   showForm.value = true
 }
@@ -88,7 +98,17 @@ async function onSave() {
   saving.value = true
   formError.value = ''
   try {
-    const payload = { name: form.value.name, avatar_url: form.value.avatar_url }
+    const payload = {
+      name: form.value.name,
+      avatar_url: form.value.avatar_url,
+      age: form.value.age === '' ? null : Number(form.value.age),
+      hp_url: form.value.hp_url,
+      introduction: form.value.introduction,
+      staff_memo: form.value.staff_memo,
+      interval_minutes: Number(form.value.interval_minutes),
+      course_back_rate: Number(form.value.course_back_rate),
+      option_fullback_enabled: form.value.option_fullback_enabled,
+    }
     if (editingId.value) {
       await api.updateCast(editingId.value, payload)
     } else {
@@ -148,7 +168,11 @@ async function onDelete(c) {
             <tr>
               <th style="width: 50px;"></th>
               <th>名前</th>
-              <th style="width: 50px;"></th>
+              <th style="width: 50px;">年齢</th>
+              <th style="width: 50px;">IV</th>
+              <th style="width: 60px;">バック</th>
+              <th style="width: 55px;">LINE</th>
+              <th style="width: 40px;"></th>
             </tr>
           </thead>
           <tbody>
@@ -169,6 +193,13 @@ async function onDelete(c) {
                 </div>
               </td>
               <td>{{ c.name }}</td>
+              <td>{{ c.age || '—' }}</td>
+              <td>{{ c.interval_minutes }}分</td>
+              <td>{{ c.course_back_rate }}%</td>
+              <td>
+                <span v-if="c.line_linked" class="badge bg-success">連携済</span>
+                <span v-else class="badge bg-secondary">未連携</span>
+              </td>
               <td>
                 <button class="btn btn-link p-0" @click="openEdit(c)">
                   <i class="ti ti-edit" style="font-size: 1.25rem;"></i>
@@ -239,6 +270,38 @@ async function onDelete(c) {
             <div class="mb-3">
               <label class="form-label">名前 <span class="text-danger">*</span></label>
               <input v-model="form.name" type="text" class="form-control" placeholder="キャスト名" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">年齢</label>
+              <input v-model="form.age" type="number" class="form-control" min="0" placeholder="未設定" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">HP URL</label>
+              <input v-model="form.hp_url" type="url" class="form-control" placeholder="https://..." />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">紹介コメント（お客様表示用）</label>
+              <textarea v-model="form.introduction" class="form-control" rows="2" placeholder="お客様マイページに表示される紹介文"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">運営専用メモ</label>
+              <textarea v-model="form.staff_memo" class="form-control" rows="2" placeholder="運営のみが閲覧可能なメモ"></textarea>
+            </div>
+
+            <hr class="my-3">
+            <h6 class="mb-3">運用設定</h6>
+            <div class="mb-3">
+              <label class="form-label">インターバル時間（分）</label>
+              <input v-model.number="form.interval_minutes" type="number" class="form-control" min="0" step="5" />
+              <small class="text-muted">予約と予約の間に確保する時間</small>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">コースバック率（%）</label>
+              <input v-model.number="form.course_back_rate" type="number" class="form-control" min="0" max="100" />
+            </div>
+            <div class="mb-3 form-check">
+              <input v-model="form.option_fullback_enabled" type="checkbox" class="form-check-input" id="optionFullback" />
+              <label class="form-check-label" for="optionFullback">オプション全額バック</label>
             </div>
           </div>
           <div class="modal-footer d-flex">

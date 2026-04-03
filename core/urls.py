@@ -16,6 +16,8 @@ router.register("nomination-fees", views.NominationFeeViewSet)
 router.register("discounts", views.DiscountViewSet)
 router.register("media", views.MediumViewSet)
 router.register("staffs", views.StaffViewSet, basename="staff")
+router.register("cast-expenses", views.CastExpenseViewSet, basename="cast-expense")
+router.register("point-logs", views.PointLogViewSet, basename="point-log")
 
 cast_sr_router = DefaultRouter()
 cast_sr_router.register("shift-requests", views.CastShiftRequestViewSet, basename="cast-shift-request")
@@ -35,6 +37,7 @@ urlpatterns = [
     path("cast/today/", views.CastTodayView.as_view(), name="cast-today"),
     path("cast/orders/<int:pk>/ack/", views.CastAckView.as_view(), name="cast-ack"),
     path("cast/line-link/", views.CastLineLinkView.as_view(), name="cast-line-link"),
+    path("cast/points/", views.CastPointSummaryView.as_view(), name="cast-points"),
     path("cast/", include(cast_sr_router.urls)),
 
     # customer
@@ -51,6 +54,10 @@ urlpatterns = [
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),
     path("op/room-schedule/", views.RoomScheduleView.as_view(), name="op-room-schedule"),
 path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
+    path("op/daily-settlement/", views.DailySettlementView.as_view(), name="daily-settlement"),
+    path("op/daily-settlement/lock/", views.DailySettlementLockView.as_view(), name="daily-settlement-lock"),
+    path("op/daily-settlement/unlock/", views.DailySettlementUnlockView.as_view(), name="daily-settlement-unlock"),
+    path("op/daily-settlement/export/", views.DailySettlementExportView.as_view(), name="daily-settlement-export"),
     path("op/sales-summary/", views.SalesSummaryView.as_view(), name="sales-summary"),
     path("op/sales-export.csv", views.SalesExportView.as_view(), name="sales-export"),
     path("op/line-alerts/", views.LineAlertsView.as_view(), name="line-alerts"),

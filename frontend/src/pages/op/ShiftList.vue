@@ -11,6 +11,7 @@ const rooms = ref([])
 
 // Filter
 const filterDate = ref(new Date().toISOString().slice(0, 10))
+const searchQuery = ref('')
 
 // Form
 const showForm = ref(false)
@@ -108,6 +109,15 @@ async function onDelete(id) {
   }
 }
 
+const filteredShifts = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return shifts.value
+  return shifts.value.filter(s => {
+    const name = (s.cast_name || castName(s.cast)).toLowerCase()
+    return name.includes(q)
+  })
+})
+
 function castName(id) {
   return casts.value.find(c => c.id === id)?.name || id
 }
@@ -130,10 +140,13 @@ function roomName(id) {
         </button>
       </div>
       <div class="card-body">
-        <!-- Date filter -->
+        <!-- Date filter + Search -->
         <div class="row mb-3">
           <div class="col-md-4">
             <input v-model="filterDate" type="date" class="form-control" />
+          </div>
+          <div class="col-md-4">
+            <input v-model="searchQuery" type="text" class="form-control" placeholder="キャスト名で検索..." />
           </div>
         </div>
 
@@ -141,8 +154,8 @@ function roomName(id) {
           <div class="spinner-border text-primary"></div>
         </div>
 
-        <div v-else-if="!shifts.length" class="text-muted text-center py-3">
-          この日のシフトはありません
+        <div v-else-if="!filteredShifts.length" class="text-muted text-center py-3">
+          {{ searchQuery ? '該当するシフトがありません' : 'この日のシフトはありません' }}
         </div>
 
         <table v-else class="table table-hover mb-0">
@@ -156,7 +169,7 @@ function roomName(id) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="s in shifts" :key="s.id">
+            <tr v-for="s in filteredShifts" :key="s.id">
               <td>{{ s.cast_name || castName(s.cast) }}</td>
               <td>{{ s.room_name || roomName(s.room) }}</td>
               <td>{{ s.start_time?.slice(0, 5) }}</td>

@@ -70,6 +70,13 @@ watch(
     slots.value = []
     slotsFetched.value = false
     form.value.time = ''
+    // コース選択をリセット（対象外になった場合）
+    if (form.value.course && cast) {
+      const c = courses.value.find(co => co.id === Number(form.value.course))
+      if (c && c.target_cast_ids && c.target_cast_ids.length > 0 && !c.target_cast_ids.includes(cast)) {
+        form.value.course = ''
+      }
+    }
     if (!cast || !date) return
     slotsLoading.value = true
     try {
@@ -109,6 +116,13 @@ const filteredCasts = computed(() => {
 const selectedCastName = computed(() => {
   const c = casts.value.find(c => c.id === form.value.cast)
   return c ? c.name : ''
+})
+
+const filteredCourses = computed(() => {
+  if (!form.value.cast) return courses.value
+  return courses.value.filter(c =>
+    !c.target_cast_ids || c.target_cast_ids.length === 0 || c.target_cast_ids.includes(form.value.cast)
+  )
 })
 
 const selectedCourse = computed(() => courses.value.find(c => c.id === Number(form.value.course)))
@@ -252,7 +266,7 @@ async function submit() {
           <div class="card-body">
             <div class="select-grid">
               <button
-                v-for="c in courses"
+                v-for="c in filteredCourses"
                 :key="c.id"
                 type="button"
                 class="btn btn-sm select-btn"

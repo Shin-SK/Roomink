@@ -955,6 +955,57 @@ ul li {
   text-overflow: ellipsis;
 }
 
+/* インターバルブロック */
+.rk-interval {
+  position: absolute;
+  border-radius: 6px;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(148, 163, 184, 0.15),
+    rgba(148, 163, 184, 0.15) 4px,
+    rgba(148, 163, 184, 0.08) 4px,
+    rgba(148, 163, 184, 0.08) 8px
+  );
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  overflow: hidden;
+}
+.rk-interval__label {
+  font-size: 0.625rem;
+  color: #94a3b8;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 凡例用インターバルマーク */
+.rk-legend-iv {
+  display: inline-block;
+  width: 32px;
+  height: 14px;
+  border-radius: 3px;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(148, 163, 184, 0.15),
+    rgba(148, 163, 184, 0.15) 4px,
+    rgba(148, 163, 184, 0.08) 4px,
+    rgba(148, 163, 184, 0.08) 8px
+  );
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+}
+
+/* キャストヘッダーの予約作成ボタン */
+.rk-cast-create-btn {
+  padding: 0 4px;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  border-radius: 4px;
+  margin-top: 2px;
+}
+
 /* ===========================
    Room View（ルーム軸）専用
    =========================== */

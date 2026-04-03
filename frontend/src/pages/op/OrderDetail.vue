@@ -226,6 +226,14 @@ async function doApplyDiscount() {
   }
 }
 
+async function updatePaymentMethod(value) {
+  try {
+    order.value = await api.updateOrder(props.id, { payment_method: value })
+  } catch (e) {
+    alert(e.message)
+  }
+}
+
 async function doApplyMedium() {
   addonError.value = ''
   addonActing.value = true
@@ -307,6 +315,21 @@ async function doApplyMedium() {
                   <tr v-if="order.medium_name">
                     <th>媒体</th>
                     <td>{{ order.medium_name }}</td>
+                  </tr>
+                  <tr>
+                    <th>支払方法</th>
+                    <td>
+                      <select
+                        :value="order.payment_method || 'UNSET'"
+                        class="form-select form-select-sm d-inline-block"
+                        style="width: auto;"
+                        @change="updatePaymentMethod($event.target.value)"
+                      >
+                        <option value="UNSET">未設定</option>
+                        <option value="CARD">カード</option>
+                        <option value="CASH">現金</option>
+                      </select>
+                    </td>
                   </tr>
                   <tr v-if="order.memo">
                     <th>メモ</th>

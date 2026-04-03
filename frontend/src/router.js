@@ -27,6 +27,9 @@ const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
 const SettingsLine = () => import('./pages/op/SettingsLine.vue')
 const SettingsManual = () => import('./pages/op/SettingsManual.vue')
 const ManualArticle = () => import('./pages/op/ManualArticle.vue')
+const CastExpenses = () => import('./pages/op/CastExpenses.vue')
+const DailySettlement = () => import('./pages/op/DailySettlement.vue')
+const PointLogs = () => import('./pages/op/PointLogs.vue')
 const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
 const Profile = () => import('./pages/op/Profile.vue')
 const CastMypage = () => import('./pages/cast/CastMypage.vue')
@@ -55,6 +58,9 @@ const routes = [
   { path: '/op/shifts', name: 'shift-list', component: ShiftList },
   { path: '/op/shift-requests', name: 'op-shift-requests', component: OpShiftRequests },
   { path: '/op/rooms', name: 'room-schedule', component: RoomSchedule },
+  { path: '/op/cast-expenses', name: 'cast-expenses', component: CastExpenses },
+  { path: '/op/daily-settlement', name: 'daily-settlement', component: DailySettlement },
+  { path: '/op/point-logs', name: 'point-logs', component: PointLogs },
   { path: '/op/settings', name: 'settings', component: Settings },
   { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts },
   { path: '/op/settings/staffs', name: 'settings-staffs', component: SettingsStaffs },
