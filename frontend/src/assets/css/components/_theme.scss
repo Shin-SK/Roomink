@@ -85,17 +85,19 @@ $rk-shadow-lg: $box-shadow-lg;
   --rk-sidebar-width: 260px;
   --rk-header-height: 60px;
 
-  // タイムライン用
-  --rk-time-col-w: 46px;
+  // タイムライン用（横型：左=キャスト列 / 上=時間行）
+  --rk-time-col-w: 140px;
   --rk-col-w: 120px;
-  --rk-row-hour-h: 160px;
+  --rk-row-hour-h: 80px;
+  --rk-casthead-h: 36px;
   --rk-grid-border: #E6EEF0;
 }
 
 @media (max-width: 576px) {
   :root {
-    --rk-col-w: 104px;
-    --rk-row-hour-h: 140px;
+    --rk-time-col-w: 120px;
+    --rk-col-w: 96px;
+    --rk-row-hour-h: 72px;
   }
 }
 

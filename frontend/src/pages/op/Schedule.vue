@@ -3,7 +3,8 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import TimelineGrid from '../../components/TimelineGrid.vue'
-import { api } from '../../api.js'
+import CustomerInfoCard from '../../components/CustomerInfoCard.vue'
+import { api, normalizePhone } from '../../api.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -15,6 +16,7 @@ const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 
 const loading = ref(true)
 const toolbarOpen = ref(false)
 const showLegend = ref(false)
+const showPhoneSearch = ref(false)
 
 // 予約作成モーダル
 const showCreateModal = ref(false)
@@ -27,6 +29,21 @@ const allOptions = ref([])
 const allMedia = ref([])
 const mastersLoaded = ref(false)
 const customerSearch = ref('')
+
+// 電話番号検索 → 顧客情報カード
+const phoneInput = ref('')
+const showCustomerCard = ref(false)
+const cardLoading = ref(false)
+const cardError = ref('')
+const cardCustomer = ref(null)
+const cardOrders = ref([])
+const cardSearchedPhone = ref('')
+
+// 架電履歴
+const callLogs = ref([])
+const callLogsLoading = ref(false)
+const callLogsError = ref('')
+const savingMemo = ref(false)
 
 const filteredCustomers = computed(() => {
   const q = customerSearch.value.trim().toLowerCase()
@@ -88,28 +105,142 @@ function onBlockClick(order) {
   router.push(`/op/orders/${order.id}`)
 }
 
-async function onCreateOrder(cast) {
-  createError.value = ''
-  createForm.value = { cast: cast.id, customer: '', course: '', startTime: '', memo: '', options: [], medium: '' }
-  showCreateModal.value = true
-
-  if (!mastersLoaded.value) {
-    try {
-      const [custs, courses, opts, mds] = await Promise.all([
-        api.getCustomers(),
-        api.getCourses(),
-        api.getOptions(),
-        api.getMedia(),
-      ])
-      customers.value = Array.isArray(custs) ? custs : []
-      allCourses.value = Array.isArray(courses) ? courses : []
-      allOptions.value = Array.isArray(opts) ? opts : []
-      allMedia.value = Array.isArray(mds) ? mds : []
-      mastersLoaded.value = true
-    } catch (e) {
-      createError.value = e.message
-    }
+async function loadMasters() {
+  if (mastersLoaded.value) return
+  try {
+    const [custs, courses, opts, mds] = await Promise.all([
+      api.getCustomers(),
+      api.getCourses(),
+      api.getOptions(),
+      api.getMedia(),
+    ])
+    customers.value = Array.isArray(custs) ? custs : []
+    allCourses.value = Array.isArray(courses) ? courses : []
+    allOptions.value = Array.isArray(opts) ? opts : []
+    allMedia.value = Array.isArray(mds) ? mds : []
+    mastersLoaded.value = true
+  } catch (e) {
+    createError.value = e.message
   }
+}
+
+async function openCreateModal({ cast = '', customer = '', startTime = '' } = {}) {
+  createError.value = ''
+  createForm.value = { cast, customer, course: '', startTime, memo: '', options: [], medium: '' }
+  showCreateModal.value = true
+  await loadMasters()
+}
+
+async function onCreateOrder(payload) {
+  // payload: { cast, start_time, room_id, room_name }（タイムライン空セルクリック）
+  // または cast 単体（後方互換）
+  const cast = payload && payload.cast ? payload.cast : payload
+  const startTime = (payload && payload.start_time) || ''
+  if (!cast || !cast.id) return
+  await openCreateModal({ cast: cast.id, startTime })
+}
+
+// 電話番号 → 顧客検索（CTI自動入力時もこの関数を呼ぶ）
+async function searchByPhone(rawPhone) {
+  const phone = normalizePhone(rawPhone)
+  if (!phone || phone.length < 6) {
+    cardError.value = '電話番号が短すぎます'
+    cardCustomer.value = null
+    cardOrders.value = []
+    cardSearchedPhone.value = String(rawPhone || '').trim()
+    callLogs.value = []
+    callLogsError.value = ''
+    showCustomerCard.value = true
+    return
+  }
+  cardError.value = ''
+  cardSearchedPhone.value = phone
+  cardCustomer.value = null
+  cardOrders.value = []
+  callLogs.value = []
+  callLogsError.value = ''
+  cardLoading.value = true
+  showCustomerCard.value = true
+  try {
+    const list = await api.searchCustomerByPhone(phone)
+    const found = Array.isArray(list) && list.length ? list[0] : null
+    cardCustomer.value = found
+    if (found) {
+      const orders = await api.getOrders(`customer=${found.id}&ordering=-start&limit=20`)
+      cardOrders.value = Array.isArray(orders) ? orders : []
+    }
+    await fetchCallLogs()
+  } catch (e) {
+    cardError.value = e.message || '検索に失敗しました'
+  } finally {
+    cardLoading.value = false
+  }
+}
+
+async function fetchCallLogs() {
+  callLogsError.value = ''
+  callLogsLoading.value = true
+  try {
+    const params = cardCustomer.value
+      ? `customer=${cardCustomer.value.id}`
+      : `phone=${encodeURIComponent(cardSearchedPhone.value)}`
+    const list = await api.getCallLogs(params)
+    callLogs.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    callLogsError.value = e.message || '架電履歴の取得に失敗しました'
+    callLogs.value = []
+  } finally {
+    callLogsLoading.value = false
+  }
+}
+
+async function onAddMemo(body) {
+  if (!body || savingMemo.value) return
+  savingMemo.value = true
+  try {
+    const payload = {
+      from_phone: cardSearchedPhone.value,
+      customer: cardCustomer.value ? cardCustomer.value.id : null,
+      note_body: body,
+    }
+    const created = await api.createCallLog(payload)
+    if (created && created.id) {
+      callLogs.value = [created, ...callLogs.value]
+    } else {
+      await fetchCallLogs()
+    }
+  } catch (e) {
+    callLogsError.value = e.message || 'メモの保存に失敗しました'
+  } finally {
+    savingMemo.value = false
+  }
+}
+
+function onPhoneSearchSubmit() {
+  searchByPhone(phoneInput.value)
+}
+
+function closeCustomerCard() {
+  showCustomerCard.value = false
+}
+
+async function onSelectCustomerForOrder(customer) {
+  if (!customer || !customer.id) return
+  showCustomerCard.value = false
+  await openCreateModal({ customer: customer.id })
+  // 後続でモーダル内 customers リストにヒットさせるため、念のため取り込む
+  if (!customers.value.find(c => c.id === customer.id)) {
+    customers.value = [customer, ...customers.value]
+  }
+}
+
+function onCreateNewCustomer(phone) {
+  // 既存の顧客新規作成画面へ電話番号付きで遷移し、戻り先にスケジュールを指定
+  showCustomerCard.value = false
+  const params = new URLSearchParams()
+  if (phone) params.set('phone', phone)
+  params.set('return', `/op/schedule?date=${selectedDate.value}`)
+  router.push(`/op/customers/new?${params.toString()}`)
 }
 
 function toggleCreateOption(optId) {
@@ -120,8 +251,8 @@ function toggleCreateOption(optId) {
 
 async function submitCreate() {
   createError.value = ''
-  if (!createForm.value.customer || !createForm.value.course || !createForm.value.startTime) {
-    createError.value = '顧客・コース・開始時間は必須です'
+  if (!createForm.value.cast || !createForm.value.customer || !createForm.value.course || !createForm.value.startTime) {
+    createError.value = 'キャスト・顧客・コース・開始時間は必須です'
     return
   }
   creating.value = true
@@ -238,6 +369,43 @@ onMounted(fetchSchedule)
       </div>
     </div>
 
+    <!-- 新規予約 / 番号検索 -->
+    <div class="rk-actions mb-2">
+      <div class="rk-actions__buttons">
+        <router-link to="/op/phone" class="btn btn-sm btn-primary">
+          <i class="ti ti-plus me-1"></i>新規予約
+        </router-link>
+        <button
+          type="button"
+          class="btn btn-sm"
+          :class="showPhoneSearch ? 'btn-secondary' : 'btn-outline-secondary'"
+          @click="showPhoneSearch = !showPhoneSearch"
+        >
+          <i class="ti ti-search me-1"></i>番号検索
+        </button>
+      </div>
+
+      <!-- 検索アコーディオン -->
+      <form
+        v-if="showPhoneSearch"
+        class="rk-actions__search"
+        @submit.prevent="onPhoneSearchSubmit"
+      >
+        <input
+          v-model="phoneInput"
+          type="tel"
+          inputmode="tel"
+          class="form-control form-control-sm"
+          placeholder="例: 09012345678"
+          autocomplete="off"
+          autofocus
+        />
+        <button type="submit" class="btn btn-sm btn-primary flex-shrink-0">
+          検索
+        </button>
+      </form>
+    </div>
+
     <!-- タイムライン -->
     <div v-if="loading" class="text-center py-5">
       <div class="spinner-border text-primary"></div>
@@ -261,12 +429,22 @@ onMounted(fetchSchedule)
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">
-              <i class="ti ti-plus me-1"></i>予約作成 — {{ castNameById(createForm.cast) }} ({{ selectedDate }})
+              <i class="ti ti-plus me-1"></i>予約作成
+              <span v-if="createForm.cast"> — {{ castNameById(Number(createForm.cast)) }}</span>
+              ({{ selectedDate }})
             </h5>
             <button type="button" class="btn-close" @click="showCreateModal = false"></button>
           </div>
           <div class="modal-body">
             <div v-if="createError" class="alert alert-danger py-2 px-3 mb-3" style="font-size: 0.875rem;">{{ createError }}</div>
+
+            <div class="mb-3">
+              <label class="form-label">キャスト <span class="text-danger">*</span></label>
+              <select v-model="createForm.cast" class="form-select">
+                <option value="" disabled>選択してください</option>
+                <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+            </div>
 
             <div class="mb-3">
               <label class="form-label">顧客 <span class="text-danger">*</span></label>
@@ -330,5 +508,61 @@ onMounted(fetchSchedule)
         </div>
       </div>
     </div>
+
+    <!-- 顧客情報カード -->
+    <CustomerInfoCard
+      v-if="showCustomerCard"
+      :customer="cardCustomer"
+      :recent-orders="cardOrders"
+      :loading="cardLoading"
+      :searched-phone="cardSearchedPhone"
+      :error="cardError"
+      :call-logs="callLogs"
+      :call-logs-loading="callLogsLoading"
+      :call-logs-error="callLogsError"
+      :saving-memo="savingMemo"
+      @close="closeCustomerCard"
+      @select="onSelectCustomerForOrder"
+      @create-new="onCreateNewCustomer"
+      @add-memo="onAddMemo"
+    />
   </LayoutOperator>
 </template>
+
+<style scoped lang="scss">
+.rk-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+
+  &__buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  &__search {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 240px;
+    max-width: 360px;
+    min-width: 0;
+
+    input {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+  }
+}
+
+/* スマホは検索フォームを次行いっぱい */
+@media (max-width: 575.98px) {
+  .rk-actions__search {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
+}
+</style>

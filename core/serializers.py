@@ -7,6 +7,8 @@ from .utils.phone import normalize_phone
 from django.contrib.auth import get_user_model
 
 from .models import (
+    CallLog,
+    CallNote,
     Cast,
     CastAck,
     CastExpense,
@@ -734,3 +736,53 @@ def build_room_schedule_data(store, date):
         "orders": order_data,
         "kpi": kpi,
     }
+
+
+# ──────────────────────────────────────
+# CallLog / CallNote (Phase 3-A: op 手動架電履歴)
+# ──────────────────────────────────────
+
+class CallNoteSerializer(serializers.ModelSerializer):
+    author_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CallNote
+        fields = ["id", "body", "author", "author_label", "created_at"]
+        read_only_fields = ["author", "created_at"]
+
+    def get_author_label(self, obj):
+        if not obj.author_id:
+            return ""
+        u = obj.author
+        return u.get_full_name() or u.username
+
+
+class CallLogSerializer(serializers.ModelSerializer):
+    customer_label = serializers.SerializerMethodField()
+    assigned_to_label = serializers.SerializerMethodField()
+    notes = CallNoteSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CallLog
+        fields = [
+            "id", "contact_id", "from_phone", "to_phone", "status",
+            "customer", "customer_label",
+            "assigned_to", "assigned_to_label",
+            "is_repeat", "created_at", "updated_at",
+            "notes",
+        ]
+        read_only_fields = [
+            "id", "contact_id", "status", "assigned_to", "is_repeat",
+            "created_at", "updated_at",
+        ]
+
+    def get_customer_label(self, obj):
+        if not obj.customer_id:
+            return ""
+        return build_customer_label(obj.customer)
+
+    def get_assigned_to_label(self, obj):
+        if not obj.assigned_to_id:
+            return ""
+        u = obj.assigned_to
+        return u.get_full_name() or u.username

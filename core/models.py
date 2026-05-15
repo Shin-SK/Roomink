@@ -256,6 +256,7 @@ class Order(models.Model):
         REQUESTED = "REQUESTED", "リクエスト"
         CONFIRMED = "CONFIRMED", "確定"
         IN_PROGRESS = "IN_PROGRESS", "施術中"
+        PENDING_FINALIZE = "PENDING_FINALIZE", "会計待ち"
         DONE = "DONE", "完了"
         CANCELLED = "CANCELLED", "キャンセル"
 
@@ -268,6 +269,7 @@ class Order(models.Model):
         Status.REQUESTED,
         Status.CONFIRMED,
         Status.IN_PROGRESS,
+        Status.PENDING_FINALIZE,
     )
 
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="orders")
@@ -304,7 +306,7 @@ class Order(models.Model):
     start = models.DateTimeField()
     end = models.DateTimeField()
     status = models.CharField(
-        max_length=12, choices=Status.choices, default=Status.REQUESTED,
+        max_length=20, choices=Status.choices, default=Status.REQUESTED,
     )
     payment_method = models.CharField(
         max_length=10, choices=PaymentMethod.choices, default=PaymentMethod.UNSET,

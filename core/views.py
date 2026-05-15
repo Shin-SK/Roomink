@@ -2,6 +2,7 @@ import csv
 import io
 import logging
 import os
+import uuid
 from datetime import date as date_type, timedelta
 
 from django.conf import settings
@@ -26,6 +27,8 @@ from .models import (
     generate_line_link_code,
 )
 from .serializers import (
+    CallLogSerializer,
+    CallNoteSerializer,
     CastExpenseSerializer,
     CastSerializer,
     PointLogSerializer,
@@ -103,6 +106,37 @@ def auth_login(request):
 @api_view(["POST"])
 def auth_logout(request):
     logout(request)
+    return Response({"ok": True})
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def auth_password_reset(request):
+    """簡易パスワードリセット：ユーザー名のみで即時更新（メアド検証なし／社内ツール前提）"""
+    from django.contrib.auth.models import User
+    raw_username = request.data.get("username", "")
+    username = normalize_phone(raw_username) if any(c.isdigit() for c in raw_username) else raw_username
+    new_password = request.data.get("new_password", "")
+    if not username or not new_password:
+        return Response(
+            {"detail": "ユーザー名と新パスワードを入力してください"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if len(new_password) < 4:
+        return Response(
+            {"detail": "パスワードは4文字以上にしてください"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        user = User.objects.get(username=username)
+    except User.DoesNotExist:
+        return Response(
+            {"detail": "ユーザーが見つかりません"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
     return Response({"ok": True})
 
 
@@ -275,13 +309,23 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def done(self, request, pk=None):
+        """1ステップずつ前進: CONFIRMED/IN_PROGRESS → PENDING_FINALIZE → DONE
+        DONE化(会計確定)時は payment_method が CARD/CASH のいずれかである必要がある"""
         order = self.get_object()
-        if order.status not in (Order.Status.CONFIRMED, Order.Status.IN_PROGRESS):
+        if order.status in (Order.Status.CONFIRMED, Order.Status.IN_PROGRESS):
+            order.status = Order.Status.PENDING_FINALIZE
+        elif order.status == Order.Status.PENDING_FINALIZE:
+            if order.payment_method not in (Order.PaymentMethod.CARD, Order.PaymentMethod.CASH):
+                return Response(
+                    {"detail": "支払い方法（カード/現金）を選択してから会計確定してください"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order.status = Order.Status.DONE
+        else:
             return Response(
-                {"detail": f"ステータスが {order.get_status_display()} のため完了にできません"},
+                {"detail": f"ステータスが {order.get_status_display()} のため進められません"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        order.status = Order.Status.DONE
         order.save(update_fields=["status", "updated_at"])
         return Response(OrderSerializer(order).data)
 
@@ -1932,6 +1976,121 @@ class CtiCallNoteView(APIView):
             "body": note.body,
             "created_at": note.created_at,
         }, status=status.HTTP_201_CREATED)
+
+
+# ──────────────────────────────────────
+# CallLog op manual API (Phase 3-A)
+# 既存 CTI/Webhook 系 View とは別に、運営画面用の手動架電履歴 API を提供する。
+# ──────────────────────────────────────
+
+class CallLogViewSet(viewsets.ModelViewSet):
+    """
+    /api/op/call-logs/ — 運営画面用 手動架電履歴。
+    既存 CtiInboundView / CtiCallNoteView 等とは認証思想が異なるため別 ViewSet として独立させる。
+    """
+    queryset = CallLog.objects.all()
+    serializer_class = CallLogSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        qs = (
+            CallLog.objects
+            .filter(store=store)
+            .select_related("customer", "assigned_to")
+            .prefetch_related("notes", "notes__author")
+            .order_by("-created_at")
+        )
+
+        customer_id = self.request.query_params.get("customer")
+        if customer_id:
+            try:
+                qs = qs.filter(customer_id=int(customer_id))
+            except (TypeError, ValueError):
+                qs = qs.none()
+
+        phone = self.request.query_params.get("phone")
+        if phone:
+            normalized = normalize_phone(phone)
+            if normalized:
+                qs = qs.filter(from_phone=normalized)
+            else:
+                qs = qs.none()
+
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        store = get_user_store(request)
+        from_phone_raw = request.data.get("from_phone") or ""
+        from_phone = normalize_phone(from_phone_raw)
+        if not from_phone:
+            return Response(
+                {"detail": "from_phone は必須です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        customer = None
+        customer_id = request.data.get("customer")
+        if customer_id not in (None, "", 0):
+            try:
+                customer = Customer.objects.get(pk=int(customer_id), store=store)
+            except (Customer.DoesNotExist, TypeError, ValueError):
+                return Response(
+                    {"detail": "customer が不正です（同一店舗の顧客を指定してください）"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        note_body = (request.data.get("note_body") or "").strip()
+
+        with transaction.atomic():
+            call = CallLog.objects.create(
+                store=store,
+                contact_id=f"manual-{uuid.uuid4().hex}",
+                from_phone=from_phone,
+                to_phone="",
+                status=CallLog.Status.DONE,
+                assigned_to=request.user,
+                customer=customer,
+                is_repeat=False,
+            )
+            if note_body:
+                CallNote.objects.create(call=call, author=request.user, body=note_body)
+
+        call = (
+            CallLog.objects
+            .select_related("customer", "assigned_to")
+            .prefetch_related("notes", "notes__author")
+            .get(pk=call.pk)
+        )
+        return Response(
+            CallLogSerializer(call).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="add-note")
+    def add_note(self, request, pk=None):
+        store = get_user_store(request)
+        try:
+            call = CallLog.objects.get(pk=pk, store=store)
+        except CallLog.DoesNotExist:
+            return Response(
+                {"detail": "コールが見つかりません"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        body = (request.data.get("body") or "").strip()
+        if not body:
+            return Response(
+                {"detail": "body は必須です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        note = CallNote.objects.create(call=call, author=request.user, body=body)
+        return Response(
+            CallNoteSerializer(note).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ──────────────────────────────────────

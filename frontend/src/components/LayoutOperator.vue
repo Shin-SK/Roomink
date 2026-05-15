@@ -1,8 +1,8 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
-import { resetAuthCache } from '../router.js'
+import { resetAuthCache, getAuthRole } from '../router.js'
 import UserAvatar from './UserAvatar.vue'
 
 const route = useRoute()
@@ -14,19 +14,32 @@ onMounted(async () => {
   try { currentUser.value = await api.me() } catch { /* ignore */ }
 })
 
-const navItems = [
-  { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
-  { to: '/op/schedule', icon: 'ti-calendar', label: '予約タイムライン', page: 'schedule' },
-  { to: '/op/rooms', icon: 'ti-door', label: 'ルーム', page: 'room-schedule' },
-  { to: '/op/phone', icon: 'ti-clipboard-plus', label: '予約作成', page: 'phone' },
-  { to: '/op/customers', icon: 'ti-users', label: '顧客管理', page: 'customer-list' },
-  { to: '/op/shifts', icon: 'ti-clock', label: 'シフト管理', page: 'shift-list' },
-  { to: '/op/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
-  { to: '/op/cast-expenses', icon: 'ti-receipt', label: '雑費管理', page: 'cast-expenses' },
-  { to: '/op/daily-settlement', icon: 'ti-calculator', label: '日給一覧', page: 'daily-settlement' },
-  { to: '/op/point-logs', icon: 'ti-star', label: 'ポイント', page: 'point-logs' },
-  { to: '/op/settings', icon: 'ti-settings', label: '設定', page: 'settings' },
-]
+const isManager = computed(() => {
+  // currentUser(api.me 結果) を優先、未取得時は router の authCache(getAuthRole) を fallback
+  return currentUser.value?.role === 'manager' || getAuthRole() === 'manager'
+})
+
+const navItems = computed(() => {
+  const items = [
+    { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
+    { to: '/op/schedule', icon: 'ti-calendar', label: '予約タイムライン', page: 'schedule' },
+    { to: '/op/rooms', icon: 'ti-door', label: 'ルーム', page: 'room-schedule' },
+    { to: '/op/phone', icon: 'ti-clipboard-plus', label: '予約作成', page: 'phone' },
+    { to: '/op/customers', icon: 'ti-users', label: '顧客管理', page: 'customer-list' },
+    { to: '/op/shifts', icon: 'ti-clock', label: 'シフト管理', page: 'shift-list' },
+    { to: '/op/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
+    { to: '/op/cast-expenses', icon: 'ti-receipt', label: '雑費管理', page: 'cast-expenses' },
+  ]
+  if (isManager.value) {
+    items.push({ to: '/op/sales', icon: 'ti-chart-bar', label: '売上確認', page: 'sales' })
+  }
+  items.push(
+    { to: '/op/daily-settlement', icon: 'ti-calculator', label: '日給一覧', page: 'daily-settlement' },
+    { to: '/op/point-logs', icon: 'ti-star', label: 'ポイント', page: 'point-logs' },
+    { to: '/op/settings', icon: 'ti-settings', label: '設定', page: 'settings' },
+  )
+  return items
+})
 
 const footerItems = [
   { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },

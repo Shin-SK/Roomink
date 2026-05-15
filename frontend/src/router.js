@@ -29,6 +29,7 @@ const SettingsManual = () => import('./pages/op/SettingsManual.vue')
 const ManualArticle = () => import('./pages/op/ManualArticle.vue')
 const CastExpenses = () => import('./pages/op/CastExpenses.vue')
 const DailySettlement = () => import('./pages/op/DailySettlement.vue')
+const Sales = () => import('./pages/op/Sales.vue')
 const PointLogs = () => import('./pages/op/PointLogs.vue')
 const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
 const Profile = () => import('./pages/op/Profile.vue')
@@ -44,10 +45,12 @@ const CuSubmitted = () => import('./pages/cu/CuSubmitted.vue')
 const CuReservation = () => import('./pages/cu/CuReservation.vue')
 const CuProfile = () => import('./pages/cu/CuProfile.vue')
 const CuContact = () => import('./pages/cu/CuContact.vue')
+const PasswordReset = () => import('./pages/PasswordReset.vue')
 
 const routes = [
   { path: '/', redirect: '/op/dashboard' },
   { path: '/login', name: 'login', component: Login, meta: { public: true } },
+  { path: '/password-reset', name: 'password-reset', component: PasswordReset, meta: { public: true } },
   { path: '/op/login', redirect: '/login' },
   { path: '/op/dashboard', name: 'dashboard', component: Dashboard },
   { path: '/op/schedule', name: 'schedule', component: Schedule },
@@ -60,6 +63,7 @@ const routes = [
   { path: '/op/rooms', name: 'room-schedule', component: RoomSchedule },
   { path: '/op/cast-expenses', name: 'cast-expenses', component: CastExpenses },
   { path: '/op/daily-settlement', name: 'daily-settlement', component: DailySettlement },
+  { path: '/op/sales', name: 'sales', component: Sales },
   { path: '/op/point-logs', name: 'point-logs', component: PointLogs },
   { path: '/op/settings', name: 'settings', component: Settings },
   { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts },

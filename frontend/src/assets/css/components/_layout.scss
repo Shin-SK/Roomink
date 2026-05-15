@@ -94,24 +94,33 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  min-width: 0; /* flex子で内部要素のはみ出しを抑える（横スクロールはタイムライン内側だけに） */
   main{
     position: relative;
     padding-top: 1rem ;
+    min-width: 0;
   }
 }
 
 /* ヘッダ（Bootstrap navbarベース） */
+/* PCでは非表示、スマホ(768px未満)でのみ表示 */
 .app-header {
-  height: var(--rk-header-height);
-  background: var(--bs-white);
-  border-bottom: 1px solid var(--bs-border-color);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 1rem;
-  position: sticky;
-  top: 0;
-  z-index: 999;
+  display: none;
+}
+
+@media (max-width: 767.98px) {
+  .app-header {
+    height: var(--rk-header-height);
+    background: var(--bs-white);
+    border-bottom: 1px solid var(--bs-border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 999;
+  }
 }
 
 .store-name {

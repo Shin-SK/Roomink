@@ -1,5 +1,5 @@
 /* ===========================
-   Roomink Schedule - Excel風固定ヘッダー
+   Roomink Schedule - 横型タイムライン
    =========================== */
 
 .rk-schedule {
@@ -36,21 +36,19 @@
   box-sizing: border-box;
 }
 
-/* 1つのスクロール領域（Excel風） */
+/* 1つのスクロール領域（横スクロール前提） */
 .rk-sheet-scroll {
   height: 80vh;
   overflow: auto;
   background: #fff;
-  // border: 1px solid var(--rk-grid-border);
 }
 
-/* Excel風：2行2列のグリッドで構成 */
+/* 横型：左=キャスト列(固定) / 上=時間行(固定) / 右下=本体 */
 .rk-sheet {
   position: relative;
   display: grid;
   grid-template-columns: var(--rk-time-col-w) auto;
-  grid-template-rows: var(--rk-casthead-h, 92px) auto;
-  width: calc(var(--rk-time-col-w) + (var(--rk-col-w) * 6));
+  grid-template-rows: var(--rk-casthead-h, 36px) auto;
   min-width: 100%;
 }
 
@@ -67,8 +65,8 @@
   border-bottom: 1px solid var(--rk-grid-border);
 }
 
-/* 上：キャストヘッダー（横スクロールに追従しつつ上に固定） */
-.rk-casthead {
+/* 上：時間ヘッダー（横方向） */
+.rk-timecol {
   grid-column: 2 / 3;
   grid-row: 1 / 2;
   position: sticky;
@@ -81,72 +79,104 @@
   border-bottom: 1px solid var(--rk-grid-border);
 }
 
-.rk-castcell {
+.rk-time {
+  width: var(--rk-col-w);
+  height: var(--rk-casthead-h, 36px);
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 12px 10px;
-  // border-right: 1px solid var(--rk-grid-border);
-  flex-direction: column;
-
-  &:last-child {
-    border-right: none;
-  }
+  justify-content: flex-start;
+  padding-left: 8px;
+  font-size: 12px;
+  color: #64748b;
+  border-right: 1px solid var(--rk-grid-border);
 }
 
-.rk-avatar-img {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid var(--rk-primary);
-}
-
-.rk-name {
-  font-weight: bold;
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 左：時間列（縦スクロールに追従しつつ左に固定） */
-.rk-timecol {
+/* 左：キャスト/ルーム列（縦方向） */
+.rk-casthead {
   grid-column: 1 / 2;
   grid-row: 2 / 3;
   position: sticky;
   left: 0;
   z-index: 20;
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-rows: var(--rk-row-hour-h);
   background: #fff;
   border-right: 1px solid var(--rk-grid-border);
 }
 
-.rk-time {
-  height: var(--rk-row-hour-h);
+.rk-castcell {
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 10px;
-  font-size: 12px;
-  color: #64748b;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  flex-direction: row;
+  height: var(--rk-row-hour-h);
   border-bottom: 1px solid var(--rk-grid-border);
+
+  &__text {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
-/* 本体グリッド */
+.rk-avatar-img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--rk-primary);
+  flex-shrink: 0;
+
+  &--placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f3f4f6;
+    color: var(--rk-primary);
+    font-size: 16px;
+  }
+}
+
+.rk-name {
+  font-weight: bold;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rk-room {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+/* 本体グリッド：縦横に薄いグリッド線 */
 .rk-grid {
   grid-column: 2 / 3;
   grid-row: 2 / 3;
   position: relative;
-  height: calc(var(--rk-row-hour-h) * 9); /* 12:00-20:00の9行 */
-  min-width: calc(var(--rk-col-w) * 6);
   z-index: 1;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent calc(var(--rk-row-hour-h) - 1px),
-    var(--rk-grid-border) calc(var(--rk-row-hour-h) - 1px),
-    var(--rk-grid-border) var(--rk-row-hour-h)
-  );
+  cursor: copy;
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(var(--rk-col-w) - 1px),
+      var(--rk-grid-border) calc(var(--rk-col-w) - 1px),
+      var(--rk-grid-border) var(--rk-col-w)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--rk-row-hour-h) - 1px),
+      var(--rk-grid-border) calc(var(--rk-row-hour-h) - 1px),
+      var(--rk-grid-border) var(--rk-row-hour-h)
+    );
 }
 
 /* 予約ブロック */
@@ -223,6 +253,36 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+}
+
+/* インターバルブロック（予約後の休憩時間：薄色 + 斜線 + 点線枠） */
+.rk-interval {
+  position: absolute;
+  border-radius: 4px;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(148, 163, 184, 0.18),
+    rgba(148, 163, 184, 0.18) 3px,
+    rgba(148, 163, 184, 0.04) 3px,
+    rgba(148, 163, 184, 0.04) 7px
+  );
+  border: 1px dotted rgba(148, 163, 184, 0.5);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+  overflow: hidden;
+  opacity: 0.85;
+  cursor: not-allowed;
+
+  &__label {
+    font-size: 0.5625rem;
+    color: #94a3b8;
+    font-weight: 600;
+    white-space: nowrap;
+    letter-spacing: -0.02em;
   }
 }
 

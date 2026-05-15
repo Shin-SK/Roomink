@@ -24,12 +24,14 @@ cast_sr_router.register("shift-requests", views.CastShiftRequestViewSet, basenam
 
 op_sr_router = DefaultRouter()
 op_sr_router.register("shift-requests", views.OpShiftRequestViewSet, basename="op-shift-request")
+op_sr_router.register("call-logs", views.CallLogViewSet, basename="op-call-log")
 
 urlpatterns = [
     # auth
     path("auth/csrf/", views.csrf_token_view, name="auth-csrf"),
     path("auth/login/", views.auth_login, name="auth-login"),
     path("auth/logout/", views.auth_logout, name="auth-logout"),
+    path("auth/password-reset/", views.auth_password_reset, name="auth-password-reset"),
     path("auth/me/", views.auth_me, name="auth-me"),
     path("auth/profile/", views.auth_profile_update, name="auth-profile-update"),
 

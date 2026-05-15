@@ -36,9 +36,10 @@ const selectedDiscount = ref(null)
 const selectedMedium = ref(null)
 
 const statusMap = {
-  REQUESTED: { text: '確定待ち', cls: 'badge-pending' },
+  REQUESTED: { text: '予約リクエスト', cls: 'badge-pending' },
   CONFIRMED: { text: '確定済', cls: 'badge-approved' },
   IN_PROGRESS: { text: '施術中', cls: 'badge-approved' },
+  PENDING_FINALIZE: { text: '会計待ち', cls: 'badge-attention' },
   DONE: { text: '完了', cls: 'badge-approved' },
   CANCELLED: { text: 'キャンセル', cls: 'badge-banned' },
 }
@@ -56,8 +57,20 @@ const canCancel = computed(() =>
   order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
 )
 const canDone = computed(() =>
-  order.value && ['CONFIRMED', 'IN_PROGRESS'].includes(order.value.status)
+  order.value && ['CONFIRMED', 'IN_PROGRESS', 'PENDING_FINALIZE'].includes(order.value.status)
 )
+// 「次へ進める」ボタンのラベル：確定/施術中→施術終了、会計待ち→会計確定
+const doneLabel = computed(() => {
+  const s = order.value?.status
+  if (s === 'PENDING_FINALIZE') return '会計確定'
+  return '施術終了'
+})
+// キャンセルボタン文言：会計待ち以降は「取消」、それ以前は「キャンセル」
+const cancelLabel = computed(() => {
+  const s = order.value?.status
+  if (s === 'PENDING_FINALIZE') return '会計取消'
+  return 'キャンセル'
+})
 const canEdit = computed(() =>
   order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
 )
@@ -147,15 +160,17 @@ async function doConfirm() {
   acting.value = true
   try {
     order.value = await api.confirmOrder(props.id)
+    // 「確定済」表示を一瞬見せてからダッシュボードへ戻す
+    setTimeout(() => router.push('/op/dashboard'), 1200)
   } catch (e) {
     alert(e.message)
-  } finally {
     acting.value = false
   }
 }
 
 async function doCancel() {
-  if (!confirm('この予約をキャンセルしますか？')) return
+  const label = cancelLabel.value
+  if (!confirm(`この予約を「${label}」にしますか？`)) return
   acting.value = true
   try {
     order.value = await api.cancelOrder(props.id)
@@ -167,10 +182,25 @@ async function doCancel() {
 }
 
 async function doDone() {
-  if (!confirm('この予約を完了にしますか？')) return
+  const prevStatus = order.value?.status
+  // 会計確定（PENDING_FINALIZE → DONE）の事前チェック：支払い方法必須
+  if (prevStatus === 'PENDING_FINALIZE') {
+    const pm = order.value?.payment_method
+    if (pm !== 'CARD' && pm !== 'CASH') {
+      alert('支払い方法（カード/現金）を選択してから会計確定してください')
+      return
+    }
+  }
+  const label = doneLabel.value
+  if (!confirm(`この予約を「${label}」にしますか？`)) return
   acting.value = true
   try {
     order.value = await api.doneOrder(props.id)
+    // 会計確定（DONE化）まで進めたらダッシュボードへ戻す
+    if (prevStatus === 'PENDING_FINALIZE' && order.value?.status === 'DONE') {
+      setTimeout(() => router.push('/op/dashboard'), 1200)
+      return
+    }
   } catch (e) {
     alert(e.message)
   } finally {
@@ -390,7 +420,7 @@ async function doApplyMedium() {
               :disabled="acting"
               @click="doDone"
             >
-              <i class="ti ti-circle-check"></i> 施術終了
+              <i class="ti ti-circle-check"></i> {{ doneLabel }}
             </button>
           </div>
 
@@ -408,7 +438,7 @@ async function doApplyMedium() {
               :disabled="acting"
               @click="doCancel"
             >
-              <i class="ti ti-x"></i> キャンセル
+              <i class="ti ti-x"></i> {{ cancelLabel }}
             </button>
           </div>
 

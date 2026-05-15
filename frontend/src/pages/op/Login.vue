@@ -80,6 +80,12 @@ async function onSubmit() {
             {{ loading ? 'ログイン中...' : 'ログイン' }}
           </button>
         </form>
+
+        <div class="text-center mt-3">
+          <router-link :to="{ name: 'password-reset' }" class="small text-muted">
+            パスワードを忘れた方はこちら
+          </router-link>
+        </div>
       </div>
     </div>
   </div>

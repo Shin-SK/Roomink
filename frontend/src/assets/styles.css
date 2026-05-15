@@ -35,15 +35,17 @@
   --border-radius-sm: 8px;
   --rk-sidebar-width: 260px;
   --rk-header-height: 60px;
-  --rk-time-col-w: 46px;
+  --rk-time-col-w: 140px;
   --rk-col-w: 120px;
   --rk-row-hour-h: 80px;
+  --rk-casthead-h: 36px;
   --rk-grid-border: #E6EEF0;
 }
 
 @media (max-width: 576px) {
   :root {
-    --rk-col-w: 104px;
+    --rk-time-col-w: 120px;
+    --rk-col-w: 96px;
     --rk-row-hour-h: 72px;
   }
 }
@@ -746,7 +748,7 @@ ul li {
 }
 
 /* ===========================
-   Roomink Schedule - Excel風固定ヘッダー
+   Roomink Schedule - 横型タイムライン
    =========================== */
 .rk-schedule__toolbar {
   margin-top: 3rem;
@@ -780,20 +782,19 @@ ul li {
   box-sizing: border-box;
 }
 
-/* 1つのスクロール領域（Excel風） */
+/* 1つのスクロール領域（横スクロール前提） */
 .rk-sheet-scroll {
   height: 80vh;
   overflow: auto;
   background: #fff;
 }
 
-/* Excel風：2行2列のグリッドで構成 */
+/* 横型: 左=キャスト/ルーム列(固定) / 上=時間列(固定) / 右下=本体 */
 .rk-sheet {
   position: relative;
   display: grid;
   grid-template-columns: var(--rk-time-col-w) auto;
-  grid-template-rows: var(--rk-casthead-h, 92px) auto;
-  width: calc(var(--rk-time-col-w) + var(--rk-col-w) * 6);
+  grid-template-rows: var(--rk-casthead-h, 36px) auto;
   min-width: 100%;
 }
 
@@ -810,8 +811,8 @@ ul li {
   border-bottom: 1px solid var(--rk-grid-border);
 }
 
-/* 上：キャストヘッダー（横スクロールに追従しつつ上に固定） */
-.rk-casthead {
+/* 上：時間ヘッダー（横方向） */
+.rk-timecol {
   grid-column: 2/3;
   grid-row: 1/2;
   position: sticky;
@@ -824,112 +825,151 @@ ul li {
   border-bottom: 1px solid var(--rk-grid-border);
 }
 
-.rk-castcell {
+.rk-time {
+  width: var(--rk-col-w);
+  height: var(--rk-casthead-h, 36px);
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 12px 10px;
-  flex-direction: column;
-}
-.rk-castcell:last-child {
-  border-right: none;
-}
-
-.rk-avatar-img {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  -o-object-fit: cover;
-     object-fit: cover;
-  border: 2px solid var(--rk-primary);
+  justify-content: flex-start;
+  padding-left: 8px;
+  font-size: 12px;
+  color: #64748b;
+  border-right: 1px solid var(--rk-grid-border);
 }
 
-.rk-name {
-  font-weight: bold;
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 左：時間列（縦スクロールに追従しつつ左に固定） */
-.rk-timecol {
+/* 左：キャスト/ルーム列（縦方向） */
+.rk-casthead {
   grid-column: 1/2;
   grid-row: 2/3;
   position: sticky;
   left: 0;
   z-index: 20;
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-rows: var(--rk-row-hour-h);
   background: #fff;
   border-right: 1px solid var(--rk-grid-border);
 }
 
-.rk-time {
-  height: var(--rk-row-hour-h);
+.rk-castcell {
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 10px;
-  font-size: 12px;
-  color: #64748b;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  flex-direction: row;
+  height: var(--rk-row-hour-h);
   border-bottom: 1px solid var(--rk-grid-border);
 }
+.rk-castcell:last-child {
+  border-bottom: none;
+}
 
-/* 本体グリッド */
+.rk-avatar-img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  -o-object-fit: cover;
+     object-fit: cover;
+  border: 2px solid var(--rk-primary);
+  flex-shrink: 0;
+}
+.rk-avatar-img--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f3f4f6;
+  color: var(--rk-primary);
+  font-size: 16px;
+}
+
+.rk-castcell__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rk-name {
+  font-weight: bold;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rk-room {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+/* 本体グリッド：縦横に薄いグリッド線 */
 .rk-grid {
   grid-column: 2/3;
   grid-row: 2/3;
   position: relative;
-  height: calc(var(--rk-row-hour-h) * 9); /* 12:00-20:00の9行 */
-  min-width: calc(var(--rk-col-w) * 6);
   z-index: 1;
-  background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--rk-row-hour-h) - 1px), var(--rk-grid-border) calc(var(--rk-row-hour-h) - 1px), var(--rk-grid-border) var(--rk-row-hour-h));
+  cursor: copy;
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(var(--rk-col-w) - 1px),
+      var(--rk-grid-border) calc(var(--rk-col-w) - 1px),
+      var(--rk-grid-border) var(--rk-col-w)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--rk-row-hour-h) - 1px),
+      var(--rk-grid-border) calc(var(--rk-row-hour-h) - 1px),
+      var(--rk-grid-border) var(--rk-row-hour-h)
+    );
 }
 
-/* 予約ブロック */
+/* 予約ブロック（施術本体: 濃い表示） */
 .rk-block {
   position: absolute;
-  border-radius: 10px;
-  padding: 0.625rem;
+  border-radius: 8px;
+  padding: 0.375rem 0.5rem;
   text-decoration: none;
   color: #0b1220;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
   border: 1px solid rgba(15, 23, 42, 0.06);
   overflow: hidden;
-  transition: all 0.2s;
-  z-index: 2;
+  transition: all 0.15s;
+  z-index: 3;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  /* 承認済 */
-  /* 申請中 */
-  /* 要注意 */
-  /* 未確認 */
+  justify-content: center;
+  cursor: pointer;
 }
 .rk-block:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
   color: #0b1220;
 }
 .rk-block.is-approved {
-  background: rgba(42, 157, 143, 0.22);
+  background: rgba(42, 157, 143, 0.32);
   border-color: var(--rk-primary);
 }
 .rk-block.is-requested {
-  background: rgba(91, 198, 169, 0.22);
+  background: rgba(91, 198, 169, 0.32);
   border-style: dashed;
   border-color: var(--rk-primary);
 }
 .rk-block.is-attention {
-  background: rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.28);
   border-color: #f59e0b;
 }
 .rk-block.is-unconfirmed::after {
   content: "!";
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 18px;
-  height: 18px;
+  top: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -937,12 +977,12 @@ ul li {
   background: #f59e0b;
   color: #fff;
   font-weight: 800;
-  font-size: 11px;
+  font-size: 10px;
 }
 .rk-block__title {
   font-weight: 700;
   font-size: 0.75rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.125rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -955,30 +995,33 @@ ul li {
   text-overflow: ellipsis;
 }
 
-/* インターバルブロック */
+/* インターバルブロック: 予約本体と差別化（薄色 + 斜線 + 点線枠 + 文字小さめ） */
 .rk-interval {
   position: absolute;
-  border-radius: 6px;
+  border-radius: 4px;
   background: repeating-linear-gradient(
     -45deg,
-    rgba(148, 163, 184, 0.15),
-    rgba(148, 163, 184, 0.15) 4px,
-    rgba(148, 163, 184, 0.08) 4px,
-    rgba(148, 163, 184, 0.08) 8px
+    rgba(148, 163, 184, 0.18),
+    rgba(148, 163, 184, 0.18) 3px,
+    rgba(148, 163, 184, 0.04) 3px,
+    rgba(148, 163, 184, 0.04) 7px
   );
-  border: 1px dashed rgba(148, 163, 184, 0.5);
-  z-index: 1;
+  border: 1px dotted rgba(148, 163, 184, 0.5);
+  z-index: 2;
   display: flex;
   align-items: center;
-  justify-content: center;
-  pointer-events: none;
+  justify-content: flex-end;
+  padding-right: 4px;
   overflow: hidden;
+  opacity: 0.85;
+  cursor: not-allowed;
 }
 .rk-interval__label {
-  font-size: 0.625rem;
+  font-size: 0.5625rem;
   color: #94a3b8;
   font-weight: 600;
   white-space: nowrap;
+  letter-spacing: -0.02em;
 }
 
 /* 凡例用インターバルマーク */
@@ -989,21 +1032,12 @@ ul li {
   border-radius: 3px;
   background: repeating-linear-gradient(
     -45deg,
-    rgba(148, 163, 184, 0.15),
-    rgba(148, 163, 184, 0.15) 4px,
-    rgba(148, 163, 184, 0.08) 4px,
-    rgba(148, 163, 184, 0.08) 8px
+    rgba(148, 163, 184, 0.18),
+    rgba(148, 163, 184, 0.18) 3px,
+    rgba(148, 163, 184, 0.04) 3px,
+    rgba(148, 163, 184, 0.04) 7px
   );
-  border: 1px dashed rgba(148, 163, 184, 0.5);
-}
-
-/* キャストヘッダーの予約作成ボタン */
-.rk-cast-create-btn {
-  padding: 0 4px;
-  font-size: 0.7rem;
-  line-height: 1.4;
-  border-radius: 4px;
-  margin-top: 2px;
+  border: 1px dotted rgba(148, 163, 184, 0.5);
 }
 
 /* ===========================
@@ -1812,4 +1846,48 @@ ul li {
     display: none;
   }
 }
+/* ===========================
+   Phase 2: 電話番号検索 / 顧客情報カード
+   =========================== */
+.rk-phone-search {
+  max-width: 480px;
+  margin-right: 60px;
+}
+
+.rk-cic-memo {
+  white-space: pre-wrap;
+  font-size: 0.875rem;
+  background: #fff;
+}
+
+.rk-cic-last {
+  font-size: 0.875rem;
+}
+
+.rk-cic-history .list-group-item {
+  padding: 0.4rem 0.25rem;
+}
+
+.rk-cic-calllogs .list-group-item {
+  padding: 0.5rem 0.25rem;
+  font-size: 0.875rem;
+}
+
+.rk-cic-note {
+  background: #F6FAF9;
+  border-left: 3px solid #2A9D8F;
+  padding: 0.25rem 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+}
+
+.rk-cic-memoform {
+  background: #F6FAF9;
+  border: 1px dashed #2A9D8F;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+}
+
 /*# sourceMappingURL=styles.css.map */

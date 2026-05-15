@@ -20,6 +20,14 @@ const form = ref(emptyForm())
 const formError = ref('')
 const saving = ref(false)
 
+// キャスト選択用検索
+const castSearch = ref('')
+const filteredCasts = computed(() => {
+  const q = castSearch.value.trim()
+  if (!q) return casts.value
+  return casts.value.filter(c => (c.name || '').includes(q))
+})
+
 function emptyForm() {
   return { date: filterDate.value, cast: '', room: '', start_time: '', end_time: '' }
 }
@@ -190,7 +198,7 @@ function roomName(id) {
 
     <!-- Form modal -->
     <div v-if="showForm" class="modal d-block" style="background: rgba(0,0,0,0.3);" @click.self="showForm = false">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">{{ editingId ? 'シフト編集' : 'シフト追加' }}</h5>
@@ -205,10 +213,35 @@ function roomName(id) {
             </div>
             <div class="mb-3">
               <label class="form-label">キャスト</label>
-              <select v-model="form.cast" class="form-select">
-                <option value="" disabled>選択してください</option>
-                <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
-              </select>
+              <input
+                v-model="castSearch"
+                type="text"
+                class="form-control form-control-sm mb-2"
+                placeholder="名前で検索..."
+              />
+              <div class="cast-scroll">
+                <div
+                  v-for="c in filteredCasts"
+                  :key="c.id"
+                  class="cast-chip"
+                  :class="{ active: form.cast === c.id }"
+                  @click="form.cast = c.id"
+                >
+                  <img
+                    v-if="c.avatar_url"
+                    :src="c.avatar_url"
+                    :alt="c.name"
+                    class="cast-chip__avatar"
+                  />
+                  <div v-else class="cast-chip__avatar cast-chip__avatar--placeholder">
+                    <i class="ti ti-user"></i>
+                  </div>
+                  <span class="cast-chip__name">{{ c.name }}</span>
+                </div>
+              </div>
+              <div v-if="filteredCasts.length === 0" class="text-muted small mt-1">
+                該当するキャストがいません
+              </div>
             </div>
             <div class="mb-3">
               <label class="form-label">部屋</label>
@@ -239,3 +272,65 @@ function roomName(id) {
     </div>
   </LayoutOperator>
 </template>
+
+<style scoped lang="scss">
+.cast-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--rk-grid-border, #E6EEF0);
+  border-radius: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.cast-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  width: 88px;
+  padding: 4px;
+  transition: all 0.15s;
+
+  &:hover {
+    border-color: var(--rk-primary);
+  }
+
+  &.active {
+    border-color: var(--rk-primary);
+    background: rgba(42, 157, 143, 0.08);
+  }
+
+  &__avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+
+    &--placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f0f0;
+      color: #aaa;
+      font-size: 22px;
+    }
+  }
+
+  &__name {
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.2;
+    word-break: keep-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+}
+</style>

@@ -168,11 +168,6 @@ function formatYen(n) {
         </router-link>
       </div>
 
-      <!-- Error -->
-      <div v-if="errorMsg" class="alert alert-danger">
-        {{ errorMsg }}
-      </div>
-
       <!-- STEP 1: 顧客検索 -->
       <div class="card">
         <div class="card-header">STEP 1: 顧客検索</div>
@@ -303,6 +298,9 @@ function formatYen(n) {
             <div class="text-center mb-3">
               <h5 v-if="selectedCourse" class="mb-0">合計料金: <strong>{{ formatYen(totalPrice) }}</strong></h5>
             </div>
+            <div v-if="errorMsg" class="alert alert-danger py-2 mb-2">
+              <i class="ti ti-alert-circle me-1"></i>{{ errorMsg }}
+            </div>
             <div class="d-flex gap-2">
               <router-link to="/op/schedule" class="btn btn-outline-secondary flex-fill">キャンセル</router-link>
               <button type="submit" class="btn btn-success flex-fill" :disabled="submitting">
@@ -325,15 +323,14 @@ function formatYen(n) {
 }
 
 .cast-scroll {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(3, auto);
+  display: flex;
+  flex-wrap: nowrap;
   gap: 0.5rem;
   overflow-x: auto;
   padding-bottom: 0.5rem;
   -webkit-overflow-scrolling: touch;
   align-items: center;
-  justify-content: start;
+  justify-content: flex-start;
 
   &::-webkit-scrollbar {
     height: 4px;

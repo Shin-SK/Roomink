@@ -10,9 +10,21 @@ const isManager = computed(() => getAuthRole() === 'manager')
 const kpi = ref({ estimated_sales: 0, requested: 0, confirmed: 0, total_orders: 0 })
 const requestedOrders = ref([])
 const unconfirmedOrders = ref([])
+const confirmedOrders = ref([])
+const pendingFinalizeOrders = ref([])
 const allOrders = ref([])
 const loading = ref(true)
+// タブ: mikakunin(キャスト未確認) / request(予約リクエスト) / confirmed(本日の確定予約) / finalize(会計待ち)
 const activeTab = ref('mikakunin')
+
+// CONFIRMED の中で「現在時刻が施術時間内」なら UI 上「施術中」と表示する
+const nowTick = ref(Date.now())
+let nowTickTimer = null
+function isInSession(order) {
+  if (order.status !== 'CONFIRMED') return false
+  const now = nowTick.value
+  return new Date(order.start).getTime() <= now && now < new Date(order.end).getTime()
+}
 
 // CTI Queue
 const ctiCalls = ref([])
@@ -68,6 +80,9 @@ onMounted(async () => {
     allOrders.value = data.orders
     requestedOrders.value = data.orders.filter(o => o.status === 'REQUESTED')
     unconfirmedOrders.value = data.orders.filter(o => o.is_unconfirmed && o.status !== 'REQUESTED' && o.status !== 'CANCELLED' && o.status !== 'DONE')
+    // 「本日の確定予約」= CONFIRMED と IN_PROGRESS（後方互換、現状運用では出さない想定）
+    confirmedOrders.value = data.orders.filter(o => o.status === 'CONFIRMED' || o.status === 'IN_PROGRESS')
+    pendingFinalizeOrders.value = data.orders.filter(o => o.status === 'PENDING_FINALIZE')
   } catch (e) {
     console.error(e)
   } finally {
@@ -84,11 +99,15 @@ onMounted(async () => {
   // LINE alerts (30 sec)
   await fetchLineAlerts()
   lineAlertTimer = setInterval(fetchLineAlerts, 30000)
+
+  // 「施術中」表示判定用に1分ごとに現在時刻を更新
+  nowTickTimer = setInterval(() => { nowTick.value = Date.now() }, 60000)
 })
 
 onUnmounted(() => {
   if (ctiTimer) clearInterval(ctiTimer)
   if (lineAlertTimer) clearInterval(lineAlertTimer)
+  if (nowTickTimer) clearInterval(nowTickTimer)
 })
 
 async function fetchLineAlerts() {
@@ -142,6 +161,25 @@ function formatTime(dt) {
 function formatYen(n) {
   return `¥${Number(n).toLocaleString()}`
 }
+
+const STATUS_LABELS = {
+  REQUESTED: '予約リクエスト',
+  CONFIRMED: '確定',
+  IN_PROGRESS: '施術中',
+  PENDING_FINALIZE: '会計待ち',
+  DONE: '完了',
+  CANCELLED: 'キャンセル',
+}
+const STATUS_BADGES = {
+  REQUESTED: 'badge-pending',
+  CONFIRMED: 'badge-approved',
+  IN_PROGRESS: 'badge-approved',
+  PENDING_FINALIZE: 'badge-attention',
+  DONE: 'bg-secondary',
+  CANCELLED: 'bg-secondary',
+}
+function statusLabel(s) { return STATUS_LABELS[s] || s }
+function statusBadgeClass(s) { return STATUS_BADGES[s] || 'bg-secondary' }
 
 // ── Sales ──
 const salesRange = ref('today')
@@ -244,8 +282,13 @@ function timeAgo(dt) {
             </a>
           </li>
           <li v-if="requestedOrders.length">
-            <a href="#" @click.prevent="activeTab = 'kakunin'" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
-              <div class="badge badge-pending">確定待ち</div><small>{{ requestedOrders.length }}件</small>
+            <a href="#" @click.prevent="activeTab = 'request'" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
+              <div class="badge badge-pending">予約リクエスト</div><small>{{ requestedOrders.length }}件</small>
+            </a>
+          </li>
+          <li v-if="pendingFinalizeOrders.length">
+            <a href="#" @click.prevent="activeTab = 'finalize'" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
+              <div class="badge badge-attention">会計待ち</div><small>{{ pendingFinalizeOrders.length }}件</small>
             </a>
           </li>
         </ul>
@@ -325,7 +368,7 @@ function timeAgo(dt) {
           <div class="stat-box">
             <div class="stat-label"><i class="ti ti-calendar-event"></i> 本日本数</div>
             <div class="stat-value">{{ kpi.total_orders }}</div>
-            <div class="stat-change">{{ kpi.confirmed }} 確定 / {{ kpi.requested }} 確定待ち</div>
+            <div class="stat-change">{{ kpi.confirmed }} 確定 / {{ kpi.requested }} リクエスト</div>
           </div>
         </div>
         <div class="col-6 col-sm-6 col-xl-3">
@@ -415,13 +458,25 @@ function timeAgo(dt) {
             :class="{ active: activeTab === 'mikakunin' }"
             class="tab-mikakunin"
             @click="activeTab = 'mikakunin'"
-          >キャスト未確認</button>
+          >キャスト未確認<span v-if="unconfirmedOrders.length" class="ms-1">({{ unconfirmedOrders.length }})</span></button>
         </div>
         <div class="wrap">
           <button
-            :class="{ active: activeTab === 'kakunin' }"
-            @click="activeTab = 'kakunin'"
-          >確定待ち</button>
+            :class="{ active: activeTab === 'request' }"
+            @click="activeTab = 'request'"
+          >予約リクエスト<span v-if="requestedOrders.length" class="ms-1">({{ requestedOrders.length }})</span></button>
+        </div>
+        <div class="wrap">
+          <button
+            :class="{ active: activeTab === 'confirmed' }"
+            @click="activeTab = 'confirmed'"
+          >本日の確定予約<span v-if="confirmedOrders.length" class="ms-1">({{ confirmedOrders.length }})</span></button>
+        </div>
+        <div class="wrap">
+          <button
+            :class="{ active: activeTab === 'finalize' }"
+            @click="activeTab = 'finalize'"
+          >会計待ち<span v-if="pendingFinalizeOrders.length" class="ms-1">({{ pendingFinalizeOrders.length }})</span></button>
         </div>
       </nav>
 
@@ -455,10 +510,10 @@ function timeAgo(dt) {
         </div>
       </div>
 
-      <!-- 承認待ち -->
-      <div v-show="activeTab === 'kakunin'" class="card border-0 mb-4">
+      <!-- 予約リクエスト（REQUESTED） -->
+      <div v-show="activeTab === 'request'" class="card border-0 mb-4">
         <div class="card-header">
-          <i class="ti ti-inbox"></i> 確定待ち予約
+          <i class="ti ti-inbox"></i> 予約リクエスト
         </div>
         <div class="card-body p-0">
           <ul class="list-group list-group-flush">
@@ -467,44 +522,82 @@ function timeAgo(dt) {
               :key="'req-' + order.id"
               class="list-group-item"
             >
-              <div class="d-flex justify-content-between align-items-start">
-                <div class="flex-grow-1">
-                  <div class="list-header">
-                    <div class="d-flex align-items-center gap-2">
-                      <h5 class="mb-0 fw-bold">{{ order.customer_label }}</h5>
-                      <span class="badge badge-pending">確定待ち</span>
-                    </div>
-                  </div>
-                  <div class="list-body">
-                    <div class="d-flex align-items-center gap-2">
-                      <i class="ti ti-calendar"></i>{{ formatTime(order.start) }}–{{ formatTime(order.end) }}
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
-                      <i class="ti ti-category-2"></i>{{ order.course_name }}
-                    </div>
-                  </div>
-                  <div class="list-footer mt-3">
-                    <div class="row g-2">
-                      <div class="col-4">
-                        <a
-                          href="#"
-                          class="btn btn-sm btn-outline-dark w-100"
-                          @click.prevent="goOrder(order.id)"
-                        >詳細</a>
-                      </div>
-                      <div class="col-4">
-                        <router-link
-                          to="/op/schedule"
-                          class="btn btn-sm btn-primary w-100"
-                        >スケジュール</router-link>
-                      </div>
-                    </div>
-                  </div>
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <span class="badge badge-pending">リクエスト</span>
+                  <strong>{{ order.customer_label }}</strong>
+                  <span class="text-muted small">{{ formatTime(order.start) }}–{{ formatTime(order.end) }}</span>
+                  <span class="text-muted small">{{ order.course_name }}</span>
                 </div>
+                <a href="#" class="btn btn-sm btn-primary" @click.prevent="goOrder(order.id)">
+                  <i class="ti ti-check me-1"></i>確認する
+                </a>
               </div>
             </li>
             <li v-if="requestedOrders.length === 0" class="list-group-item text-muted text-center py-3">
-              確定待ちの予約はありません
+              予約リクエストはありません
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 本日の確定予約（CONFIRMED、施術中なら動的に「施術中」バッジ） -->
+      <div v-show="activeTab === 'confirmed'" class="card border-0 mb-4">
+        <div class="card-header">
+          <i class="ti ti-calendar-check"></i> 本日の確定予約
+        </div>
+        <div class="card-body p-0">
+          <ul class="list-group list-group-flush">
+            <li
+              v-for="order in confirmedOrders"
+              :key="'cf-' + order.id"
+              class="list-group-item"
+            >
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <span v-if="isInSession(order)" class="badge badge-approved">施術中</span>
+                  <span v-else class="badge badge-approved">確定</span>
+                  <strong>{{ order.customer_label }}</strong>
+                  <span class="text-muted small">{{ formatTime(order.start) }}–{{ formatTime(order.end) }}</span>
+                  <span class="text-muted small">{{ order.course_name }}</span>
+                </div>
+                <a href="#" class="btn btn-sm btn-primary" @click.prevent="goOrder(order.id)">
+                  <i class="ti ti-circle-check me-1"></i>施術終了
+                </a>
+              </div>
+            </li>
+            <li v-if="confirmedOrders.length === 0" class="list-group-item text-muted text-center py-3">
+              本日の確定予約はありません
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 会計待ち（PENDING_FINALIZE） -->
+      <div v-show="activeTab === 'finalize'" class="card border-0 mb-4">
+        <div class="card-header">
+          <i class="ti ti-cash"></i> 会計待ち
+        </div>
+        <div class="card-body p-0">
+          <ul class="list-group list-group-flush">
+            <li
+              v-for="order in pendingFinalizeOrders"
+              :key="'fin-' + order.id"
+              class="list-group-item"
+            >
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <span class="badge badge-attention">会計待ち</span>
+                  <strong>{{ order.customer_label }}</strong>
+                  <span class="text-muted small">{{ formatTime(order.start) }}–{{ formatTime(order.end) }}</span>
+                </div>
+                <a href="#" class="btn btn-sm btn-primary" @click.prevent="goOrder(order.id)">
+                  <i class="ti ti-cash me-1"></i>会計確定
+                </a>
+              </div>
+            </li>
+            <li v-if="pendingFinalizeOrders.length === 0" class="list-group-item text-muted text-center py-3">
+              会計待ちの予約はありません
             </li>
           </ul>
         </div>

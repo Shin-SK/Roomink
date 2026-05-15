@@ -6,6 +6,19 @@ function getCookie(name) {
   return v ? v.pop() : ''
 }
 
+// 電話番号正規化: 全角→半角、+81/81 → 0、数字以外を除去
+export function normalizePhone(raw) {
+  if (raw == null) return ''
+  let s = String(raw)
+    .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/[－−ー―‐]/g, '-')
+    .trim()
+  if (s.startsWith('+81')) s = '0' + s.slice(3)
+  s = s.replace(/\D/g, '')
+  if (s.startsWith('81') && s.length >= 11) s = '0' + s.slice(2)
+  return s
+}
+
 async function request(method, path, body) {
   const opts = {
     method,
@@ -62,6 +75,7 @@ export const api = {
   csrf: () => request('GET', '/auth/csrf/'),
   login: (username, password) => request('POST', '/auth/login/', { username, password }),
   logout: () => request('POST', '/auth/logout/'),
+  passwordReset: (username, new_password) => request('POST', '/auth/password-reset/', { username, new_password }),
   me: () => request('GET', '/auth/me/'),
   updateProfile: (body) => request('PATCH', '/auth/profile/', body),
 
@@ -94,6 +108,11 @@ export const api = {
     if (phone) params.set('phone', phone)
     if (name) params.set('name', name)
     return request('GET', `/customers/check-duplicate/?${params}`)
+  },
+  searchCustomerByPhone: async (phone) => {
+    const normalized = normalizePhone(phone)
+    if (!normalized || normalized.length < 6) return []
+    return listRequest('GET', `/customers/?phone=${encodeURIComponent(normalized)}`)
   },
 
   // Casts
@@ -199,6 +218,16 @@ export const api = {
   ctiCallStart: (id) => request('POST', `/op/cti/calls/${id}/start/`),
   ctiCallDone: (id) => request('POST', `/op/cti/calls/${id}/done/`),
   ctiCallAddNote: (id, body) => request('POST', `/op/cti/calls/${id}/notes/`, { body }),
+
+  // Op CallLogs (Phase 3: 手動架電履歴)
+  getCallLogs: (params = '') => {
+    const qs = typeof params === 'string'
+      ? params
+      : new URLSearchParams(params).toString()
+    return listRequest('GET', `/op/call-logs/${qs ? '?' + qs : ''}`)
+  },
+  createCallLog: (body) => request('POST', '/op/call-logs/', body),
+  addCallNote: (callLogId, body) => request('POST', `/op/call-logs/${callLogId}/add-note/`, { body }),
 
   // LINE Alerts
   getLineAlerts: () => request('GET', '/op/line-alerts/'),
