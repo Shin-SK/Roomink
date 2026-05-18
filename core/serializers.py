@@ -363,11 +363,12 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "cast", "customer", "course", "start", "end",
-            "memo", "options", "medium",
+            "memo", "options", "medium", "payment_method",
         ]
         extra_kwargs = {
             "end": {"required": False},
             "memo": {"required": False, "default": ""},
+            "payment_method": {"required": False},
         }
 
     def validate(self, data):

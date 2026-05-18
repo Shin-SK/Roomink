@@ -20,7 +20,7 @@ const showPhoneSearch = ref(false)
 
 // 予約作成モーダル
 const showCreateModal = ref(false)
-const createForm = ref({ cast: '', customer: '', course: '', startTime: '', memo: '', options: [], medium: '' })
+const createForm = ref({ cast: '', customer: '', course: '', startTime: '', memo: '', options: [], medium: '', payment_method: 'UNSET' })
 const createError = ref('')
 const creating = ref(false)
 const customers = ref([])
@@ -126,7 +126,7 @@ async function loadMasters() {
 
 async function openCreateModal({ cast = '', customer = '', startTime = '' } = {}) {
   createError.value = ''
-  createForm.value = { cast, customer, course: '', startTime, memo: '', options: [], medium: '' }
+  createForm.value = { cast, customer, course: '', startTime, memo: '', options: [], medium: '', payment_method: 'UNSET' }
   showCreateModal.value = true
   await loadMasters()
 }
@@ -267,6 +267,7 @@ async function submitCreate() {
     }
     if (createForm.value.options.length) body.options = createForm.value.options
     if (createForm.value.medium) body.medium = Number(createForm.value.medium)
+    if (createForm.value.payment_method) body.payment_method = createForm.value.payment_method
 
     const order = await api.createOrder(body)
     showCreateModal.value = false
@@ -473,7 +474,15 @@ onMounted(fetchSchedule)
             </div>
             <div class="mb-3">
               <label class="form-label">開始時間 <span class="text-danger">*</span></label>
-              <input v-model="createForm.startTime" type="time" class="form-control" />
+              <input v-model="createForm.startTime" type="time" step="300" class="form-control" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">支払い方法</label>
+              <select v-model="createForm.payment_method" class="form-select">
+                <option value="UNSET">未設定</option>
+                <option value="CASH">現金</option>
+                <option value="CARD">カード</option>
+              </select>
             </div>
             <div v-if="allOptions.length" class="mb-3">
               <label class="form-label">オプション</label>

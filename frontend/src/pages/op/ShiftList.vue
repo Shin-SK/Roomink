@@ -253,11 +253,11 @@ function roomName(id) {
             <div class="row">
               <div class="col-6 mb-3">
                 <label class="form-label">開始時間</label>
-                <input v-model="form.start_time" type="time" class="form-control" />
+                <input v-model="form.start_time" type="time" step="1800" class="form-control" />
               </div>
               <div class="col-6 mb-3">
                 <label class="form-label">終了時間</label>
-                <input v-model="form.end_time" type="time" class="form-control" />
+                <input v-model="form.end_time" type="time" step="1800" class="form-control" />
               </div>
             </div>
           </div>

@@ -53,6 +53,7 @@ urlpatterns = [
     path("cu/reservations/<int:pk>/", views.CustomerReservationDetailView.as_view(), name="cu-reservation-detail"),
 
     # operator
+    path("op/orders/<int:pk>/cast-ack/", views.OpOrderCastAckView.as_view(), name="op-order-cast-ack"),
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),
     path("op/room-schedule/", views.RoomScheduleView.as_view(), name="op-room-schedule"),
 path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),

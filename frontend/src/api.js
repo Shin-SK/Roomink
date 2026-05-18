@@ -95,6 +95,7 @@ export const api = {
   applyNominationFee: (id, nomination_fee_id) => request('POST', `/orders/${id}/apply_nomination_fee/`, { nomination_fee_id }),
   applyDiscount: (id, discount_id) => request('POST', `/orders/${id}/apply_discount/`, { discount_id }),
   applyMedium: (id, medium_id) => request('POST', `/orders/${id}/apply_medium/`, { medium_id }),
+  opOrderCastAck: (id) => request('POST', `/op/orders/${id}/cast-ack/`),
 
   // Customers
   getCustomers: (params = '') => listRequest('GET', `/customers/${params ? '?' + params : '?limit=1000'}`),

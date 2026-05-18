@@ -34,6 +34,8 @@ const requestedTop3 = computed(() => requestedOrders.value.slice(0, 3))
 const unconfirmedTop3 = computed(() => unconfirmedOrders.value.slice(0, 3))
 const ctiStarting = ref({})   // { [callId]: true } 二重クリック防止
 const ctiDoning = ref({})
+const proxyAcking = ref({})   // { [orderId]: true } 代理確認の二重クリック防止
+const proxyAckError = ref('')
 const ctiError = ref('')
 const ctiPopup = ref(null)    // 新規着信ポップアップ用
 let ctiTimer = null
@@ -122,6 +124,20 @@ async function fetchLineAlerts() {
 
 function goOrder(id) {
   router.push(`/op/orders/${id}`)
+}
+
+async function proxyAck(order) {
+  if (proxyAcking.value[order.id]) return
+  proxyAcking.value[order.id] = true
+  proxyAckError.value = ''
+  try {
+    await api.opOrderCastAck(order.id)
+    unconfirmedOrders.value = unconfirmedOrders.value.filter(o => o.id !== order.id)
+  } catch (e) {
+    proxyAckError.value = e.message || '代理確認に失敗しました'
+  } finally {
+    proxyAcking.value[order.id] = false
+  }
 }
 
 async function handleCall(call) {
@@ -485,6 +501,7 @@ function timeAgo(dt) {
         <div class="card-header bg-attention">
           <i class="ti ti-alert-triangle text-dark"></i> キャスト未確認
         </div>
+        <div v-if="proxyAckError" class="alert alert-danger py-2 px-3 m-2 mb-0" style="font-size: 0.875rem;">{{ proxyAckError }}</div>
         <div class="card-body p-0">
           <ul class="list-group list-group-flush">
             <li
@@ -492,15 +509,24 @@ function timeAgo(dt) {
               :key="'alert-' + order.id"
               class="list-group-item"
             >
-              <div class="d-flex justify-content-between align-items-center">
-                <div class="d-flex align-items-center gap-2">
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
                   <span class="badge badge-attention">キャスト未確認</span>
                   <strong>{{ order.customer_label }}</strong>
                   <span class="text-muted small">{{ formatTime(order.start) }}</span>
                 </div>
-                <a href="#" class="btn btn-sm btn-attention" @click.prevent="goOrder(order.id)">
-                  <i class="ti ti-check"></i> 詳細
-                </a>
+                <div class="d-flex align-items-center gap-2">
+                  <button
+                    class="btn btn-sm btn-primary"
+                    :disabled="proxyAcking[order.id]"
+                    @click="proxyAck(order)"
+                  >
+                    <i class="ti ti-check me-1"></i>{{ proxyAcking[order.id] ? '処理中...' : '代理で確認済みにする' }}
+                  </button>
+                  <a href="#" class="btn btn-sm btn-attention" @click.prevent="goOrder(order.id)">
+                    <i class="ti ti-eye"></i> 詳細
+                  </a>
+                </div>
               </div>
             </li>
             <li v-if="unconfirmedOrders.length === 0" class="list-group-item text-muted text-center py-3">

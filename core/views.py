@@ -557,6 +557,45 @@ class CastAckView(APIView):
         })
 
 
+class OpOrderCastAckView(APIView):
+    """POST /api/op/orders/{id}/cast-ack/ — 運営が代理でキャスト確認済みにする"""
+
+    def post(self, request, pk):
+        store = get_user_store(request)
+        try:
+            order = Order.objects.select_related("room", "customer", "course").get(pk=pk)
+        except Order.DoesNotExist:
+            return Response(
+                {"detail": "予約が見つかりません"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if order.store_id != store.id:
+            return Response(
+                {"detail": "この予約は別店舗です"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        ack, _ = CastAck.objects.get_or_create(order=order)
+        if ack.acked_at is None:
+            ack.acked_at = timezone.now()
+            ack.save(update_fields=["acked_at"])
+
+        return Response({
+            "id": order.id,
+            "start": order.start,
+            "end": order.end,
+            "status": order.status,
+            "room_id": order.room_id,
+            "room_name": order.room.name,
+            "customer_label": build_customer_label(order.customer),
+            "course_name": order.course_name,
+            "course_price": order.course_price,
+            "memo": order.memo,
+            "is_unconfirmed": False,
+        })
+
+
 # ──────────────────────────────────────
 # Customer — signup / mypage / booking
 # ──────────────────────────────────────
