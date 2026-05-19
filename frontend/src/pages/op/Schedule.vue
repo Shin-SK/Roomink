@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import TimelineGrid from '../../components/TimelineGrid.vue'
 import CustomerInfoCard from '../../components/CustomerInfoCard.vue'
+import OrderForm from '../../components/OrderForm.vue'
 import { api, normalizePhone } from '../../api.js'
 
 const router = useRouter()
@@ -20,15 +21,9 @@ const showPhoneSearch = ref(false)
 
 // 予約作成モーダル
 const showCreateModal = ref(false)
-const createForm = ref({ cast: '', customer: '', course: '', startTime: '', memo: '', options: [], medium: '', payment_method: 'UNSET' })
-const createError = ref('')
-const creating = ref(false)
-const customers = ref([])
-const allCourses = ref([])
-const allOptions = ref([])
-const allMedia = ref([])
-const mastersLoaded = ref(false)
-const customerSearch = ref('')
+const modalCast = ref('')
+const modalStartTime = ref('')
+const modalCustomerId = ref('')
 
 // 電話番号検索 → 顧客情報カード
 const phoneInput = ref('')
@@ -44,26 +39,6 @@ const callLogs = ref([])
 const callLogsLoading = ref(false)
 const callLogsError = ref('')
 const savingMemo = ref(false)
-
-const filteredCustomers = computed(() => {
-  const q = customerSearch.value.trim().toLowerCase()
-  if (!q) return customers.value
-  return customers.value.filter(c =>
-    (c.phone || '').includes(q) ||
-    (c.display_name || '').toLowerCase().includes(q)
-  )
-})
-
-const selectedCustomerWarning = computed(() => {
-  if (!createForm.value.customer) return ''
-  const c = customers.value.find(cu => cu.id === Number(createForm.value.customer))
-  if (!c) return ''
-  const warnings = []
-  if (c.flag === 'BAN') warnings.push('この顧客は出禁です')
-  else if (c.flag === 'ATTENTION') warnings.push('この顧客は要注意です')
-  if (c.duplicate_count) warnings.push(`重複候補が${c.duplicate_count}件あります`)
-  return warnings.join(' / ')
-})
 
 function today() {
   return new Date().toISOString().slice(0, 10)
@@ -105,39 +80,30 @@ function onBlockClick(order) {
   router.push(`/op/orders/${order.id}`)
 }
 
-async function loadMasters() {
-  if (mastersLoaded.value) return
-  try {
-    const [custs, courses, opts, mds] = await Promise.all([
-      api.getCustomers(),
-      api.getCourses(),
-      api.getOptions(),
-      api.getMedia(),
-    ])
-    customers.value = Array.isArray(custs) ? custs : []
-    allCourses.value = Array.isArray(courses) ? courses : []
-    allOptions.value = Array.isArray(opts) ? opts : []
-    allMedia.value = Array.isArray(mds) ? mds : []
-    mastersLoaded.value = true
-  } catch (e) {
-    createError.value = e.message
-  }
-}
-
-async function openCreateModal({ cast = '', customer = '', startTime = '' } = {}) {
-  createError.value = ''
-  createForm.value = { cast, customer, course: '', startTime, memo: '', options: [], medium: '', payment_method: 'UNSET' }
+function openCreateModal({ cast = '', customer = '', startTime = '' } = {}) {
+  modalCast.value = cast
+  modalCustomerId.value = customer
+  modalStartTime.value = startTime || '15:00'
   showCreateModal.value = true
-  await loadMasters()
 }
 
-async function onCreateOrder(payload) {
+function onCreateOrder(payload) {
   // payload: { cast, start_time, room_id, room_name }（タイムライン空セルクリック）
   // または cast 単体（後方互換）
   const cast = payload && payload.cast ? payload.cast : payload
   const startTime = (payload && payload.start_time) || ''
   if (!cast || !cast.id) return
-  await openCreateModal({ cast: cast.id, startTime })
+  openCreateModal({ cast: cast.id, startTime })
+}
+
+function onOrderCreated({ order }) {
+  showCreateModal.value = false
+  highlightId.value = order.id
+  fetchSchedule()
+}
+
+function onOrderCancel() {
+  showCreateModal.value = false
 }
 
 // 電話番号 → 顧客検索（CTI自動入力時もこの関数を呼ぶ）
@@ -224,14 +190,10 @@ function closeCustomerCard() {
   showCustomerCard.value = false
 }
 
-async function onSelectCustomerForOrder(customer) {
+function onSelectCustomerForOrder(customer) {
   if (!customer || !customer.id) return
   showCustomerCard.value = false
-  await openCreateModal({ customer: customer.id })
-  // 後続でモーダル内 customers リストにヒットさせるため、念のため取り込む
-  if (!customers.value.find(c => c.id === customer.id)) {
-    customers.value = [customer, ...customers.value]
-  }
+  openCreateModal({ customer: customer.id })
 }
 
 function onCreateNewCustomer(phone) {
@@ -241,48 +203,6 @@ function onCreateNewCustomer(phone) {
   if (phone) params.set('phone', phone)
   params.set('return', `/op/schedule?date=${selectedDate.value}`)
   router.push(`/op/customers/new?${params.toString()}`)
-}
-
-function toggleCreateOption(optId) {
-  const idx = createForm.value.options.indexOf(optId)
-  if (idx >= 0) createForm.value.options.splice(idx, 1)
-  else createForm.value.options.push(optId)
-}
-
-async function submitCreate() {
-  createError.value = ''
-  if (!createForm.value.cast || !createForm.value.customer || !createForm.value.course || !createForm.value.startTime) {
-    createError.value = 'キャスト・顧客・コース・開始時間は必須です'
-    return
-  }
-  creating.value = true
-  try {
-    const startDt = `${selectedDate.value}T${createForm.value.startTime}:00`
-    const body = {
-      customer: Number(createForm.value.customer),
-      cast: Number(createForm.value.cast),
-      course: Number(createForm.value.course),
-      start: startDt,
-      memo: createForm.value.memo,
-    }
-    if (createForm.value.options.length) body.options = createForm.value.options
-    if (createForm.value.medium) body.medium = Number(createForm.value.medium)
-    if (createForm.value.payment_method) body.payment_method = createForm.value.payment_method
-
-    const order = await api.createOrder(body)
-    showCreateModal.value = false
-    highlightId.value = order.id
-    await fetchSchedule()
-  } catch (e) {
-    createError.value = e.message
-  } finally {
-    creating.value = false
-  }
-}
-
-function castNameById(id) {
-  const c = casts.value.find(c => c.id === id)
-  return c ? c.name : ''
 }
 
 function setToday() {
@@ -304,7 +224,6 @@ function toggleLegend(e) {
 }
 
 watch(selectedDate, () => {
-  mastersLoaded.value = false
   fetchSchedule()
 })
 onMounted(fetchSchedule)
@@ -424,95 +343,27 @@ onMounted(fetchSchedule)
       </div>
     </div>
 
-    <!-- 予約作成モーダル -->
+    <!-- 予約作成モーダル（OrderForm 雛形を利用） -->
     <div v-if="showCreateModal" class="modal d-block" style="background: rgba(0,0,0,0.3);" @click.self="showCreateModal = false">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">
-              <i class="ti ti-plus me-1"></i>予約作成
-              <span v-if="createForm.cast"> — {{ castNameById(Number(createForm.cast)) }}</span>
-              ({{ selectedDate }})
+              <i class="ti ti-plus me-1"></i>予約作成（{{ selectedDate }}）
             </h5>
             <button type="button" class="btn-close" @click="showCreateModal = false"></button>
           </div>
           <div class="modal-body">
-            <div v-if="createError" class="alert alert-danger py-2 px-3 mb-3" style="font-size: 0.875rem;">{{ createError }}</div>
-
-            <div class="mb-3">
-              <label class="form-label">キャスト <span class="text-danger">*</span></label>
-              <select v-model="createForm.cast" class="form-select">
-                <option value="" disabled>選択してください</option>
-                <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
-              </select>
-            </div>
-
-            <div class="mb-3">
-              <label class="form-label">顧客 <span class="text-danger">*</span></label>
-              <input
-                v-model="customerSearch"
-                type="text"
-                class="form-control form-control-sm mb-1"
-                placeholder="電話番号 or 名前で検索..."
-              />
-              <select v-model="createForm.customer" class="form-select">
-                <option value="" disabled>選択してください</option>
-                <option v-for="c in filteredCustomers" :key="c.id" :value="c.id">
-                  {{ c.display_name || c.phone }} ({{ c.phone }}){{ c.flag === 'BAN' ? ' ★出禁' : c.flag === 'ATTENTION' ? ' ★注意' : '' }}{{ c.duplicate_count ? ` [重複${c.duplicate_count}件]` : '' }}
-                </option>
-              </select>
-              <div v-if="selectedCustomerWarning" class="alert alert-warning py-1 px-2 mt-1 mb-0" style="font-size: 0.8rem;">
-                <i class="ti ti-alert-triangle"></i> {{ selectedCustomerWarning }}
-              </div>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">コース <span class="text-danger">*</span></label>
-              <select v-model="createForm.course" class="form-select">
-                <option value="" disabled>選択してください</option>
-                <option v-for="c in allCourses" :key="c.id" :value="c.id">{{ c.name }} ({{ c.duration }}分 / ¥{{ c.price.toLocaleString() }})</option>
-              </select>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">開始時間 <span class="text-danger">*</span></label>
-              <input v-model="createForm.startTime" type="time" step="300" class="form-control" />
-            </div>
-            <div class="mb-3">
-              <label class="form-label">支払い方法</label>
-              <select v-model="createForm.payment_method" class="form-select">
-                <option value="UNSET">未設定</option>
-                <option value="CASH">現金</option>
-                <option value="CARD">カード</option>
-              </select>
-            </div>
-            <div v-if="allOptions.length" class="mb-3">
-              <label class="form-label">オプション</label>
-              <div class="d-flex flex-wrap gap-1">
-                <button
-                  v-for="opt in allOptions" :key="opt.id"
-                  type="button"
-                  class="btn btn-sm"
-                  :class="createForm.options.includes(opt.id) ? 'btn-primary' : 'btn-outline-secondary'"
-                  @click="toggleCreateOption(opt.id)"
-                >{{ opt.name }} (+¥{{ opt.price.toLocaleString() }})</button>
-              </div>
-            </div>
-            <div v-if="allMedia.length" class="mb-3">
-              <label class="form-label">媒体</label>
-              <select v-model="createForm.medium" class="form-select">
-                <option value="">なし</option>
-                <option v-for="m in allMedia" :key="m.id" :value="m.id">{{ m.name }}</option>
-              </select>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">メモ</label>
-              <textarea v-model="createForm.memo" class="form-control" rows="2"></textarea>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" @click="showCreateModal = false">キャンセル</button>
-            <button class="btn btn-primary" :disabled="creating" @click="submitCreate">
-              {{ creating ? '作成中...' : '予約作成' }}
-            </button>
+            <OrderForm
+              :initial-date="selectedDate"
+              :initial-cast="modalCast"
+              :initial-customer-id="modalCustomerId"
+              :initial-start-time="modalStartTime"
+              :embedded="true"
+              :show-flow-hint="false"
+              @created="onOrderCreated"
+              @cancel="onOrderCancel"
+            />
           </div>
         </div>
       </div>
@@ -573,5 +424,9 @@ onMounted(fetchSchedule)
     flex-basis: 100%;
     max-width: 100%;
   }
+}
+
+.modal-dialog.modal-lg {
+  max-width: 720px;
 }
 </style>

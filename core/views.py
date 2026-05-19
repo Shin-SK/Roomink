@@ -3,7 +3,7 @@ import io
 import logging
 import os
 import uuid
-from datetime import date as date_type, timedelta
+from datetime import date as date_type, datetime, timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -973,6 +973,28 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(store=get_user_store(self.request))
+
+    @action(detail=True, methods=["post"], url_path="clock-in")
+    def clock_in(self, request, pk=None):
+        shift = self.get_object()
+        now = timezone.now()
+        today = timezone.localdate()
+        if shift.date < today:
+            # 過去日のレトロ記録: シフト開始時刻を打刻時刻として扱う
+            naive = datetime.combine(shift.date, shift.start_time)
+            tz = timezone.get_current_timezone()
+            shift.clocked_in_at = timezone.make_aware(naive, tz)
+        else:
+            shift.clocked_in_at = now
+        shift.save(update_fields=["clocked_in_at"])
+        return Response(self.get_serializer(shift).data)
+
+    @action(detail=True, methods=["post"], url_path="clear-clock-in")
+    def clear_clock_in(self, request, pk=None):
+        shift = self.get_object()
+        shift.clocked_in_at = None
+        shift.save(update_fields=["clocked_in_at"])
+        return Response(self.get_serializer(shift).data)
 
 
 class CustomerViewSet(viewsets.ModelViewSet):
@@ -2849,6 +2871,7 @@ class LineAlertsView(APIView):
     def get(self, request):
         store = get_user_store(request)
         today = date_type.today()
+        now_local = timezone.localtime()
 
         # 当日出勤予定で LINE 未連携の Cast
         today_shift_cast_ids = (
@@ -2898,9 +2921,32 @@ class LineAlertsView(APIView):
             for f in failed
         ]
 
+        # 当日シフトで開始時刻を過ぎているのに未打刻（未出勤）の Cast
+        not_clocked_in = (
+            ShiftAssignment.objects
+            .filter(
+                store=store,
+                date=today,
+                clocked_in_at__isnull=True,
+                start_time__lte=now_local.time(),
+            )
+            .select_related("cast")
+            .order_by("start_time")
+        )
+        not_clocked_in_list = [
+            {
+                "id": s.id,
+                "cast_id": s.cast_id,
+                "name": s.cast.name,
+                "start_time": str(s.start_time)[:5],
+            }
+            for s in not_clocked_in
+        ]
+
         return Response({
             "unlinked_casts": unlinked_list,
             "failed_notifications": failed_list,
+            "not_clocked_in_casts": not_clocked_in_list,
         })
 
 

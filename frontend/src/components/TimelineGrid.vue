@@ -35,6 +35,8 @@ function parseTimeToMin(t) {
 }
 
 function statusClass(order) {
+  // 完了は他のフラグ（要注意・未確認 等）より優先して完了感を出す
+  if (order.status === 'DONE') return ['is-done']
   const cls = []
   switch (order.status) {
     case 'CONFIRMED': cls.push('is-approved'); break

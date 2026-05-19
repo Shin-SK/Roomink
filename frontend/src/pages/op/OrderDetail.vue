@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
+import OrderForm from '../../components/OrderForm.vue'
 import { api } from '../../api.js'
 
 const props = defineProps({
@@ -15,25 +16,15 @@ const error = ref('')
 const acting = ref(false)
 const mode = ref('confirm') // 'confirm' | 'edit'
 
-// Edit mode
-const editForm = ref({ start: '', end: '', cast: null, course: null, options: [], memo: '' })
-const casts = ref([])
-const courses = ref([])
-const options = ref([])
-const saving = ref(false)
-const editError = ref('')
-
 // Addon
 const addonError = ref('')
 const addonActing = ref(false)
 const extensions = ref([])
 const nominationFees = ref([])
 const discounts = ref([])
-const media = ref([])
 const selectedExtension = ref(null)
 const selectedNominationFee = ref(null)
 const selectedDiscount = ref(null)
-const selectedMedium = ref(null)
 
 const statusMap = {
   REQUESTED: { text: '予約リクエスト', cls: 'badge-pending' },
@@ -77,29 +68,19 @@ const canEdit = computed(() =>
 
 onMounted(async () => {
   try {
-    const [o, castData, courseData, optData, exts, nfs, dcs, mds] = await Promise.all([
+    const [o, exts, nfs, dcs] = await Promise.all([
       api.getOrder(props.id),
-      api.getCasts(),
-      api.getCourses(),
-      api.getOptions(),
       api.getExtensions(),
       api.getNominationFees(),
       api.getDiscounts(),
-      api.getMedia(),
     ])
-    casts.value = Array.isArray(castData) ? castData : []
-    courses.value = Array.isArray(courseData) ? courseData : []
-    options.value = Array.isArray(optData) ? optData : []
     order.value = o
     extensions.value = Array.isArray(exts) ? exts : []
     nominationFees.value = Array.isArray(nfs) ? nfs : []
     discounts.value = Array.isArray(dcs) ? dcs : []
-    const allMedia = Array.isArray(mds) ? mds : []
-    media.value = allMedia.filter(m => m.is_active)
     selectedExtension.value = o.extension ?? null
     selectedNominationFee.value = o.nomination_fee ?? null
     selectedDiscount.value = o.discount ?? null
-    selectedMedium.value = o.medium ?? null
   } catch (e) {
     error.value = e.message
   } finally {
@@ -107,52 +88,17 @@ onMounted(async () => {
   }
 })
 
-function toLocalInput(dt) {
-  if (!dt) return ''
-  const d = new Date(dt)
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 function openEdit() {
-  editError.value = ''
-  editForm.value = {
-    start: toLocalInput(order.value.start),
-    end: toLocalInput(order.value.end),
-    cast: order.value.cast,
-    course: order.value.course,
-    options: order.value.option_ids || [],
-    memo: order.value.memo || '',
-  }
   mode.value = 'edit'
-}
-
-function toggleEditOption(optId) {
-  const idx = editForm.value.options.indexOf(optId)
-  if (idx >= 0) editForm.value.options.splice(idx, 1)
-  else editForm.value.options.push(optId)
-}
-
-function formatYen(n) {
-  return `¥${Number(n).toLocaleString()}`
 }
 
 function closeEdit() {
   mode.value = 'confirm'
-  editError.value = ''
 }
 
-async function saveEdit() {
-  editError.value = ''
-  saving.value = true
-  try {
-    order.value = await api.updateOrder(props.id, editForm.value)
-    mode.value = 'confirm'
-  } catch (e) {
-    editError.value = e.message
-  } finally {
-    saving.value = false
-  }
+function onOrderUpdated({ order: updated }) {
+  order.value = updated
+  mode.value = 'confirm'
 }
 
 async function doConfirm() {
@@ -261,18 +207,6 @@ async function updatePaymentMethod(value) {
     order.value = await api.updateOrder(props.id, { payment_method: value })
   } catch (e) {
     alert(e.message)
-  }
-}
-
-async function doApplyMedium() {
-  addonError.value = ''
-  addonActing.value = true
-  try {
-    order.value = await api.applyMedium(props.id, selectedMedium.value)
-  } catch (e) {
-    addonError.value = e.message
-  } finally {
-    addonActing.value = false
   }
 }
 </script>
@@ -461,61 +395,17 @@ async function doApplyMedium() {
             </button>
           </div>
 
-          <!-- 基本情報編集 -->
+          <!-- 基本情報編集（共通 OrderForm 雛形を利用） -->
           <div class="card mb-4">
-            <div class="card-header">
-              <i class="ti ti-file-text"></i> 基本情報
-            </div>
             <div class="card-body">
-              <div v-if="editError" class="alert alert-danger py-2 px-3 mb-3" style="font-size: 0.875rem;">
-                {{ editError }}
-              </div>
-              <form @submit.prevent="saveEdit">
-                <div class="mb-3">
-                  <label class="form-label">開始日時</label>
-                  <input v-model="editForm.start" type="datetime-local" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                  <label class="form-label">終了日時</label>
-                  <input v-model="editForm.end" type="datetime-local" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                  <label class="form-label">担当キャスト</label>
-                  <select v-model="editForm.cast" class="form-select" required>
-                    <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
-                  </select>
-                </div>
-                <div class="mb-3">
-                  <label class="form-label">コース</label>
-                  <select v-model="editForm.course" class="form-select" required>
-                    <option v-for="c in courses" :key="c.id" :value="c.id">
-                      {{ c.name }}（{{ formatYen(c.price) }}）
-                    </option>
-                  </select>
-                </div>
-                <div class="mb-3" v-if="options.length">
-                  <label class="form-label">オプション</label>
-                  <div class="d-flex gap-2 flex-wrap">
-                    <button
-                      v-for="opt in options"
-                      :key="opt.id"
-                      type="button"
-                      class="btn btn-sm"
-                      :class="editForm.options.includes(opt.id) ? 'btn-primary' : 'btn-outline-secondary'"
-                      @click="toggleEditOption(opt.id)"
-                    >
-                      {{ opt.name }}（+{{ formatYen(opt.price) }}）
-                    </button>
-                  </div>
-                </div>
-                <div class="mb-3">
-                  <label class="form-label">メモ</label>
-                  <textarea v-model="editForm.memo" class="form-control" rows="3"></textarea>
-                </div>
-                <button type="submit" class="btn btn-primary w-100" :disabled="saving">
-                  {{ saving ? '保存中...' : '保存' }}
-                </button>
-              </form>
+              <OrderForm
+                mode="edit"
+                :order-id="order.id"
+                :initial-order="order"
+                :embedded="true"
+                @updated="onOrderUpdated"
+                @cancel="closeEdit"
+              />
             </div>
           </div>
 
@@ -553,7 +443,7 @@ async function doApplyMedium() {
                 </div>
               </div>
 
-              <div class="mb-3">
+              <div class="mb-0">
                 <label class="form-label small fw-bold">割引</label>
                 <div class="d-flex gap-2">
                   <select v-model="selectedDiscount" class="form-select form-select-sm">
@@ -563,19 +453,6 @@ async function doApplyMedium() {
                     </option>
                   </select>
                   <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyDiscount">適用</button>
-                </div>
-              </div>
-
-              <div class="mb-0">
-                <label class="form-label small fw-bold">媒体</label>
-                <div class="d-flex gap-2">
-                  <select v-model="selectedMedium" class="form-select form-select-sm">
-                    <option :value="null">なし</option>
-                    <option v-for="m in media" :key="m.id" :value="m.id">
-                      {{ m.name }}
-                    </option>
-                  </select>
-                  <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyMedium">適用</button>
                 </div>
               </div>
             </div>

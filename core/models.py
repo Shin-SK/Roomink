@@ -128,6 +128,7 @@ class ShiftAssignment(models.Model):
     room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name="shift_assignments")
     start_time = models.TimeField()
     end_time = models.TimeField()
+    clocked_in_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ("store", "date", "cast", "start_time", "end_time")

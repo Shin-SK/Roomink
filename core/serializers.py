@@ -215,6 +215,7 @@ class StaffUpdateSerializer(serializers.Serializer):
 
 class ShiftAssignmentSerializer(serializers.ModelSerializer):
     cast_name = serializers.CharField(source="cast.name", read_only=True)
+    cast_avatar_url = serializers.CharField(source="cast.avatar_url", read_only=True)
     room_name = serializers.CharField(source="room.name", read_only=True)
 
     class Meta:

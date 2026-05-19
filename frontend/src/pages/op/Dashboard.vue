@@ -44,6 +44,7 @@ let prevCtiIds = new Set()
 // LINE Alerts
 const lineUnlinked = ref([])
 const lineFailed = ref([])
+const notClockedIn = ref([])
 let lineAlertTimer = null
 
 function today() {
@@ -117,6 +118,7 @@ async function fetchLineAlerts() {
     const data = await api.getLineAlerts()
     lineUnlinked.value = data.unlinked_casts || []
     lineFailed.value = data.failed_notifications || []
+    notClockedIn.value = data.not_clocked_in_casts || []
   } catch (e) {
     // non-fatal
   }
@@ -266,6 +268,22 @@ function timeAgo(dt) {
             </div>
           </div>
           <button class="btn btn-sm btn-outline-light" @click.stop="dismissPopup">&times;</button>
+        </div>
+      </div>
+
+      <!-- 未出勤アラート -->
+      <div v-if="notClockedIn.length" class="alert alert-danger mb-3 py-2 px-3">
+        <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+          <div class="d-flex align-items-center gap-2">
+            <i class="ti ti-alert-triangle"></i>
+            <strong>未出勤のキャストがいます</strong>
+          </div>
+          <router-link to="/op/shifts" class="btn btn-sm btn-outline-danger py-0">
+            シフト管理へ
+          </router-link>
+        </div>
+        <div v-for="c in notClockedIn" :key="'nc-'+c.id" class="small">
+          {{ c.name }}（{{ c.start_time }}〜）
         </div>
       </div>
 

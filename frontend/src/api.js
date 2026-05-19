@@ -187,6 +187,8 @@ export const api = {
   createShift: (body) => request('POST', '/shifts/', body),
   updateShift: (id, body) => request('PATCH', `/shifts/${id}/`, body),
   deleteShift: (id) => request('DELETE', `/shifts/${id}/`),
+  clockInShift: (id) => request('POST', `/shifts/${id}/clock-in/`),
+  clearClockInShift: (id) => request('POST', `/shifts/${id}/clear-clock-in/`),
 
   // Cast
   getCastToday: (date) => request('GET', `/cast/today/?date=${date}`),
