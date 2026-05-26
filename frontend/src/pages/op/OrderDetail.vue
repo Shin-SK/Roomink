@@ -66,6 +66,13 @@ const canEdit = computed(() =>
   order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
 )
 
+const isCardPayment = computed(() => order.value?.payment_method === 'CARD')
+const cardFee = computed(() => {
+  if (!isCardPayment.value || !order.value) return 0
+  return Math.round((order.value.total_price || 0) * 0.1)
+})
+const cardTotal = computed(() => (order.value?.total_price || 0) + cardFee.value)
+
 onMounted(async () => {
   try {
     const [o, exts, nfs, dcs] = await Promise.all([
@@ -333,6 +340,20 @@ async function updatePaymentMethod(value) {
                     <td>合計</td>
                     <td class="text-end">{{ order.total_price.toLocaleString() }}円</td>
                   </tr>
+                  <tr v-if="isCardPayment" class="card-fee-row">
+                    <td colspan="2" class="text-end">
+                      <div class="order-card-fee">
+                        <div class="order-card-fee__total">
+                          カード決済時のお客様請求額（目安）:
+                          <strong>{{ cardTotal.toLocaleString() }}円</strong>
+                        </div>
+                        <div class="order-card-fee__breakdown">
+                          （{{ order.total_price.toLocaleString() }}円 ＋ 手数料10% {{ cardFee.toLocaleString() }}円）
+                        </div>
+                        <div class="order-card-fee__hint">※ 売上計上額は手数料を含みません</div>
+                      </div>
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -464,3 +485,30 @@ async function updatePaymentMethod(value) {
     </template>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.card-fee-row td {
+  background: #fff7ed;
+  border-top: 1px dashed #fb923c;
+}
+.order-card-fee {
+  font-size: 0.85rem;
+  color: #7c2d12;
+  text-align: right;
+  line-height: 1.5;
+}
+.order-card-fee__total strong {
+  color: #c2410c;
+  font-size: 1rem;
+  margin-left: 4px;
+}
+.order-card-fee__breakdown {
+  font-size: 0.8rem;
+  color: #9a3412;
+}
+.order-card-fee__hint {
+  font-size: 0.72rem;
+  color: #78350f;
+  opacity: 0.85;
+}
+</style>

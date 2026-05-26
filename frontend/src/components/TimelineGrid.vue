@@ -15,15 +15,120 @@ const gridRef = ref(null)
 const nowMs = ref(Date.now())
 let nowTimer = null
 
+const hoveredCastId = ref(null)
+const pinnedCastId = ref(null)
+const popoverPos = ref({ top: 0, left: 0, placement: 'right' })
+let hoverTimeout = null
+
+const visibleCastId = computed(() => pinnedCastId.value || hoveredCastId.value)
+const visibleCast = computed(() => props.casts.find(c => c.id === visibleCastId.value) || null)
+
+function positionPopover(element) {
+  const rect = element.getBoundingClientRect()
+  const popW = 280
+  const popH = 200
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  let left = rect.right + 8
+  let placement = 'right'
+  if (left + popW > vw - 8) {
+    left = rect.left - popW - 8
+    placement = 'left'
+  }
+  let top = rect.top
+  if (top + popH > vh - 8) top = Math.max(8, vh - popH - 8)
+  popoverPos.value = { top, left, placement }
+}
+
+function onCastEnter(castId, event) {
+  clearTimeout(hoverTimeout)
+  if (pinnedCastId.value) return
+  hoveredCastId.value = castId
+  positionPopover(event.currentTarget)
+}
+
+function onCastLeave() {
+  if (pinnedCastId.value) return
+  hoverTimeout = setTimeout(() => { hoveredCastId.value = null }, 150)
+}
+
+function onCastClick(castId, event) {
+  event.stopPropagation()
+  if (pinnedCastId.value === castId) {
+    pinnedCastId.value = null
+    return
+  }
+  pinnedCastId.value = castId
+  hoveredCastId.value = null
+  positionPopover(event.currentTarget)
+}
+
+function onPopoverEnter() {
+  clearTimeout(hoverTimeout)
+}
+
+function onPopoverLeave() {
+  if (pinnedCastId.value) return
+  hoveredCastId.value = null
+}
+
+function onDocumentMousedown(e) {
+  if (!pinnedCastId.value) return
+  if (e.target.closest('.rk-castcell') || e.target.closest('.rk-castpop')) return
+  pinnedCastId.value = null
+}
+
+function onDocumentKey(e) {
+  if (e.key === 'Escape') {
+    pinnedCastId.value = null
+    hoveredCastId.value = null
+  }
+}
+
+function onScrollClose() {
+  pinnedCastId.value = null
+  hoveredCastId.value = null
+}
+
+const effectiveStartHour = computed(() => {
+  let earliest = props.startHour
+  for (const c of props.casts || []) {
+    const shifts = Array.isArray(c.shifts) ? c.shifts : []
+    for (const s of shifts) {
+      const t = (s.start_time || '').slice(0, 5)
+      if (!t) continue
+      const h = parseInt(t.slice(0, 2), 10)
+      if (Number.isFinite(h) && h < earliest) earliest = h
+    }
+  }
+  return Math.max(0, earliest)
+})
+
+const effectiveEndHour = computed(() => {
+  let latest = props.endHour
+  for (const c of props.casts || []) {
+    const shifts = Array.isArray(c.shifts) ? c.shifts : []
+    for (const s of shifts) {
+      const t = (s.end_time || '').slice(0, 5)
+      if (!t) continue
+      const h = parseInt(t.slice(0, 2), 10)
+      const m = parseInt(t.slice(3, 5), 10) || 0
+      const eff = m > 0 ? h + 1 : h
+      if (Number.isFinite(eff) && eff > latest) latest = eff
+    }
+  }
+  return Math.min(23, latest)
+})
+
 const hours = computed(() => {
   const arr = []
-  for (let h = props.startHour; h <= props.endHour; h++) {
+  for (let h = effectiveStartHour.value; h <= effectiveEndHour.value; h++) {
     arr.push(`${String(h).padStart(2, '0')}:00`)
   }
   return arr
 })
 
-const totalCols = computed(() => props.endHour - props.startHour + 1)
+const totalCols = computed(() => effectiveEndHour.value - effectiveStartHour.value + 1)
 
 const castIndexMap = computed(() => {
   const map = {}
@@ -100,6 +205,7 @@ function castStaffMemo(cast) {
 }
 
 const ROOM_COLOR_CLASSES = ['rk-room--c1', 'rk-room--c2', 'rk-room--c3', 'rk-room--c4', 'rk-room--c5', 'rk-room--c6']
+const BAND_COLOR_CLASSES = ['rk-shift-band--c1', 'rk-shift-band--c2', 'rk-shift-band--c3', 'rk-shift-band--c4', 'rk-shift-band--c5', 'rk-shift-band--c6']
 
 function roomColorClass(cast) {
   const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
@@ -112,22 +218,63 @@ function roomColorClass(cast) {
   return 'rk-room--unset'
 }
 
+function bandColorClass(shift) {
+  if (shift && shift.room_id != null) {
+    const idx = Math.abs(Number(shift.room_id)) % BAND_COLOR_CLASSES.length
+    return BAND_COLOR_CLASSES[idx]
+  }
+  return 'rk-shift-band--unset'
+}
+
 function castStatus(cast) {
   const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
   if (shifts.length === 0) return null
   const anyClockedIn = shifts.some(s => s.clocked_in_at)
-  if (anyClockedIn) return { key: 'in', label: '出勤済み' }
+  if (anyClockedIn) return { key: 'in', label: '出勤済み', short: '済' }
   let minStart = null
   for (const s of shifts) {
     const st = (s.start_time || '').slice(0, 5)
     if (st && (minStart === null || st < minStart)) minStart = st
   }
-  if (!minStart) return { key: 'scheduled', label: '出勤予定' }
+  if (!minStart) return { key: 'scheduled', label: '出勤予定', short: '予' }
   const d = new Date(nowMs.value)
   const cur = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  if (cur < minStart) return { key: 'scheduled', label: '出勤予定' }
-  return { key: 'absent', label: '未出勤' }
+  if (cur < minStart) return { key: 'scheduled', label: '出勤予定', short: '予' }
+  return { key: 'absent', label: '未出勤', short: '未' }
 }
+
+function fmtMin(min) {
+  const hh = String(Math.floor(min / 60)).padStart(2, '0')
+  const mm = String(min % 60).padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
+const shiftBands = computed(() => {
+  const visibleStart = effectiveStartHour.value * 60
+  const visibleEnd = (effectiveEndHour.value + 1) * 60
+  const bands = []
+  props.casts.forEach((cast, row) => {
+    const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
+    for (const s of shifts) {
+      const st = (s.start_time || '').slice(0, 5)
+      const ed = (s.end_time || '').slice(0, 5)
+      if (!st || !ed) continue
+      const stMin = parseTimeToMin(st)
+      const edMin = parseTimeToMin(ed)
+      const clipStart = Math.max(stMin, visibleStart)
+      const clipEnd = Math.min(edMin, visibleEnd)
+      if (clipEnd <= clipStart) continue
+      bands.push({
+        id: `band-${cast.id}-${s.id ?? `${stMin}-${edMin}`}`,
+        row,
+        start: fmtMin(clipStart),
+        end: fmtMin(clipEnd),
+        colorClass: bandColorClass(s),
+      })
+    }
+  })
+  return bands
+})
 
 const intervalBlocks = computed(() => {
   const blocks = []
@@ -165,21 +312,22 @@ function layoutBlocks() {
   const hourW = readVar('--rk-col-w', 120)
   const rowH = readVar('--rk-row-hour-h', 80)
 
-  const startMin = props.startHour * 60
+  const startMin = effectiveStartHour.value * 60
 
   grid.style.width = `${hourW * totalCols.value}px`
   grid.style.height = `${rowH * props.casts.length}px`
 
-  grid.querySelectorAll('.rk-block, .rk-interval').forEach(el => {
+  grid.querySelectorAll('.rk-block, .rk-interval, .rk-shift-band').forEach(el => {
+    const isBand = el.classList.contains('rk-shift-band')
     const row = Number(el.dataset.row || 0)
     const s = parseTimeToMin(el.dataset.start)
     const e = parseTimeToMin(el.dataset.end)
 
-    const padY = 6
+    const padY = isBand ? 0 : 6
     const left = ((s - startMin) / 60) * hourW
     const width = Math.max(12, ((e - s) / 60) * hourW)
     const top = row * rowH + padY
-    const height = Math.max(12, rowH - padY * 2)
+    const height = isBand ? rowH : Math.max(12, rowH - padY * 2)
 
     el.style.left = `${left}px`
     el.style.top = `${top}px`
@@ -208,7 +356,7 @@ function onGridClick(ev) {
   if (!cast) return
 
   const minutesFromStart = Math.max(0, Math.floor((x / hourW) * 60))
-  const totalMin = props.startHour * 60 + minutesFromStart
+  const totalMin = effectiveStartHour.value * 60 + minutesFromStart
   const snapped = Math.floor(totalMin / 5) * 5
   const hh = String(Math.floor(snapped / 60)).padStart(2, '0')
   const mm = String(snapped % 60).padStart(2, '0')
@@ -227,12 +375,19 @@ function onGridClick(ev) {
 onMounted(() => {
   nextTick(layoutBlocks)
   window.addEventListener('resize', onResize)
+  window.addEventListener('scroll', onScrollClose, true)
+  document.addEventListener('mousedown', onDocumentMousedown)
+  document.addEventListener('keydown', onDocumentKey)
   nowTimer = setInterval(() => { nowMs.value = Date.now() }, 60 * 1000)
 })
 watch(() => [props.casts, props.orders], () => nextTick(layoutBlocks))
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('scroll', onScrollClose, true)
+  document.removeEventListener('mousedown', onDocumentMousedown)
+  document.removeEventListener('keydown', onDocumentKey)
   if (nowTimer) clearInterval(nowTimer)
+  clearTimeout(hoverTimeout)
 })
 </script>
 
@@ -242,8 +397,8 @@ onBeforeUnmount(() => {
       <div
         class="rk-sheet"
         :data-rows="casts.length"
-        :data-start="`${String(startHour).padStart(2,'0')}:00`"
-        :data-end="`${String(endHour).padStart(2,'0')}:00`"
+        :data-start="`${String(effectiveStartHour).padStart(2,'0')}:00`"
+        :data-end="`${String(effectiveEndHour).padStart(2,'0')}:00`"
       >
         <!-- 左上の角（固定） -->
         <div class="rk-corner"></div>
@@ -255,7 +410,15 @@ onBeforeUnmount(() => {
 
         <!-- 左：キャスト/ルーム列（縦） -->
         <div class="rk-casthead">
-          <div v-for="cast in casts" :key="cast.id" class="rk-castcell">
+          <div
+            v-for="cast in casts"
+            :key="cast.id"
+            class="rk-castcell"
+            :class="{ 'is-active': visibleCastId === cast.id }"
+            @mouseenter="onCastEnter(cast.id, $event)"
+            @mouseleave="onCastLeave"
+            @click="onCastClick(cast.id, $event)"
+          >
             <img
               v-if="cast.avatar_url"
               :src="cast.avatar_url"
@@ -275,16 +438,18 @@ onBeforeUnmount(() => {
                   v-if="castStatus(cast)"
                   class="rk-status"
                   :class="`rk-status--${castStatus(cast).key}`"
-                >{{ castStatus(cast).label }}</span>
+                  :title="castStatus(cast).label"
+                >{{ castStatus(cast).short }}</span>
               </div>
-              <div v-if="castShiftRange(cast)" class="rk-shift-time">
-                <i class="ti ti-clock"></i>{{ castShiftRange(cast) }}
+              <div class="rk-meta-row">
+                <span v-if="castShiftRange(cast)" class="rk-shift-time">{{ castShiftRange(cast) }}</span>
+                <span
+                  v-if="castRoomLabel(cast)"
+                  class="rk-room"
+                  :class="roomColorClass(cast)"
+                  :title="castRoomLabel(cast)"
+                >{{ castRoomLabel(cast) }}</span>
               </div>
-              <div
-                v-if="castRoomLabel(cast)"
-                class="rk-room"
-                :class="roomColorClass(cast)"
-              >{{ castRoomLabel(cast) }}</div>
               <div
                 v-if="castStaffMemo(cast)"
                 class="rk-staff-memo"
@@ -296,6 +461,17 @@ onBeforeUnmount(() => {
 
         <!-- 本体グリッド -->
         <div ref="gridRef" class="rk-grid" :data-rows="casts.length" @click="onGridClick">
+          <div
+            v-for="band in shiftBands"
+            :key="band.id"
+            class="rk-shift-band"
+            :class="band.colorClass"
+            :data-row="band.row"
+            :data-start="band.start"
+            :data-end="band.end"
+          >
+            <span class="rk-shift-band__label">出勤中</span>
+          </div>
           <a
             v-for="order in orders"
             :key="order.id"
@@ -327,5 +503,53 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="visibleCast"
+        class="rk-castpop"
+        :class="`rk-castpop--${popoverPos.placement}`"
+        :style="{ top: popoverPos.top + 'px', left: popoverPos.left + 'px' }"
+        @mouseenter="onPopoverEnter"
+        @mouseleave="onPopoverLeave"
+        @click.stop
+      >
+        <div class="rk-castpop__header">
+          <img
+            v-if="visibleCast.avatar_url"
+            :src="visibleCast.avatar_url"
+            :alt="visibleCast.name"
+            class="rk-castpop__avatar"
+          >
+          <div v-else class="rk-castpop__avatar rk-castpop__avatar--placeholder">
+            <i class="ti ti-user"></i>
+          </div>
+          <div class="rk-castpop__main">
+            <div class="rk-castpop__name">{{ visibleCast.name }}</div>
+            <span
+              v-if="castStatus(visibleCast)"
+              class="rk-castpop__status"
+              :class="`rk-status--${castStatus(visibleCast).key}`"
+            >{{ castStatus(visibleCast).label }}</span>
+          </div>
+        </div>
+
+        <div class="rk-castpop__rows">
+          <div v-if="castShiftRange(visibleCast)" class="rk-castpop__row">
+            <i class="ti ti-clock"></i>
+            <span>{{ castShiftRange(visibleCast) }}</span>
+          </div>
+          <div v-if="castRoomLabel(visibleCast)" class="rk-castpop__row">
+            <i class="ti ti-door"></i>
+            <span>{{ castRoomLabel(visibleCast) }}</span>
+          </div>
+        </div>
+
+        <div v-if="castStaffMemo(visibleCast)" class="rk-castpop__memo">
+          <div class="rk-castpop__memo-label">常時メモ</div>
+          <div class="rk-castpop__memo-body">{{ castStaffMemo(visibleCast) }}</div>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>

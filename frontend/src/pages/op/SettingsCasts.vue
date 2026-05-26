@@ -163,16 +163,27 @@ async function onDelete(c) {
           キャストが登録されていません
         </div>
 
-        <table v-else class="table table-hover mb-0">
+        <table v-else class="table table-hover mb-0 cast-table">
+          <colgroup>
+            <col style="width: 56px">
+            <col style="width: 140px">
+            <col>
+            <col style="width: 64px">
+            <col style="width: 64px">
+            <col style="width: 72px">
+            <col style="width: 80px">
+            <col style="width: 48px">
+          </colgroup>
           <thead>
             <tr>
-              <th style="width: 50px;"></th>
+              <th></th>
               <th>名前</th>
-              <th style="width: 50px;">年齢</th>
-              <th style="width: 50px;">IV</th>
-              <th style="width: 60px;">バック</th>
-              <th style="width: 55px;">LINE</th>
-              <th style="width: 40px;"></th>
+              <th>常時メモ</th>
+              <th class="text-end">年齢</th>
+              <th class="text-end">IV</th>
+              <th class="text-end">バック</th>
+              <th class="text-center">LINE</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -192,15 +203,30 @@ async function onDelete(c) {
                   <i class="ti ti-user"></i>
                 </div>
               </td>
-              <td>{{ c.name }}</td>
-              <td>{{ c.age || '—' }}</td>
-              <td>{{ c.interval_minutes }}分</td>
-              <td>{{ c.course_back_rate }}%</td>
-              <td>
+              <td class="cast-name-cell">{{ c.name }}</td>
+              <td class="cast-memo-cell">
+                <button
+                  v-if="c.staff_memo"
+                  type="button"
+                  class="cast-memo-text"
+                  :title="c.staff_memo"
+                  @click="openEdit(c)"
+                >{{ c.staff_memo }}</button>
+                <button
+                  v-else
+                  type="button"
+                  class="cast-memo-empty"
+                  @click="openEdit(c)"
+                >＋ メモを追加</button>
+              </td>
+              <td class="text-end">{{ c.age || '—' }}</td>
+              <td class="text-end">{{ c.interval_minutes }}分</td>
+              <td class="text-end">{{ c.course_back_rate }}%</td>
+              <td class="text-center">
                 <span v-if="c.line_linked" class="badge bg-success">連携済</span>
                 <span v-else class="badge bg-secondary">未連携</span>
               </td>
-              <td>
+              <td class="text-end">
                 <button class="btn btn-link p-0" @click="openEdit(c)">
                   <i class="ti ti-edit" style="font-size: 1.25rem;"></i>
                 </button>
@@ -368,5 +394,60 @@ async function onDelete(c) {
 
 .avatar-menu__item:hover {
   background: #f5f5f5;
+}
+
+.cast-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.cast-table th,
+.cast-table td {
+  vertical-align: middle;
+}
+
+.cast-name-cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cast-memo-cell {
+  overflow: hidden;
+}
+
+.cast-memo-text {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: #334155;
+  font-size: 0.9rem;
+  padding: 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.cast-memo-text:hover {
+  color: var(--rk-primary);
+  text-decoration: underline;
+}
+
+.cast-memo-empty {
+  border: 1px dashed #cbd5e1;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cast-memo-empty:hover {
+  background: #f8fafc;
+  color: #64748b;
 }
 </style>
