@@ -896,12 +896,78 @@ ul li {
 }
 
 .rk-room {
+  display: inline-block;
   font-size: 10px;
-  color: #64748b;
+  color: #334155;
+  background: #e2e8f0;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-top: 2px;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.4;
+}
+.rk-room--c1 { background: #fde2e4; color: #831843; }
+.rk-room--c2 { background: #dbeafe; color: #1e3a8a; }
+.rk-room--c3 { background: #dcfce7; color: #14532d; }
+.rk-room--c4 { background: #fef3c7; color: #78350f; }
+.rk-room--c5 { background: #ede9fe; color: #4c1d95; }
+.rk-room--c6 { background: #cffafe; color: #155e75; }
+.rk-room--unset { background: #f1f5f9; color: #64748b; }
+
+.rk-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.rk-name-row .rk-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.rk-shift-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: bold;
+  color: #fff;
+  background: linear-gradient(90deg, #f97316, #fb923c);
+  border-radius: 4px;
+  padding: 1px 6px;
   margin-top: 2px;
+  line-height: 1.4;
+}
+.rk-shift-time i { font-size: 11px; }
+
+.rk-status {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: bold;
+  border-radius: 999px;
+  padding: 1px 6px;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+.rk-status--in { background: #16a34a; color: #fff; }
+.rk-status--scheduled { background: #e0e7ff; color: #3730a3; }
+.rk-status--absent { background: #fee2e2; color: #991b1b; }
+
+.rk-staff-memo {
+  font-size: 10px;
+  color: #7c2d12;
+  background: #fff7ed;
+  border-left: 2px solid #fb923c;
+  padding: 1px 4px;
+  margin-top: 2px;
+  line-height: 1.3;
+  max-height: 2.6em;
+  overflow: hidden;
+  word-break: break-all;
 }
 
 /* 本体グリッド：縦横に薄いグリッド線 */

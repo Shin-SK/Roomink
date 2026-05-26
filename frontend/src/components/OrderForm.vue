@@ -31,6 +31,7 @@ const loading = ref(true)
 const submitting = ref(false)
 const errorMsg = ref('')
 const phoneHint = ref(props.initialPhone || '')
+const shiftCastIds = ref(null) // null=未取得（絞り込みなし）, Set=取得済み
 
 const form = ref({
   customer: props.initialCustomerId || '',
@@ -97,8 +98,12 @@ function clearCustomer() {
 
 const filteredCasts = computed(() => {
   const q = castSearch.value.trim()
-  if (!q) return casts.value
-  return casts.value.filter(c => c.name.includes(q))
+  let list = casts.value
+  if (!isEdit.value && shiftCastIds.value) {
+    list = list.filter(c => shiftCastIds.value.has(c.id))
+  }
+  if (q) list = list.filter(c => c.name.includes(q))
+  return list
 })
 
 const selectedCastName = computed(() => {
@@ -119,6 +124,10 @@ const totalPrice = computed(() => {
   total += selectedOptions.value.reduce((sum, o) => sum + o.price, 0)
   return total
 })
+
+const isCardPayment = computed(() => form.value.payment_method === 'CARD')
+const cardFee = computed(() => isCardPayment.value ? Math.round(totalPrice.value * 0.1) : 0)
+const cardTotal = computed(() => totalPrice.value + cardFee.value)
 
 const resolvedSubmitLabel = computed(() => {
   if (props.submitLabel) return props.submitLabel
@@ -187,7 +196,28 @@ async function loadMasters() {
   }
 }
 
-onMounted(loadMasters)
+async function loadShiftCasts(date) {
+  if (isEdit.value || !date) return
+  try {
+    const data = await api.getSchedule(date)
+    const list = Array.isArray(data?.casts) ? data.casts : []
+    shiftCastIds.value = new Set(list.map(c => c.id))
+    if (form.value.cast && !shiftCastIds.value.has(Number(form.value.cast))) {
+      form.value.cast = ''
+    }
+  } catch (e) {
+    shiftCastIds.value = null
+  }
+}
+
+onMounted(async () => {
+  await loadMasters()
+  await loadShiftCasts(form.value.startDate)
+})
+
+watch(() => form.value.startDate, (val) => {
+  if (!isEdit.value) loadShiftCasts(val)
+})
 
 watch(() => props.initialPhone, (val) => {
   phoneHint.value = val || ''
@@ -548,6 +578,16 @@ function formatYen(n) {
 
             <div class="text-center mb-3">
               <h5 v-if="selectedCourse" class="mb-0">合計料金: <strong>{{ formatYen(totalPrice) }}</strong></h5>
+              <div v-if="selectedCourse && isCardPayment" class="card-fee-note mt-2">
+                <div class="card-fee-note__total">
+                  カード決済時のお客様請求額（目安）:
+                  <strong>{{ formatYen(cardTotal) }}</strong>
+                </div>
+                <div class="card-fee-note__breakdown">
+                  （{{ formatYen(totalPrice) }} ＋ 手数料10% {{ formatYen(cardFee) }}）
+                </div>
+                <div class="card-fee-note__hint">※ 売上計上額は手数料を含みません</div>
+              </div>
             </div>
             <div v-if="errorMsg" class="alert alert-danger py-2 mb-2">
               <i class="ti ti-alert-circle me-1"></i>{{ errorMsg }}
@@ -735,5 +775,19 @@ function formatYen(n) {
     border-color: var(--bs-primary);
     color: #fff;
   }
+}
+
+.card-fee-note {
+  font-size: 0.85rem;
+  color: #7c2d12;
+  background: #fff7ed;
+  border: 1px dashed #fb923c;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  display: inline-block;
+
+  &__total strong { color: #c2410c; font-size: 1rem; }
+  &__breakdown { font-size: 0.8rem; color: #9a3412; margin-top: 2px; }
+  &__hint { font-size: 0.7rem; color: #78350f; margin-top: 2px; opacity: 0.8; }
 }
 </style>

@@ -576,7 +576,7 @@ class ScheduleShiftSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ShiftAssignment
-        fields = ["id", "room_id", "room_name", "start_time", "end_time"]
+        fields = ["id", "room_id", "room_name", "start_time", "end_time", "clocked_in_at"]
 
 
 class ScheduleCastSerializer(serializers.Serializer):
@@ -584,6 +584,7 @@ class ScheduleCastSerializer(serializers.Serializer):
     name = serializers.CharField()
     avatar_url = serializers.CharField()
     interval_minutes = serializers.IntegerField()
+    staff_memo = serializers.CharField(allow_blank=True, required=False)
     shifts = ScheduleShiftSerializer(many=True)
 
 
@@ -636,6 +637,7 @@ def build_schedule_data(store, date):
             "name": c.name,
             "avatar_url": c.avatar_url,
             "interval_minutes": c.interval_minutes,
+            "staff_memo": c.staff_memo or "",
             "shifts": shifts_by_cast.get(c.id, []),
         })
 

@@ -12,6 +12,8 @@ const props = defineProps({
 const emit = defineEmits(['block-click', 'create-order'])
 
 const gridRef = ref(null)
+const nowMs = ref(Date.now())
+let nowTimer = null
 
 const hours = computed(() => {
   const arr = []
@@ -75,6 +77,56 @@ function castRoomLabel(cast) {
     if (n && !names.includes(n)) names.push(n)
   }
   return names.length ? names.join(' / ') : '未設定'
+}
+
+function castShiftRange(cast) {
+  const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
+  if (shifts.length === 0) return ''
+  let minStart = null
+  let maxEnd = null
+  for (const s of shifts) {
+    const st = (s.start_time || '').slice(0, 5)
+    const ed = (s.end_time || '').slice(0, 5)
+    if (st && (minStart === null || st < minStart)) minStart = st
+    if (ed && (maxEnd === null || ed > maxEnd)) maxEnd = ed
+  }
+  if (!minStart || !maxEnd) return ''
+  return `${minStart}〜${maxEnd}`
+}
+
+function castStaffMemo(cast) {
+  const m = (cast.staff_memo || '').trim()
+  return m
+}
+
+const ROOM_COLOR_CLASSES = ['rk-room--c1', 'rk-room--c2', 'rk-room--c3', 'rk-room--c4', 'rk-room--c5', 'rk-room--c6']
+
+function roomColorClass(cast) {
+  const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
+  for (const s of shifts) {
+    if (s.room_id != null) {
+      const idx = Math.abs(Number(s.room_id)) % ROOM_COLOR_CLASSES.length
+      return ROOM_COLOR_CLASSES[idx]
+    }
+  }
+  return 'rk-room--unset'
+}
+
+function castStatus(cast) {
+  const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
+  if (shifts.length === 0) return null
+  const anyClockedIn = shifts.some(s => s.clocked_in_at)
+  if (anyClockedIn) return { key: 'in', label: '出勤済み' }
+  let minStart = null
+  for (const s of shifts) {
+    const st = (s.start_time || '').slice(0, 5)
+    if (st && (minStart === null || st < minStart)) minStart = st
+  }
+  if (!minStart) return { key: 'scheduled', label: '出勤予定' }
+  const d = new Date(nowMs.value)
+  const cur = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  if (cur < minStart) return { key: 'scheduled', label: '出勤予定' }
+  return { key: 'absent', label: '未出勤' }
 }
 
 const intervalBlocks = computed(() => {
@@ -175,9 +227,13 @@ function onGridClick(ev) {
 onMounted(() => {
   nextTick(layoutBlocks)
   window.addEventListener('resize', onResize)
+  nowTimer = setInterval(() => { nowMs.value = Date.now() }, 60 * 1000)
 })
 watch(() => [props.casts, props.orders], () => nextTick(layoutBlocks))
-onBeforeUnmount(() => window.removeEventListener('resize', onResize))
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize)
+  if (nowTimer) clearInterval(nowTimer)
+})
 </script>
 
 <template>
@@ -213,8 +269,27 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
               <i class="ti ti-user"></i>
             </div>
             <div class="rk-castcell__text">
-              <div class="rk-name">{{ cast.name }}</div>
-              <div v-if="castRoomLabel(cast)" class="rk-room">{{ castRoomLabel(cast) }}</div>
+              <div class="rk-name-row">
+                <span class="rk-name">{{ cast.name }}</span>
+                <span
+                  v-if="castStatus(cast)"
+                  class="rk-status"
+                  :class="`rk-status--${castStatus(cast).key}`"
+                >{{ castStatus(cast).label }}</span>
+              </div>
+              <div v-if="castShiftRange(cast)" class="rk-shift-time">
+                <i class="ti ti-clock"></i>{{ castShiftRange(cast) }}
+              </div>
+              <div
+                v-if="castRoomLabel(cast)"
+                class="rk-room"
+                :class="roomColorClass(cast)"
+              >{{ castRoomLabel(cast) }}</div>
+              <div
+                v-if="castStaffMemo(cast)"
+                class="rk-staff-memo"
+                :title="castStaffMemo(cast)"
+              >{{ castStaffMemo(cast) }}</div>
             </div>
           </div>
         </div>
