@@ -1986,4 +1986,16 @@ ul li {
   margin-top: 0.75rem;
 }
 
+/* ─────────────────────────────────────────────────────
+   ↓ NOTE: 以下は誤って直接編集されたデッドコード。
+   このファイルはどこからも import されていない(main.jsは styles.scss を読む)。
+   後で安全に削除予定。
+   ───────────────────────────────────────────────────── */
+/* DEAD-CSS-START */
+.legacy-removed {
+  display: none;
+}
+/* DEAD-CSS-END */
+
+/* DELETED-CTI-BLOCK-PLACEHOLDER */
 /*# sourceMappingURL=styles.css.map */

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { resetAuthCache, getAuthRole } from '../router.js'
 import UserAvatar from './UserAvatar.vue'
+import CtiIncomingPanel from './CtiIncomingPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -152,5 +153,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         </div>
       </footer>
     </div>
+
+    <CtiIncomingPanel v-if="currentUser" />
   </div>
 </template>

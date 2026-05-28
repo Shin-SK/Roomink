@@ -26,20 +26,10 @@ function isInSession(order) {
   return new Date(order.start).getTime() <= now && now < new Date(order.end).getTime()
 }
 
-// CTI Queue
-const ctiCalls = ref([])
-const ctiNewCount = computed(() => ctiCalls.value.filter(c => c.status === 'NEW').length)
-const ctiCallsTop5 = computed(() => ctiCalls.value.slice(0, 5))
 const requestedTop3 = computed(() => requestedOrders.value.slice(0, 3))
 const unconfirmedTop3 = computed(() => unconfirmedOrders.value.slice(0, 3))
-const ctiStarting = ref({})   // { [callId]: true } 二重クリック防止
-const ctiDoning = ref({})
 const proxyAcking = ref({})   // { [orderId]: true } 代理確認の二重クリック防止
 const proxyAckError = ref('')
-const ctiError = ref('')
-const ctiPopup = ref(null)    // 新規着信ポップアップ用
-let ctiTimer = null
-let prevCtiIds = new Set()
 
 // LINE Alerts
 const lineUnlinked = ref([])
@@ -50,30 +40,6 @@ let lineAlertTimer = null
 function today() {
   const d = new Date()
   return d.toISOString().slice(0, 10)
-}
-
-async function fetchCtiQueue() {
-  try {
-    const data = await api.getCtiQueue()
-    const calls = data.calls || []
-    // 新規着信を検知してポップアップ
-    const newIds = new Set(calls.filter(c => c.status === 'NEW').map(c => c.id))
-    for (const c of calls) {
-      if (c.status === 'NEW' && !prevCtiIds.has(c.id)) {
-        ctiPopup.value = c
-        setTimeout(() => { if (ctiPopup.value?.id === c.id) ctiPopup.value = null }, 10000)
-        break
-      }
-    }
-    prevCtiIds = newIds
-    ctiCalls.value = calls
-  } catch (e) {
-    // CTI queue fetch failure is non-fatal
-  }
-}
-
-function dismissPopup() {
-  ctiPopup.value = null
 }
 
 onMounted(async () => {
@@ -95,10 +61,6 @@ onMounted(async () => {
   // Sales (manager only)
   if (isManager.value) fetchSales()
 
-  // CTI polling (3 sec)
-  await fetchCtiQueue()
-  ctiTimer = setInterval(fetchCtiQueue, 3000)
-
   // LINE alerts (30 sec)
   await fetchLineAlerts()
   lineAlertTimer = setInterval(fetchLineAlerts, 30000)
@@ -108,7 +70,6 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if (ctiTimer) clearInterval(ctiTimer)
   if (lineAlertTimer) clearInterval(lineAlertTimer)
   if (nowTickTimer) clearInterval(nowTickTimer)
 })
@@ -139,34 +100,6 @@ async function proxyAck(order) {
     proxyAckError.value = e.message || '代理確認に失敗しました'
   } finally {
     proxyAcking.value[order.id] = false
-  }
-}
-
-async function handleCall(call) {
-  if (ctiStarting.value[call.id]) return
-  ctiStarting.value[call.id] = true
-  ctiError.value = ''
-  try {
-    await api.ctiCallStart(call.id)
-    router.push(`/op/phone?phone=${encodeURIComponent(call.from_phone)}`)
-  } catch (e) {
-    ctiError.value = e.message || '対応開始に失敗しました'
-    await fetchCtiQueue()
-  } finally {
-    ctiStarting.value[call.id] = false
-  }
-}
-
-async function doneCall(call) {
-  if (ctiDoning.value[call.id]) return
-  ctiDoning.value[call.id] = true
-  try {
-    await api.ctiCallDone(call.id)
-    await fetchCtiQueue()
-  } catch (e) {
-    ctiError.value = e.message || '完了処理に失敗しました'
-  } finally {
-    ctiDoning.value[call.id] = false
   }
 }
 
@@ -236,13 +169,6 @@ function exportCsv() {
 watch([salesRange, salesDateFrom, salesDateTo], () => {
   if (isManager.value) fetchSales()
 })
-
-function timeAgo(dt) {
-  const diff = Math.floor((Date.now() - new Date(dt).getTime()) / 1000)
-  if (diff < 60) return `${diff}秒前`
-  if (diff < 3600) return `${Math.floor(diff / 60)}分前`
-  return `${Math.floor(diff / 3600)}時間前`
-}
 </script>
 
 <template>
@@ -254,23 +180,6 @@ function timeAgo(dt) {
     </div>
 
     <template v-else>
-      <!-- 着信ポップアップ -->
-      <div v-if="ctiPopup" class="rk-cti-popup" @click="handleCall(ctiPopup)">
-        <div class="d-flex align-items-center justify-content-between">
-          <div class="d-flex align-items-center gap-2">
-            <i class="ti ti-phone-incoming fs-4"></i>
-            <div>
-              <div class="fw-bold">
-                {{ ctiPopup.customer_name || ctiPopup.from_phone }}
-                <span v-if="!ctiPopup.customer_id" class="badge bg-light text-dark ms-1">未登録</span>
-              </div>
-              <small>着信中 ・ タップして対応</small>
-            </div>
-          </div>
-          <button class="btn btn-sm btn-outline-light" @click.stop="dismissPopup">&times;</button>
-        </div>
-      </div>
-
       <!-- 未出勤アラート -->
       <div v-if="notClockedIn.length" class="alert alert-danger mb-3 py-2 px-3">
         <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
@@ -326,66 +235,6 @@ function timeAgo(dt) {
             </a>
           </li>
         </ul>
-      </div>
-
-      <!-- 未対応コール -->
-      <div v-if="ctiCalls.length" class="card border-0 mb-4 rk-cti-card">
-        <div class="card-header d-flex align-items-center justify-content-between bg-danger text-white">
-          <div>
-            <i class="ti ti-phone-incoming"></i> 未対応コール
-            <span v-if="ctiNewCount" class="badge bg-white text-danger ms-2">{{ ctiNewCount }}</span>
-          </div>
-          <small>{{ ctiCalls.length }}件</small>
-        </div>
-        <div v-if="ctiError" class="alert alert-warning m-2 py-2 px-3 mb-0" style="font-size: 0.875rem;">
-          {{ ctiError }}
-        </div>
-        <div class="card-body p-0">
-          <ul class="list-group list-group-flush">
-            <li
-              v-for="call in ctiCallsTop5"
-              :key="call.id"
-              class="list-group-item d-flex justify-content-between align-items-center"
-            >
-              <div>
-                <div class="d-flex align-items-center gap-2">
-                  <span
-                    class="badge"
-                    :class="call.status === 'NEW' ? 'bg-danger' : 'bg-warning text-dark'"
-                  >{{ call.status === 'NEW' ? '新規' : '対応中' }}</span>
-                  <strong>{{ call.customer_name || call.from_phone }}</strong>
-                  <span v-if="!call.customer_id" class="badge bg-secondary">未登録</span>
-                  <span v-if="call.customer_name" class="text-muted" style="font-size:0.8em">{{ call.from_phone }}</span>
-                  <span v-if="call.is_repeat" class="badge bg-info">再着信</span>
-                </div>
-                <small class="text-muted">
-                  {{ call.store_name }} ・ {{ timeAgo(call.created_at) }}
-                  <span v-if="call.assigned_to"> ・ {{ call.assigned_to }}</span>
-                </small>
-              </div>
-              <div class="d-flex gap-1">
-                <button
-                  v-if="call.status === 'NEW'"
-                  class="btn btn-sm btn-outline-dark"
-                  :disabled="ctiStarting[call.id]"
-                  @click="handleCall(call)"
-                >
-                  <span v-if="ctiStarting[call.id]" class="spinner-border spinner-border-sm"></span>
-                  <template v-else><i class="ti ti-phone"></i> 対応</template>
-                </button>
-                <button
-                  v-if="call.status === 'IN_PROGRESS'"
-                  class="btn btn-sm btn-outline-success"
-                  :disabled="ctiDoning[call.id]"
-                  @click="doneCall(call)"
-                >
-                  <span v-if="ctiDoning[call.id]" class="spinner-border spinner-border-sm"></span>
-                  <template v-else><i class="ti ti-check"></i> 完了</template>
-                </button>
-              </div>
-            </li>
-          </ul>
-        </div>
       </div>
 
       <!-- 統計カード -->
@@ -650,22 +499,3 @@ function timeAgo(dt) {
   </LayoutOperator>
 </template>
 
-<style scoped>
-.rk-cti-popup {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 9999;
-  background: #dc3545;
-  color: #fff;
-  padding: 12px 16px;
-  cursor: pointer;
-  animation: rk-popup-pulse 1s ease-in-out infinite alternate;
-  box-shadow: 0 2px 12px rgba(220, 53, 69, 0.5);
-}
-@keyframes rk-popup-pulse {
-  from { opacity: 1; }
-  to { opacity: 0.85; }
-}
-</style>

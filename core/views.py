@@ -2297,11 +2297,9 @@ def twilio_status_webhook(request):
         return HttpResponse("ok", content_type="text/plain")
 
     # Twilio ステータス → Roomink ステータスへのマッピング
+    # 通話不成立(failed/busy/no-answer/canceled)のみ MISSED に遷移する。
+    # completed は通話成立なので、NEW のまま画面パネルに残し、人間が対応完了するまで消さない。
     if call_status in ("no-answer", "busy", "failed", "canceled"):
-        call.status = CallLog.Status.MISSED
-        call.save(update_fields=["status", "updated_at"])
-    elif call_status == "completed" and call.status == CallLog.Status.NEW:
-        # 誰も対応していないまま完了 → 不在扱い
         call.status = CallLog.Status.MISSED
         call.save(update_fields=["status", "updated_at"])
 
