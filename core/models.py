@@ -46,6 +46,7 @@ class Room(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="rooms")
     name = models.CharField(max_length=50)
     sort_order = models.PositiveSmallIntegerField(default=0)
+    background_color = models.CharField(max_length=7, blank=True, default="", help_text="HEX形式 例: #fde2e4")
 
     class Meta:
         unique_together = ("store", "name")
@@ -129,6 +130,8 @@ class ShiftAssignment(models.Model):
     start_time = models.TimeField()
     end_time = models.TimeField()
     clocked_in_at = models.DateTimeField(null=True, blank=True)
+    daily_memo = models.TextField(blank=True, default="", help_text="その日だけのメモ")
+    is_absent = models.BooleanField(default=False, help_text="当欠フラグ")
 
     class Meta:
         unique_together = ("store", "date", "cast", "start_time", "end_time")

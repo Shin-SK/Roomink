@@ -986,7 +986,9 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
             shift.clocked_in_at = timezone.make_aware(naive, tz)
         else:
             shift.clocked_in_at = now
-        shift.save(update_fields=["clocked_in_at"])
+        # 当欠状態のまま出勤済みになる矛盾を避ける
+        shift.is_absent = False
+        shift.save(update_fields=["clocked_in_at", "is_absent"])
         return Response(self.get_serializer(shift).data)
 
     @action(detail=True, methods=["post"], url_path="clear-clock-in")

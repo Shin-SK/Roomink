@@ -204,31 +204,46 @@ function castStaffMemo(cast) {
   return m
 }
 
+function castDailyMemo(cast) {
+  const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
+  for (const s of shifts) {
+    const m = (s.daily_memo || '').trim()
+    if (m) return m
+  }
+  return ''
+}
+
 const ROOM_COLOR_CLASSES = ['rk-room--c1', 'rk-room--c2', 'rk-room--c3', 'rk-room--c4', 'rk-room--c5', 'rk-room--c6']
 const BAND_COLOR_CLASSES = ['rk-shift-band--c1', 'rk-shift-band--c2', 'rk-shift-band--c3', 'rk-shift-band--c4', 'rk-shift-band--c5', 'rk-shift-band--c6']
 
-function roomColorClass(cast) {
+function roomColorMeta(cast) {
   const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
   for (const s of shifts) {
+    if (s.room_color) return { class: '', style: { background: s.room_color } }
     if (s.room_id != null) {
       const idx = Math.abs(Number(s.room_id)) % ROOM_COLOR_CLASSES.length
-      return ROOM_COLOR_CLASSES[idx]
+      return { class: ROOM_COLOR_CLASSES[idx], style: null }
     }
   }
-  return 'rk-room--unset'
+  return { class: 'rk-room--unset', style: null }
 }
 
-function bandColorClass(shift) {
+function bandColorMeta(shift) {
+  if (shift && shift.room_color) {
+    return { class: '', style: { background: shift.room_color } }
+  }
   if (shift && shift.room_id != null) {
     const idx = Math.abs(Number(shift.room_id)) % BAND_COLOR_CLASSES.length
-    return BAND_COLOR_CLASSES[idx]
+    return { class: BAND_COLOR_CLASSES[idx], style: null }
   }
-  return 'rk-shift-band--unset'
+  return { class: 'rk-shift-band--unset', style: null }
 }
 
 function castStatus(cast) {
   const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
   if (shifts.length === 0) return null
+  const anyAbsent = shifts.some(s => s.is_absent)
+  if (anyAbsent) return { key: 'dayoff', label: '当欠', short: '欠' }
   const anyClockedIn = shifts.some(s => s.clocked_in_at)
   if (anyClockedIn) return { key: 'in', label: '出勤済み', short: '済' }
   let minStart = null
@@ -264,12 +279,14 @@ const shiftBands = computed(() => {
       const clipStart = Math.max(stMin, visibleStart)
       const clipEnd = Math.min(edMin, visibleEnd)
       if (clipEnd <= clipStart) continue
+      const meta = bandColorMeta(s)
       bands.push({
         id: `band-${cast.id}-${s.id ?? `${stMin}-${edMin}`}`,
         row,
         start: fmtMin(clipStart),
         end: fmtMin(clipEnd),
-        colorClass: bandColorClass(s),
+        colorClass: meta.class,
+        colorStyle: meta.style,
       })
     }
   })
@@ -446,7 +463,8 @@ onBeforeUnmount(() => {
                 <span
                   v-if="castRoomLabel(cast)"
                   class="rk-room"
-                  :class="roomColorClass(cast)"
+                  :class="roomColorMeta(cast).class"
+                  :style="roomColorMeta(cast).style"
                   :title="castRoomLabel(cast)"
                 >{{ castRoomLabel(cast) }}</span>
               </div>
@@ -455,6 +473,11 @@ onBeforeUnmount(() => {
                 class="rk-staff-memo"
                 :title="castStaffMemo(cast)"
               >{{ castStaffMemo(cast) }}</div>
+              <div
+                v-if="castDailyMemo(cast)"
+                class="rk-daily-memo"
+                :title="castDailyMemo(cast)"
+              ><span class="rk-daily-memo__label">当日メモ</span>{{ castDailyMemo(cast) }}</div>
             </div>
           </div>
         </div>
@@ -466,6 +489,7 @@ onBeforeUnmount(() => {
             :key="band.id"
             class="rk-shift-band"
             :class="band.colorClass"
+            :style="band.colorStyle"
             :data-row="band.row"
             :data-start="band.start"
             :data-end="band.end"
@@ -548,6 +572,10 @@ onBeforeUnmount(() => {
         <div v-if="castStaffMemo(visibleCast)" class="rk-castpop__memo">
           <div class="rk-castpop__memo-label">常時メモ</div>
           <div class="rk-castpop__memo-body">{{ castStaffMemo(visibleCast) }}</div>
+        </div>
+        <div v-if="castDailyMemo(visibleCast)" class="rk-castpop__memo">
+          <div class="rk-castpop__memo-label">当日メモ</div>
+          <div class="rk-castpop__memo-body">{{ castDailyMemo(visibleCast) }}</div>
         </div>
       </div>
     </Teleport>

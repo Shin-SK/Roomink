@@ -5,6 +5,7 @@ from rest_framework import serializers
 
 from .utils.phone import normalize_phone
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 from .models import (
     CallLog,
@@ -359,12 +360,15 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     medium = serializers.PrimaryKeyRelatedField(
         queryset=Medium.objects.all(), required=False, allow_null=True,
     )
+    discount = serializers.PrimaryKeyRelatedField(
+        queryset=Discount.objects.all(), required=False, allow_null=True,
+    )
 
     class Meta:
         model = Order
         fields = [
             "cast", "customer", "course", "start", "end",
-            "memo", "options", "medium", "payment_method",
+            "memo", "options", "medium", "discount", "payment_method",
         ]
         extra_kwargs = {
             "end": {"required": False},
@@ -395,11 +399,12 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             store=store,
             date=start.date(),
             cast=data["cast"],
+            is_absent=False,
             start_time__lte=start.time(),
             end_time__gte=end.time(),
         ).first()
         if assignment is None:
-            raise serializers.ValidationError("このキャストは指定日時にシフトがありません")
+            raise serializers.ValidationError("このキャストは指定日時にシフトがありません（または当欠）")
         data["room"] = assignment.room
 
         # D) cast conflict (既存予約の end + interval_minutes をインターバル占有終端とみなす)
@@ -426,22 +431,34 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         ).exists():
             raise serializers.ValidationError("指定ルームは使用中です")
 
+        # F) discount cross-store check
+        discount = data.get("discount")
+        if discount is not None and discount.store_id != store.id:
+            raise serializers.ValidationError("他店舗の割引は使用できません")
+
         return data
 
     def create(self, validated_data):
-        option_objs = validated_data.pop("options", [])
-        course = validated_data["course"]
-        validated_data["course_name"] = course.name
-        validated_data["course_price"] = course.price
-        opts_total = sum(o.price for o in option_objs)
-        validated_data["options_price"] = opts_total
-        validated_data["total_price"] = course.price + opts_total
-        medium = validated_data.get("medium")
-        if medium:
-            validated_data["medium_name"] = medium.name
-        order = Order.objects.create(**validated_data)
-        for opt in option_objs:
-            OrderOption.objects.get_or_create(order=order, option=opt)
+        from .services.pricing import recalculate_order_total
+        with transaction.atomic():
+            option_objs = validated_data.pop("options", [])
+            course = validated_data["course"]
+            validated_data["course_name"] = course.name
+            validated_data["course_price"] = course.price
+            opts_total = sum(o.price for o in option_objs)
+            validated_data["options_price"] = opts_total
+            medium = validated_data.get("medium")
+            if medium:
+                validated_data["medium_name"] = medium.name
+            discount = validated_data.get("discount")
+            if discount:
+                validated_data["discount_name"] = discount.name
+                validated_data["discount_type_snapshot"] = discount.discount_type
+                validated_data["discount_value_snapshot"] = discount.value
+            order = Order.objects.create(**validated_data)
+            for opt in option_objs:
+                OrderOption.objects.get_or_create(order=order, option=opt)
+            recalculate_order_total(order)
         return order
 
     def to_representation(self, instance):
@@ -484,11 +501,12 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
                 store=store,
                 date=start.date(),
                 cast=cast,
+                is_absent=False,
                 start_time__lte=start.time(),
                 end_time__gte=end.time(),
             ).first()
             if assignment is None:
-                raise serializers.ValidationError("このキャストは指定日時にシフトがありません")
+                raise serializers.ValidationError("このキャストは指定日時にシフトがありません（または当欠）")
             data["room"] = assignment.room
 
             # Cast conflict (exclude self, インターバル考慮)
@@ -573,10 +591,15 @@ class CastTodayOrderSerializer(serializers.Serializer):
 
 class ScheduleShiftSerializer(serializers.ModelSerializer):
     room_name = serializers.CharField(source="room.name", read_only=True)
+    room_color = serializers.CharField(source="room.background_color", read_only=True, default="")
 
     class Meta:
         model = ShiftAssignment
-        fields = ["id", "room_id", "room_name", "start_time", "end_time", "clocked_in_at"]
+        fields = [
+            "id", "room_id", "room_name", "room_color",
+            "start_time", "end_time", "clocked_in_at",
+            "daily_memo", "is_absent",
+        ]
 
 
 class ScheduleCastSerializer(serializers.Serializer):
@@ -736,7 +759,12 @@ def build_room_schedule_data(store, date):
     return {
         "date": date,
         "store_id": store.id,
-        "rooms": [{"id": r.id, "name": r.name, "sort_order": r.sort_order} for r in rooms],
+        "rooms": [{
+            "id": r.id,
+            "name": r.name,
+            "sort_order": r.sort_order,
+            "background_color": r.background_color,
+        } for r in rooms],
         "orders": order_data,
         "kpi": kpi,
     }

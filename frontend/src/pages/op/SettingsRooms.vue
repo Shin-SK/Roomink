@@ -15,7 +15,7 @@ const formError = ref('')
 const saving = ref(false)
 
 function emptyForm() {
-  return { name: '', sort_order: 0 }
+  return { name: '', sort_order: 0, background_color: '' }
 }
 
 async function loadRooms() {
@@ -42,7 +42,7 @@ function openCreate() {
 
 function openEdit(r) {
   editingId.value = r.id
-  form.value = { name: r.name, sort_order: r.sort_order ?? 0 }
+  form.value = { name: r.name, sort_order: r.sort_order ?? 0, background_color: r.background_color || '' }
   formError.value = ''
   showForm.value = true
 }
@@ -51,7 +51,11 @@ async function onSave() {
   saving.value = true
   formError.value = ''
   try {
-    const payload = { name: form.value.name, sort_order: form.value.sort_order }
+    const payload = {
+      name: form.value.name,
+      sort_order: form.value.sort_order,
+      background_color: form.value.background_color || '',
+    }
     if (editingId.value) {
       await api.updateRoom(editingId.value, payload)
     } else {
@@ -147,6 +151,17 @@ async function onDelete(r) {
             <div class="mb-3">
               <label class="form-label">表示順</label>
               <input v-model.number="form.sort_order" type="number" class="form-control" min="0" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">背景色</label>
+              <div class="d-flex align-items-center gap-2">
+                <input v-model="form.background_color" type="color"
+                  class="form-control form-control-color" style="width: 64px;" />
+                <input v-model="form.background_color" type="text" class="form-control"
+                  placeholder="#RRGGBB (空欄なら自動配色)" />
+                <button v-if="form.background_color" type="button"
+                  class="btn btn-sm btn-outline-secondary" @click="form.background_color = ''">クリア</button>
+              </div>
             </div>
           </div>
           <div class="modal-footer d-flex">

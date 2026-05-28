@@ -27,6 +27,7 @@ const casts = ref([])
 const courses = ref([])
 const options = ref([])
 const media = ref([])
+const discounts = ref([])
 const loading = ref(true)
 const submitting = ref(false)
 const errorMsg = ref('')
@@ -43,6 +44,7 @@ const form = ref({
   end: '',   // edit用 datetime-local
   options: [],
   medium: '',
+  discount: '',
   memo: '',
   payment_method: 'UNSET',
 })
@@ -119,11 +121,24 @@ const selectedOptions = computed(() =>
   options.value.filter(o => form.value.options.includes(o.id))
 )
 
-const totalPrice = computed(() => {
+const selectedDiscount = computed(() =>
+  discounts.value.find(d => d.id === Number(form.value.discount))
+)
+
+const subtotalPrice = computed(() => {
   let total = selectedCourse.value ? selectedCourse.value.price : 0
   total += selectedOptions.value.reduce((sum, o) => sum + o.price, 0)
   return total
 })
+
+const discountAmount = computed(() => {
+  const d = selectedDiscount.value
+  if (!d) return 0
+  if (d.discount_type === 'percent') return Math.floor(subtotalPrice.value * d.value / 100)
+  return d.value
+})
+
+const totalPrice = computed(() => Math.max(0, subtotalPrice.value - discountAmount.value))
 
 const isCardPayment = computed(() => form.value.payment_method === 'CARD')
 const cardFee = computed(() => isCardPayment.value ? Math.round(totalPrice.value * 0.1) : 0)
@@ -153,6 +168,7 @@ function applyInitialOrder() {
   form.value.course = o.course ?? ''
   form.value.options = Array.isArray(o.option_ids) ? [...o.option_ids] : []
   form.value.medium = o.medium ?? ''
+  form.value.discount = o.discount ?? ''
   form.value.memo = o.memo || ''
   form.value.payment_method = o.payment_method || 'UNSET'
   form.value.start = toLocalInput(o.start)
@@ -162,12 +178,13 @@ function applyInitialOrder() {
 async function loadMasters() {
   loading.value = true
   try {
-    const [custData, castData, courseData, optData, mdData] = await Promise.all([
+    const [custData, castData, courseData, optData, mdData, dcData] = await Promise.all([
       api.getCustomers(),
       api.getCasts(),
       api.getCourses(),
       api.getOptions(),
       api.getMedia(),
+      api.getDiscounts(),
     ])
     customers.value = Array.isArray(custData) ? custData : []
     casts.value = Array.isArray(castData) ? castData : []
@@ -175,6 +192,8 @@ async function loadMasters() {
     options.value = Array.isArray(optData) ? optData : []
     const allMedia = Array.isArray(mdData) ? mdData : []
     media.value = allMedia.filter(m => m.is_active)
+    const allDiscounts = Array.isArray(dcData) ? dcData : []
+    discounts.value = allDiscounts.filter(d => d.is_active)
 
     if (isEdit.value) {
       applyInitialOrder()
@@ -201,7 +220,10 @@ async function loadShiftCasts(date) {
   try {
     const data = await api.getSchedule(date)
     const list = Array.isArray(data?.casts) ? data.casts : []
-    shiftCastIds.value = new Set(list.map(c => c.id))
+    const availableIds = list
+      .filter(c => Array.isArray(c.shifts) && c.shifts.some(s => !s.is_absent))
+      .map(c => c.id)
+    shiftCastIds.value = new Set(availableIds)
     if (form.value.cast && !shiftCastIds.value.has(Number(form.value.cast))) {
       form.value.cast = ''
     }
@@ -263,6 +285,7 @@ async function submitCreate() {
   }
   if (form.value.options.length) body.options = form.value.options
   if (form.value.medium) body.medium = Number(form.value.medium)
+  if (form.value.discount) body.discount = Number(form.value.discount)
   if (form.value.payment_method) body.payment_method = form.value.payment_method
 
   submitting.value = true
@@ -567,6 +590,18 @@ function formatYen(n) {
                   </select>
                 </div>
               </div>
+              <div class="col-md-6">
+                <div class="mb-3">
+                  <label class="form-label">割引</label>
+                  <select class="form-select" v-model="form.discount" :disabled="isEdit">
+                    <option value="">-- 割引なし --</option>
+                    <option v-for="d in discounts" :key="d.id" :value="d.id">
+                      {{ d.name }}（{{ d.discount_type === 'percent' ? d.value + '%' : d.value.toLocaleString() + '円' }}引き）
+                    </option>
+                  </select>
+                  <div v-if="isEdit" class="form-text">編集時の割引変更は予約詳細から行ってください</div>
+                </div>
+              </div>
             </div>
 
             <div class="mb-3">
@@ -578,6 +613,9 @@ function formatYen(n) {
 
             <div class="text-center mb-3">
               <h5 v-if="selectedCourse" class="mb-0">合計料金: <strong>{{ formatYen(totalPrice) }}</strong></h5>
+              <div v-if="selectedCourse && discountAmount > 0" class="small text-muted mt-1">
+                小計 {{ formatYen(subtotalPrice) }} − 割引 {{ formatYen(discountAmount) }}
+              </div>
               <div v-if="selectedCourse && isCardPayment" class="card-fee-note mt-2">
                 <div class="card-fee-note__total">
                   カード決済時のお客様請求額（目安）:

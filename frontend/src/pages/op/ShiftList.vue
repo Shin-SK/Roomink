@@ -36,7 +36,7 @@ const filteredCasts = computed(() => {
 })
 
 function emptyForm() {
-  return { date: today, cast: '', room: '', start_time: '', end_time: '' }
+  return { date: today, cast: '', room: '', start_time: '', end_time: '', daily_memo: '', is_absent: false }
 }
 
 async function loadMasters() {
@@ -108,6 +108,8 @@ function openEdit(s) {
     room: s.room,
     start_time: s.start_time?.slice(0, 5) || '',
     end_time: s.end_time?.slice(0, 5) || '',
+    daily_memo: s.daily_memo || '',
+    is_absent: !!s.is_absent,
   }
   formError.value = ''
   showForm.value = true
@@ -123,6 +125,8 @@ async function onSave() {
       room: Number(form.value.room),
       start_time: form.value.start_time,
       end_time: form.value.end_time,
+      daily_memo: form.value.daily_memo || '',
+      is_absent: !!form.value.is_absent,
     }
     if (editingId.value) {
       await api.updateShift(editingId.value, body)
@@ -485,6 +489,15 @@ async function onClearClockIn(s) {
                 <label class="form-label">終了時間</label>
                 <input v-model="form.end_time" type="time" step="1800" class="form-control" />
               </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">当日メモ</label>
+              <textarea v-model="form.daily_memo" class="form-control" rows="2"
+                placeholder="その日だけのメモ（例: 入れ替え連絡必須、当欠理由、本日だけ早上がり注意）"></textarea>
+            </div>
+            <div class="mb-3 form-check">
+              <input v-model="form.is_absent" id="shift-is-absent" type="checkbox" class="form-check-input" />
+              <label for="shift-is-absent" class="form-check-label">当欠（このシフトを欠勤扱いにする）</label>
             </div>
           </div>
           <div class="modal-footer">
