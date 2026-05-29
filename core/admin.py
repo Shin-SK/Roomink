@@ -135,9 +135,9 @@ class OrderAdmin(admin.ModelAdmin):
 
 @admin.register(StorePhoneNumber)
 class StorePhoneNumberAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "phone", "label")
-    list_filter = ("store",)
-    search_fields = ("phone",)
+    list_display = ("id", "store", "phone", "source_phone", "label", "is_active")
+    list_filter = ("store", "is_active")
+    search_fields = ("phone", "source_phone")
 
 
 class CallNoteInline(admin.TabularInline):

@@ -350,7 +350,12 @@ class CastAck(models.Model):
 class StorePhoneNumber(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="phone_numbers")
     phone = models.CharField(max_length=20, unique=True)
+    source_phone = models.CharField(max_length=20, blank=True, default="")
     label = models.CharField(max_length=50, blank=True, default="")
+    memo = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
 
     def __str__(self):
         return f"{self.store.name} - {self.phone}"

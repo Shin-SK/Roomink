@@ -25,6 +25,7 @@ const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
 const SettingsStaffs = () => import('./pages/op/SettingsStaffs.vue')
 const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
 const SettingsLine = () => import('./pages/op/SettingsLine.vue')
+const SettingsPhones = () => import('./pages/op/SettingsPhones.vue')
 const SettingsManual = () => import('./pages/op/SettingsManual.vue')
 const ManualArticle = () => import('./pages/op/ManualArticle.vue')
 const CastExpenses = () => import('./pages/op/CastExpenses.vue')
@@ -77,6 +78,7 @@ const routes = [
   { path: '/op/settings/media', name: 'settings-media', component: SettingsMedia },
   { path: '/op/settings/csv-import', name: 'settings-csv-import', component: SettingsCsvImport },
   { path: '/op/settings/line', name: 'settings-line', component: SettingsLine },
+  { path: '/op/settings/phones', name: 'settings-phones', component: SettingsPhones },
   { path: '/op/settings/manual', name: 'settings-manual', component: SettingsManual },
   { path: '/op/settings/manual/:slug', name: 'manual-article', component: ManualArticle, props: true },
   { path: '/op/profile', name: 'op-profile', component: Profile },

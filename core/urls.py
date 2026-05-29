@@ -25,6 +25,7 @@ cast_sr_router.register("shift-requests", views.CastShiftRequestViewSet, basenam
 op_sr_router = DefaultRouter()
 op_sr_router.register("shift-requests", views.OpShiftRequestViewSet, basename="op-shift-request")
 op_sr_router.register("call-logs", views.CallLogViewSet, basename="op-call-log")
+op_sr_router.register("store-phones", views.StorePhoneNumberViewSet, basename="op-store-phone")
 
 urlpatterns = [
     # auth

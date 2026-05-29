@@ -232,6 +232,11 @@ export const api = {
   createCallLog: (body) => request('POST', '/op/call-logs/', body),
   addCallNote: (callLogId, body) => request('POST', `/op/call-logs/${callLogId}/add-note/`, { body }),
 
+  // Store Phones (CTI電話番号設定)
+  getStorePhones: () => listRequest('GET', '/op/store-phones/?limit=200'),
+  createStorePhone: (body) => request('POST', '/op/store-phones/', body),
+  updateStorePhone: (id, body) => request('PATCH', `/op/store-phones/${id}/`, body),
+
   // LINE Alerts
   getLineAlerts: () => request('GET', '/op/line-alerts/'),
 

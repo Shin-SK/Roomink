@@ -27,6 +27,7 @@ from .models import (
     ShiftAssignment,
     ShiftRequest,
     Store,
+    StorePhoneNumber,
     UserProfile,
 )
 
@@ -119,6 +120,13 @@ class MediumSerializer(serializers.ModelSerializer):
         model = Medium
         fields = "__all__"
         read_only_fields = ["store"]
+
+
+class StorePhoneNumberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorePhoneNumber
+        fields = "__all__"
+        read_only_fields = ["store", "created_at", "updated_at"]
 
 
 class PointLogSerializer(serializers.ModelSerializer):

@@ -51,6 +51,7 @@ from .serializers import (
     RoomSerializer,
     ScheduleResponseSerializer,
     ShiftAssignmentSerializer,
+    StorePhoneNumberSerializer,
     build_customer_label,
     build_schedule_data,
     build_room_schedule_data,
@@ -1303,6 +1304,25 @@ class CourseViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class StorePhoneNumberViewSet(viewsets.ModelViewSet):
+    queryset = StorePhoneNumber.objects.order_by("id")
+    serializer_class = StorePhoneNumberSerializer
+
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
+    def perform_create(self, serializer):
+        serializer.save(store=get_user_store(self.request))
+
+    def destroy(self, request, *args, **kwargs):
+        # 削除は使わない。無効化は PATCH is_active=False で行う
+        return Response(
+            {"detail": "削除は使用できません。無効化してください"},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+
 class OptionViewSet(viewsets.ModelViewSet):
     queryset = Option.objects.order_by("id")
     serializer_class = OptionSerializer
@@ -1895,7 +1915,7 @@ class CtiInboundView(APIView):
 
         # to_phone → StorePhoneNumber で store 特定
         try:
-            store_phone = StorePhoneNumber.objects.select_related("store").get(phone=to_phone)
+            store_phone = StorePhoneNumber.objects.select_related("store").get(phone=to_phone, is_active=True)
         except StorePhoneNumber.DoesNotExist:
             return Response(
                 {"detail": f"着信先番号 {to_phone} に対応する店舗が見つかりません"},
@@ -2191,7 +2211,7 @@ def twilio_voice_webhook(request):
     logger.info("Twilio voice: normalized from=%s to=%s", from_phone, to_phone)
 
     # to_phone → StorePhoneNumber で store 特定
-    store_phone = StorePhoneNumber.objects.select_related("store").filter(phone=to_phone).first()
+    store_phone = StorePhoneNumber.objects.select_related("store").filter(phone=to_phone, is_active=True).first()
     if not store_phone:
         logger.warning("Twilio voice: StorePhoneNumber not found for to=%s (raw=%s)", to_phone, raw_to)
         return HttpResponse(
@@ -2272,7 +2292,7 @@ def twilio_status_webhook(request):
         if raw_from and raw_to:
             from_phone = normalize_phone(raw_from)
             to_phone = normalize_phone(raw_to)
-            store_phone = StorePhoneNumber.objects.select_related("store").filter(phone=to_phone).first()
+            store_phone = StorePhoneNumber.objects.select_related("store").filter(phone=to_phone, is_active=True).first()
             if store_phone:
                 store = store_phone.store
                 customer = Customer.objects.filter(store=store, phone=from_phone).first()
