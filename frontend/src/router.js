@@ -38,6 +38,8 @@ const CastMypage = () => import('./pages/cast/CastMypage.vue')
 const CastOrders = () => import('./pages/cast/CastOrders.vue')
 const CastShiftRequests = () => import('./pages/cast/CastShiftRequests.vue')
 const CastProfile = () => import('./pages/cast/CastProfile.vue')
+const CastManual = () => import('./pages/cast/CastManual.vue')
+const CastManualArticle = () => import('./pages/cast/CastManualArticle.vue')
 const CuLogin = () => import('./pages/cu/CuLogin.vue')
 const CuSignup = () => import('./pages/cu/CuSignup.vue')
 const CuMypage = () => import('./pages/cu/CuMypage.vue')
@@ -46,6 +48,8 @@ const CuSubmitted = () => import('./pages/cu/CuSubmitted.vue')
 const CuReservation = () => import('./pages/cu/CuReservation.vue')
 const CuProfile = () => import('./pages/cu/CuProfile.vue')
 const CuContact = () => import('./pages/cu/CuContact.vue')
+const CuHelp = () => import('./pages/cu/CuHelp.vue')
+const CuHelpArticle = () => import('./pages/cu/CuHelpArticle.vue')
 const PasswordReset = () => import('./pages/PasswordReset.vue')
 
 const routes = [
@@ -89,6 +93,8 @@ const routes = [
   { path: '/cast/orders', name: 'cast-orders', component: CastOrders },
   { path: '/cast/shift-requests', name: 'cast-shift-requests', component: CastShiftRequests },
   { path: '/cast/profile', name: 'cast-profile', component: CastProfile },
+  { path: '/cast/manual', name: 'cast-manual', component: CastManual },
+  { path: '/cast/manual/:slug', name: 'cast-manual-article', component: CastManualArticle, props: true },
 
   // Customer
   { path: '/cu/login', name: 'cu-login', component: CuLogin, meta: { public: true } },
@@ -99,6 +105,8 @@ const routes = [
   { path: '/cu/reservations/:id', name: 'cu-reservation', component: CuReservation, props: true },
   { path: '/cu/profile', name: 'cu-profile', component: CuProfile },
   { path: '/cu/contact', name: 'cu-contact', component: CuContact },
+  { path: '/cu/help', name: 'cu-help', component: CuHelp },
+  { path: '/cu/help/:slug', name: 'cu-help-article', component: CuHelpArticle, props: true },
 ]
 
 const router = createRouter({

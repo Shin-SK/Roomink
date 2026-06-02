@@ -8,6 +8,10 @@
 export const manualArticles = [
   {
     slug: 'login',
+    roles: ['manager', 'staff', 'cast', 'customer'],
+    category: '基本操作',
+    order: 10,
+    summary: '各権限でのログイン方法',
     title: 'ログインしたい',
     target: 'マネージャー / スタッフ / キャスト / お客様',
     screens: [
@@ -33,6 +37,10 @@ export const manualArticles = [
   },
   {
     slug: 'register-cast',
+    roles: ['manager'],
+    category: '設定',
+    order: 10,
+    summary: 'キャストアカウントの新規登録',
     title: 'キャストを登録したい',
     target: 'マネージャーのみ',
     screens: [
@@ -57,6 +65,10 @@ export const manualArticles = [
   },
   {
     slug: 'add-staff',
+    roles: ['manager'],
+    category: '設定',
+    order: 20,
+    summary: 'スタッフ／マネージャーの追加と権限',
     title: 'スタッフを追加したい',
     target: 'マネージャーのみ',
     screens: [
@@ -80,6 +92,10 @@ export const manualArticles = [
   },
   {
     slug: 'line-link',
+    roles: ['cast', 'manager', 'staff'],
+    category: 'LINE',
+    order: 10,
+    summary: 'キャストとLINEを連携する手順',
     title: 'キャストのLINE連携をしたい',
     target: 'キャスト本人が操作 / マネージャー・スタッフは確認',
     screens: [
@@ -106,6 +122,10 @@ export const manualArticles = [
   },
   {
     slug: 'line-unlink',
+    roles: ['cast', 'manager', 'staff'],
+    category: 'LINE',
+    order: 20,
+    summary: 'LINE連携の解除と再連携',
     title: 'キャストのLINE連携を解除したい',
     target: 'キャスト本人',
     screens: [
@@ -127,6 +147,10 @@ export const manualArticles = [
   },
   {
     slug: 'line-store-settings',
+    roles: ['manager'],
+    category: 'LINE',
+    order: 30,
+    summary: '店舗のLINE初期設定（トークン・Webhook）',
     title: '店舗のLINE設定をしたい',
     target: 'マネージャーのみ',
     screens: [
@@ -155,6 +179,10 @@ export const manualArticles = [
   },
   {
     slug: 'line-notification-settings',
+    roles: ['manager'],
+    category: 'LINE',
+    order: 40,
+    summary: 'LINE出勤通知のON/OFFと時刻',
     title: 'LINE通知の設定を変えたい（朝・2時間前・15分前）',
     target: 'マネージャーのみ',
     screens: [
@@ -184,6 +212,10 @@ export const manualArticles = [
   },
   {
     slug: 'check-reservations',
+    roles: ['manager', 'staff', 'cast'],
+    category: '予約',
+    order: 10,
+    summary: '権限ごとの予約の見方',
     title: '予約を確認したい',
     target: 'マネージャー / スタッフ / キャスト / お客様',
     screens: [
@@ -230,6 +262,10 @@ export const manualArticles = [
   },
   {
     slug: 'phone-handling',
+    roles: ['manager', 'staff'],
+    category: '電話・CTI',
+    order: 10,
+    summary: 'CTI着信への対応とメモ',
     title: '電話が来たときに対応したい',
     target: 'マネージャー / スタッフ',
     screens: [
@@ -255,6 +291,10 @@ export const manualArticles = [
   },
   {
     slug: 'check-customers',
+    roles: ['manager', 'staff'],
+    category: '顧客',
+    order: 10,
+    summary: 'お客様情報の検索と確認',
     title: 'お客様の情報を確認したい',
     target: 'マネージャー / スタッフ',
     screens: [
@@ -278,6 +318,10 @@ export const manualArticles = [
   },
   {
     slug: 'check-rooms',
+    roles: ['manager', 'staff'],
+    category: '予約',
+    order: 30,
+    summary: 'ルームの予約・空き状況の確認',
     title: 'ルームの使用状況を確認したい',
     target: 'マネージャー / スタッフ',
     screens: [
@@ -299,6 +343,10 @@ export const manualArticles = [
   },
   {
     slug: 'check-shifts',
+    roles: ['manager', 'staff', 'cast'],
+    category: 'シフト',
+    order: 10,
+    summary: 'シフトの確認方法',
     title: 'シフトを確認したい',
     target: 'マネージャー / スタッフ / キャスト',
     screens: [
@@ -334,6 +382,10 @@ export const manualArticles = [
   },
   {
     slug: 'check-shift-requests',
+    roles: ['manager', 'staff', 'cast'],
+    category: 'シフト',
+    order: 20,
+    summary: 'シフト申請の提出と承認',
     title: 'シフト申請を出したい・確認したい',
     target: 'マネージャー / スタッフ / キャスト',
     screens: [
@@ -371,6 +423,10 @@ export const manualArticles = [
   },
   {
     slug: 'line-alerts',
+    roles: ['manager', 'staff'],
+    category: 'LINE',
+    order: 50,
+    summary: 'LINE未連携・通知失敗の確認',
     title: 'LINE未連携や通知失敗を確認したい',
     target: 'マネージャー / スタッフ',
     screens: [
@@ -394,6 +450,10 @@ export const manualArticles = [
   },
   {
     slug: 'create-reservation',
+    roles: ['manager', 'staff'],
+    category: '予約',
+    order: 20,
+    summary: 'タイムライン／電話から予約作成',
     title: '予約を作成したい',
     target: 'マネージャー / スタッフ',
     screens: [
@@ -433,6 +493,10 @@ export const manualArticles = [
   },
   {
     slug: 'check-duplicate-customers',
+    roles: ['manager', 'staff'],
+    category: '顧客',
+    order: 20,
+    summary: '重複顧客候補の確認',
     title: '顧客の重複候補を確認したい',
     target: 'マネージャー / スタッフ',
     screens: [
@@ -455,6 +519,10 @@ export const manualArticles = [
   },
   {
     slug: 'merge-customers',
+    roles: ['manager'],
+    category: '顧客',
+    order: 30,
+    summary: '重複顧客の統合',
     title: '顧客を統合したい',
     target: 'マネージャーのみ',
     screens: [
@@ -482,6 +550,10 @@ export const manualArticles = [
   },
   {
     slug: 'input-expenses',
+    roles: ['manager'],
+    category: '会計・売上',
+    order: 10,
+    summary: 'キャスト雑費の入力',
     title: '雑費を入力したい',
     target: 'マネージャーのみ',
     screens: [
@@ -506,6 +578,10 @@ export const manualArticles = [
   },
   {
     slug: 'input-points',
+    roles: ['manager'],
+    category: '会計・売上',
+    order: 20,
+    summary: 'ポイントの加減点',
     title: 'ポイントを入力したい',
     target: 'マネージャーのみ',
     screens: [
@@ -530,6 +606,10 @@ export const manualArticles = [
   },
   {
     slug: 'check-daily-settlement',
+    roles: ['manager'],
+    category: '会計・売上',
+    order: 30,
+    summary: '日給一覧の見方',
     title: '日給一覧を確認したい',
     target: 'マネージャーのみ',
     screens: [
@@ -554,6 +634,10 @@ export const manualArticles = [
   },
   {
     slug: 'lock-daily-settlement',
+    roles: ['manager'],
+    category: '会計・売上',
+    order: 40,
+    summary: '日給の確定（ロック）',
     title: '日給一覧を確定したい',
     target: 'マネージャーのみ',
     screens: [
@@ -578,6 +662,10 @@ export const manualArticles = [
   },
   {
     slug: 'export-daily-settlement-csv',
+    roles: ['manager'],
+    category: '会計・売上',
+    order: 50,
+    summary: '日給一覧のCSV出力',
     title: '日給一覧をCSV出力したい',
     target: 'マネージャーのみ',
     screens: [
@@ -600,6 +688,9 @@ export const manualArticles = [
   },
   {
     slug: 'trouble-login',
+    roles: ['manager', 'staff', 'cast', 'customer'],
+    order: 10,
+    summary: 'ログインできないときの対処',
     title: 'ログインできない',
     category: 'トラブル',
     target: 'マネージャー / スタッフ / キャスト / お客様',
@@ -623,6 +714,9 @@ export const manualArticles = [
   },
   {
     slug: 'trouble-line-link',
+    roles: ['cast', 'manager', 'staff'],
+    order: 20,
+    summary: 'LINE連携できないときの対処',
     title: 'LINE連携ができない',
     category: 'トラブル',
     target: 'キャスト',
@@ -647,6 +741,9 @@ export const manualArticles = [
   },
   {
     slug: 'trouble-line-notification',
+    roles: ['cast', 'manager', 'staff'],
+    order: 30,
+    summary: 'LINE通知が届かないときの対処',
     title: 'LINEの出勤通知が届かない',
     category: 'トラブル',
     target: 'キャスト / マネージャー / スタッフ',
@@ -673,6 +770,9 @@ export const manualArticles = [
   },
   {
     slug: 'trouble-webhook-url',
+    roles: ['manager'],
+    order: 40,
+    summary: 'Webhook URLの確認方法',
     title: 'Webhook URLが分からない',
     category: 'トラブル',
     target: 'マネージャーのみ',
@@ -697,6 +797,9 @@ export const manualArticles = [
   },
   {
     slug: 'trouble-duplicate-customers',
+    roles: ['manager', 'staff'],
+    order: 50,
+    summary: '顧客重複の対処',
     title: '顧客が重複している',
     category: 'トラブル',
     target: 'マネージャー / スタッフ',
@@ -720,6 +823,9 @@ export const manualArticles = [
   },
   {
     slug: 'trouble-daily-settlement-changed',
+    roles: ['manager'],
+    order: 60,
+    summary: '日給の数字が変わる理由',
     title: '日給一覧の数字が変わった',
     category: 'トラブル',
     target: 'マネージャーのみ',
@@ -740,8 +846,875 @@ export const manualArticles = [
       '重要な日の清算は、なるべく早く確定するのがおすすめ',
     ],
   },
+  {
+    slug: 'permissions-overview',
+    roles: ['manager', 'staff'],
+    category: '基本操作',
+    order: 20,
+    summary: '権限ごとにできること',
+    title: '権限ごとにできることを確認したい',
+    target: 'マネージャー / スタッフ',
+    screens: [
+      { label: 'スタッフ管理（権限の変更）', path: '/op/settings/staffs' },
+    ],
+    steps: [
+      'スタッフ管理画面で、各アカウントの権限（スタッフ / マネージャー）を確認・変更できる',
+      '権限はアカウントごとに設定する',
+    ],
+    confirm: [
+      'マネージャー → 予約・顧客・シフトに加え、売上・日給・LINE設定・CSV取込・雑費・ポイント・顧客統合などすべて使える',
+      'スタッフ → 予約・シフト・顧客・電話対応など日常業務の操作ができる',
+      'キャスト → 自分のマイページ（自分の予約・シフト・ポイント・LINE連携）',
+      'お客様 → 自分の予約・マイページ',
+    ],
+    notes: [
+      'マネージャー専用の機能（売上 / 日給一覧 / LINE設定 / CSV取込 / 雑費 / ポイント / 顧客統合）は、スタッフ権限では画面に出ない・操作できない',
+      'キャスト・お客様は運営用の画面（/op/...）には入れない',
+      '権限の付与・変更はマネージャーが行う',
+    ],
+  },
+  {
+    slug: 'check-dashboard',
+    roles: ['manager'],
+    category: '会計・売上',
+    order: 60,
+    summary: 'ダッシュボードのKPIの見方',
+    title: '売上ダッシュボードを確認したい',
+    target: 'マネージャー',
+    screens: [
+      { label: 'ダッシュボード', path: '/op/dashboard' },
+    ],
+    steps: [
+      'ダッシュボードを開く',
+      '上部のKPI（売上確定額・本日本数・確定数・リクエスト数）を確認する',
+      'タブで「キャスト未確認 / 予約リクエスト / 本日の確定予約 / 会計待ち」を切り替えて状況を見る',
+    ],
+    confirm: [
+      'KPIの数字と各タブの件数が表示されていればOK',
+    ],
+    notes: [
+      '売上に関する数字（売上確定額など）はマネージャー権限でのみ表示される',
+      '「売上確定額」は当日の集計で、予約のステータス変更などにより変わることがある',
+      'LINE未連携・通知失敗などのアラートも同じ画面に表示される',
+    ],
+  },
+  {
+    slug: 'check-sales-summary',
+    roles: ['manager'],
+    category: '会計・売上',
+    order: 70,
+    summary: '期間別の売上集計とCSV出力',
+    title: '売上サマリーを確認したい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: '売上', path: '/op/sales' },
+    ],
+    steps: [
+      'サイドバーの「売上」を開く',
+      '期間を選ぶ（今日 / 今週 / 今月 / 期間指定）',
+      '集計（売上合計・注文数・平均単価）と日別一覧を確認する',
+      '必要なら「CSV」ボタンで明細を出力する',
+    ],
+    confirm: [
+      '選んだ期間の集計と、集計期間（開始〜終了）が表示されていればOK',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は見られない',
+      '「期間指定」を選ぶと開始日・終了日を自由に指定できる',
+      '集計対象は完了（DONE）した予約。日給一覧とは集計の切り口が異なる',
+    ],
+  },
+  {
+    slug: 'cti-incoming',
+    roles: ['manager', 'staff'],
+    category: '電話・CTI',
+    order: 20,
+    summary: '着信リストと通話ステータスの管理',
+    title: 'CTIの着信に対応したい',
+    target: 'マネージャー / スタッフ',
+    screens: [
+      { label: '電話対応画面', path: '/op/phone' },
+    ],
+    steps: [
+      '電話対応画面を開く',
+      '着信リストで新しい着信（新規）を確認する',
+      '「対応開始」を押すと、その着信が「対応中」になり自分に割り当てられる',
+      '電話番号から自動照合されたお客様情報を確認する',
+      '対応内容をメモに残す',
+      '対応が終わったら「完了」を押す',
+    ],
+    confirm: [
+      '着信のステータス（新規 / 対応中 / 完了 / 不在）が表示されていればOK',
+      '登録済みのお客様なら、名前や過去の予約・通話履歴も表示される',
+    ],
+    notes: [
+      'CTI（電話システム連携）の初期設定が済んでいないと着信は表示されない（「CTI/Twilioを導入したい」を参照）',
+      '応答がなかった着信は「不在」として自動で記録される',
+      '同じ番号から短時間に複数回かかってきた場合は、繰り返し着信としてまとめられることがある',
+      '基本の対応の流れは「電話が来たときに対応したい」も参照',
+    ],
+  },
+  {
+    slug: 'cti-phone-settings',
+    roles: ['manager'],
+    category: '電話・CTI',
+    order: 30,
+    summary: 'CTI着信番号の登録・有効/無効',
+    title: 'CTI電話番号を設定したい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: '電話番号設定', path: '/op/settings/phones' },
+    ],
+    steps: [
+      '設定の「電話番号設定」を開く',
+      '「新規作成」で受付電話番号を登録する',
+      '電話番号・ラベル・メモなどを入力する',
+      '使わなくなった番号は「有効/無効」の切り替えで無効にできる',
+      '「保存」を押す',
+    ],
+    confirm: [
+      '一覧に登録した番号が表示され、有効/無効の状態が分かればOK',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は使えない',
+      'ここで登録する番号は、着信を受け付ける店舗側の番号',
+      'Twilioなど外部サービス側の設定はシステム管理者が行う（「CTI/Twilioを導入したい」を参照）',
+      '無効にした番号は削除せず残せる（履歴の参照のため）',
+    ],
+  },
+  {
+    slug: 'check-clock-in',
+    roles: ['manager', 'staff'],
+    category: 'シフト',
+    order: 30,
+    summary: '出勤打刻の確認と取り消し',
+    title: '出勤打刻を確認・修正したい',
+    target: 'マネージャー / スタッフ',
+    screens: [
+      { label: 'シフト一覧', path: '/op/shifts' },
+      { label: 'ダッシュボード（未出勤アラート）', path: '/op/dashboard' },
+    ],
+    steps: [
+      'シフト一覧を開く',
+      '今日のシフトで、各キャストの出勤状況（出勤済 / 未出勤）を確認する',
+      'まだ打刻していないキャストは「出勤」操作で打刻できる',
+      '間違えて打刻した場合は「出勤取消」で打刻を取り消せる',
+    ],
+    confirm: [
+      '今日の「出勤 N / 全体 M」「未出勤 N」のサマリーが表示されていればOK',
+      '打刻したキャストは出勤済みの表示に変わる',
+    ],
+    notes: [
+      '開始時刻を過ぎても打刻がないキャストは「未出勤」として目立つ表示になる',
+      'ダッシュボードでも未出勤のキャストを確認できる',
+      '打刻の運用（誰が押すかなど）は店舗運用により異なります',
+    ],
+  },
+  {
+    slug: 'sms-behavior',
+    roles: ['manager', 'staff'],
+    category: '予約',
+    order: 40,
+    summary: 'SMS（ショートメール）通知の挙動',
+    title: 'SMS送信の挙動を確認したい',
+    target: 'マネージャー / スタッフ',
+    screens: [
+      { label: '（専用画面はありません。挙動の説明です）' },
+    ],
+    steps: [
+      'SMSは手動で送るものではなく、予約の確定・キャンセルなどに合わせて自動で送信される想定の機能です',
+      '送信の有無や内容は店舗の設定・運用により異なります',
+    ],
+    confirm: [
+      'お客様の電話番号が正しく登録されていれば送信対象になる',
+    ],
+    notes: [
+      'SMSの送信には外部サービス（Twilio）の設定が必要。設定はシステム管理者が行う',
+      '送信履歴・失敗の確認は管理者向けの管理画面（Django admin の SmsLog）で行う',
+      '電話番号が正しくない・形式が不正な場合は届かない',
+      '実際に送信されるかどうかは店舗運用・設定により異なります',
+    ],
+  },
+  {
+    slug: 'setting-rooms',
+    roles: ['manager'],
+    category: '設定',
+    order: 30,
+    summary: 'ルームの追加・編集・並び替え',
+    title: 'ルームを設定したい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: 'ルーム管理', path: '/op/settings/rooms' },
+    ],
+    steps: [
+      '設定の「ルーム管理」を開く',
+      '「新規作成」でルームを追加する',
+      'ルーム名などを入力する',
+      '「保存」を押す',
+    ],
+    confirm: [
+      'ルーム一覧に追加・変更した内容が表示されればOK',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は使えない',
+      'ルームはシフトや予約タイムラインの表示に使われる',
+      '表示の並び順は設定により異なります',
+    ],
+  },
+  {
+    slug: 'setting-courses',
+    roles: ['manager'],
+    category: '設定',
+    order: 40,
+    summary: 'コースの追加・編集',
+    title: 'コースを設定したい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: 'コース管理', path: '/op/settings/courses' },
+    ],
+    steps: [
+      '設定の「コース管理」を開く',
+      '「新規作成」でコースを追加する',
+      'コース名・時間（分）・料金を入力する',
+      '対象キャストを限定したい場合は指定する',
+      '「保存」を押す',
+    ],
+    confirm: [
+      'コース一覧に追加・変更した内容が表示されればOK',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は使えない',
+      'コースは予約作成時の選択肢になる',
+      'すでに予約で使われているコースは削除できないことがある',
+    ],
+  },
+  {
+    slug: 'setting-options',
+    roles: ['manager'],
+    category: '設定',
+    order: 50,
+    summary: 'オプションの追加・編集',
+    title: 'オプションを設定したい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: 'オプション管理', path: '/op/settings/options' },
+    ],
+    steps: [
+      '設定の「オプション管理」を開く',
+      '「新規作成」でオプションを追加する',
+      'オプション名・料金を入力する',
+      '「保存」を押す',
+    ],
+    confirm: [
+      'オプション一覧に追加・変更した内容が表示されればOK',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は使えない',
+      'オプションは予約に追加できる項目として使われる',
+      'すでに予約で使われているオプションは削除できないことがある',
+    ],
+  },
+  {
+    slug: 'setting-extensions',
+    roles: ['manager'],
+    category: '設定',
+    order: 60,
+    summary: '延長メニューの追加・編集',
+    title: '延長を設定したい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: '延長管理', path: '/op/settings/extensions' },
+    ],
+    steps: [
+      '設定の「延長管理」を開く',
+      '「新規作成」で延長メニューを追加する',
+      '名称・時間・料金などを入力する',
+      '「保存」を押す',
+    ],
+    confirm: [
+      '延長一覧に追加・変更した内容が表示されればOK',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は使えない',
+      '延長は予約詳細から適用できる（「予約を作成したい」「予約を確認したい」も参照）',
+    ],
+  },
+  {
+    slug: 'setting-nomination-fees',
+    roles: ['manager'],
+    category: '設定',
+    order: 70,
+    summary: '指名料の追加・編集',
+    title: '指名料を設定したい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: '指名料管理', path: '/op/settings/nomination-fees' },
+    ],
+    steps: [
+      '設定の「指名料管理」を開く',
+      '「新規作成」で指名料を追加する',
+      '名称・料金などを入力する',
+      '「保存」を押す',
+    ],
+    confirm: [
+      '指名料一覧に追加・変更した内容が表示されればOK',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は使えない',
+      '指名料は予約詳細から適用できる',
+    ],
+  },
+  {
+    slug: 'setting-discounts',
+    roles: ['manager'],
+    category: '設定',
+    order: 80,
+    summary: '割引の追加・編集',
+    title: '割引を設定したい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: '割引管理', path: '/op/settings/discounts' },
+    ],
+    steps: [
+      '設定の「割引管理」を開く',
+      '「新規作成」で割引を追加する',
+      '名称と、割引の種類（固定額 / 割合）・値を入力する',
+      '「保存」を押す',
+    ],
+    confirm: [
+      '割引一覧に追加・変更した内容が表示されればOK',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は使えない',
+      '割引は予約詳細から適用できる',
+      '固定額か割合（パーセント）かは設定により異なります',
+    ],
+  },
+  {
+    slug: 'setting-media',
+    roles: ['manager'],
+    category: '設定',
+    order: 90,
+    summary: '来店経路（媒体）の追加・編集',
+    title: '媒体を設定したい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: '媒体管理', path: '/op/settings/media' },
+    ],
+    steps: [
+      '設定の「媒体管理」を開く',
+      '「新規作成」で媒体（来店経路）を追加する',
+      '媒体名を入力する',
+      '「保存」を押す',
+    ],
+    confirm: [
+      '媒体一覧に追加・変更した内容が表示されればOK',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は使えない',
+      '媒体は予約に「どこから来たか（来店経路）」を記録するために使う',
+    ],
+  },
+  {
+    slug: 'csv-import',
+    roles: ['manager'],
+    category: '設定',
+    order: 100,
+    summary: 'CSVでマスタを一括取込',
+    title: 'CSVで初期データを取り込みたい',
+    target: 'マネージャーのみ',
+    screens: [
+      { label: 'CSV取込', path: '/op/settings/csv-import' },
+    ],
+    steps: [
+      '設定の「CSV取込」を開く',
+      '取り込む種類を選ぶ（キャスト / ルーム / コース / オプション / 顧客）',
+      '画面に表示される必須・任意の項目に合わせたCSVファイルを選ぶ',
+      '「プレビュー」で先頭の内容と件数を確認する',
+      '問題なければ取込を実行する',
+    ],
+    confirm: [
+      'プレビューで先頭行と全行数が表示されればOK',
+      '実行後、対象のマスタ一覧に取り込んだデータが反映される',
+    ],
+    notes: [
+      'マネージャー権限がないとこの画面は使えない',
+      '各種類の必須項目: キャスト=name、ルーム=name、コース=name/duration/price、オプション=name/price、顧客=phone',
+      'まずプレビューで確認してから実行するのが安全',
+      '文字コードや項目名が合っていないと取り込めないことがあります',
+    ],
+  },
+  {
+    slug: 'setup-store',
+    roles: ['manager', 'setup'],
+    category: '導入・初期設定',
+    order: 10,
+    summary: '新規店舗の初期設定の流れ',
+    title: '店舗の初期設定をしたい',
+    target: '導入担当 / マネージャー',
+    screens: [
+      { label: '設定トップ', path: '/op/settings' },
+    ],
+    steps: [
+      '店舗（Store）そのものの作成は、システム管理者が管理画面（Django admin）で行う',
+      '店舗ができたら、設定画面から各マスタを整える',
+      'ルーム・コース・オプション・延長・指名料・割引・媒体を登録する',
+      'スタッフ・キャストのアカウントを発行する',
+      '必要に応じてLINE・CTIを導入する',
+    ],
+    confirm: [
+      '設定画面の各メニューが一通り登録できていればOK',
+    ],
+    notes: [
+      '店舗の作成・基本情報（店名・タイムゾーンなど）はシステム管理者が行う',
+      '具体的な各設定は、それぞれの記事（「ルームを設定したい」など）を参照',
+      '導入時の手順や担当は店舗運用により異なります',
+    ],
+  },
+  {
+    slug: 'setup-line',
+    roles: ['manager', 'setup'],
+    category: '導入・初期設定',
+    order: 20,
+    summary: 'LINE連携の導入手順',
+    title: 'LINE連携を導入したい',
+    target: '導入担当 / マネージャー',
+    screens: [
+      { label: 'LINE連携設定', path: '/op/settings/line' },
+    ],
+    steps: [
+      'LINE公式アカウントとMessaging APIを用意する（LINE Developers）',
+      'チャネルシークレット・チャネルアクセストークンを取得する',
+      'アプリのLINE設定画面に入力して保存する',
+      '表示されたWebhook URLを、LINE Developers側のWebhook URLに設定する',
+      'キャストにLINE連携をしてもらう',
+    ],
+    confirm: [
+      'LINE設定画面でWebhook URLが表示され、LINE側で検証が成功すればOK',
+    ],
+    notes: [
+      '詳しい入力手順は「店舗のLINE設定をしたい」を参照',
+      'Webhook URLは店舗ごとに異なる',
+      'この設定が終わるまで、キャストのLINE連携やLINE通知は動かない',
+      'LINE Developers側の操作はシステム管理者・導入担当が行う',
+    ],
+  },
+  {
+    slug: 'setup-cti',
+    roles: ['manager', 'setup'],
+    category: '導入・初期設定',
+    order: 30,
+    summary: 'CTI/Twilioの導入手順',
+    title: 'CTI/Twilioを導入したい',
+    target: '導入担当 / マネージャー',
+    screens: [
+      { label: '電話番号設定', path: '/op/settings/phones' },
+    ],
+    steps: [
+      '外部サービス（Twilioなど）側で着信・Webhookの設定を行う（システム管理者）',
+      'アプリの「電話番号設定」で、受付電話番号を登録する',
+      '電話対応画面で着信が表示されるか確認する',
+    ],
+    confirm: [
+      '電話対応画面に着信が表示されるようになればOK',
+    ],
+    notes: [
+      'Twilioなど外部サービス側の設定はシステム管理者が行う',
+      'アプリ側の番号登録は「CTI電話番号を設定したい」を参照',
+      '着信後の対応は「CTIの着信に対応したい」を参照',
+      '導入手順は契約・環境により異なります',
+    ],
+  },
+  {
+    slug: 'setup-master-seed',
+    roles: ['manager', 'setup'],
+    category: '導入・初期設定',
+    order: 40,
+    summary: '初期マスタの一括投入',
+    title: '初期マスタを投入したい',
+    target: '導入担当 / マネージャー',
+    screens: [
+      { label: 'CSV取込', path: '/op/settings/csv-import' },
+    ],
+    steps: [
+      '導入時にまとめてデータを入れる場合は、CSV取込を使うと早い',
+      'キャスト / ルーム / コース / オプション / 顧客 をそれぞれCSVで取り込む',
+      'プレビューで確認してから実行する',
+    ],
+    confirm: [
+      '各マスタ一覧に初期データが入っていればOK',
+    ],
+    notes: [
+      '詳しい手順は「CSVで初期データを取り込みたい」を参照',
+      '件数が少なければ、各設定画面から手で登録してもよい',
+    ],
+  },
+  {
+    slug: 'setup-initial-accounts',
+    roles: ['manager', 'setup'],
+    category: '導入・初期設定',
+    order: 50,
+    summary: 'スタッフ・キャストの初期発行',
+    title: 'スタッフ・キャストの初期アカウントを発行したい',
+    target: '導入担当 / マネージャー',
+    screens: [
+      { label: 'スタッフ管理', path: '/op/settings/staffs' },
+      { label: 'キャスト管理', path: '/op/settings/casts' },
+    ],
+    steps: [
+      'スタッフ管理で、運営スタッフ・マネージャーのアカウントを作る',
+      'キャスト管理で、キャストのアカウントを作る',
+      'それぞれにユーザー名・パスワードを設定して本人に伝える',
+    ],
+    confirm: [
+      'スタッフ一覧・キャスト一覧に発行したアカウントが表示されればOK',
+    ],
+    notes: [
+      '詳しい手順は「スタッフを追加したい」「キャストを登録したい」を参照',
+      'キャストのLINE連携は、アカウント発行のあとに別で行う',
+      '初期パスワードは安全に共有し、必要なら本人に変更してもらう運用を推奨',
+    ],
+  },
+
+  // ===== キャスト本人向け =====
+  {
+    slug: 'cast-mypage',
+    roles: ['cast'],
+    category: '基本操作',
+    order: 30,
+    summary: 'マイページで今日の予定・ポイントを見る',
+    title: 'マイページを確認したい',
+    target: 'キャスト',
+    screens: [
+      { label: 'マイページ', path: '/cast/mypage' },
+    ],
+    steps: [
+      'ログインするとマイページが開く（メニューの「マイページ」からも開ける）',
+      '今日のシフト（開始・終了時間）を確認する',
+      '今日の自分の予約を確認する',
+      'ポイントの残高と直近の履歴を確認する',
+      'LINE連携の状態（連携済み / 未連携）を確認する',
+    ],
+    confirm: [
+      '今日のシフト・予約・ポイント・LINE連携の状態が表示されていればOK',
+    ],
+    notes: [
+      '未確認の予約があるときは、件数が表示される',
+      'LINEがまだ連携できていない場合は、連携をうながす案内が表示される（「LINE連携したい」を参照）',
+      '表示される内容は店舗の設定により異なる場合があります',
+    ],
+  },
+  {
+    slug: 'cast-profile',
+    roles: ['cast'],
+    category: '基本操作',
+    order: 40,
+    summary: 'プロフィール画面を開く',
+    title: 'プロフィールを確認・変更したい',
+    target: 'キャスト',
+    screens: [
+      { label: 'プロフィール', path: '/cast/profile' },
+    ],
+    steps: [
+      'メニューから「プロフィール」を開く',
+      '表示されている自分の情報を確認する',
+    ],
+    confirm: [
+      '自分のプロフィール画面が開けばOK',
+    ],
+    notes: [
+      '自分で変更できる項目や、変更を運営に依頼する項目は、店舗の運用により異なります',
+      '名前・写真などの登録・変更は運営が行う場合があります',
+    ],
+  },
+  {
+    slug: 'cast-orders-view',
+    roles: ['cast'],
+    category: '予約',
+    order: 50,
+    summary: '今日の自分の予約をタイムラインで見る',
+    title: '予約一覧を確認したい',
+    target: 'キャスト',
+    screens: [
+      { label: 'タイムライン', path: '/cast/orders' },
+    ],
+    steps: [
+      'メニューから「タイムライン」を開く',
+      '今日の自分の予約が時間順に表示される',
+      '予約をタップすると、顧客名・時間・コースなどの内容が見られる',
+      'まだ確認していない予約は「確認」して確認済みにする',
+    ],
+    confirm: [
+      '今日の予約が時間の並びで表示されていればOK',
+    ],
+    notes: [
+      '「確認」は「予約を見ました」という意味で、予約を確定・変更する操作ではない',
+      '表示されるのは自分の予約だけ',
+      '予約の追加・変更・キャンセルは運営が行う',
+    ],
+  },
+
+  // ===== お客様本人向け =====
+  {
+    slug: 'cu-signup',
+    roles: ['customer'],
+    category: '基本操作',
+    order: 12,
+    summary: 'お客様アカウントの新規登録',
+    title: '新規登録したい',
+    target: 'お客様',
+    screens: [
+      { label: '新規登録', path: '/cu/signup' },
+    ],
+    steps: [
+      '新規登録画面を開く',
+      'お店を選ぶ（複数のお店がある場合）',
+      '電話番号・パスワード・お名前（表示名）を入力する',
+      '「登録」を押す',
+    ],
+    confirm: [
+      '登録が終わると、そのままログインされてマイページが開く',
+    ],
+    notes: [
+      '電話番号はハイフンなしで入力する（例: 09012345678）',
+      'パスワードは忘れないように控えておく',
+      'すでに登録済みの場合は、新規登録ではなくログインを使う',
+    ],
+  },
+  {
+    slug: 'cu-mypage',
+    roles: ['customer'],
+    category: '基本操作',
+    order: 14,
+    summary: 'マイページの見方',
+    title: 'マイページを確認したい',
+    target: 'お客様',
+    screens: [
+      { label: 'マイページ', path: '/cu/mypage' },
+    ],
+    steps: [
+      'ログインするとマイページが開く（メニューの「マイページ」からも開ける）',
+      '次回の予約があれば、上部に表示される',
+      'タブを切り替えて、指名・おすすめ・来店履歴を見る',
+    ],
+    confirm: [
+      '次回予約や、指名・おすすめ・履歴のタブが表示されていればOK',
+    ],
+    notes: [
+      '表示される内容は、これまでのご利用状況により異なります',
+      'お店が複数ある場合は、メニューからお店を切り替えられる',
+    ],
+  },
+  {
+    slug: 'cu-favorites',
+    roles: ['customer'],
+    category: '基本操作',
+    order: 16,
+    summary: '指名・おすすめの見方',
+    title: '指名・おすすめを確認したい',
+    target: 'お客様',
+    screens: [
+      { label: 'マイページ', path: '/cu/mypage' },
+    ],
+    steps: [
+      'マイページを開く',
+      '「指名」タブで、これまで指名した相手を確認する',
+      '「おすすめ」タブで、おすすめの相手を確認する',
+    ],
+    confirm: [
+      '指名・おすすめの一覧が表示されればOK',
+    ],
+    notes: [
+      '指名・おすすめの内容は、ご利用状況やお店の設定により異なります',
+      '気になる相手が見つかったら、そのまま予約に進めます（「予約を申請したい」を参照）',
+    ],
+  },
+  {
+    slug: 'cu-password-reset',
+    roles: ['customer'],
+    category: '基本操作',
+    order: 18,
+    summary: 'パスワードの再設定',
+    title: 'パスワードを再設定したい',
+    target: 'お客様',
+    screens: [
+      { label: 'パスワード再設定', path: '/password-reset' },
+    ],
+    steps: [
+      'パスワード再設定の画面を開く',
+      '案内に従って必要な情報を入力する',
+      '新しいパスワードを設定する',
+    ],
+    confirm: [
+      '新しいパスワードでログインできればOK',
+    ],
+    notes: [
+      'うまくいかない場合は、お店へご連絡ください',
+      '再設定の手順や入口は、お店の設定により異なる場合があります',
+    ],
+  },
+  {
+    slug: 'cu-booking',
+    roles: ['customer'],
+    category: '予約',
+    order: 12,
+    summary: '予約の申請手順',
+    title: '予約を申請したい',
+    target: 'お客様',
+    screens: [
+      { label: '予約', path: '/cu/booking' },
+    ],
+    steps: [
+      'メニューから「予約」を開く',
+      'お店を選ぶ（複数のお店がある場合）',
+      '相手（キャスト）を選ぶ',
+      'コースを選ぶ',
+      '日付と時間を選ぶ（空いている時間から選べます）',
+      '必要であればオプションやメモを入力する',
+      '内容を確認して予約を申請する',
+    ],
+    confirm: [
+      '申請が完了すると、完了画面が表示される',
+    ],
+    notes: [
+      '予約は「申請」です。お店側で確定されると予約が成立します',
+      '空いている時間だけが選べます',
+      '申請後の状況はマイページから確認できます（「予約状況を確認したい」を参照）',
+    ],
+  },
+  {
+    slug: 'cu-reservation-status',
+    roles: ['customer'],
+    category: '予約',
+    order: 14,
+    summary: '予約の状況・ステータス確認',
+    title: '予約状況を確認したい',
+    target: 'お客様',
+    screens: [
+      { label: 'マイページ', path: '/cu/mypage' },
+    ],
+    steps: [
+      'マイページを開く',
+      '次回の予約や、予約の状況（申請中 / 確定 など）を確認する',
+      '予約をタップすると、日時・相手・コース・料金などの詳細が見られる',
+    ],
+    confirm: [
+      '予約のステータス（申請中 / 確定 / 進行中 / 完了 / キャンセル）が表示されていればOK',
+    ],
+    notes: [
+      '「申請中」は、まだお店で確定されていない状態です',
+      '内容に変更・取り消しが必要な場合は、お店へご連絡ください',
+    ],
+  },
+  {
+    slug: 'cu-cancel',
+    roles: ['customer'],
+    category: '予約',
+    order: 16,
+    summary: '予約のキャンセル・変更について',
+    title: '予約をキャンセル・変更したい',
+    target: 'お客様',
+    screens: [
+      { label: 'お問い合わせ', path: '/cu/contact' },
+    ],
+    steps: [
+      '予約のキャンセル・変更は、お店へご連絡ください',
+      'お問い合わせ画面、またはお店の連絡先からご連絡ください',
+    ],
+    confirm: [
+      'お店側で対応されると、マイページの予約状況に反映されます',
+    ],
+    notes: [
+      '現在、予約のキャンセル・変更はアプリ内のボタンでは行えません',
+      '連絡方法・受付時間は、お店の運用により異なります',
+    ],
+  },
+  {
+    slug: 'cu-notification',
+    roles: ['customer'],
+    category: 'トラブル',
+    order: 70,
+    summary: '予約の通知が届かないとき',
+    title: '予約通知が届かないときに確認したい',
+    target: 'お客様',
+    screens: [
+      { label: 'マイページ', path: '/cu/mypage' },
+    ],
+    steps: [
+      'まず、マイページで予約の状況を確認する',
+      '予約が「申請中」「確定」などになっていれば、予約自体は受け付けられています',
+    ],
+    confirm: [
+      'マイページに予約が表示されていれば、申請・確定はできています',
+    ],
+    notes: [
+      '通知の方法（SMS・LINE・画面表示など）や送られるかどうかは、お店の設定により異なります',
+      '電話番号が正しく登録されているか確認してください',
+      '通知が届かない場合でも、予約状況はマイページから確認できます',
+      '不明な点は、お店へご連絡ください',
+    ],
+  },
 ]
 
 export function findArticle(slug) {
   return manualArticles.find(a => a.slug === slug) || null
+}
+
+// ロール定義（表示用ラベル）
+export const MANUAL_ROLES = [
+  { key: 'manager', label: 'マネージャー' },
+  { key: 'staff', label: 'スタッフ' },
+  { key: 'cast', label: 'キャスト' },
+  { key: 'customer', label: 'お客様' },
+  { key: 'setup', label: '導入・初期設定' },
+]
+
+// カテゴリ定義（一覧の表示順）
+export const MANUAL_CATEGORIES = [
+  '基本操作',
+  '予約',
+  '顧客',
+  '電話・CTI',
+  'LINE',
+  'シフト',
+  '会計・売上',
+  '設定',
+  'トラブル',
+  '導入・初期設定',
+]
+
+// ログイン中ロールが閲覧できる記事ロール（manager は staff / setup も閲覧可）
+export const MANUAL_VISIBILITY = {
+  manager: ['manager', 'staff', 'setup'],
+  staff: ['staff'],
+  cast: ['cast'],
+  customer: ['customer'],
+}
+
+// roles 未設定の記事は安全側（manager のみ閲覧可）に倒す
+function articleRoles(article) {
+  return Array.isArray(article?.roles) && article.roles.length ? article.roles : ['manager']
+}
+
+// この記事を role が閲覧してよいか
+export function canReadArticle(article, role) {
+  if (!article) return false
+  const visible = MANUAL_VISIBILITY[role] || []
+  return articleRoles(article).some(r => visible.includes(r))
+}
+
+// role が閲覧できる記事を category 順・order 順で返す
+export function articlesForRole(role) {
+  const catOrder = (c) => {
+    const i = MANUAL_CATEGORIES.indexOf(c)
+    return i === -1 ? 999 : i
+  }
+  return manualArticles
+    .filter(a => canReadArticle(a, role))
+    .slice()
+    .sort((a, b) => {
+      const c = catOrder(a.category) - catOrder(b.category)
+      if (c !== 0) return c
+      return (a.order ?? 999) - (b.order ?? 999)
+    })
 }

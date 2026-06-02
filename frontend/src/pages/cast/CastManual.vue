@@ -1,39 +1,27 @@
 <script setup>
-import LayoutOperator from '../../components/LayoutOperator.vue'
-import { articlesForRole, MANUAL_CATEGORIES, MANUAL_ROLES } from './manualData.js'
-import { getAuthRole } from '../../router.js'
+import LayoutCast from '../../components/LayoutCast.vue'
+import { articlesForRole, MANUAL_CATEGORIES } from '../op/manualData.js'
 
-// ログイン中ユーザーの role に応じて表示記事を絞る（op画面なので未取得時はstaff扱い=最小権限）
-const role = getAuthRole() || 'staff'
-const articles = articlesForRole(role)
+// キャスト本人向け（roles に cast を含む）記事だけ表示
+const articles = articlesForRole('cast')
 
-// category ごとにグルーピング（MANUAL_CATEGORIES の順）
 const groups = MANUAL_CATEGORIES
   .map(cat => ({ category: cat, items: articles.filter(a => a.category === cat) }))
   .filter(g => g.items.length > 0)
 
-// 想定外カテゴリ（保険）
 const others = articles.filter(a => !MANUAL_CATEGORIES.includes(a.category))
 if (others.length) groups.push({ category: 'その他', items: others })
-
-const roleLabel = Object.fromEntries(MANUAL_ROLES.map(r => [r.key, r.label]))
 </script>
 
 <template>
-  <LayoutOperator>
-    <template #title>操作マニュアル</template>
+  <LayoutCast>
+    <h1 class="page-title mb-3">マニュアル</h1>
 
-    <div class="mb-3">
-      <router-link to="/op/settings" class="btn btn-outline-secondary btn-sm">
-        <i class="ti ti-arrow-left"></i> 設定に戻る
-      </router-link>
+    <div v-if="!groups.length" class="alert alert-info">
+      表示できるマニュアルはまだありません。
     </div>
 
-    <div
-      v-for="g in groups"
-      :key="g.category"
-      class="card mb-4"
-    >
+    <div v-for="g in groups" :key="g.category" class="card mb-4">
       <div class="card-header">
         <i class="ti" :class="g.category === 'トラブル' ? 'ti-alert-triangle' : 'ti-book'"></i>
         {{ g.category }}
@@ -42,7 +30,7 @@ const roleLabel = Object.fromEntries(MANUAL_ROLES.map(r => [r.key, r.label]))
         <router-link
           v-for="(a, i) in g.items"
           :key="a.slug"
-          :to="`/op/settings/manual/${a.slug}`"
+          :to="`/cast/manual/${a.slug}`"
           class="manual-item"
         >
           <span
@@ -52,19 +40,12 @@ const roleLabel = Object.fromEntries(MANUAL_ROLES.map(r => [r.key, r.label]))
           <div class="manual-item__body">
             <div class="manual-item__title">{{ a.title }}</div>
             <small class="text-muted d-block">{{ a.summary || a.target }}</small>
-            <div class="manual-item__roles">
-              <span
-                v-for="r in a.roles"
-                :key="r"
-                class="badge bg-light text-dark border"
-              >{{ roleLabel[r] || r }}</span>
-            </div>
           </div>
           <i class="ti ti-chevron-right ms-auto"></i>
         </router-link>
       </div>
     </div>
-  </LayoutOperator>
+  </LayoutCast>
 </template>
 
 <style scoped>
@@ -106,15 +87,5 @@ const roleLabel = Object.fromEntries(MANUAL_ROLES.map(r => [r.key, r.label]))
 .manual-item__title {
   font-weight: 600;
   font-size: 0.95rem;
-}
-.manual-item__roles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-top: 0.25rem;
-}
-.manual-item__roles .badge {
-  font-size: 0.7rem;
-  font-weight: 500;
 }
 </style>

@@ -19,6 +19,7 @@ const sidebarItems = [
   { to: '/cast/orders', icon: 'ti-calendar-event', label: 'タイムライン' },
   { to: '/cast/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請' },
   { to: '/cast/profile', icon: 'ti-user', label: 'プロフィール' },
+  { to: '/cast/manual', icon: 'ti-book', label: 'マニュアル' },
 ]
 
 const footerItems = [

@@ -38,6 +38,7 @@ const sidebarItems = [
   { to: '/cu/mypage', icon: 'ti-home', label: 'マイページ' },
   { to: '/cu/booking', icon: 'ti-calendar-plus', label: '予約' },
   { to: '/cu/contact', icon: 'ti-help', label: 'お問い合わせ' },
+  { to: '/cu/help', icon: 'ti-book', label: 'ヘルプ' },
 ]
 
 function toggleSidebar() {

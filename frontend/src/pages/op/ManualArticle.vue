@@ -2,10 +2,15 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
-import { findArticle } from './manualData.js'
+import { findArticle, canReadArticle } from './manualData.js'
+import { getAuthRole } from '../../router.js'
 
 const route = useRoute()
-const article = computed(() => findArticle(route.params.slug))
+const role = getAuthRole() || 'staff'
+const found = computed(() => findArticle(route.params.slug))
+// 閲覧権限のある記事だけ表示。権限外はURL直打ちでも開けない
+const article = computed(() => (canReadArticle(found.value, role) ? found.value : null))
+const noPermission = computed(() => !!found.value && !canReadArticle(found.value, role))
 </script>
 
 <template>
@@ -18,8 +23,13 @@ const article = computed(() => findArticle(route.params.slug))
       </router-link>
     </div>
 
+    <!-- 閲覧権限がない場合 -->
+    <div v-if="noPermission" class="alert alert-warning">
+      この記事は表示できません。
+    </div>
+
     <!-- 記事が見つからない場合 -->
-    <div v-if="!article" class="alert alert-warning">
+    <div v-else-if="!article" class="alert alert-warning">
       指定された記事が見つかりません。
     </div>
 
