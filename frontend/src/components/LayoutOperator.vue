@@ -43,10 +43,12 @@ const navItems = computed(() => {
     { to: '/op/cast-expenses', icon: 'ti-receipt', label: '雑費管理', page: 'cast-expenses' },
   ]
   if (isManager.value) {
-    items.push({ to: '/op/sales', icon: 'ti-chart-bar', label: '売上確認', page: 'sales' })
+    items.push(
+      { to: '/op/sales', icon: 'ti-chart-bar', label: '売上確認', page: 'sales' },
+      { to: '/op/daily-settlement', icon: 'ti-calculator', label: '日給一覧', page: 'daily-settlement' },
+    )
   }
   items.push(
-    { to: '/op/daily-settlement', icon: 'ti-calculator', label: '日給一覧', page: 'daily-settlement' },
     { to: '/op/point-logs', icon: 'ti-star', label: 'ポイント', page: 'point-logs' },
     { to: '/op/settings', icon: 'ti-settings', label: '設定', page: 'settings' },
   )

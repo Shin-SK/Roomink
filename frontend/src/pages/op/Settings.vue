@@ -1,21 +1,29 @@
 <script setup>
+import { computed } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
+import { getAuthRole } from '../../router.js'
+
+const isManager = computed(() => getAuthRole() === 'manager')
 
 const menuItems = [
-  { to: '/op/settings/casts', icon: 'ti-users', label: 'キャスト管理', desc: 'キャストの追加・編集・削除' },
-  { to: '/op/settings/staffs', icon: 'ti-user-shield', label: 'スタッフ管理', desc: 'スタッフの追加・編集・削除' },
-  { to: '/op/settings/rooms', icon: 'ti-door', label: 'ルーム管理', desc: 'ルームの追加・編集・削除' },
-  { to: '/op/settings/courses', icon: 'ti-list', label: 'コース管理', desc: 'コースの追加・編集・削除' },
-  { to: '/op/settings/options', icon: 'ti-puzzle', label: 'オプション管理', desc: 'オプションの追加・編集・削除' },
-  { to: '/op/settings/extensions', icon: 'ti-clock-plus', label: '延長管理', desc: '延長の追加・編集・削除' },
-  { to: '/op/settings/nomination-fees', icon: 'ti-star', label: '指名料管理', desc: '指名料の追加・編集・削除' },
-  { to: '/op/settings/discounts', icon: 'ti-discount', label: '割引管理', desc: '割引の追加・編集・削除' },
-  { to: '/op/settings/media', icon: 'ti-antenna', label: '媒体管理', desc: '媒体の追加・編集・削除' },
-  { to: '/op/settings/csv-import', icon: 'ti-file-import', label: 'CSVインポート', desc: 'CSVファイルから一括登録' },
-  { to: '/op/settings/line', icon: 'ti-brand-line', label: 'LINE連携設定', desc: 'Webhook・Channel設定（マネージャーのみ）' },
-  { to: '/op/settings/phones', icon: 'ti-phone', label: 'CTI電話番号設定', desc: 'CTI着信番号の登録・編集' },
+  { to: '/op/settings/casts', icon: 'ti-users', label: 'キャスト管理', desc: 'キャストの追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/staffs', icon: 'ti-user-shield', label: 'スタッフ管理', desc: 'スタッフの追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/rooms', icon: 'ti-door', label: 'ルーム管理', desc: 'ルームの追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/courses', icon: 'ti-list', label: 'コース管理', desc: 'コースの追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/options', icon: 'ti-puzzle', label: 'オプション管理', desc: 'オプションの追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/extensions', icon: 'ti-clock-plus', label: '延長管理', desc: '延長の追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/nomination-fees', icon: 'ti-star', label: '指名料管理', desc: '指名料の追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/discounts', icon: 'ti-discount', label: '割引管理', desc: '割引の追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/media', icon: 'ti-antenna', label: '媒体管理', desc: '媒体の追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/csv-import', icon: 'ti-file-import', label: 'CSVインポート', desc: 'CSVファイルから一括登録', managerOnly: true },
+  { to: '/op/settings/line', icon: 'ti-brand-line', label: 'LINE連携設定', desc: 'Webhook・Channel設定（マネージャーのみ）', managerOnly: true },
+  { to: '/op/settings/phones', icon: 'ti-phone', label: 'CTI電話番号設定', desc: 'CTI着信番号の登録・編集', managerOnly: true },
   { to: '/op/settings/manual', icon: 'ti-book', label: '操作マニュアル', desc: 'Roominkの使い方ガイド' },
 ]
+
+const visibleItems = computed(() =>
+  menuItems.filter((item) => !item.managerOnly || isManager.value)
+)
 </script>
 
 <template>
@@ -24,7 +32,7 @@ const menuItems = [
 
     <div class="settings-list">
       <router-link
-        v-for="item in menuItems"
+        v-for="item in visibleItems"
         :key="item.to"
         :to="item.to"
         class="settings-item"
