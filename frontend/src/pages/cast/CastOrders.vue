@@ -76,7 +76,8 @@ const gridRef = ref(null)
 function layoutBlocks() {
   if (!gridRef.value) return
   const grid = gridRef.value
-  const hourH = 80
+  const cssVar = parseInt(getComputedStyle(grid).getPropertyValue('--rk-row-hour-h'))
+  const hourH = Number.isFinite(cssVar) && cssVar > 0 ? cssVar : 80
   const startMin = startHour.value * 60
   const totalH = (endHour.value - startHour.value + 1)
   grid.style.height = `${hourH * totalH}px`
@@ -130,7 +131,7 @@ onMounted(() => {
         <i class="ti ti-alert-triangle fs-4 flex-shrink-0"></i>
         <div class="flex-grow-1">
           <div class="fw-bold mb-1">未確認の予約があります</div>
-          <div class="small">予約内容を確認して「確認する」ボタンを押してください</div>
+          <div class="small">予約一覧から「確認する」ボタンを押してください</div>
         </div>
       </div>
 
@@ -140,40 +141,47 @@ onMounted(() => {
       <div
         v-for="order in orders"
         :key="order.id"
-        class="card mb-3"
-        :class="order.is_unconfirmed ? 'border-warning border-2' : ''"
+        class="card ca-order mb-3"
+        :class="order.is_unconfirmed ? 'ca-order--unconfirmed' : ''"
       >
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-start mb-2">
-            <div>
-              <div class="fw-bold fs-5">{{ formatTime(order.start) }} – {{ formatTime(order.end) }}</div>
-              <div class="small text-muted">{{ durationMin(order) }}分</div>
+          <div class="ca-order__head">
+            <div class="ca-order__time">
+              <span class="ca-order__hours">{{ formatTime(order.start) }} – {{ formatTime(order.end) }}</span>
+              <span class="ca-order__dur">{{ durationMin(order) }}分</span>
             </div>
             <span
               class="badge"
               :class="order.is_unconfirmed ? 'badge-unconfirmed' : 'badge-approved'"
             >{{ order.is_unconfirmed ? '未確認' : '確認済' }}</span>
           </div>
-          <div class="small text-muted mb-2">
-            <div><i class="ti ti-door"></i> {{ order.room_name }}</div>
-            <div><i class="ti ti-currency-yen"></i> {{ formatYen(order.course_price) }}</div>
+
+          <div class="ca-order__info">
+            <div class="ca-order__row">
+              <i class="ti ti-door"></i><span>{{ order.room_name }}</span>
+            </div>
+            <div class="ca-order__row">
+              <i class="ti ti-currency-yen"></i><span class="fw-bold">{{ formatYen(order.course_price) }}</span>
+            </div>
           </div>
-          <div class="bg-light p-2 rounded small mb-3">
-            <i class="ti ti-note"></i> {{ order.memo || '備考なし' }}
+
+          <div class="ca-order__memo" :class="order.memo ? '' : 'ca-order__memo--empty'">
+            <i class="ti ti-note"></i><span>{{ order.memo || '備考なし' }}</span>
           </div>
+
           <button
             v-if="order.is_unconfirmed"
-            class="btn btn-sm btn-warning w-100"
+            class="btn btn-warning w-100 fw-bold"
             @click="doAck(order)"
           >
             <i class="ti ti-check"></i> 確認する
           </button>
           <button
             v-else
-            class="btn btn-sm btn-outline-primary w-100"
+            class="btn btn-light w-100 ca-order__done"
             disabled
           >
-            <i class="ti ti-check"></i> 確認済
+            <i class="ti ti-circle-check"></i> 確認済
           </button>
         </div>
       </div>

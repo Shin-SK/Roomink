@@ -114,15 +114,16 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
       <!-- Footer -->
       <footer class="footer position-fixed bottom-0 w-100 p-3 bg-white border-top">
-        <div class="container d-flex align-items-center justify-content-around">
+        <div class="container" style="display: grid; grid-template-columns: repeat(4, 1fr);">
           <button
             v-for="item in footerItems"
             :key="item.to"
             class="btn border-0 p-0"
+            style="min-width: 0;"
           >
             <router-link
               :to="item.to"
-              class="nav-link"
+              class="nav-link d-flex flex-column align-items-center"
               :class="{ active: route.path === item.to }"
             >
               <i class="ti" :class="item.icon"></i>

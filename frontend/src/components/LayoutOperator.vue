@@ -10,9 +10,20 @@ const route = useRoute()
 const router = useRouter()
 const sidebarOpen = ref(false)
 const currentUser = ref(null)
+const pendingShiftRequests = ref(0)
+let shiftReqTimer = null
+
+async function loadPendingShiftRequests() {
+  try {
+    const data = await api.getOpShiftRequests('status=REQUESTED')
+    pendingShiftRequests.value = Array.isArray(data) ? data.length : 0
+  } catch { /* ignore */ }
+}
 
 onMounted(async () => {
   try { currentUser.value = await api.me() } catch { /* ignore */ }
+  await loadPendingShiftRequests()
+  shiftReqTimer = setInterval(loadPendingShiftRequests, 60000)
 })
 
 const isManager = computed(() => {
@@ -76,8 +87,15 @@ function onDocClick(e) {
   }
 }
 
-onMounted(() => document.addEventListener('click', onDocClick))
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  window.addEventListener('shift-requests-changed', loadPendingShiftRequests)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick)
+  window.removeEventListener('shift-requests-changed', loadPendingShiftRequests)
+  if (shiftReqTimer) clearInterval(shiftReqTimer)
+})
 </script>
 
 <template>
@@ -99,6 +117,10 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
               @click="closeSidebar"
             >
               <i class="ti" :class="item.icon"></i>{{ item.label }}
+              <span
+                v-if="item.page === 'op-shift-requests' && pendingShiftRequests > 0"
+                class="badge bg-danger rounded-pill ms-2"
+              >{{ pendingShiftRequests }}</span>
             </router-link>
           </li>
         </ul>

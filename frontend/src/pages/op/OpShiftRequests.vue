@@ -62,6 +62,7 @@ async function doApprove() {
       admin_memo: approveAdminMemo.value,
     })
     showApprove.value = false
+    window.dispatchEvent(new Event('shift-requests-changed'))
     await load()
   } catch (e) {
     approveError.value = e.message
@@ -92,6 +93,7 @@ async function doReject() {
       admin_memo: rejectAdminMemo.value,
     })
     showReject.value = false
+    window.dispatchEvent(new Event('shift-requests-changed'))
     await load()
   } catch (e) {
     rejectError.value = e.message

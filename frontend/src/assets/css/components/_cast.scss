@@ -19,53 +19,207 @@
   margin-bottom: 1rem;
 
   &__title {
-    font-weight: bold;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--rk-text-muted, #6c757d);
   }
 
   &__sub {
     display: flex;
-    align-items: center;
-    gap: 1rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: var(--rk-text, #212529);
     span{
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 6px;
+    }
+    i{
+        color: var(--rk-primary);
     }
   }
 }
 
-// キャスト用スケジュール（1カラム rk-sheet）
+// 予約一覧カード
+.ca-order {
+  border: 1px solid var(--rk-grid-border, #e6eef0);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+
+  .card-body {
+    padding: 1.25rem;
+  }
+
+  &--unconfirmed {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 1px #f59e0b inset, 0 2px 8px rgba(245, 158, 11, 0.12);
+  }
+
+  // 時刻 + バッジ
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 0.875rem;
+  }
+
+  &__time {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  &__hours {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+
+  &__dur {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    background: #f1f5f9;
+    border-radius: 999px;
+    padding: 2px 8px;
+  }
+
+  // 部屋・料金
+  &__info {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 18px;
+    margin-bottom: 0.875rem;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9375rem;
+    color: #334155;
+
+    i {
+      color: var(--rk-primary);
+      font-size: 1.05rem;
+    }
+  }
+
+  // メモ
+  &__memo {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8125rem;
+    color: #475569;
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 1rem;
+
+    i { color: #94a3b8; flex-shrink: 0; }
+
+    &--empty {
+      color: #94a3b8;
+    }
+  }
+
+  &__done {
+    color: #64748b !important;
+  }
+}
+
+// キャスト用スケジュール（1カラム縦タイムライン）
+// 横型 _schedule.scss のクラスを流用しつつ、縦並びに上書きする
 .ca-schedule {
-  --rk-casthead-h: 0;
-  --rk-col-w: 280px;
+  // スマホで予約ブロックを見やすくするため1時間=140pxと高めに取る
+  --rk-row-hour-h: 140px;
+  --rk-time-label-w: 44px;
 
   .rk-sheet-scroll {
     height: auto;
     overflow: visible;
   }
 
+  // 左=時間ラベル / 右=グリッド本体 の2カラム
   .rk-sheet {
     width: 100%;
-    grid-template-rows: 0 auto;
+    grid-template-columns: var(--rk-time-label-w) 1fr;
+    grid-template-rows: auto;
   }
 
+  // 左：時間ラベルを縦に積む
   .rk-timecol {
+    grid-column: 1 / 2;
+    grid-row: 1 / 2;
     position: static;
+    display: block;
+    background: transparent;
+    border-bottom: none;
   }
 
+  .rk-time {
+    width: auto;
+    height: var(--rk-row-hour-h);
+    display: block;
+    padding: 2px 8px 0 0;
+    text-align: right;
+    font-size: 11px;
+    line-height: 1;
+    color: #94a3b8;
+    border-right: none;
+  }
+
+  // 右：本体グリッド（1時間ごとの横線のみ）
+  .rk-grid {
+    grid-column: 2 / 3;
+    grid-row: 1 / 2;
+    min-width: 0;
+    cursor: default;
+    border-left: 1px solid var(--rk-grid-border);
+    background: repeating-linear-gradient(
+      to bottom,
+      var(--rk-grid-border) 0,
+      var(--rk-grid-border) 1px,
+      transparent 1px,
+      transparent var(--rk-row-hour-h)
+    );
+  }
+
+  // 予約ブロックは横幅いっぱい・余白を詰めて中身を縦中央へ
   .rk-block {
     left: 8px !important;
     right: 8px;
     width: auto !important;
+    padding: 6px 12px;
+    justify-content: center;
+    gap: 2px;
+
+    &__title {
+      font-size: 0.8125rem;
+      margin-bottom: 0;
+      padding-right: 22px; // 未確認「!」バッジと重ならないように
+    }
+
+    &__meta {
+      opacity: 0.85;
+    }
   }
 
   // 個人用: 横スクロール不要、幅100%で縦だけ
   &--single {
     .rk-sheet {
       overflow-x: hidden;
-    }
-    .rk-grid {
-      min-width: 0;
     }
   }
 }

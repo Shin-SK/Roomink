@@ -260,7 +260,7 @@ function durationMin(order) {
           <i class="ti ti-alert-triangle fs-4 flex-shrink-0"></i>
           <div class="flex-grow-1">
             <div class="fw-bold mb-1">未確認の予約があります</div>
-            <div class="small">予約内容を確認して「確認する」ボタンを押してください</div>
+            <div class="small">予約一覧から「確認する」ボタンを押してください</div>
           </div>
         </div>
 
