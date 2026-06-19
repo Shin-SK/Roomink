@@ -253,6 +253,7 @@ export const api = {
   // Sales
   getSalesSummary: (params) => request('GET', `/op/sales-summary/?${params}`),
   getSalesExportUrl: (params) => `${BASE}/op/sales-export.csv?${params}`,
+  getCustomersExportUrl: () => `${BASE}/op/customers-export.csv`,
 
   // CSV Import
   csvPreview: (model, file) => {

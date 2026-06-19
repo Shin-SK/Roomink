@@ -1686,14 +1686,18 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         admin_memo = request.data.get("admin_memo", "")
 
+        date = request.data.get("date") or obj.date
+        start_time = request.data.get("start_time") or str(obj.start_time)
+        end_time = request.data.get("end_time") or str(obj.end_time)
+
         # ShiftAssignment 作成（重複チェックは serializer に任せる）
         from .serializers import ShiftAssignmentSerializer
         sa_data = {
-            "date": obj.date,
+            "date": date,
             "cast": obj.cast_id,
             "room": room.id,
-            "start_time": str(obj.start_time),
-            "end_time": str(obj.end_time),
+            "start_time": start_time,
+            "end_time": end_time,
         }
         sa_serializer = ShiftAssignmentSerializer(data=sa_data)
         if not sa_serializer.is_valid():
@@ -2395,6 +2399,34 @@ class SalesExportView(APIView):
         resp["Content-Disposition"] = (
             f'attachment; filename="sales_{date_from}_{date_to}.csv"'
         )
+        return resp
+
+
+class CustomerExportView(APIView):
+    """GET /api/op/customers-export.csv — 現在の店舗の顧客一覧をCSV出力（manager限定）"""
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+
+        output = io.StringIO()
+        output.write("\ufeff")  # BOM
+        writer = csv.writer(output)
+        writer.writerow(["ID", "名前", "電話番号", "フラグ", "出禁種別", "顧客メモ", "運営メモ"])
+        for c in Customer.objects.filter(store=store).order_by("id"):
+            writer.writerow([
+                c.id,
+                c.display_name,
+                c.phone,
+                c.get_flag_display(),
+                c.get_ban_type_display(),
+                c.memo,
+                c.staff_memo,
+            ])
+
+        from django.http import HttpResponse
+        resp = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = 'attachment; filename="customers.csv"'
         return resp
 
 

@@ -3,8 +3,10 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
+import { getAuthRole } from '../../router.js'
 
 const router = useRouter()
+const isManager = computed(() => getAuthRole() === 'manager')
 const customers = ref([])
 const loading = ref(true)
 const error = ref('')
@@ -51,6 +53,10 @@ onMounted(async () => {
 function goDetail(id) {
   router.push(`/op/customers/${id}`)
 }
+
+function exportCsv() {
+  window.open(api.getCustomersExportUrl(), '_blank')
+}
 </script>
 
 <template>
@@ -65,8 +71,13 @@ function goDetail(id) {
 
     <template v-else>
       <div class="card mb-4">
-        <div class="card-header">
-          <i class="ti ti-users"></i> 顧客一覧
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="ti ti-users"></i> 顧客一覧</span>
+          <button
+            v-if="isManager"
+            class="btn btn-sm btn-outline-dark"
+            @click="exportCsv"
+          ><i class="ti ti-download"></i> CSVエクスポート</button>
         </div>
         <div class="card-body">
           <!-- 検索 -->

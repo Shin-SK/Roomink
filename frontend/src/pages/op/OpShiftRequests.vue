@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 
@@ -9,6 +9,26 @@ const requests = ref([])
 const rooms = ref([])
 
 const filterStatus = ref('REQUESTED')
+const viewMode = ref('list')
+
+const filteredRequests = computed(() => requests.value)
+
+const groupedByDate = computed(() => {
+  const map = {}
+  for (const r of filteredRequests.value) {
+    (map[r.date] || (map[r.date] = [])).push(r)
+  }
+  return Object.keys(map).sort().map((key) => ({ key, items: map[key] }))
+})
+
+const groupedByCast = computed(() => {
+  const map = {}
+  for (const r of filteredRequests.value) {
+    const key = r.cast_name || '-'
+    ;(map[key] || (map[key] = [])).push(r)
+  }
+  return Object.keys(map).sort().map((key) => ({ key, items: map[key] }))
+})
 
 async function loadRooms() {
   const r = await api.getRooms()
@@ -39,6 +59,9 @@ watch(filterStatus, () => load())
 // Approve modal
 const showApprove = ref(false)
 const approveTarget = ref(null)
+const approveDate = ref('')
+const approveStartTime = ref('')
+const approveEndTime = ref('')
 const approveRoom = ref('')
 const approveAdminMemo = ref('')
 const approveError = ref('')
@@ -46,6 +69,9 @@ const approving = ref(false)
 
 function openApprove(r) {
   approveTarget.value = r
+  approveDate.value = r.date || ''
+  approveStartTime.value = r.start_time?.slice(0, 5) || ''
+  approveEndTime.value = r.end_time?.slice(0, 5) || ''
   approveRoom.value = r.desired_room || ''
   approveAdminMemo.value = ''
   approveError.value = ''
@@ -53,11 +79,17 @@ function openApprove(r) {
 }
 
 async function doApprove() {
+  if (!approveDate.value) { approveError.value = '日付を入力してください'; return }
+  if (!approveStartTime.value) { approveError.value = '開始時間を入力してください'; return }
+  if (!approveEndTime.value) { approveError.value = '終了時間を入力してください'; return }
   if (!approveRoom.value) { approveError.value = '部屋を選択してください'; return }
   approving.value = true
   approveError.value = ''
   try {
     await api.approveShiftRequest(approveTarget.value.id, {
+      date: approveDate.value,
+      start_time: approveStartTime.value,
+      end_time: approveEndTime.value,
       room: Number(approveRoom.value),
       admin_memo: approveAdminMemo.value,
     })
@@ -115,13 +147,20 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="ti ti-calendar-check"></i> シフト申請一覧</span>
-        <select v-model="filterStatus" class="form-select form-select-sm" style="width: auto;">
-          <option value="">すべて</option>
-          <option value="REQUESTED">申請中</option>
-          <option value="APPROVED">承認済</option>
-          <option value="REJECTED">却下</option>
-          <option value="CANCELLED">取消</option>
-        </select>
+        <div class="d-flex gap-2">
+          <select v-model="viewMode" class="form-select form-select-sm" style="width: auto;">
+            <option value="list">申請順</option>
+            <option value="by_date">日付別</option>
+            <option value="by_cast">キャスト別</option>
+          </select>
+          <select v-model="filterStatus" class="form-select form-select-sm" style="width: auto;">
+            <option value="">すべて</option>
+            <option value="REQUESTED">申請中</option>
+            <option value="APPROVED">承認済</option>
+            <option value="REJECTED">却下</option>
+            <option value="CANCELLED">取消</option>
+          </select>
+        </div>
       </div>
       <div class="card-body">
         <div v-if="loading" class="text-center py-3">
@@ -132,7 +171,8 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
           該当する申請はありません
         </div>
 
-        <table v-else class="table table-hover mb-0">
+        <!-- 申請順 -->
+        <table v-else-if="viewMode === 'list'" class="table table-hover mb-0">
           <thead>
             <tr>
               <th>キャスト</th>
@@ -166,6 +206,84 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
             </tr>
           </tbody>
         </table>
+
+        <!-- 日付別 -->
+        <div v-else-if="viewMode === 'by_date'">
+          <div v-for="g in groupedByDate" :key="g.key" class="mb-3">
+            <h6 class="text-muted mb-2"><i class="ti ti-calendar"></i> {{ g.key }}</h6>
+            <table class="table table-hover mb-0">
+              <thead>
+                <tr>
+                  <th>キャスト</th>
+                  <th>時間</th>
+                  <th>希望部屋</th>
+                  <th>ステータス</th>
+                  <th>メモ</th>
+                  <th style="width: 140px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in g.items" :key="r.id">
+                  <td>{{ r.cast_name }}</td>
+                  <td>{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</td>
+                  <td>{{ r.desired_room_name || '-' }}</td>
+                  <td><span class="badge" :class="statusClass[r.status]">{{ statusLabel[r.status] }}</span></td>
+                  <td>{{ r.memo || '-' }}</td>
+                  <td>
+                    <template v-if="r.status === 'REQUESTED'">
+                      <button class="btn btn-success btn-sm me-1" @click="openApprove(r)">
+                        <i class="ti ti-check"></i>
+                      </button>
+                      <button class="btn btn-danger btn-sm" @click="openReject(r)">
+                        <i class="ti ti-x"></i>
+                      </button>
+                    </template>
+                    <span v-else class="text-muted small">-</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- キャスト別 -->
+        <div v-else>
+          <div v-for="g in groupedByCast" :key="g.key" class="mb-3">
+            <h6 class="text-muted mb-2"><i class="ti ti-user"></i> {{ g.key }}</h6>
+            <table class="table table-hover mb-0">
+              <thead>
+                <tr>
+                  <th>日付</th>
+                  <th>時間</th>
+                  <th>希望部屋</th>
+                  <th>ステータス</th>
+                  <th>メモ</th>
+                  <th style="width: 140px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in g.items" :key="r.id">
+                  <td>{{ r.date }}</td>
+                  <td>{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</td>
+                  <td>{{ r.desired_room_name || '-' }}</td>
+                  <td><span class="badge" :class="statusClass[r.status]">{{ statusLabel[r.status] }}</span></td>
+                  <td>{{ r.memo || '-' }}</td>
+                  <td>
+                    <template v-if="r.status === 'REQUESTED'">
+                      <button class="btn btn-success btn-sm me-1" @click="openApprove(r)">
+                        <i class="ti ti-check"></i>
+                      </button>
+                      <button class="btn btn-danger btn-sm" @click="openReject(r)">
+                        <i class="ti ti-x"></i>
+                      </button>
+                    </template>
+                    <span v-else class="text-muted small">-</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -180,10 +298,24 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
           <div class="modal-body">
             <div v-if="approveError" class="alert alert-danger">{{ approveError }}</div>
             <p>
-              <strong>{{ approveTarget?.cast_name }}</strong> /
-              {{ approveTarget?.date }}
-              {{ approveTarget?.start_time?.slice(0,5) }}-{{ approveTarget?.end_time?.slice(0,5) }}
+              <strong>{{ approveTarget?.cast_name }}</strong>
+              <span class="text-muted small">（申請: {{ approveTarget?.date }}
+              {{ approveTarget?.start_time?.slice(0,5) }}-{{ approveTarget?.end_time?.slice(0,5) }}）</span>
             </p>
+            <div class="mb-3">
+              <label class="form-label">日付（必須）</label>
+              <input v-model="approveDate" type="date" class="form-control">
+            </div>
+            <div class="row">
+              <div class="col mb-3">
+                <label class="form-label">開始（必須）</label>
+                <input v-model="approveStartTime" type="time" class="form-control">
+              </div>
+              <div class="col mb-3">
+                <label class="form-label">終了（必須）</label>
+                <input v-model="approveEndTime" type="time" class="form-control">
+              </div>
+            </div>
             <div class="mb-3">
               <label class="form-label">部屋（必須）</label>
               <select v-model="approveRoom" class="form-select">
