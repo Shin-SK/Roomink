@@ -75,6 +75,17 @@ def _send_twilio(to_phone: str, body: str, order: Optional[Order] = None) -> Sms
 
 # ── high-level: 予約承認 ─────────────────────
 
+def _payment_method_note(payment_method: str) -> str:
+    """決済方法に応じたSMS末尾の一文"""
+    if payment_method == Order.PaymentMethod.CASH:
+        return "当日は現金でのお支払いをお願いいたします。"
+    if payment_method == Order.PaymentMethod.CARD:
+        return "当日はカード決済でのご案内となります（手数料10%が発生します）。"
+    if payment_method == Order.PaymentMethod.PAYPAY:
+        return "当日はPayPay決済でのご案内となります（手数料5%が発生します）。"
+    return "支払い方法については当日スタッフよりご案内いたします。"
+
+
 def notify_order_confirmed(order: Order) -> SmsLog:
     """予約確定時に顧客へ通知"""
     body = (
@@ -82,6 +93,7 @@ def notify_order_confirmed(order: Order) -> SmsLog:
         f"日時: {order.start:%Y-%m-%d %H:%M}〜{order.end:%H:%M}\n"
         f"コース: {order.course.name}\n"
         f"担当: {order.cast.name}\n"
+        f"{_payment_method_note(order.payment_method)}\n"
         f"ありがとうございます。"
     )
     return send_sms(

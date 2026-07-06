@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import TimelineGrid from '../../components/TimelineGrid.vue'
@@ -16,6 +16,39 @@ const orders = ref([])
 const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 0 })
 const loading = ref(true)
 const toolbarOpen = ref(false)
+
+// 表示モード切り替え（キャスト別 / 部屋別）
+const viewMode = ref('cast')
+const rooms = ref([])
+const roomOrders = ref([])
+
+// rooms → casts 形式に変換（TimelineGrid 流用、RoomSchedule.vue と同様の変換）
+const roomCastsAdapter = computed(() =>
+  rooms.value.map(r => ({
+    id: r.id,
+    name: r.name,
+    avatar_url: '',
+    shifts: [],
+  }))
+)
+
+// orders の room_id → cast_id にリネーム（TimelineGrid が cast_id で列を決めるため）
+const roomOrdersAdapter = computed(() =>
+  roomOrders.value.map(o => ({
+    id: o.id,
+    cast_id: o.room_id,
+    customer_label: `${o.cast_name}`,
+    course_name: o.course_name,
+    start: o.start,
+    end: o.end,
+    status: o.status,
+    options: o.options,
+    is_unconfirmed: o.is_unconfirmed,
+  }))
+)
+
+const displayCasts = computed(() => viewMode.value === 'room' ? roomCastsAdapter.value : casts.value)
+const displayOrders = computed(() => viewMode.value === 'room' ? roomOrdersAdapter.value : orders.value)
 const showLegend = ref(false)
 const showPhoneSearch = ref(false)
 
@@ -76,6 +109,27 @@ async function fetchSchedule() {
   }
 }
 
+async function fetchRoomSchedule() {
+  loading.value = true
+  try {
+    const data = await api.getRoomSchedule(selectedDate.value)
+    rooms.value = data.rooms
+    roomOrders.value = data.orders
+  } catch (e) {
+    console.error(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+function loadSchedule() {
+  if (viewMode.value === 'room') {
+    fetchRoomSchedule()
+  } else {
+    fetchSchedule()
+  }
+}
+
 function onBlockClick(order) {
   router.push(`/op/orders/${order.id}`)
 }
@@ -88,6 +142,8 @@ function openCreateModal({ cast = '', customer = '', startTime = '' } = {}) {
 }
 
 function onCreateOrder(payload) {
+  // 部屋別モードでは予約作成は未対応（表示切り替えのみ対応）
+  if (viewMode.value === 'room') return
   // payload: { cast, start_time, room_id, room_name }（タイムライン空セルクリック）
   // または cast 単体（後方互換）
   const cast = payload && payload.cast ? payload.cast : payload
@@ -224,9 +280,12 @@ function toggleLegend(e) {
 }
 
 watch(selectedDate, () => {
-  fetchSchedule()
+  loadSchedule()
 })
-onMounted(fetchSchedule)
+watch(viewMode, () => {
+  loadSchedule()
+})
+onMounted(loadSchedule)
 </script>
 
 <template>
@@ -263,6 +322,22 @@ onMounted(fetchSchedule)
               >
             </div>
             <div class="col-12">
+              <div class="btn-group w-100" role="group">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  :class="viewMode === 'cast' ? 'btn-primary' : 'btn-outline-secondary'"
+                  @click="viewMode = 'cast'"
+                >キャスト別</button>
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  :class="viewMode === 'room' ? 'btn-primary' : 'btn-outline-secondary'"
+                  @click="viewMode = 'room'"
+                >部屋別</button>
+              </div>
+            </div>
+            <div class="col-12">
               <button class="btn btn-sm btn-outline-secondary w-100" @click="toggleLegend">
                 <i class="ti ti-info-circle me-1"></i>{{ showLegend ? '凡例を非表示' : '凡例を表示' }}
               </button>
@@ -295,6 +370,13 @@ onMounted(fetchSchedule)
         <router-link to="/op/phone" class="btn btn-sm btn-primary">
           <i class="ti ti-plus me-1"></i>新規予約
         </router-link>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-primary"
+          @click="openCreateModal()"
+        >
+          <i class="ti ti-calendar-plus me-1"></i>予約追加
+        </button>
         <button
           type="button"
           class="btn btn-sm"
@@ -333,13 +415,13 @@ onMounted(fetchSchedule)
 
     <div v-else class="position-relative">
       <TimelineGrid
-        :casts="casts"
-        :orders="orders"
+        :casts="displayCasts"
+        :orders="displayOrders"
         @block-click="onBlockClick"
         @create-order="onCreateOrder"
       />
-      <div v-if="casts.length === 0" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="pointer-events: none; z-index: 9999;">
-        <span class="text-muted bg-white px-3 py-2 rounded shadow-sm text-center" style="max-width: 240px;">この日にシフトが登録されたキャストがいません</span>
+      <div v-if="displayCasts.length === 0" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="pointer-events: none; z-index: 9999;">
+        <span class="text-muted bg-white px-3 py-2 rounded shadow-sm text-center" style="max-width: 240px;">{{ viewMode === 'room' ? '部屋が登録されていません' : 'この日にシフトが登録されたキャストがいません' }}</span>
       </div>
     </div>
 

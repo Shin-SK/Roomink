@@ -32,6 +32,10 @@ class Store(models.Model):
         max_length=64, blank=True, default="", unique=True,
         help_text="webhook URL に埋め込む store 識別トークン",
     )
+    # 決済手数料（参考値）。確定精算・給与確定には接続しない。
+    cash_fee_rate = models.PositiveSmallIntegerField(default=0, help_text="現金決済手数料率（%・参考値）")
+    paypay_fee_rate = models.PositiveSmallIntegerField(default=5, help_text="PayPay決済手数料率（%・参考値）")
+    card_fee_rate = models.PositiveSmallIntegerField(default=10, help_text="カード決済手数料率（%・参考値）")
 
     def __str__(self):
         return self.name
@@ -47,6 +51,10 @@ class Room(models.Model):
     name = models.CharField(max_length=50)
     sort_order = models.PositiveSmallIntegerField(default=0)
     background_color = models.CharField(max_length=7, blank=True, default="", help_text="HEX形式 例: #fde2e4")
+    area_name = models.CharField(
+        max_length=50, blank=True, default="",
+        help_text="エリアタグ（例: 新宿・池袋・渋谷・五反田）。空欄可＝未設定扱い。",
+    )
 
     class Meta:
         unique_together = ("store", "name")
@@ -132,6 +140,10 @@ class ShiftAssignment(models.Model):
     clocked_in_at = models.DateTimeField(null=True, blank=True)
     daily_memo = models.TextField(blank=True, default="", help_text="その日だけのメモ")
     is_absent = models.BooleanField(default=False, help_text="当欠フラグ")
+    confirmed_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="キャストによる出勤確認（事前）日時。Phase 3-B-1。clocked_in_at（実打刻）とは別概念。",
+    )
 
     class Meta:
         unique_together = ("store", "date", "cast", "start_time", "end_time")
@@ -159,6 +171,18 @@ class ShiftRequest(models.Model):
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.REQUESTED)
     memo = models.TextField(blank=True, default="")
     admin_memo = models.TextField(blank=True, default="")
+    approved_date = models.DateField(null=True, blank=True)
+    approved_start_time = models.TimeField(null=True, blank=True)
+    approved_end_time = models.TimeField(null=True, blank=True)
+    approved_room = models.ForeignKey(
+        Room, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="approved_shift_requests",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="decided_shift_requests",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -268,6 +292,7 @@ class Order(models.Model):
         UNSET = "UNSET", "未設定"
         CARD = "CARD", "カード"
         CASH = "CASH", "現金"
+        PAYPAY = "PAYPAY", "PayPay"
 
     ACTIVE_STATUSES = (
         Status.REQUESTED,
@@ -553,6 +578,284 @@ class CastExpense(models.Model):
     def __str__(self):
         mode = "×件" if self.per_order else "日額"
         return f"{self.cast.name} {self.date} {self.name} ¥{self.amount}({mode})"
+
+
+class CastExpenseTemplate(models.Model):
+    """キャスト別固定雑費テンプレ（日次実績ではなく、紐づく定常項目）"""
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="cast_expense_templates")
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="expense_templates")
+    name = models.CharField(max_length=50, help_text="固定雑費名")
+    amount = models.PositiveIntegerField()
+    memo = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["cast", "-is_active", "id"]
+
+    def __str__(self):
+        return f"{self.cast.name} {self.name} ¥{self.amount}"
+
+
+class CastExpenseTemplateHistory(models.Model):
+    class Action(models.TextChoices):
+        CREATE = "CREATE", "新規作成"
+        UPDATE = "UPDATE", "更新"
+        ACTIVATE = "ACTIVATE", "有効化"
+        DEACTIVATE = "DEACTIVATE", "無効化"
+
+    template = models.ForeignKey(
+        CastExpenseTemplate, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="history",
+    )
+    cast = models.ForeignKey(
+        Cast, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="expense_template_history",
+    )
+    name = models.CharField(max_length=50)
+    amount = models.PositiveIntegerField()
+    memo = models.TextField(blank=True, default="")
+    is_active = models.BooleanField()
+    action = models.CharField(max_length=10, choices=Action.choices)
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="cast_expense_template_edits",
+    )
+    edited_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-edited_at"]
+
+    def __str__(self):
+        return f"{self.cast} {self.name} {self.action} {self.edited_at:%Y-%m-%d %H:%M}"
+
+
+class CastDailyCheckout(models.Model):
+    """キャスト退勤提出（Phase 3-A）。給与確定ではなく、退勤時点の見込みスナップショット+manager確認の土台。"""
+    class Status(models.TextChoices):
+        SUBMITTED = "SUBMITTED", "提出済"
+        REVIEWED = "REVIEWED", "確認済"
+        RETURNED = "RETURNED", "差戻し"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="cast_daily_checkouts")
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="daily_checkouts")
+    date = models.DateField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.SUBMITTED)
+
+    # 提出時点の見込みスナップショット（Order DONE 集計。CastTodaySalesViewと同じ計算方針）
+    done_count = models.PositiveIntegerField(default=0)
+    total_sales = models.PositiveIntegerField(default=0)
+    estimated_pay = models.PositiveIntegerField(default=0)
+    course_sales = models.PositiveIntegerField(default=0)
+    options_sales = models.PositiveIntegerField(default=0)
+    payment_fee_estimate = models.PositiveIntegerField(
+        default=0, help_text="決済手数料見込み（参考値。給与確定・支払い処理には接続しない）",
+    )
+    net_sales_after_payment_fee = models.IntegerField(
+        default=0, help_text="手数料差引後売上見込み（参考値）",
+    )
+
+    actual_take_home_amount = models.PositiveIntegerField(default=0, help_text="実際の持ち帰り金額（キャスト入力）")
+    checklist_json = models.JSONField(default=dict, blank=True, help_text="退勤チェックリストの回答")
+    cast_memo = models.TextField(blank=True, default="")
+    manager_memo = models.TextField(blank=True, default="")
+
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="cast_checkout_reviews",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("store", "cast", "date")
+        indexes = [
+            models.Index(fields=["store", "date"]),
+        ]
+        ordering = ["-date", "cast"]
+
+    def __str__(self):
+        return f"{self.cast.name} {self.date} ({self.status})"
+
+
+class CastCheckoutExpenseSnapshot(models.Model):
+    """退勤提出時点の固定雑費テンプレのスナップショット（テンプレ本体が後から変わっても金額を固定）"""
+    checkout = models.ForeignKey(CastDailyCheckout, on_delete=models.CASCADE, related_name="expense_snapshots")
+    template = models.ForeignKey(
+        CastExpenseTemplate, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="checkout_snapshots",
+    )
+    name = models.CharField(max_length=50)
+    amount = models.PositiveIntegerField()
+    memo = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.checkout} {self.name} ¥{self.amount}"
+
+
+class CastAdjustment(models.Model):
+    """調整金台帳（Phase 3-E）。退勤精算や日々の運用で発生する調整金の未解消/解消管理のみを行う。
+    給与確定・支払い処理・退勤提出の給与計算には一切接続しない。"""
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "未解消"
+        RESOLVED = "RESOLVED", "解消済"
+        VOID = "VOID", "無効"
+
+    class SourceType(models.TextChoices):
+        MANUAL = "MANUAL", "手動"
+        CHECKOUT = "CHECKOUT", "退勤提出"
+        ORDER = "ORDER", "予約"
+        OTHER = "OTHER", "その他"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="cast_adjustments")
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="adjustments")
+    date = models.DateField()
+    amount = models.IntegerField(
+        help_text="正=キャストへ追加で渡す金額 / 負=キャストから店へ戻す（差し引く）金額",
+    )
+    title = models.CharField(max_length=100)
+    memo = models.TextField(blank=True, default="", help_text="マネージャーメモ（キャストにも表示される）")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    source_type = models.CharField(max_length=10, choices=SourceType.choices, default=SourceType.MANUAL)
+    source_checkout = models.ForeignKey(
+        CastDailyCheckout, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="adjustments",
+    )
+    source_order = models.ForeignKey(
+        Order, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="adjustments",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="created_cast_adjustments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="resolved_cast_adjustments",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_memo = models.TextField(blank=True, default="", help_text="解消・無効化時のメモ")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "cast", "date"]),
+            models.Index(fields=["store", "status"]),
+        ]
+        ordering = ["-date", "-created_at"]
+
+    def __str__(self):
+        sign = "+" if self.amount >= 0 else ""
+        return f"{self.cast.name} {self.date} {self.title} {sign}{self.amount} ({self.status})"
+
+
+class CastNote(models.Model):
+    """店舗がキャスト向けに出す施術マニュアル/接客メモ/店舗ルール/連絡事項/お知らせ記事。
+    既存のRoomink操作マニュアル機能（フロントエンド静的データ manualData.js）とは別物。
+    manager が作成し、cast がマイページから閲覧する。"""
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "下書き"
+        PUBLISHED = "PUBLISHED", "公開"
+        ARCHIVED = "ARCHIVED", "アーカイブ"
+
+    class Visibility(models.TextChoices):
+        CAST = "CAST", "キャストのみ"
+        STAFF = "STAFF", "スタッフのみ"
+        ALL = "ALL", "全員"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="cast_notes")
+    title = models.CharField(max_length=100)
+    category = models.CharField(max_length=50, blank=True, default="", help_text="カテゴリ（例: 施術マニュアル・接客メモ・店舗ルール・お知らせ）")
+    body = models.TextField(blank=True, default="", help_text="本文（プレーンテキストまたは簡易Markdown）")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    is_pinned = models.BooleanField(default=False)
+    visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.CAST)
+    video_url = models.URLField(
+        blank=True, default="",
+        help_text="将来の動画掲載用URL（今回はアップロード等は未実装。任意入力欄のみ）",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="created_cast_notes",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="updated_cast_notes",
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "status", "is_pinned"]),
+        ]
+        ordering = ["-is_pinned", "-published_at", "-created_at"]
+
+    def __str__(self):
+        return f"{self.title} ({self.status})"
+
+
+class ShiftConfirmNotificationLog(models.Model):
+    """出勤確認アラートの外部通知の土台（Phase 4）。
+    実送信は行わない。ログ作成のみで、通知チャネルの初期値は NONE。
+    将来 LINE/SMS/メール等を有効化する際の記録先として用意する。"""
+    class AlertLevel(models.TextChoices):
+        TWO_HOURS = "TWO_HOURS", "2時間前"
+        ONE_HOUR = "ONE_HOUR", "1時間前"
+
+    class TargetType(models.TextChoices):
+        CAST = "CAST", "キャスト"
+        MANAGER = "MANAGER", "マネージャー"
+        STAFF = "STAFF", "スタッフ"
+
+    class Channel(models.TextChoices):
+        NONE = "NONE", "未設定（実送信なし）"
+        LINE = "LINE", "LINE"
+        SMS = "SMS", "SMS"
+        EMAIL = "EMAIL", "メール"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "送信予定"
+        SENT = "SENT", "送信済"
+        SKIPPED = "SKIPPED", "スキップ（テスト/実送信無効）"
+        FAILED = "FAILED", "失敗"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="shift_confirm_notification_logs")
+    shift_assignment = models.ForeignKey(
+        ShiftAssignment, on_delete=models.CASCADE, related_name="confirm_notification_logs",
+    )
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="shift_confirm_notification_logs")
+    alert_level = models.CharField(max_length=10, choices=AlertLevel.choices)
+    target_type = models.CharField(max_length=10, choices=TargetType.choices, default=TargetType.CAST)
+    channel = models.CharField(max_length=10, choices=Channel.choices, default=Channel.NONE)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    message = models.TextField(blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="created_shift_confirm_notification_logs",
+        help_text="テストログを作成したユーザー（手動作成の場合）",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "shift_assignment", "alert_level"]),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.cast} {self.alert_level} {self.channel} {self.status}"
 
 
 class UserProfile(models.Model):

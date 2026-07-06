@@ -182,6 +182,14 @@ export const api = {
   updateCastExpense: (id, body) => request('PATCH', `/cast-expenses/${id}/`, body),
   deleteCastExpense: (id) => request('DELETE', `/cast-expenses/${id}/`),
 
+  // CastExpenseTemplates（固定雑費テンプレ）
+  getCastExpenseTemplates: (castId) => listRequest('GET', `/cast-expense-templates/?cast=${castId}&limit=200`),
+  createCastExpenseTemplate: (body) => request('POST', '/cast-expense-templates/', body),
+  updateCastExpenseTemplate: (id, body) => request('PATCH', `/cast-expense-templates/${id}/`, body),
+  setCastExpenseTemplateActive: (id, isActive) => request('PATCH', `/cast-expense-templates/${id}/`, { is_active: isActive }),
+  getCastExpenseTemplateHistories: (castId) => listRequest('GET', `/cast-expense-template-histories/?cast=${castId}&limit=200`),
+  getCastExpenseTemplateHistoriesByTemplate: (templateId) => listRequest('GET', `/cast-expense-template-histories/?template=${templateId}&limit=200`),
+
   // Shifts
   getShifts: (params = '') => listRequest('GET', `/shifts/${params ? '?' + params : '?limit=500'}`),
   createShift: (body) => request('POST', '/shifts/', body),
@@ -192,10 +200,61 @@ export const api = {
 
   // Cast
   getCastToday: (date) => request('GET', `/cast/today/?date=${date}`),
+  getCastTodaySales: () => request('GET', '/cast/today-sales/'),
   ackOrder: (id) => request('POST', `/cast/orders/${id}/ack/`),
   getCastLineLink: () => request('GET', '/cast/line-link/'),
   castLineLinkAction: (action) => request('POST', '/cast/line-link/', { action }),
   getCastPoints: () => request('GET', '/cast/points/'),
+  getCastCheckout: () => request('GET', '/cast/checkout/'),
+  submitCastCheckout: (body) => request('POST', '/cast/checkout/', body),
+  getCastShiftConfirm: () => request('GET', '/cast/shift-confirm/'),
+  confirmCastShift: (shiftId) => request('POST', '/cast/shift-confirm/', { shift_id: shiftId }),
+
+  // Cast Checkouts（manager側: 退勤提出一覧/確認）
+  getCastCheckouts: (params = '') => listRequest('GET', `/cast-checkouts/${params ? '?' + params : '?limit=200'}`),
+  // count/next/previous を保持したまま返す版（ページネーションUI用）
+  getCastCheckoutsPage: (params = '') => request('GET', `/cast-checkouts/${params ? '?' + params : ''}`),
+  getCastCheckoutDetail: (id) => request('GET', `/cast-checkouts/${id}/`),
+  updateCastCheckoutManagerMemo: (id, managerMemo) => request('PATCH', `/cast-checkouts/${id}/`, { manager_memo: managerMemo }),
+  reviewCastCheckout: (id, managerMemo) => request('POST', `/cast-checkouts/${id}/review/`, managerMemo !== undefined ? { manager_memo: managerMemo } : {}),
+  returnCastCheckout: (id, managerMemo) => request('POST', `/cast-checkouts/${id}/return_to_cast/`, managerMemo !== undefined ? { manager_memo: managerMemo } : {}),
+  resetCastCheckout: (id) => request('POST', `/cast-checkouts/${id}/reset_to_submitted/`),
+  getCastCheckoutsExportUrl: (params = '') => `${BASE}/cast-checkouts/export_csv/${params ? '?' + params : ''}`,
+
+  // Cast Adjustments（調整金台帳, Phase 3-E / manager側）
+  getCastAdjustments: (params = '') => listRequest('GET', `/cast-adjustments/${params ? '?' + params : '?limit=500'}`),
+  createCastAdjustment: (body) => request('POST', '/cast-adjustments/', body),
+  updateCastAdjustment: (id, body) => request('PATCH', `/cast-adjustments/${id}/`, body),
+  resolveCastAdjustment: (id, resolvedMemo) => request('POST', `/cast-adjustments/${id}/resolve/`, resolvedMemo !== undefined ? { resolved_memo: resolvedMemo } : {}),
+  voidCastAdjustment: (id, resolvedMemo) => request('POST', `/cast-adjustments/${id}/void/`, resolvedMemo !== undefined ? { resolved_memo: resolvedMemo } : {}),
+  getCastAdjustmentsExportUrl: (params = '') => `${BASE}/cast-adjustments/export_csv/${params ? '?' + params : ''}`,
+
+  // Cast Adjustments（cast本人側）
+  getCastAdjustmentsMypage: () => request('GET', '/cast/adjustments/'),
+
+  // Cast Notes（ノート/施術マニュアル, manager側）
+  getCastNotes: (params = '') => listRequest('GET', `/cast-notes/${params ? '?' + params : '?limit=200'}`),
+  createCastNote: (body) => request('POST', '/cast-notes/', body),
+  updateCastNote: (id, body) => request('PATCH', `/cast-notes/${id}/`, body),
+  deleteCastNote: (id) => request('DELETE', `/cast-notes/${id}/`),
+  publishCastNote: (id) => request('POST', `/cast-notes/${id}/publish/`),
+  unpublishCastNote: (id) => request('POST', `/cast-notes/${id}/unpublish/`),
+  archiveCastNote: (id) => request('POST', `/cast-notes/${id}/archive/`),
+  pinCastNote: (id) => request('POST', `/cast-notes/${id}/pin/`),
+  unpinCastNote: (id) => request('POST', `/cast-notes/${id}/unpin/`),
+
+  // Cast Notes（cast本人側）
+  getCastNotesMypage: (params = '') => request('GET', `/cast/notes/${params ? '?' + params : ''}`),
+
+  // Shift Confirm Alerts（出勤確認アラート土台, Phase 3-F / Phase 4で通知ログ土台を追加）
+  getShiftConfirmAlerts: () => request('GET', '/op/shift-confirm-alerts/'),
+  getShiftConfirmNotificationLogs: (params = '') => listRequest('GET', `/shift-confirm-notification-logs/${params ? '?' + params : '?limit=200'}`),
+  markShiftConfirmNotificationTest: (shiftId, body) => request('POST', `/op/shift-confirm-alerts/${shiftId}/mark_notification_test/`, body),
+
+  // Payment Fee Settings（決済手数料設定, 参考値）
+  getPaymentFeeSettings: () => request('GET', '/op/payment-fee-settings/'),
+  updatePaymentFeeSettings: (body) => request('PATCH', '/op/payment-fee-settings/', body),
+
   getCastShiftRequests: (params = '') => listRequest('GET', `/cast/shift-requests/${params ? '?' + params : '?limit=200'}`),
   createCastShiftRequest: (body) => request('POST', '/cast/shift-requests/', body),
   updateCastShiftRequest: (id, body) => request('PATCH', `/cast/shift-requests/${id}/`, body),
@@ -205,6 +264,15 @@ export const api = {
   getOpShiftRequests: (params = '') => listRequest('GET', `/op/shift-requests/${params ? '?' + params : '?limit=200'}`),
   approveShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/approve/`, body),
   rejectShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/reject/`, body),
+
+  // Op ShiftRequests CSV戻し承認の土台（v1: export → preview → apply）
+  getOpShiftRequestsExportUrl: (params = '') => `${BASE}/op/shift-requests/export_csv/${params ? '?' + params : ''}`,
+  importShiftRequestsPreview: (file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return upload('/op/shift-requests/import_preview/', fd)
+  },
+  applyShiftRequestsImport: (rows) => request('POST', '/op/shift-requests/import_apply/', { rows }),
 
   // Customer
   customerSignup: (phone, password, display_name, store_id) => request('POST', '/cu/signup/', { phone, password, display_name, store_id }),
@@ -254,6 +322,10 @@ export const api = {
   getSalesSummary: (params) => request('GET', `/op/sales-summary/?${params}`),
   getSalesExportUrl: (params) => `${BASE}/op/sales-export.csv?${params}`,
   getCustomersExportUrl: () => `${BASE}/op/customers-export.csv`,
+
+  // Sales Dashboard (Phase 3-D)
+  getSalesDashboard: (params) => request('GET', `/op/sales-dashboard/?${params}`),
+  getSalesDashboardExportUrl: (params) => `${BASE}/op/sales-dashboard-export.csv?${params}`,
 
   // CSV Import
   csvPreview: (model, file) => {

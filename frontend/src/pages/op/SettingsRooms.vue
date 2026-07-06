@@ -15,7 +15,7 @@ const formError = ref('')
 const saving = ref(false)
 
 function emptyForm() {
-  return { name: '', sort_order: 0, background_color: '' }
+  return { name: '', sort_order: 0, background_color: '', area_name: '' }
 }
 
 async function loadRooms() {
@@ -42,7 +42,12 @@ function openCreate() {
 
 function openEdit(r) {
   editingId.value = r.id
-  form.value = { name: r.name, sort_order: r.sort_order ?? 0, background_color: r.background_color || '' }
+  form.value = {
+    name: r.name,
+    sort_order: r.sort_order ?? 0,
+    background_color: r.background_color || '',
+    area_name: r.area_name || '',
+  }
   formError.value = ''
   showForm.value = true
 }
@@ -55,6 +60,7 @@ async function onSave() {
       name: form.value.name,
       sort_order: form.value.sort_order,
       background_color: form.value.background_color || '',
+      area_name: form.value.area_name || '',
     }
     if (editingId.value) {
       await api.updateRoom(editingId.value, payload)
@@ -114,6 +120,7 @@ async function onDelete(r) {
           <thead>
             <tr>
               <th>名前</th>
+              <th style="width: 120px;">エリア</th>
               <th style="width: 100px;">表示順</th>
               <th style="width: 50px;"></th>
             </tr>
@@ -121,6 +128,10 @@ async function onDelete(r) {
           <tbody>
             <tr v-for="r in rooms" :key="r.id">
               <td>{{ r.name }}</td>
+              <td>
+                <span v-if="r.area_name" class="badge bg-light text-dark border">{{ r.area_name }}</span>
+                <span v-else class="text-muted small">未設定</span>
+              </td>
               <td>{{ r.sort_order }}</td>
               <td>
                 <button class="btn btn-link p-0" @click="openEdit(r)">
@@ -151,6 +162,11 @@ async function onDelete(r) {
             <div class="mb-3">
               <label class="form-label">表示順</label>
               <input v-model.number="form.sort_order" type="number" class="form-control" min="0" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">エリア（任意）</label>
+              <input v-model="form.area_name" type="text" class="form-control" placeholder="例: 新宿・池袋・渋谷・五反田（空欄可）" />
+              <div class="form-text">売上集計画面でエリア別に集計されます。空欄の場合は「未設定」として集計されます。</div>
             </div>
             <div class="mb-3">
               <label class="form-label">背景色</label>

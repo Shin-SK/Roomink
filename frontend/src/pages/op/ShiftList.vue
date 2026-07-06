@@ -15,6 +15,10 @@ const today = new Date().toISOString().slice(0, 10)
 const now = ref(new Date())
 let nowTimer = null
 
+// 出勤確認アラート（Phase 3-F土台。外部通知は行わず、画面表示のみ）
+const shiftAlerts = ref([])
+const shiftAlertsLoading = ref(true)
+
 // Filter: 'all' | 'upcoming' | 'today' | 'date'
 const viewMode = ref('all')
 const filterDate = ref(today)
@@ -74,6 +78,47 @@ function scrollToToday() {
   }
 }
 
+async function loadShiftAlerts() {
+  shiftAlertsLoading.value = true
+  try {
+    const data = await api.getShiftConfirmAlerts()
+    shiftAlerts.value = Array.isArray(data?.alerts) ? data.alerts : []
+  } catch (_) {
+    // アラート取得失敗は画面全体のerrorには出さない（致命的ではないため）
+  } finally {
+    shiftAlertsLoading.value = false
+  }
+}
+
+// 通知テストログ作成（Phase 4土台。実送信は行わない）
+const notifyTestingId = ref(null)
+async function createNotificationTestLog(a) {
+  if (notifyTestingId.value) return
+  notifyTestingId.value = a.shift_id
+  try {
+    await api.markShiftConfirmNotificationTest(a.shift_id, { alert_level: a.alert_level, target_type: 'CAST' })
+    await loadShiftAlerts()
+  } catch (e) {
+    alert(e.message)
+  } finally {
+    notifyTestingId.value = null
+  }
+}
+
+const notificationStatusLabel = { PENDING: '送信予定', SENT: '送信済', SKIPPED: 'スキップ(テスト)', FAILED: '失敗' }
+
+async function jumpToShiftAlert(a) {
+  if (viewMode.value !== 'upcoming' && viewMode.value !== 'all') {
+    viewMode.value = 'upcoming'
+  }
+  await loadShifts()
+  await nextTick()
+  const el = document.getElementById(`shift-date-${a.date}`)
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
 onMounted(async () => {
   try {
     await loadMasters()
@@ -81,7 +126,11 @@ onMounted(async () => {
     error.value = e.message
   }
   await loadShifts()
-  nowTimer = setInterval(() => { now.value = new Date() }, 60 * 1000)
+  await loadShiftAlerts()
+  nowTimer = setInterval(() => {
+    now.value = new Date()
+    loadShiftAlerts()
+  }, 60 * 1000)
 })
 
 onBeforeUnmount(() => {
@@ -252,6 +301,56 @@ async function onClearClockIn(s) {
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
+    <!-- 出勤確認アラート（Phase 3-F土台） -->
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="ti ti-alert-triangle"></i> 出勤確認アラート</span>
+      </div>
+      <div class="card-body">
+        <div v-if="shiftAlertsLoading" class="text-muted text-center py-2 small">読み込み中...</div>
+        <div v-else-if="!shiftAlerts.length" class="text-muted text-center py-2 small">
+          現在、出勤確認アラートはありません
+        </div>
+        <div v-else>
+          <div
+            v-for="a in shiftAlerts"
+            :key="a.shift_id"
+            class="border-bottom py-2 small alert-row"
+            :class="a.alert_level === 'ONE_HOUR' ? 'alert-row--danger' : 'alert-row--warning'"
+          >
+            <div class="d-flex justify-content-between align-items-center" style="cursor: pointer;" @click="jumpToShiftAlert(a)">
+              <div>
+                <span class="badge me-2" :class="a.alert_level === 'ONE_HOUR' ? 'bg-danger' : 'bg-warning text-dark'">
+                  {{ a.alert_level === 'ONE_HOUR' ? '1時間前未確認' : '2時間前未確認' }}
+                </span>
+                <span class="fw-bold">{{ a.cast_name }}</span>
+                <span class="text-muted"> {{ a.date }} {{ a.start_time }}〜<template v-if="a.room_name"> {{ a.room_name }}</template></span>
+              </div>
+              <div class="text-muted flex-shrink-0 ms-2">
+                {{ a.minutes_until_start >= 0 ? `残り${a.minutes_until_start}分` : `${-a.minutes_until_start}分超過` }}
+              </div>
+            </div>
+            <div class="d-flex justify-content-between align-items-center mt-1">
+              <div class="text-muted" style="font-size: 0.75rem;">
+                通知対象: キャスト ・
+                <template v-if="a.has_notification_log">
+                  ログあり（{{ notificationStatusLabel[a.last_notification_status] || a.last_notification_status }}）
+                </template>
+                <template v-else>ログなし</template>
+                ・実送信は未対応です
+              </div>
+              <button
+                class="btn btn-outline-secondary btn-sm"
+                style="font-size: 0.7rem; padding: 2px 8px;"
+                :disabled="notifyTestingId === a.shift_id"
+                @click.stop="createNotificationTestLog(a)"
+              >{{ notifyTestingId === a.shift_id ? '作成中...' : 'テストログ作成' }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="ti ti-clock"></i> シフト一覧</span>
@@ -347,6 +446,7 @@ async function onClearClockIn(s) {
               <thead>
                 <tr>
                   <th style="width: 110px;">状態</th>
+                  <th style="width: 110px;">出勤確認</th>
                   <th>キャスト</th>
                   <th>部屋</th>
                   <th style="width: 80px;">開始</th>
@@ -368,6 +468,12 @@ async function onClearClockIn(s) {
                     <span v-else-if="s.date === today" class="badge bg-light text-muted">未</span>
                     <span v-else-if="s.date < today" class="badge bg-light text-muted">未記録</span>
                     <span v-else class="text-muted small">—</span>
+                  </td>
+                  <td>
+                    <span v-if="s.confirmed_at" class="badge bg-info-subtle text-info-emphasis">
+                      <i class="ti ti-check"></i> 確認済 {{ formatClockedAt(s.confirmed_at) }}
+                    </span>
+                    <span v-else class="badge bg-light text-muted">未確認</span>
                   </td>
                   <td>
                     <div class="cast-cell">
@@ -554,6 +660,18 @@ async function onClearClockIn(s) {
 
   &--past {
     opacity: 0.65;
+  }
+}
+
+.alert-row {
+  &:last-child {
+    border-bottom: none !important;
+  }
+  &--warning {
+    background: rgba(255, 193, 7, 0.08);
+  }
+  &--danger {
+    background: rgba(220, 53, 69, 0.08);
   }
 }
 

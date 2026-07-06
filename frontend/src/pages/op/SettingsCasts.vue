@@ -40,6 +40,10 @@ function openCreate() {
   form.value = emptyForm()
   formError.value = ''
   showForm.value = true
+  expenseTemplates.value = []
+  showExpenseForm.value = false
+  showExpenseHistory.value = false
+  expenseHistory.value = []
 }
 
 function openEdit(c) {
@@ -57,6 +61,10 @@ function openEdit(c) {
   }
   formError.value = ''
   showForm.value = true
+  showExpenseForm.value = false
+  showExpenseHistory.value = false
+  expenseHistory.value = []
+  loadExpenseTemplates(c.id)
 }
 
 async function onAvatarChange(e) {
@@ -131,6 +139,110 @@ async function onDelete(c) {
     await loadCasts()
   } catch (e) {
     error.value = e.message
+  }
+}
+
+// 固定雑費テンプレ
+const expenseTemplates = ref([])
+const expenseTemplatesLoading = ref(false)
+const expenseTemplatesError = ref('')
+const showExpenseForm = ref(false)
+const editingExpenseTemplateId = ref(null)
+const expenseForm = ref(emptyExpenseForm())
+const expenseSaving = ref(false)
+
+function emptyExpenseForm() {
+  return { name: '', amount: 0, memo: '' }
+}
+
+async function loadExpenseTemplates(castId) {
+  expenseTemplatesLoading.value = true
+  expenseTemplatesError.value = ''
+  try {
+    const data = await api.getCastExpenseTemplates(castId)
+    expenseTemplates.value = Array.isArray(data) ? data : []
+  } catch (e) {
+    expenseTemplatesError.value = e.message
+  } finally {
+    expenseTemplatesLoading.value = false
+  }
+}
+
+function openExpenseCreate() {
+  editingExpenseTemplateId.value = null
+  expenseForm.value = emptyExpenseForm()
+  showExpenseForm.value = true
+}
+
+function openExpenseEdit(t) {
+  editingExpenseTemplateId.value = t.id
+  expenseForm.value = { name: t.name, amount: t.amount, memo: t.memo || '' }
+  showExpenseForm.value = true
+}
+
+async function onExpenseSave() {
+  expenseSaving.value = true
+  expenseTemplatesError.value = ''
+  try {
+    const body = {
+      name: expenseForm.value.name,
+      amount: Number(expenseForm.value.amount),
+      memo: expenseForm.value.memo,
+    }
+    if (editingExpenseTemplateId.value) {
+      await api.updateCastExpenseTemplate(editingExpenseTemplateId.value, body)
+    } else {
+      await api.createCastExpenseTemplate({ ...body, cast: editingId.value })
+    }
+    showExpenseForm.value = false
+    await loadExpenseTemplates(editingId.value)
+  } catch (e) {
+    expenseTemplatesError.value = e.message
+  } finally {
+    expenseSaving.value = false
+  }
+}
+
+async function onExpenseToggleActive(t) {
+  expenseTemplatesError.value = ''
+  try {
+    await api.setCastExpenseTemplateActive(t.id, !t.is_active)
+    await loadExpenseTemplates(editingId.value)
+  } catch (e) {
+    expenseTemplatesError.value = e.message
+  }
+}
+
+// 固定雑費テンプレ履歴
+const showExpenseHistory = ref(false)
+const expenseHistory = ref([])
+const expenseHistoryLoading = ref(false)
+const expenseHistoryError = ref('')
+
+const expenseActionLabels = {
+  CREATE: '作成',
+  UPDATE: '更新',
+  ACTIVATE: '有効化',
+  DEACTIVATE: '無効化',
+}
+
+function expenseActionLabel(action) {
+  return expenseActionLabels[action] || action
+}
+
+async function toggleExpenseHistory() {
+  showExpenseHistory.value = !showExpenseHistory.value
+  if (showExpenseHistory.value) {
+    expenseHistoryLoading.value = true
+    expenseHistoryError.value = ''
+    try {
+      const data = await api.getCastExpenseTemplateHistories(editingId.value)
+      expenseHistory.value = Array.isArray(data) ? data : []
+    } catch (e) {
+      expenseHistoryError.value = e.message
+    } finally {
+      expenseHistoryLoading.value = false
+    }
   }
 }
 </script>
@@ -329,6 +441,120 @@ async function onDelete(c) {
               <input v-model="form.option_fullback_enabled" type="checkbox" class="form-check-input" id="optionFullback" />
               <label class="form-check-label" for="optionFullback">オプション全額バック</label>
             </div>
+
+            <template v-if="editingId">
+              <hr class="my-3">
+              <div class="d-flex align-items-center justify-content-between mb-2">
+                <h6 class="mb-0">固定雑費</h6>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-outline-secondary btn-sm" @click="toggleExpenseHistory">
+                    {{ showExpenseHistory ? '履歴を閉じる' : '履歴を見る' }}
+                  </button>
+                  <button class="btn btn-outline-primary btn-sm" @click="openExpenseCreate">
+                    <i class="ti ti-plus"></i> 追加
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="showExpenseHistory" class="border rounded p-2 mb-2 bg-light">
+                <div v-if="expenseHistoryError" class="alert alert-danger py-1 px-2 small mb-2">{{ expenseHistoryError }}</div>
+                <div v-if="expenseHistoryLoading" class="text-center py-2">
+                  <div class="spinner-border spinner-border-sm text-primary"></div>
+                </div>
+                <div v-else-if="!expenseHistory.length" class="text-muted small py-1">
+                  履歴はありません
+                </div>
+                <div v-else class="table-responsive">
+                  <table class="table table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th>日時</th>
+                        <th>操作者</th>
+                        <th>アクション</th>
+                        <th>名称</th>
+                        <th>金額</th>
+                        <th>メモ</th>
+                        <th>状態</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="h in expenseHistory" :key="h.id">
+                        <td class="text-nowrap small">{{ new Date(h.edited_at).toLocaleString('ja-JP') }}</td>
+                        <td class="small">{{ h.edited_by_name || '-' }}</td>
+                        <td class="small">{{ expenseActionLabel(h.action) }}</td>
+                        <td class="small">{{ h.name }}</td>
+                        <td class="small">¥{{ h.amount }}</td>
+                        <td class="small">{{ h.memo || '-' }}</td>
+                        <td class="small">{{ h.is_active ? '有効' : '無効' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div v-if="expenseTemplatesError" class="alert alert-danger py-1 px-2 small">{{ expenseTemplatesError }}</div>
+
+              <div v-if="expenseTemplatesLoading" class="text-center py-2">
+                <div class="spinner-border spinner-border-sm text-primary"></div>
+              </div>
+              <div v-else-if="!expenseTemplates.length" class="text-muted small py-1">
+                固定雑費は登録されていません
+              </div>
+              <ul v-else class="list-group mb-0">
+                <li
+                  v-for="t in expenseTemplates"
+                  :key="t.id"
+                  class="list-group-item d-flex align-items-center justify-content-between"
+                  :class="{ 'expense-inactive': !t.is_active }"
+                >
+                  <div class="flex-grow-1">
+                    <div>
+                      <strong>{{ t.name }}</strong> ¥{{ t.amount }}
+                      <span v-if="!t.is_active" class="badge bg-secondary ms-1">無効</span>
+                    </div>
+                    <div v-if="t.memo" class="text-muted small">{{ t.memo }}</div>
+                  </div>
+                  <div class="text-nowrap">
+                    <button class="btn btn-link btn-sm p-1" @click="openExpenseEdit(t)">
+                      <i class="ti ti-edit"></i>
+                    </button>
+                    <button
+                      class="btn btn-link btn-sm p-1"
+                      :class="t.is_active ? 'text-danger' : 'text-success'"
+                      @click="onExpenseToggleActive(t)"
+                    >
+                      {{ t.is_active ? '無効化' : '有効化' }}
+                    </button>
+                  </div>
+                </li>
+              </ul>
+
+              <!-- 固定雑費 追加/編集フォーム -->
+              <div v-if="showExpenseForm" class="border rounded p-2 mt-2">
+                <div class="mb-2">
+                  <label class="form-label small mb-1">名称</label>
+                  <input v-model="expenseForm.name" type="text" class="form-control form-control-sm" placeholder="例: 雑費" />
+                </div>
+                <div class="mb-2">
+                  <label class="form-label small mb-1">金額</label>
+                  <input v-model.number="expenseForm.amount" type="number" class="form-control form-control-sm" min="0" />
+                </div>
+                <div class="mb-2">
+                  <label class="form-label small mb-1">メモ</label>
+                  <input v-model="expenseForm.memo" type="text" class="form-control form-control-sm" placeholder="任意" />
+                </div>
+                <div class="d-flex justify-content-end gap-2">
+                  <button class="btn btn-secondary btn-sm" @click="showExpenseForm = false">キャンセル</button>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    :disabled="expenseSaving || !expenseForm.name.trim()"
+                    @click="onExpenseSave"
+                  >
+                    {{ expenseSaving ? '保存中...' : '保存' }}
+                  </button>
+                </div>
+              </div>
+            </template>
           </div>
           <div class="modal-footer d-flex">
             <button v-if="editingId" class="btn btn-outline-danger me-auto" @click="onDelete({ id: editingId, name: form.name })">
@@ -449,5 +675,9 @@ async function onDelete(c) {
 .cast-memo-empty:hover {
   background: #f8fafc;
   color: #64748b;
+}
+
+.expense-inactive {
+  opacity: 0.55;
 }
 </style>

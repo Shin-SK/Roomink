@@ -12,7 +12,13 @@ from .models import (
     CallNote,
     Cast,
     CastAck,
+    CastAdjustment,
+    CastCheckoutExpenseSnapshot,
+    CastDailyCheckout,
     CastExpense,
+    CastExpenseTemplate,
+    CastExpenseTemplateHistory,
+    CastNote,
     Course,
     PointLog,
     Customer,
@@ -25,6 +31,7 @@ from .models import (
     OrderOption,
     Room,
     ShiftAssignment,
+    ShiftConfirmNotificationLog,
     ShiftRequest,
     Store,
     StorePhoneNumber,
@@ -153,6 +160,168 @@ class CastExpenseSerializer(serializers.ModelSerializer):
         read_only_fields = ["store"]
 
 
+class CastExpenseTemplateSerializer(serializers.ModelSerializer):
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+
+    class Meta:
+        model = CastExpenseTemplate
+        fields = [
+            "id", "store", "cast", "cast_name", "name", "amount", "memo",
+            "is_active", "created_at", "updated_at",
+        ]
+        read_only_fields = ["store"]
+
+
+class CastExpenseTemplateHistorySerializer(serializers.ModelSerializer):
+    cast_name = serializers.CharField(source="cast.name", read_only=True, default=None)
+    edited_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CastExpenseTemplateHistory
+        fields = [
+            "id", "template", "cast", "cast_name", "name", "amount", "memo",
+            "is_active", "action", "edited_by", "edited_by_name", "edited_at",
+        ]
+        read_only_fields = fields
+
+
+class CastCheckoutExpenseSnapshotSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CastCheckoutExpenseSnapshot
+        fields = ["id", "template", "name", "amount", "memo"]
+        read_only_fields = fields
+
+
+class CastDailyCheckoutSerializer(serializers.ModelSerializer):
+    """退勤提出（Phase 3-A）。cast側の提出/参照・manager側の一覧/確認で共通利用。manager_memoのみ書き込み可。"""
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+    reviewed_by_name = serializers.SerializerMethodField()
+    expense_snapshots = CastCheckoutExpenseSnapshotSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CastDailyCheckout
+        fields = [
+            "id", "store", "cast", "cast_name", "date", "status",
+            "done_count", "total_sales", "estimated_pay", "course_sales", "options_sales",
+            "payment_fee_estimate", "net_sales_after_payment_fee",
+            "actual_take_home_amount", "checklist_json", "cast_memo", "manager_memo",
+            "submitted_at", "reviewed_at", "reviewed_by", "reviewed_by_name",
+            "expense_snapshots", "created_at", "updated_at",
+        ]
+        read_only_fields = [f for f in fields if f != "manager_memo"]
+
+    def get_reviewed_by_name(self, obj):
+        return obj.reviewed_by.username if obj.reviewed_by else None
+
+    def get_edited_by_name(self, obj):
+        if not obj.edited_by:
+            return None
+        return obj.edited_by.get_full_name() or obj.edited_by.username
+
+
+class CastAdjustmentSerializer(serializers.ModelSerializer):
+    """調整金台帳（Phase 3-E）manager側 CRUD 用。status/resolved_* は resolve/void アクション経由でのみ変更する。"""
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    source_type_display = serializers.CharField(source="get_source_type_display", read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CastAdjustment
+        fields = [
+            "id", "store", "cast", "cast_name", "date", "amount", "title", "memo",
+            "status", "status_display", "source_type", "source_type_display",
+            "source_checkout", "source_order",
+            "created_by", "created_by_name", "created_at", "updated_at",
+            "resolved_by", "resolved_by_name", "resolved_at", "resolved_memo",
+        ]
+        read_only_fields = [
+            "store", "status",
+            "created_by", "created_at", "updated_at",
+            "resolved_by", "resolved_at", "resolved_memo",
+        ]
+
+    def get_created_by_name(self, obj):
+        return obj.created_by.username if obj.created_by else None
+
+    def get_resolved_by_name(self, obj):
+        return obj.resolved_by.username if obj.resolved_by else None
+
+
+class CastAdjustmentCastSerializer(serializers.ModelSerializer):
+    """調整金台帳 cast本人閲覧用。作成/編集/解消は不可（全項目read-only）。"""
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = CastAdjustment
+        fields = [
+            "id", "date", "amount", "title", "memo",
+            "status", "status_display", "resolved_at", "created_at",
+        ]
+        read_only_fields = fields
+
+
+class CastNoteSerializer(serializers.ModelSerializer):
+    """ノート/施術マニュアル（manager側 CRUD 用）。既存のRoomink操作マニュアル機能とは別物。"""
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    visibility_display = serializers.CharField(source="get_visibility_display", read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+    updated_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CastNote
+        fields = [
+            "id", "store", "title", "category", "body", "status", "status_display",
+            "is_pinned", "visibility", "visibility_display", "video_url",
+            "created_by", "created_by_name", "updated_by", "updated_by_name",
+            "published_at", "created_at", "updated_at",
+        ]
+        read_only_fields = ["store", "created_by", "updated_by", "published_at", "created_at", "updated_at"]
+
+    def get_created_by_name(self, obj):
+        return obj.created_by.username if obj.created_by else None
+
+    def get_updated_by_name(self, obj):
+        return obj.updated_by.username if obj.updated_by else None
+
+
+class CastNoteCastSerializer(serializers.ModelSerializer):
+    """ノート/施術マニュアル cast本人閲覧用。読み取り専用。"""
+    category_label = serializers.CharField(source="category", read_only=True)
+
+    class Meta:
+        model = CastNote
+        fields = [
+            "id", "title", "category", "category_label", "body",
+            "is_pinned", "video_url", "published_at",
+        ]
+        read_only_fields = fields
+
+
+class ShiftConfirmNotificationLogSerializer(serializers.ModelSerializer):
+    """出勤確認外部通知ログ（土台）。manager/staff閲覧用。実送信は行わない。"""
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+    alert_level_display = serializers.CharField(source="get_alert_level_display", read_only=True)
+    target_type_display = serializers.CharField(source="get_target_type_display", read_only=True)
+    channel_display = serializers.CharField(source="get_channel_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ShiftConfirmNotificationLog
+        fields = [
+            "id", "store", "shift_assignment", "cast", "cast_name",
+            "alert_level", "alert_level_display", "target_type", "target_type_display",
+            "channel", "channel_display", "status", "status_display",
+            "message", "error_message", "sent_at", "created_by", "created_by_name", "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_created_by_name(self, obj):
+        return obj.created_by.username if obj.created_by else None
+
+
 class StaffSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.CharField(source="user.email", read_only=True)
@@ -262,11 +431,23 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
 class CastShiftRequestSerializer(serializers.ModelSerializer):
     cast_name = serializers.CharField(source="cast.name", read_only=True)
     desired_room_name = serializers.CharField(source="desired_room.name", read_only=True, default=None)
+    approved_room_name = serializers.CharField(source="approved_room.name", read_only=True, default=None)
+    decided_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftRequest
         fields = "__all__"
-        read_only_fields = ["store", "cast", "status", "admin_memo"]
+        # cast本人は申請内容のみ編集可。承認/却下に関するフィールドは閲覧専用にする。
+        read_only_fields = [
+            "store", "cast", "status", "admin_memo",
+            "approved_date", "approved_start_time", "approved_end_time", "approved_room",
+            "decided_at", "decided_by",
+        ]
+
+    def get_decided_by_name(self, obj):
+        if not obj.decided_by:
+            return None
+        return obj.decided_by.get_full_name() or obj.decided_by.username
 
     def validate(self, data):
         start_time = data.get("start_time", getattr(self.instance, "start_time", None))
@@ -296,11 +477,22 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
 class OpShiftRequestSerializer(serializers.ModelSerializer):
     cast_name = serializers.CharField(source="cast.name", read_only=True)
     desired_room_name = serializers.CharField(source="desired_room.name", read_only=True, default=None)
+    approved_room_name = serializers.CharField(source="approved_room.name", read_only=True, default=None)
+    decided_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftRequest
         fields = "__all__"
-        read_only_fields = ["store", "cast"]
+        read_only_fields = [
+            "store", "cast",
+            "approved_date", "approved_start_time", "approved_end_time", "approved_room",
+            "decided_at", "decided_by",
+        ]
+
+    def get_decided_by_name(self, obj):
+        if not obj.decided_by:
+            return None
+        return obj.decided_by.get_full_name() or obj.decided_by.username
 
 
 # ──────────────────────────────────────
@@ -605,7 +797,7 @@ class ScheduleShiftSerializer(serializers.ModelSerializer):
         model = ShiftAssignment
         fields = [
             "id", "room_id", "room_name", "room_color",
-            "start_time", "end_time", "clocked_in_at",
+            "start_time", "end_time", "clocked_in_at", "confirmed_at",
             "daily_memo", "is_absent",
         ]
 

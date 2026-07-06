@@ -29,8 +29,13 @@ const SettingsPhones = () => import('./pages/op/SettingsPhones.vue')
 const SettingsManual = () => import('./pages/op/SettingsManual.vue')
 const ManualArticle = () => import('./pages/op/ManualArticle.vue')
 const CastExpenses = () => import('./pages/op/CastExpenses.vue')
+const CastCheckouts = () => import('./pages/op/CastCheckouts.vue')
+const CastAdjustments = () => import('./pages/op/CastAdjustments.vue')
+const CastNotes = () => import('./pages/op/CastNotes.vue')
+const SettingsPaymentFees = () => import('./pages/op/SettingsPaymentFees.vue')
 const DailySettlement = () => import('./pages/op/DailySettlement.vue')
 const Sales = () => import('./pages/op/Sales.vue')
+const SalesSummary = () => import('./pages/op/SalesSummary.vue')
 const PointLogs = () => import('./pages/op/PointLogs.vue')
 const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
 const Profile = () => import('./pages/op/Profile.vue')
@@ -67,8 +72,13 @@ const routes = [
   { path: '/op/shift-requests', name: 'op-shift-requests', component: OpShiftRequests },
   { path: '/op/rooms', name: 'room-schedule', component: RoomSchedule },
   { path: '/op/cast-expenses', name: 'cast-expenses', component: CastExpenses },
+  { path: '/op/cast-checkouts', name: 'cast-checkouts', component: CastCheckouts },
+  { path: '/op/cast-adjustments', name: 'cast-adjustments', component: CastAdjustments },
+  { path: '/op/cast-notes', name: 'cast-notes', component: CastNotes },
+  { path: '/op/settings/payment-fees', name: 'settings-payment-fees', component: SettingsPaymentFees },
   { path: '/op/daily-settlement', name: 'daily-settlement', component: DailySettlement },
   { path: '/op/sales', name: 'sales', component: Sales },
+  { path: '/op/sales-summary', name: 'sales-summary', component: SalesSummary },
   { path: '/op/point-logs', name: 'point-logs', component: PointLogs },
   { path: '/op/settings', name: 'settings', component: Settings },
   { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts },

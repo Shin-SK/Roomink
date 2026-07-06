@@ -5,9 +5,12 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 
 from .models import (
-    CallLog, CallNote, Cast, CastExpense, Course, Customer, CustomerMergeLog,
+    CallLog, CallNote, Cast, CastCheckoutExpenseSnapshot, CastDailyCheckout,
+    CastExpense, CastExpenseTemplate,
+    CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerMergeLog,
     DailySettlement, LineNotificationLog, Option, Order, PointLog, Room,
-    ShiftAssignment, ShiftRequest, SmsLog, Store, StorePhoneNumber, UserProfile,
+    ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog, Store,
+    StorePhoneNumber, UserProfile,
     generate_line_link_code,
 )
 from .services.cast_user import ensure_user_profile, create_staff_with_user
@@ -123,7 +126,10 @@ class ShiftAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(ShiftRequest)
 class ShiftRequestAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "date", "cast", "desired_room", "start_time", "end_time", "status", "created_at")
+    list_display = (
+        "id", "store", "date", "cast", "desired_room", "start_time", "end_time",
+        "status", "approved_date", "approved_room", "decided_by", "decided_at", "created_at",
+    )
     list_filter = ("store", "status", "date")
 
 
@@ -199,6 +205,50 @@ class CastExpenseAdmin(admin.ModelAdmin):
     list_display = ("id", "store", "cast", "date", "name", "amount", "per_order")
     list_filter = ("store", "date", "per_order")
     search_fields = ("cast__name", "name")
+
+
+@admin.register(CastExpenseTemplate)
+class CastExpenseTemplateAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "cast", "name", "amount", "is_active", "updated_at")
+    list_filter = ("store", "is_active")
+    search_fields = ("cast__name", "name")
+
+
+@admin.register(CastExpenseTemplateHistory)
+class CastExpenseTemplateHistoryAdmin(admin.ModelAdmin):
+    list_display = ("id", "cast", "name", "amount", "is_active", "action", "edited_by", "edited_at")
+    list_filter = ("action",)
+    search_fields = ("cast__name", "name")
+
+
+class CastCheckoutExpenseSnapshotInline(admin.TabularInline):
+    model = CastCheckoutExpenseSnapshot
+    extra = 0
+    readonly_fields = ("template", "name", "amount", "memo", "created_at")
+    can_delete = False
+
+
+@admin.register(CastDailyCheckout)
+class CastDailyCheckoutAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "cast", "date", "status", "total_sales", "estimated_pay", "actual_take_home_amount", "submitted_at", "reviewed_by")
+    list_filter = ("store", "status", "date")
+    search_fields = ("cast__name",)
+    inlines = [CastCheckoutExpenseSnapshotInline]
+
+
+@admin.register(CastNote)
+class CastNoteAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "title", "category", "status", "is_pinned", "visibility", "published_at", "updated_at")
+    list_filter = ("store", "status", "visibility", "is_pinned")
+    search_fields = ("title", "body", "category")
+
+
+@admin.register(ShiftConfirmNotificationLog)
+class ShiftConfirmNotificationLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "cast", "alert_level", "target_type", "channel", "status", "created_at")
+    list_filter = ("store", "alert_level", "target_type", "channel", "status")
+    search_fields = ("cast__name",)
+    readonly_fields = ("store", "shift_assignment", "cast", "alert_level", "target_type", "channel", "status", "message", "error_message", "sent_at", "created_by", "created_at")
 
 
 @admin.register(UserProfile)

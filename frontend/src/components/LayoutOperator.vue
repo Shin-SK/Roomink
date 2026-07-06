@@ -41,11 +41,15 @@ const navItems = computed(() => {
     { to: '/op/shifts', icon: 'ti-clock', label: 'シフト管理', page: 'shift-list' },
     { to: '/op/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
     { to: '/op/cast-expenses', icon: 'ti-receipt', label: '雑費管理', page: 'cast-expenses' },
+    { to: '/op/cast-notes', icon: 'ti-notebook', label: 'ノート', page: 'cast-notes' },
   ]
   if (isManager.value) {
     items.push(
       { to: '/op/sales', icon: 'ti-chart-bar', label: '売上確認', page: 'sales' },
+      { to: '/op/sales-summary', icon: 'ti-report-money', label: '売上集計', page: 'sales-summary' },
       { to: '/op/daily-settlement', icon: 'ti-calculator', label: '日給一覧', page: 'daily-settlement' },
+      { to: '/op/cast-checkouts', icon: 'ti-door-exit', label: '退勤提出', page: 'cast-checkouts' },
+      { to: '/op/cast-adjustments', icon: 'ti-cash-banknote', label: '調整金', page: 'cast-adjustments' },
     )
   }
   items.push(

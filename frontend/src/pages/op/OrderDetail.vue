@@ -139,8 +139,8 @@ async function doDone() {
   // 会計確定（PENDING_FINALIZE → DONE）の事前チェック：支払い方法必須
   if (prevStatus === 'PENDING_FINALIZE') {
     const pm = order.value?.payment_method
-    if (pm !== 'CARD' && pm !== 'CASH') {
-      alert('支払い方法（カード/現金）を選択してから会計確定してください')
+    if (pm !== 'CARD' && pm !== 'CASH' && pm !== 'PAYPAY') {
+      alert('支払い方法（カード/現金/PayPay）を選択してから会計確定してください')
       return
     }
   }
@@ -299,6 +299,7 @@ async function updatePaymentMethod(value) {
                         <option value="UNSET">未設定</option>
                         <option value="CARD">カード</option>
                         <option value="CASH">現金</option>
+                        <option value="PAYPAY">PayPay</option>
                       </select>
                     </td>
                   </tr>

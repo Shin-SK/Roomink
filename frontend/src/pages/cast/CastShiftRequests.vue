@@ -79,6 +79,11 @@ async function onCancel(id) {
 
 const statusLabel = { REQUESTED: '申請中', APPROVED: '承認済', REJECTED: '却下', CANCELLED: '取消' }
 const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success', REJECTED: 'bg-danger', CANCELLED: 'bg-secondary' }
+
+function formatDateTime(s) {
+  if (!s) return ''
+  return s.slice(0, 16).replace('T', ' ')
+}
 </script>
 
 <template>
@@ -110,13 +115,23 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
               </div>
               <span class="badge" :class="statusClass[r.status]">{{ statusLabel[r.status] }}</span>
             </div>
+            <div class="small text-muted mb-1">申請日時: {{ formatDateTime(r.created_at) }}</div>
             <div v-if="r.desired_room_name" class="small text-muted mb-1">
               <i class="ti ti-door"></i> 希望: {{ r.desired_room_name }}
+            </div>
+            <div v-if="r.status === 'APPROVED'" class="small bg-success bg-opacity-10 p-2 rounded mb-2">
+              <div class="fw-bold mb-1"><i class="ti ti-check"></i> 承認内容</div>
+              <template v-if="r.approved_date">
+                <div>{{ r.approved_date }} {{ r.approved_start_time?.slice(0,5) }} - {{ r.approved_end_time?.slice(0,5) }}</div>
+                <div>部屋: {{ r.approved_room_name || '-' }}</div>
+              </template>
+              <div v-else class="text-muted">承認済み（旧データのため詳細未記録）</div>
             </div>
             <div v-if="r.memo" class="small bg-light p-2 rounded mb-2">{{ r.memo }}</div>
             <div v-if="r.admin_memo" class="small bg-info bg-opacity-10 p-2 rounded mb-2">
               <i class="ti ti-message"></i> 運営: {{ r.admin_memo }}
             </div>
+            <div v-if="r.decided_at" class="small text-muted mb-2">決定日時: {{ formatDateTime(r.decided_at) }}</div>
             <button
               v-if="r.status === 'REQUESTED'"
               class="btn btn-outline-danger btn-sm w-100"

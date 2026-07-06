@@ -2,6 +2,9 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
+import { getAuthRole } from '../../router.js'
+
+const isManager = computed(() => getAuthRole() === 'manager')
 
 const loading = ref(true)
 const error = ref('')
@@ -136,6 +139,90 @@ async function doReject() {
 
 const statusLabel = { REQUESTED: '申請中', APPROVED: '承認済', REJECTED: '却下', CANCELLED: '取消' }
 const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success', REJECTED: 'bg-danger', CANCELLED: 'bg-secondary' }
+
+function formatDateTime(s) {
+  if (!s) return ''
+  return s.slice(0, 16).replace('T', ' ')
+}
+
+// ── CSV戻し承認の土台（v1: export → preview → 明示確認後にapply） ──
+function exportCsv() {
+  const params = filterStatus.value ? `status=${filterStatus.value}` : ''
+  window.open(api.getOpShiftRequestsExportUrl(params), '_blank')
+}
+
+const showImportModal = ref(false)
+const importFile = ref(null)
+const importError = ref('')
+const importLoading = ref(false)
+const previewResult = ref(null)
+const selectedRows = ref({}) // row_number -> boolean
+const applying = ref(false)
+const applyResult = ref(null)
+
+function openImportModal() {
+  importFile.value = null
+  importError.value = ''
+  previewResult.value = null
+  selectedRows.value = {}
+  applyResult.value = null
+  showImportModal.value = true
+}
+
+function onFileChange(e) {
+  importFile.value = e.target.files?.[0] || null
+}
+
+async function doPreview() {
+  if (!importFile.value) { importError.value = 'CSVファイルを選択してください'; return }
+  importLoading.value = true
+  importError.value = ''
+  previewResult.value = null
+  applyResult.value = null
+  try {
+    const data = await api.importShiftRequestsPreview(importFile.value)
+    previewResult.value = data
+    const sel = {}
+    for (const r of data.rows || []) {
+      sel[r.row_number] = !!r.can_apply
+    }
+    selectedRows.value = sel
+  } catch (e) {
+    importError.value = e.message
+  } finally {
+    importLoading.value = false
+  }
+}
+
+const selectedCount = computed(() => Object.values(selectedRows.value).filter(Boolean).length)
+
+async function doApply() {
+  if (!previewResult.value) return
+  const rows = (previewResult.value.rows || []).filter(r => r.can_apply && selectedRows.value[r.row_number])
+  if (!rows.length) { importError.value = '反映する行を選択してください'; return }
+  if (!confirm(`${rows.length}件のシフト申請を承認として反映します。よろしいですか？`)) return
+  applying.value = true
+  importError.value = ''
+  try {
+    const payload = rows.map(r => ({
+      row_number: r.row_number,
+      shift_request_id: r.shift_request_id,
+      cast_id: r.original?.cast_id,
+      approved_date: r.csv.approved_date,
+      approved_start_time: r.csv.approved_start_time,
+      approved_end_time: r.csv.approved_end_time,
+      approved_room_id: r.csv.approved_room_id,
+      admin_memo: r.csv.admin_memo,
+    }))
+    applyResult.value = await api.applyShiftRequestsImport(payload)
+    window.dispatchEvent(new Event('shift-requests-changed'))
+    await load()
+  } catch (e) {
+    importError.value = e.message
+  } finally {
+    applying.value = false
+  }
+}
 </script>
 
 <template>
@@ -145,9 +232,9 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
     <div class="card mb-4">
-      <div class="card-header d-flex align-items-center justify-content-between">
+      <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
         <span><i class="ti ti-calendar-check"></i> シフト申請一覧</span>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
           <select v-model="viewMode" class="form-select form-select-sm" style="width: auto;">
             <option value="list">申請順</option>
             <option value="by_date">日付別</option>
@@ -160,6 +247,14 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
             <option value="REJECTED">却下</option>
             <option value="CANCELLED">取消</option>
           </select>
+          <template v-if="isManager">
+            <button class="btn btn-outline-dark btn-sm" @click="exportCsv">
+              <i class="ti ti-download"></i> CSVエクスポート
+            </button>
+            <button class="btn btn-outline-primary btn-sm" @click="openImportModal">
+              <i class="ti ti-upload"></i> CSVインポート
+            </button>
+          </template>
         </div>
       </div>
       <div class="card-body">
@@ -176,10 +271,10 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
           <thead>
             <tr>
               <th>キャスト</th>
-              <th>日付</th>
-              <th>時間</th>
-              <th>希望部屋</th>
+              <th>申請内容</th>
+              <th>承認内容</th>
               <th>ステータス</th>
+              <th>決定情報</th>
               <th>メモ</th>
               <th style="width: 140px;">操作</th>
             </tr>
@@ -187,11 +282,35 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
           <tbody>
             <tr v-for="r in requests" :key="r.id">
               <td>{{ r.cast_name }}</td>
-              <td>{{ r.date }}</td>
-              <td>{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</td>
-              <td>{{ r.desired_room_name || '-' }}</td>
+              <td>
+                <div>{{ r.date }}</div>
+                <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</div>
+                <div class="small text-muted">{{ r.desired_room_name || '-' }}</div>
+              </td>
+              <td>
+                <template v-if="r.status === 'APPROVED'">
+                  <template v-if="r.approved_date">
+                    <div>{{ r.approved_date }}</div>
+                    <div class="small text-muted">{{ r.approved_start_time?.slice(0,5) }}-{{ r.approved_end_time?.slice(0,5) }}</div>
+                    <div class="small text-muted">{{ r.approved_room_name || '-' }}</div>
+                  </template>
+                  <span v-else class="text-muted small">履歴未記録（旧データ）</span>
+                </template>
+                <span v-else class="text-muted small">-</span>
+              </td>
               <td><span class="badge" :class="statusClass[r.status]">{{ statusLabel[r.status] }}</span></td>
-              <td>{{ r.memo || '-' }}</td>
+              <td>
+                <template v-if="r.decided_at">
+                  <div class="small">{{ r.decided_by_name || '-' }}</div>
+                  <div class="small text-muted">{{ formatDateTime(r.decided_at) }}</div>
+                </template>
+                <span v-else class="text-muted small">-</span>
+              </td>
+              <td>
+                <div v-if="r.memo" class="small">{{ r.memo }}</div>
+                <div v-if="r.admin_memo" class="small text-info">{{ r.admin_memo }}</div>
+                <span v-if="!r.memo && !r.admin_memo" class="text-muted small">-</span>
+              </td>
               <td>
                 <template v-if="r.status === 'REQUESTED'">
                   <button class="btn btn-success btn-sm me-1" @click="openApprove(r)">
@@ -215,9 +334,10 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
               <thead>
                 <tr>
                   <th>キャスト</th>
-                  <th>時間</th>
-                  <th>希望部屋</th>
+                  <th>申請内容</th>
+                  <th>承認内容</th>
                   <th>ステータス</th>
+                  <th>決定情報</th>
                   <th>メモ</th>
                   <th style="width: 140px;">操作</th>
                 </tr>
@@ -225,10 +345,34 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
               <tbody>
                 <tr v-for="r in g.items" :key="r.id">
                   <td>{{ r.cast_name }}</td>
-                  <td>{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</td>
-                  <td>{{ r.desired_room_name || '-' }}</td>
+                  <td>
+                    <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</div>
+                    <div class="small text-muted">{{ r.desired_room_name || '-' }}</div>
+                  </td>
+                  <td>
+                    <template v-if="r.status === 'APPROVED'">
+                      <template v-if="r.approved_date">
+                        <div>{{ r.approved_date }}</div>
+                        <div class="small text-muted">{{ r.approved_start_time?.slice(0,5) }}-{{ r.approved_end_time?.slice(0,5) }}</div>
+                        <div class="small text-muted">{{ r.approved_room_name || '-' }}</div>
+                      </template>
+                      <span v-else class="text-muted small">履歴未記録（旧データ）</span>
+                    </template>
+                    <span v-else class="text-muted small">-</span>
+                  </td>
                   <td><span class="badge" :class="statusClass[r.status]">{{ statusLabel[r.status] }}</span></td>
-                  <td>{{ r.memo || '-' }}</td>
+                  <td>
+                    <template v-if="r.decided_at">
+                      <div class="small">{{ r.decided_by_name || '-' }}</div>
+                      <div class="small text-muted">{{ formatDateTime(r.decided_at) }}</div>
+                    </template>
+                    <span v-else class="text-muted small">-</span>
+                  </td>
+                  <td>
+                    <div v-if="r.memo" class="small">{{ r.memo }}</div>
+                    <div v-if="r.admin_memo" class="small text-info">{{ r.admin_memo }}</div>
+                    <span v-if="!r.memo && !r.admin_memo" class="text-muted small">-</span>
+                  </td>
                   <td>
                     <template v-if="r.status === 'REQUESTED'">
                       <button class="btn btn-success btn-sm me-1" @click="openApprove(r)">
@@ -253,21 +397,45 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
             <table class="table table-hover mb-0">
               <thead>
                 <tr>
-                  <th>日付</th>
-                  <th>時間</th>
-                  <th>希望部屋</th>
+                  <th>申請内容</th>
+                  <th>承認内容</th>
                   <th>ステータス</th>
+                  <th>決定情報</th>
                   <th>メモ</th>
                   <th style="width: 140px;">操作</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="r in g.items" :key="r.id">
-                  <td>{{ r.date }}</td>
-                  <td>{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</td>
-                  <td>{{ r.desired_room_name || '-' }}</td>
+                  <td>
+                    <div>{{ r.date }}</div>
+                    <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</div>
+                    <div class="small text-muted">{{ r.desired_room_name || '-' }}</div>
+                  </td>
+                  <td>
+                    <template v-if="r.status === 'APPROVED'">
+                      <template v-if="r.approved_date">
+                        <div>{{ r.approved_date }}</div>
+                        <div class="small text-muted">{{ r.approved_start_time?.slice(0,5) }}-{{ r.approved_end_time?.slice(0,5) }}</div>
+                        <div class="small text-muted">{{ r.approved_room_name || '-' }}</div>
+                      </template>
+                      <span v-else class="text-muted small">履歴未記録（旧データ）</span>
+                    </template>
+                    <span v-else class="text-muted small">-</span>
+                  </td>
                   <td><span class="badge" :class="statusClass[r.status]">{{ statusLabel[r.status] }}</span></td>
-                  <td>{{ r.memo || '-' }}</td>
+                  <td>
+                    <template v-if="r.decided_at">
+                      <div class="small">{{ r.decided_by_name || '-' }}</div>
+                      <div class="small text-muted">{{ formatDateTime(r.decided_at) }}</div>
+                    </template>
+                    <span v-else class="text-muted small">-</span>
+                  </td>
+                  <td>
+                    <div v-if="r.memo" class="small">{{ r.memo }}</div>
+                    <div v-if="r.admin_memo" class="small text-info">{{ r.admin_memo }}</div>
+                    <span v-if="!r.memo && !r.admin_memo" class="text-muted small">-</span>
+                  </td>
                   <td>
                     <template v-if="r.status === 'REQUESTED'">
                       <button class="btn btn-success btn-sm me-1" @click="openApprove(r)">
@@ -363,6 +531,98 @@ const statusClass = { REQUESTED: 'bg-warning text-dark', APPROVED: 'bg-success',
             <button class="btn btn-danger" :disabled="rejecting" @click="doReject">
               {{ rejecting ? '処理中...' : '却下する' }}
             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CSVインポート(戻し承認)モーダル -->
+    <div v-if="showImportModal" class="modal d-block" style="background: rgba(0,0,0,0.3);" @click.self="showImportModal = false">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="ti ti-upload"></i> シフト申請 CSVインポート（戻し承認・プレビュー確認式）</h5>
+            <button type="button" class="btn-close" @click="showImportModal = false"></button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-info small">
+              CSVエクスポートしたファイルをExcel等で編集し（approved_date / approved_start_time / approved_end_time / approved_room_id / admin_memo）、
+              ここでアップロードしてください。まず検証結果（プレビュー）を確認し、問題のない行だけを選択して「反映する」を押すと承認されます。
+              自動一括承認ではなく、必ず内容を確認してから反映してください。
+            </div>
+            <div v-if="importError" class="alert alert-danger">{{ importError }}</div>
+
+            <div class="d-flex align-items-center gap-2 mb-3">
+              <input type="file" accept=".csv" class="form-control form-control-sm" style="max-width: 360px;" @change="onFileChange">
+              <button class="btn btn-primary btn-sm" :disabled="importLoading" @click="doPreview">
+                {{ importLoading ? '検証中...' : '検証する（プレビュー）' }}
+              </button>
+            </div>
+
+            <template v-if="previewResult">
+              <div class="mb-2 small">
+                総行数: {{ previewResult.total_rows }} / 反映可能: {{ previewResult.applicable_rows }} / 選択中: {{ selectedCount }}
+              </div>
+              <div class="table-responsive mb-3" style="max-height: 420px; overflow-y: auto;">
+                <table class="table table-sm table-bordered mb-0">
+                  <thead>
+                    <tr>
+                      <th style="width: 32px;"></th>
+                      <th>行</th>
+                      <th>申請内容（元）</th>
+                      <th>CSV上の承認予定</th>
+                      <th>エラー/警告</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in previewResult.rows" :key="r.row_number" :class="!r.can_apply ? 'table-danger' : (r.warnings.length ? 'table-warning' : '')">
+                      <td>
+                        <input
+                          type="checkbox"
+                          :disabled="!r.can_apply"
+                          v-model="selectedRows[r.row_number]"
+                        >
+                      </td>
+                      <td class="small">{{ r.row_number }}<br><span class="text-muted">#{{ r.shift_request_id }}</span></td>
+                      <td class="small">
+                        <template v-if="r.original">
+                          {{ r.original.cast_name }}<br>
+                          {{ r.original.date }} {{ r.original.start_time }}-{{ r.original.end_time }}<br>
+                          <span class="text-muted">希望: {{ r.original.desired_room_name || '-' }}</span><br>
+                          <span class="badge" :class="statusClass[r.original.status]">{{ r.original.status_display }}</span>
+                        </template>
+                        <span v-else class="text-muted">-</span>
+                      </td>
+                      <td class="small">
+                        {{ r.csv.approved_date }} {{ r.csv.approved_start_time }}-{{ r.csv.approved_end_time }}<br>
+                        部屋: {{ r.csv.approved_room_name || r.csv.approved_room_id || '-' }}<br>
+                        <span v-if="r.csv.admin_memo" class="text-info">{{ r.csv.admin_memo }}</span>
+                      </td>
+                      <td class="small">
+                        <div v-for="(e, i) in r.errors" :key="'e'+i" class="text-danger"><i class="ti ti-alert-circle"></i> {{ e }}</div>
+                        <div v-for="(w, i) in r.warnings" :key="'w'+i" class="text-warning"><i class="ti ti-alert-triangle"></i> {{ w }}</div>
+                        <span v-if="!r.errors.length && !r.warnings.length" class="text-success"><i class="ti ti-check"></i> 反映可能</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <template v-if="applyResult">
+                <div class="alert alert-success small">
+                  反映完了: {{ applyResult.applied_count }} / {{ applyResult.total }} 件
+                </div>
+              </template>
+            </template>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="showImportModal = false">閉じる</button>
+            <button
+              v-if="previewResult"
+              class="btn btn-success"
+              :disabled="applying || selectedCount === 0"
+              @click="doApply"
+            >{{ applying ? '反映中...' : `選択した${selectedCount}件を反映する` }}</button>
           </div>
         </div>
       </div>

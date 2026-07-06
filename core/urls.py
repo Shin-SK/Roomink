@@ -17,7 +17,13 @@ router.register("discounts", views.DiscountViewSet)
 router.register("media", views.MediumViewSet)
 router.register("staffs", views.StaffViewSet, basename="staff")
 router.register("cast-expenses", views.CastExpenseViewSet, basename="cast-expense")
+router.register("cast-expense-templates", views.CastExpenseTemplateViewSet, basename="cast-expense-template")
+router.register("cast-expense-template-histories", views.CastExpenseTemplateHistoryViewSet, basename="cast-expense-template-history")
 router.register("point-logs", views.PointLogViewSet, basename="point-log")
+router.register("cast-checkouts", views.CastCheckoutViewSet, basename="cast-checkout")
+router.register("cast-adjustments", views.CastAdjustmentViewSet, basename="cast-adjustment")
+router.register("cast-notes", views.CastNoteViewSet, basename="cast-note")
+router.register("shift-confirm-notification-logs", views.ShiftConfirmNotificationLogViewSet, basename="shift-confirm-notification-log")
 
 cast_sr_router = DefaultRouter()
 cast_sr_router.register("shift-requests", views.CastShiftRequestViewSet, basename="cast-shift-request")
@@ -38,9 +44,14 @@ urlpatterns = [
 
     # cast
     path("cast/today/", views.CastTodayView.as_view(), name="cast-today"),
+    path("cast/today-sales/", views.CastTodaySalesView.as_view(), name="cast-today-sales"),
+    path("cast/checkout/", views.CastCheckoutView.as_view(), name="cast-checkout"),
+    path("cast/shift-confirm/", views.CastShiftConfirmView.as_view(), name="cast-shift-confirm"),
     path("cast/orders/<int:pk>/ack/", views.CastAckView.as_view(), name="cast-ack"),
     path("cast/line-link/", views.CastLineLinkView.as_view(), name="cast-line-link"),
     path("cast/points/", views.CastPointSummaryView.as_view(), name="cast-points"),
+    path("cast/adjustments/", views.CastAdjustmentListView.as_view(), name="cast-adjustments"),
+    path("cast/notes/", views.CastNoteListView.as_view(), name="cast-notes"),
     path("cast/", include(cast_sr_router.urls)),
 
     # customer
@@ -64,9 +75,18 @@ path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
     path("op/daily-settlement/export/", views.DailySettlementExportView.as_view(), name="daily-settlement-export"),
     path("op/sales-summary/", views.SalesSummaryView.as_view(), name="sales-summary"),
     path("op/sales-export.csv", views.SalesExportView.as_view(), name="sales-export"),
+    path("op/sales-dashboard/", views.SalesDashboardView.as_view(), name="sales-dashboard"),
+    path("op/sales-dashboard-export.csv", views.SalesDashboardExportView.as_view(), name="sales-dashboard-export"),
     path("op/customers-export.csv", views.CustomerExportView.as_view(), name="customers-export"),
     path("op/line-alerts/", views.LineAlertsView.as_view(), name="line-alerts"),
+    path("op/shift-confirm-alerts/", views.ShiftConfirmAlertsView.as_view(), name="shift-confirm-alerts"),
+    path(
+        "op/shift-confirm-alerts/<int:shift_id>/mark_notification_test/",
+        views.ShiftConfirmNotificationTestView.as_view(),
+        name="shift-confirm-notification-test",
+    ),
     path("op/line-settings/", views.StoreLineSettingsView.as_view(), name="store-line-settings"),
+    path("op/payment-fee-settings/", views.StorePaymentFeeSettingsView.as_view(), name="store-payment-fee-settings"),
     path("op/", include(op_sr_router.urls)),
 
     # Twilio webhook

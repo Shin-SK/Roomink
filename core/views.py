@@ -20,16 +20,27 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
-    CallLog, CallNote, Cast, CastAck, CastExpense, Course, Customer,
+    CallLog, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
+    CastDailyCheckout, CastExpense, CastExpenseTemplate,
+    CastExpenseTemplateHistory, CastNote, Course, Customer,
     CustomerMergeLog, DailySettlement, Discount, Extension, Medium,
     LineNotificationLog, NominationFee, Option, Order, OrderOption, PointLog,
-    Room, ShiftAssignment, ShiftRequest, Store, StorePhoneNumber, UserProfile,
+    Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, Store,
+    StorePhoneNumber, UserProfile,
     generate_line_link_code,
 )
 from .serializers import (
     CallLogSerializer,
     CallNoteSerializer,
+    CastAdjustmentSerializer,
+    CastAdjustmentCastSerializer,
+    CastCheckoutExpenseSnapshotSerializer,
+    CastDailyCheckoutSerializer,
     CastExpenseSerializer,
+    CastExpenseTemplateSerializer,
+    CastExpenseTemplateHistorySerializer,
+    CastNoteSerializer,
+    CastNoteCastSerializer,
     CastSerializer,
     PointLogSerializer,
     CastShiftRequestSerializer,
@@ -51,6 +62,7 @@ from .serializers import (
     RoomSerializer,
     ScheduleResponseSerializer,
     ShiftAssignmentSerializer,
+    ShiftConfirmNotificationLogSerializer,
     StorePhoneNumberSerializer,
     build_customer_label,
     build_schedule_data,
@@ -62,7 +74,10 @@ logger = logging.getLogger(__name__)
 from .services.cast_user import ensure_user_profile, update_or_create_cast_with_user
 from .services.customer_context import resolve_customer
 from .services.pricing import recalculate_order_total
-from .services.sales import get_sales_summary, get_sales_csv
+from .services.sales import (
+    get_sales_summary, get_sales_csv,
+    get_sales_dashboard, get_sales_dashboard_csv,
+)
 from .services.notify import (
     notify_cast_order,
     notify_order_cancelled,
@@ -311,14 +326,16 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def done(self, request, pk=None):
         """1ステップずつ前進: CONFIRMED/IN_PROGRESS → PENDING_FINALIZE → DONE
-        DONE化(会計確定)時は payment_method が CARD/CASH のいずれかである必要がある"""
+        DONE化(会計確定)時は payment_method が CARD/CASH/PAYPAY のいずれかである必要がある"""
         order = self.get_object()
         if order.status in (Order.Status.CONFIRMED, Order.Status.IN_PROGRESS):
             order.status = Order.Status.PENDING_FINALIZE
         elif order.status == Order.Status.PENDING_FINALIZE:
-            if order.payment_method not in (Order.PaymentMethod.CARD, Order.PaymentMethod.CASH):
+            if order.payment_method not in (
+                Order.PaymentMethod.CARD, Order.PaymentMethod.CASH, Order.PaymentMethod.PAYPAY,
+            ):
                 return Response(
-                    {"detail": "支払い方法（カード/現金）を選択してから会計確定してください"},
+                    {"detail": "支払い方法（カード/現金/PayPay）を選択してから会計確定してください"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             order.status = Order.Status.DONE
@@ -510,6 +527,257 @@ class CastTodayView(APIView):
             "line_linked": cast.line_user_id is not None,
             "line_link_code": cast.line_link_code,
             "line_add_friend_url": cast.store.line_add_friend_url if cast.store else "",
+        })
+
+
+def _compute_cast_done_sales(cast, d):
+    """指定キャスト・指定日のDONE注文を集計し、売上/給与見込みを返す（CastTodaySalesView/CastCheckoutViewで共用）"""
+    import math
+
+    done_orders = Order.objects.filter(
+        cast=cast, start__date=d, status=Order.Status.DONE,
+    )
+
+    done_count = done_orders.count()
+    total_sales = sum(o.total_price for o in done_orders)
+    course_sales = sum(o.course_price for o in done_orders)
+    options_sales = sum(o.options_price for o in done_orders)
+
+    course_back = math.floor(course_sales * cast.course_back_rate / 100)
+    option_back = options_sales if cast.option_fullback_enabled else 0
+    estimated_pay = course_back + option_back
+
+    return {
+        "done_count": done_count,
+        "total_sales": total_sales,
+        "estimated_pay": estimated_pay,
+        "course_sales": course_sales,
+        "options_sales": options_sales,
+    }
+
+
+def _compute_payment_fee_estimate(store, cast, d):
+    """指定キャスト・指定日のDONE注文について、決済方法別の手数料率（参考値）から
+    手数料見込み/手数料差引後売上見込みを計算する。CastCheckoutView専用。
+    給与確定・支払い処理には一切接続しない参考値。"""
+    import math
+    from .services.sales import payment_fee_rates
+
+    done_orders = Order.objects.filter(cast=cast, start__date=d, status=Order.Status.DONE)
+    fee_rates = payment_fee_rates(store)
+
+    total_sales = 0
+    fee_estimate = 0
+    for o in done_orders:
+        total_sales += o.total_price
+        rate = fee_rates.get(o.payment_method, 0)
+        fee_estimate += math.floor(o.total_price * rate / 100)
+
+    return {
+        "payment_fee_estimate": fee_estimate,
+        "net_sales_after_payment_fee": total_sales - fee_estimate,
+    }
+
+
+class CastTodaySalesView(APIView):
+    """GET /api/cast/today-sales/ — キャスト本人の本日の売上/給与見込み（DONEのみ）"""
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        today = timezone.localdate()
+        return Response(_compute_cast_done_sales(cast, today))
+
+
+class CastCheckoutView(APIView):
+    """
+    GET /api/cast/checkout/ — 本日の見込み・固定雑費テンプレ・既存提出内容を返す
+    POST /api/cast/checkout/ — 退勤提出（当日提出済み・確認済みの場合は不可。差戻し後は再提出可）
+
+    Phase 3-A: 給与確定ではなく、退勤提出時点の見込みスナップショット + manager確認の土台。
+    """
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        today = timezone.localdate()
+        sales = _compute_cast_done_sales(cast, today)
+        fee = _compute_payment_fee_estimate(cast.store, cast, today)
+
+        templates = CastExpenseTemplate.objects.filter(cast=cast, is_active=True).order_by("id")
+        template_data = [
+            {"id": t.id, "name": t.name, "amount": t.amount, "memo": t.memo}
+            for t in templates
+        ]
+
+        existing = CastDailyCheckout.objects.filter(cast=cast, date=today).select_related("reviewed_by").prefetch_related("expense_snapshots").first()
+
+        return Response({
+            "date": today.isoformat(),
+            **sales,
+            **fee,
+            "expense_templates": template_data,
+            "checkout": CastDailyCheckoutSerializer(existing).data if existing else None,
+            "can_submit": existing is None or existing.status == CastDailyCheckout.Status.RETURNED,
+        })
+
+    def post(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        today = timezone.localdate()
+        existing = CastDailyCheckout.objects.filter(cast=cast, date=today).first()
+        if existing is not None and existing.status != CastDailyCheckout.Status.RETURNED:
+            return Response(
+                {"detail": "本日はすでに退勤提出済みです"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            actual_take_home_amount = int(request.data.get("actual_take_home_amount") or 0)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "実際の持ち帰り金額の形式が不正です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if actual_take_home_amount < 0:
+            return Response(
+                {"detail": "実際の持ち帰り金額は0以上で入力してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        checklist_json = request.data.get("checklist_json", {})
+        if not isinstance(checklist_json, dict):
+            return Response(
+                {"detail": "checklist_json の形式が不正です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cast_memo = request.data.get("cast_memo", "") or ""
+
+        sales = _compute_cast_done_sales(cast, today)
+        fee = _compute_payment_fee_estimate(cast.store, cast, today)
+        templates = list(CastExpenseTemplate.objects.filter(cast=cast, is_active=True).order_by("id"))
+
+        with transaction.atomic():
+            if existing is not None:
+                instance = existing
+                instance.expense_snapshots.all().delete()
+            else:
+                instance = CastDailyCheckout(store=cast.store, cast=cast, date=today)
+
+            instance.done_count = sales["done_count"]
+            instance.total_sales = sales["total_sales"]
+            instance.estimated_pay = sales["estimated_pay"]
+            instance.course_sales = sales["course_sales"]
+            instance.options_sales = sales["options_sales"]
+            instance.payment_fee_estimate = fee["payment_fee_estimate"]
+            instance.net_sales_after_payment_fee = fee["net_sales_after_payment_fee"]
+            instance.actual_take_home_amount = actual_take_home_amount
+            instance.checklist_json = checklist_json
+            instance.cast_memo = cast_memo
+            instance.status = CastDailyCheckout.Status.SUBMITTED
+            instance.submitted_at = timezone.now()
+            instance.save()
+
+            CastCheckoutExpenseSnapshot.objects.bulk_create([
+                CastCheckoutExpenseSnapshot(
+                    checkout=instance, template=t, name=t.name, amount=t.amount, memo=t.memo,
+                )
+                for t in templates
+            ])
+
+        instance.refresh_from_db()
+        return Response(
+            CastDailyCheckoutSerializer(instance).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+def _serialize_shift_for_confirm(shift):
+    if shift is None:
+        return None
+    return {
+        "id": shift.id,
+        "date": shift.date.isoformat(),
+        "start_time": str(shift.start_time)[:5],
+        "end_time": str(shift.end_time)[:5],
+        "room_name": shift.room.name if shift.room_id else None,
+        "confirmed_at": shift.confirmed_at,
+    }
+
+
+class CastShiftConfirmView(APIView):
+    """
+    GET /api/cast/shift-confirm/ — 本日 or 直近未来のShiftAssignmentと出勤確認状況を返す
+    POST /api/cast/shift-confirm/ — 出勤確認する（{"shift_id": <id>}）
+
+    Phase 3-B-1: 出勤確認の状態保存 + 表示のみ。通知・リマインド・出勤打刻（clocked_in_at）とは無関係。
+    """
+
+    def _find_target_shift(self, cast):
+        today = timezone.localdate()
+        return (
+            ShiftAssignment.objects
+            .filter(cast=cast, date__gte=today)
+            .select_related("room")
+            .order_by("date", "start_time")
+            .first()
+        )
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        shift = self._find_target_shift(cast)
+        today = timezone.localdate()
+        return Response({
+            "shift": _serialize_shift_for_confirm(shift),
+            "is_today": bool(shift and shift.date == today),
+        })
+
+    def post(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        shift_id = request.data.get("shift_id")
+        shift = ShiftAssignment.objects.select_related("room").filter(pk=shift_id, cast=cast).first()
+        if shift is None:
+            return Response(
+                {"detail": "対象のシフトが見つかりません"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if shift.confirmed_at is None:
+            shift.confirmed_at = timezone.now()
+            shift.save(update_fields=["confirmed_at"])
+
+        today = timezone.localdate()
+        return Response({
+            "shift": _serialize_shift_for_confirm(shift),
+            "is_today": shift.date == today,
         })
 
 
@@ -1507,6 +1775,639 @@ class CastExpenseViewSet(viewsets.ModelViewSet):
 
 
 # ──────────────────────────────────────
+# CastExpenseTemplate — manager only（固定雑費テンプレ）
+# ──────────────────────────────────────
+
+class CastExpenseTemplateViewSet(viewsets.ModelViewSet):
+    """キャスト別固定雑費テンプレの CRUD — manager のみ。削除は不可（is_activeで無効化）"""
+    http_method_names = ["get", "post", "patch", "head", "options"]
+    queryset = CastExpenseTemplate.objects.select_related("cast").order_by("cast", "-is_active", "id")
+    serializer_class = CastExpenseTemplateSerializer
+    filterset_fields = {
+        "cast": ["exact"],
+        "is_active": ["exact"],
+    }
+
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
+    def check_manager(self, request):
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != "manager":
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("この操作はマネージャーのみ利用可能です")
+
+    def create(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().partial_update(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        instance = serializer.save(store=get_user_store(self.request))
+        CastExpenseTemplateHistory.objects.create(
+            template=instance, cast=instance.cast,
+            name=instance.name, amount=instance.amount, memo=instance.memo,
+            is_active=instance.is_active,
+            action=CastExpenseTemplateHistory.Action.CREATE,
+            edited_by=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        previous_is_active = serializer.instance.is_active
+        instance = serializer.save()
+        if "is_active" in serializer.validated_data and instance.is_active != previous_is_active:
+            action = (
+                CastExpenseTemplateHistory.Action.ACTIVATE
+                if instance.is_active
+                else CastExpenseTemplateHistory.Action.DEACTIVATE
+            )
+        else:
+            action = CastExpenseTemplateHistory.Action.UPDATE
+        CastExpenseTemplateHistory.objects.create(
+            template=instance, cast=instance.cast,
+            name=instance.name, amount=instance.amount, memo=instance.memo,
+            is_active=instance.is_active,
+            action=action,
+            edited_by=self.request.user,
+        )
+
+
+class CastExpenseTemplateHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """固定雑費テンプレ履歴の閲覧 — manager のみ"""
+    serializer_class = CastExpenseTemplateHistorySerializer
+    queryset = CastExpenseTemplateHistory.objects.select_related("cast", "edited_by").order_by("-edited_at")
+    filterset_fields = {
+        "template": ["exact"],
+        "cast": ["exact"],
+    }
+
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(cast__store=store)
+
+    def list(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().retrieve(request, *args, **kwargs)
+
+    def check_manager(self, request):
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != "manager":
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("この操作はマネージャーのみ利用可能です")
+
+
+# ──────────────────────────────────────
+# CastDailyCheckout — manager only（退勤提出の閲覧/確認, Phase 3-A）
+# ──────────────────────────────────────
+
+class CastCheckoutViewSet(viewsets.ModelViewSet):
+    """退勤提出一覧/詳細の閲覧 + manager_memo編集 + 確認/差戻し/未確認に戻す — manager のみ。
+    提出自体はキャスト側 CastCheckoutView からのみ行う（create/delete はここでは提供しない）。"""
+    http_method_names = ["get", "patch", "head", "options"]
+    queryset = (
+        CastDailyCheckout.objects
+        .select_related("cast", "reviewed_by")
+        .prefetch_related("expense_snapshots")
+        .order_by("-date", "cast")
+    )
+    serializer_class = CastDailyCheckoutSerializer
+    filterset_fields = {
+        "date": ["exact", "gte", "lte"],
+        "cast": ["exact"],
+        "status": ["exact"],
+    }
+
+    def get_queryset(self):
+        self.check_manager(self.request)
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
+    def check_manager(self, request):
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != "manager":
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("この操作はマネージャーのみ利用可能です")
+
+    def partial_update(self, request, *args, **kwargs):
+        # manager_memo以外はserializerのread_only_fieldsで書き込み不可
+        self.check_manager(request)
+        return super().partial_update(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def review(self, request, pk=None):
+        """確認済みにする"""
+        self.check_manager(request)
+        instance = self.get_object()
+        memo = request.data.get("manager_memo")
+        if memo is not None:
+            instance.manager_memo = memo
+        instance.status = CastDailyCheckout.Status.REVIEWED
+        instance.reviewed_at = timezone.now()
+        instance.reviewed_by = request.user
+        instance.save(update_fields=["manager_memo", "status", "reviewed_at", "reviewed_by", "updated_at"])
+        return Response(CastDailyCheckoutSerializer(instance).data)
+
+    @action(detail=True, methods=["post"])
+    def return_to_cast(self, request, pk=None):
+        """差戻し（キャストが再提出できる状態に戻す）"""
+        self.check_manager(request)
+        instance = self.get_object()
+        memo = request.data.get("manager_memo")
+        if memo is not None:
+            instance.manager_memo = memo
+        instance.status = CastDailyCheckout.Status.RETURNED
+        instance.reviewed_at = timezone.now()
+        instance.reviewed_by = request.user
+        instance.save(update_fields=["manager_memo", "status", "reviewed_at", "reviewed_by", "updated_at"])
+        return Response(CastDailyCheckoutSerializer(instance).data)
+
+    @action(detail=True, methods=["post"])
+    def reset_to_submitted(self, request, pk=None):
+        """確認済み/差戻しを未確認（提出済み）に戻す"""
+        self.check_manager(request)
+        instance = self.get_object()
+        instance.status = CastDailyCheckout.Status.SUBMITTED
+        instance.reviewed_at = None
+        instance.reviewed_by = None
+        instance.save(update_fields=["status", "reviewed_at", "reviewed_by", "updated_at"])
+        return Response(CastDailyCheckoutSerializer(instance).data)
+
+    @action(detail=False, methods=["get"])
+    def export_csv(self, request):
+        """GET /api/cast-checkouts/export_csv/?date=&cast=&status= — 一覧と同じ絞り込みでCSV出力（manager限定）"""
+        self.check_manager(request)
+        queryset = self.filter_queryset(self.get_queryset())
+
+        output = io.StringIO()
+        output.write("﻿")  # BOM
+        writer = csv.writer(output)
+        writer.writerow([
+            "日付", "キャスト名", "ステータス", "DONE件数", "売上", "給与見込み",
+            "実際の持ち帰り金額", "提出日時", "確認者", "確認日時", "manager_memo", "cast_memo",
+        ])
+        for c in queryset:
+            writer.writerow([
+                c.date.isoformat(),
+                c.cast.name,
+                c.get_status_display(),
+                c.done_count,
+                c.total_sales,
+                c.estimated_pay,
+                c.actual_take_home_amount,
+                c.submitted_at.strftime("%Y-%m-%d %H:%M") if c.submitted_at else "",
+                c.reviewed_by.username if c.reviewed_by else "",
+                c.reviewed_at.strftime("%Y-%m-%d %H:%M") if c.reviewed_at else "",
+                c.manager_memo,
+                c.cast_memo,
+            ])
+
+        resp = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = 'attachment; filename="cast_checkouts.csv"'
+        return resp
+
+
+# ──────────────────────────────────────
+# CastAdjustment — 調整金台帳（Phase 3-E）
+# manager: 自店舗の調整金 CRUD + 未解消/解消/無効化。
+# cast: 自分の分のみ閲覧（作成/編集/解消/無効化は不可）。
+# 給与確定・支払い処理・DailySettlementView・CastDailyCheckoutの給与計算には一切接続しない。
+# ──────────────────────────────────────
+
+class CastAdjustmentViewSet(viewsets.ModelViewSet):
+    """調整金台帳の CRUD — manager のみ。削除は不可（無効化=VOIDで対応）。"""
+    http_method_names = ["get", "post", "patch", "head", "options"]
+    queryset = (
+        CastAdjustment.objects
+        .select_related("cast", "created_by", "resolved_by", "source_checkout", "source_order")
+        .order_by("-date", "-created_at")
+    )
+    serializer_class = CastAdjustmentSerializer
+    filterset_fields = {
+        "date": ["exact", "gte", "lte"],
+        "cast": ["exact"],
+        "status": ["exact"],
+    }
+    ordering_fields = ["date", "cast"]
+    ordering = ["-date", "-created_at"]
+
+    def get_queryset(self):
+        self.check_manager(self.request)
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
+    def check_manager(self, request):
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != "manager":
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("この操作はマネージャーのみ利用可能です")
+
+    def create(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().create(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        self.check_manager(request)
+        instance = self.get_object()
+        # 未解消（OPEN）以外は、メモ以外の変更を認めない（解消/無効化後の履歴を保護するため）
+        if instance.status != CastAdjustment.Status.OPEN:
+            non_memo_fields = [f for f in request.data.keys() if f != "memo"]
+            if non_memo_fields:
+                return Response(
+                    {"detail": "未解消（OPEN）のもののみメモ以外を編集できます"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        return super().partial_update(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(store=get_user_store(self.request), created_by=self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def resolve(self, request, pk=None):
+        """未解消(OPEN) → 解消済み(RESOLVED)。resolved_by/resolved_at/resolved_memoを記録する。"""
+        self.check_manager(request)
+        instance = self.get_object()
+        if instance.status != CastAdjustment.Status.OPEN:
+            return Response(
+                {"detail": "未解消のもののみ解消済みにできます"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        instance.status = CastAdjustment.Status.RESOLVED
+        instance.resolved_by = request.user
+        instance.resolved_at = timezone.now()
+        instance.resolved_memo = request.data.get("resolved_memo", "") or ""
+        instance.save(update_fields=["status", "resolved_by", "resolved_at", "resolved_memo", "updated_at"])
+        return Response(CastAdjustmentSerializer(instance).data)
+
+    @action(detail=True, methods=["post"])
+    def void(self, request, pk=None):
+        """OPEN/RESOLVED → 無効化(VOID)。resolved_by/resolved_atは無効化した操作者/日時として記録する。"""
+        self.check_manager(request)
+        instance = self.get_object()
+        if instance.status == CastAdjustment.Status.VOID:
+            return Response(
+                {"detail": "すでに無効化されています"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        instance.status = CastAdjustment.Status.VOID
+        instance.resolved_by = request.user
+        instance.resolved_at = timezone.now()
+        memo = request.data.get("resolved_memo")
+        if memo is not None:
+            instance.resolved_memo = memo
+        instance.save(update_fields=["status", "resolved_by", "resolved_at", "resolved_memo", "updated_at"])
+        return Response(CastAdjustmentSerializer(instance).data)
+
+    @action(detail=False, methods=["get"])
+    def export_csv(self, request):
+        """GET /api/cast-adjustments/export_csv/?date=&cast=&status= — 一覧と同じ絞り込みでCSV出力（manager限定）"""
+        self.check_manager(request)
+        queryset = self.filter_queryset(self.get_queryset())
+
+        output = io.StringIO()
+        output.write("﻿")  # BOM
+        writer = csv.writer(output)
+        writer.writerow([
+            "日付", "キャスト名", "タイトル", "金額", "ステータス", "メモ",
+            "作成者", "作成日時", "解消者", "解消日時", "解消メモ",
+            "source_type", "source_checkout_id", "source_order_id",
+        ])
+        for a in queryset:
+            writer.writerow([
+                a.date.isoformat(),
+                a.cast.name,
+                a.title,
+                a.amount,
+                a.get_status_display(),
+                a.memo,
+                a.created_by.username if a.created_by else "",
+                a.created_at.strftime("%Y-%m-%d %H:%M") if a.created_at else "",
+                a.resolved_by.username if a.resolved_by else "",
+                a.resolved_at.strftime("%Y-%m-%d %H:%M") if a.resolved_at else "",
+                a.resolved_memo,
+                a.source_type,
+                a.source_checkout_id or "",
+                a.source_order_id or "",
+            ])
+
+        resp = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = 'attachment; filename="cast_adjustments.csv"'
+        return resp
+
+
+class CastAdjustmentListView(APIView):
+    """GET /api/cast/adjustments/ — cast本人の未解消調整金一覧+合計、解消済み履歴（直近分のみ）。
+    Phase 3-E: 給与確定・支払い処理とは接続しない、閲覧専用（作成/編集/解消/無効化は不可）。"""
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from django.db.models import Sum
+
+        qs = CastAdjustment.objects.filter(cast=cast).exclude(status=CastAdjustment.Status.VOID)
+        open_qs = qs.filter(status=CastAdjustment.Status.OPEN).order_by("-date", "-created_at")
+        resolved_qs = qs.filter(status=CastAdjustment.Status.RESOLVED).order_by("-resolved_at")[:20]
+
+        open_total = open_qs.aggregate(total=Sum("amount"))["total"] or 0
+
+        return Response({
+            "open_total": open_total,
+            "open": CastAdjustmentCastSerializer(open_qs, many=True).data,
+            "resolved_recent": CastAdjustmentCastSerializer(resolved_qs, many=True).data,
+        })
+
+
+# ──────────────────────────────────────
+# CastNote — ノート/施術マニュアル（Phase 4）
+# 店舗がキャスト向けに出す施術マニュアル/接客メモ/店舗ルール/連絡事項/お知らせ記事。
+# 既存のRoomink操作マニュアル機能（フロントエンド静的データ manualData.js）とは別物で、互いに影響しない。
+# manager: 自店舗の記事 CRUD + 公開/下書き/アーカイブ + ピン留め。cast: 公開済み・自分向け可視性の記事のみ閲覧。
+# ──────────────────────────────────────
+
+class CastNoteViewSet(viewsets.ModelViewSet):
+    """ノート/施術マニュアルの CRUD — manager のみ。"""
+    queryset = CastNote.objects.all().order_by("-is_pinned", "-published_at", "-created_at")
+    serializer_class = CastNoteSerializer
+    filterset_fields = {
+        "status": ["exact"],
+        "category": ["exact"],
+        "is_pinned": ["exact"],
+        "visibility": ["exact"],
+    }
+    search_fields = ["title", "body"]
+    ordering = ["-is_pinned", "-published_at", "-created_at"]
+
+    def get_queryset(self):
+        self.check_manager(self.request)
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
+    def check_manager(self, request):
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != "manager":
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("この操作はマネージャーのみ利用可能です")
+
+    def create(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().create(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        instance = serializer.save(
+            store=get_user_store(self.request),
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
+        if instance.status == CastNote.Status.PUBLISHED and instance.published_at is None:
+            instance.published_at = timezone.now()
+            instance.save(update_fields=["published_at"])
+
+    def partial_update(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().partial_update(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        instance = serializer.save(updated_by=self.request.user)
+        if instance.status == CastNote.Status.PUBLISHED and instance.published_at is None:
+            instance.published_at = timezone.now()
+            instance.save(update_fields=["published_at"])
+
+    def destroy(self, request, *args, **kwargs):
+        self.check_manager(request)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        """下書き/アーカイブ → 公開"""
+        self.check_manager(request)
+        instance = self.get_object()
+        instance.status = CastNote.Status.PUBLISHED
+        if instance.published_at is None:
+            instance.published_at = timezone.now()
+        instance.updated_by = request.user
+        instance.save(update_fields=["status", "published_at", "updated_by", "updated_at"])
+        return Response(CastNoteSerializer(instance).data)
+
+    @action(detail=True, methods=["post"])
+    def unpublish(self, request, pk=None):
+        """公開 → 下書きに戻す"""
+        self.check_manager(request)
+        instance = self.get_object()
+        instance.status = CastNote.Status.DRAFT
+        instance.updated_by = request.user
+        instance.save(update_fields=["status", "updated_by", "updated_at"])
+        return Response(CastNoteSerializer(instance).data)
+
+    @action(detail=True, methods=["post"])
+    def archive(self, request, pk=None):
+        """アーカイブへ移動"""
+        self.check_manager(request)
+        instance = self.get_object()
+        instance.status = CastNote.Status.ARCHIVED
+        instance.updated_by = request.user
+        instance.save(update_fields=["status", "updated_by", "updated_at"])
+        return Response(CastNoteSerializer(instance).data)
+
+    @action(detail=True, methods=["post"])
+    def pin(self, request, pk=None):
+        self.check_manager(request)
+        instance = self.get_object()
+        instance.is_pinned = True
+        instance.updated_by = request.user
+        instance.save(update_fields=["is_pinned", "updated_by", "updated_at"])
+        return Response(CastNoteSerializer(instance).data)
+
+    @action(detail=True, methods=["post"])
+    def unpin(self, request, pk=None):
+        self.check_manager(request)
+        instance = self.get_object()
+        instance.is_pinned = False
+        instance.updated_by = request.user
+        instance.save(update_fields=["is_pinned", "updated_by", "updated_at"])
+        return Response(CastNoteSerializer(instance).data)
+
+
+class CastNoteListView(APIView):
+    """GET /api/cast/notes/ — cast本人がマイページから閲覧するノート一覧（公開済み・自分向け可視性のみ）。
+    まずは一覧+本文同梱（フロント側でモーダル詳細表示する想定）。既読管理・コメント機能は今回対象外。"""
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        qs = CastNote.objects.filter(
+            store=cast.store,
+            status=CastNote.Status.PUBLISHED,
+            visibility__in=[CastNote.Visibility.CAST, CastNote.Visibility.ALL],
+        ).order_by("-is_pinned", "-published_at", "-created_at")
+
+        category = request.query_params.get("category")
+        if category:
+            qs = qs.filter(category=category)
+
+        categories = sorted({c for c in qs.exclude(category="").values_list("category", flat=True)})
+
+        pinned = qs.filter(is_pinned=True)
+        recent = qs.filter(is_pinned=False)[:50]
+
+        return Response({
+            "categories": categories,
+            "pinned": CastNoteCastSerializer(pinned, many=True).data,
+            "recent": CastNoteCastSerializer(recent, many=True).data,
+        })
+
+
+# ──────────────────────────────────────
+# ShiftAssignment — 出勤確認アラート土台（Phase 3-F）
+# 通知送信は行わない。DB変更なし（confirmed_at + 現在時刻から都度判定）。
+# ──────────────────────────────────────
+
+class ShiftConfirmAlertsView(APIView):
+    """GET /api/op/shift-confirm-alerts/ — 本日以降の未確認シフトのうち、開始2時間前を切ったものをアラートとして返す。
+    manager/staff共通（ShiftList.vueと同じ店舗スコープ）。LINE/SMS/メール等の外部送信は一切行わない。
+    Phase 4: 各アラートに通知ログの有無/最終状態を付与する（土台のみ。実送信は行わない）。"""
+
+    def get(self, request):
+        store = get_user_store(request)
+        now = timezone.now()
+        today = timezone.localdate()
+        tz = timezone.get_current_timezone()
+
+        shifts = (
+            ShiftAssignment.objects
+            .filter(store=store, date__gte=today, confirmed_at__isnull=True, is_absent=False)
+            .select_related("cast", "room")
+            .order_by("date", "start_time")
+        )
+
+        shift_ids = [s.id for s in shifts]
+        latest_logs = {}
+        if shift_ids:
+            for log in (
+                ShiftConfirmNotificationLog.objects
+                .filter(shift_assignment_id__in=shift_ids)
+                .order_by("shift_assignment_id", "-created_at")
+            ):
+                key = (log.shift_assignment_id, log.alert_level)
+                if key not in latest_logs:
+                    latest_logs[key] = log
+
+        alerts = []
+        for s in shifts:
+            start_dt = timezone.make_aware(datetime.combine(s.date, s.start_time), tz)
+            minutes_until_start = int((start_dt - now).total_seconds() // 60)
+            if minutes_until_start > 120:
+                continue  # 2時間より前は対象外
+            alert_level = "ONE_HOUR" if minutes_until_start <= 60 else "TWO_HOURS"
+            last_log = latest_logs.get((s.id, alert_level))
+            alerts.append({
+                "shift_id": s.id,
+                "cast_name": s.cast.name,
+                "date": s.date.isoformat(),
+                "start_time": str(s.start_time)[:5],
+                "room_name": s.room.name if s.room_id else None,
+                "confirmed_at": s.confirmed_at,
+                "minutes_until_start": minutes_until_start,
+                "alert_level": alert_level,
+                "has_notification_log": last_log is not None,
+                "last_notification_status": last_log.status if last_log else None,
+                "last_notification_channel": last_log.channel if last_log else None,
+                "last_notification_at": last_log.created_at if last_log else None,
+                "external_send_supported": False,
+            })
+
+        return Response({"alerts": alerts, "external_send_supported": False})
+
+
+class ShiftConfirmNotificationTestView(APIView):
+    """POST /api/op/shift-confirm-alerts/{shift_id}/mark_notification_test/
+    出勤確認アラートの外部通知の土台（Phase 4）。実送信は行わず、
+    「送信予定/送った扱い」のテストログ（ShiftConfirmNotificationLog）を1件作成するだけ。
+    LINE/SMS/メール等の外部API呼び出しは一切行わない。manager のみ実行可能。"""
+
+    def post(self, request, shift_id):
+        _require_manager(request)
+        store = get_user_store(request)
+
+        shift = ShiftAssignment.objects.select_related("cast").filter(pk=shift_id, store=store).first()
+        if shift is None:
+            return Response(
+                {"detail": "対象のシフトが見つかりません"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        alert_level = request.data.get("alert_level") or "TWO_HOURS"
+        if alert_level not in ShiftConfirmNotificationLog.AlertLevel.values:
+            return Response(
+                {"detail": "alert_level は TWO_HOURS または ONE_HOUR を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        target_type = request.data.get("target_type") or ShiftConfirmNotificationLog.TargetType.CAST
+        if target_type not in ShiftConfirmNotificationLog.TargetType.values:
+            target_type = ShiftConfirmNotificationLog.TargetType.CAST
+
+        message = (
+            f"[テストログ] {shift.cast.name} {shift.date.isoformat()} "
+            f"{str(shift.start_time)[:5]} 出勤確認アラート（{alert_level}）"
+        )
+        log = ShiftConfirmNotificationLog.objects.create(
+            store=store,
+            shift_assignment=shift,
+            cast=shift.cast,
+            alert_level=alert_level,
+            target_type=target_type,
+            channel=ShiftConfirmNotificationLog.Channel.NONE,
+            status=ShiftConfirmNotificationLog.Status.SKIPPED,
+            message=message,
+            error_message="実送信は現在無効化されています（テストログのみ。LINE/SMS/メール等の外部送信は行っていません）。",
+            sent_at=None,
+            created_by=request.user,
+        )
+        return Response(ShiftConfirmNotificationLogSerializer(log).data, status=status.HTTP_201_CREATED)
+
+
+class ShiftConfirmNotificationLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """GET /api/shift-confirm-notification-logs/ — 出勤確認外部通知ログの閲覧（manager/staff共通、自店舗のみ）。
+    実送信は行わない土台のため、作成はShiftConfirmNotificationTestView経由のテストログ作成のみ。"""
+    serializer_class = ShiftConfirmNotificationLogSerializer
+    queryset = ShiftConfirmNotificationLog.objects.select_related("cast", "shift_assignment", "created_by").order_by("-created_at")
+    filterset_fields = {
+        "shift_assignment": ["exact"],
+        "cast": ["exact"],
+        "alert_level": ["exact"],
+        "status": ["exact"],
+    }
+
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        return super().get_queryset().filter(store=store)
+
+
+# ──────────────────────────────────────
 # PointLog — manager only
 # ──────────────────────────────────────
 
@@ -1645,9 +2546,61 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
 # ShiftRequest — Operator API
 # ──────────────────────────────────────
 
+def _apply_shift_request_approval(obj, store, room, date, start_time, end_time, admin_memo, user):
+    """ShiftRequest承認の共通処理（ShiftAssignment作成 + ShiftRequestの承認内容/履歴保存）。
+    OpShiftRequestViewSet.approve() と シフト申請CSV戻し承認(import_apply) の両方から呼ばれる。
+    戻り値: (成功したか, エラーメッセージ or None)"""
+    from .serializers import ShiftAssignmentSerializer
+
+    sa_data = {
+        "date": date,
+        "cast": obj.cast_id,
+        "room": room.id,
+        "start_time": start_time,
+        "end_time": end_time,
+    }
+    sa_serializer = ShiftAssignmentSerializer(data=sa_data)
+    if not sa_serializer.is_valid():
+        messages = []
+        for field, errs in sa_serializer.errors.items():
+            for e in errs:
+                messages.append(str(e))
+        return False, "; ".join(messages) or "シフト登録に失敗しました"
+    sa_serializer.save(store=store)
+
+    obj.status = ShiftRequest.Status.APPROVED
+    obj.admin_memo = admin_memo
+    obj.approved_date = date
+    obj.approved_start_time = start_time
+    obj.approved_end_time = end_time
+    obj.approved_room = room
+    obj.decided_at = timezone.now()
+    obj.decided_by = user
+    obj.save(update_fields=[
+        "status", "admin_memo",
+        "approved_date", "approved_start_time", "approved_end_time", "approved_room",
+        "decided_at", "decided_by", "updated_at",
+    ])
+    return True, None
+
+
+SHIFT_REQUEST_CSV_HEADERS = [
+    "shift_request_id", "cast_id", "cast_name",
+    "requested_date", "requested_start_time", "requested_end_time",
+    "requested_room_id", "requested_room_name",
+    "approved_date", "approved_start_time", "approved_end_time",
+    "approved_room_id", "approved_room_name",
+    "status", "submitted_at", "admin_memo",
+]
+
+SHIFT_REQUEST_IMPORT_REQUIRED_COLUMNS = [
+    "shift_request_id", "approved_date", "approved_start_time", "approved_end_time", "approved_room_id",
+]
+
+
 class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = OpShiftRequestSerializer
-    queryset = ShiftRequest.objects.select_related("cast", "desired_room").order_by("-created_at")
+    queryset = ShiftRequest.objects.select_related("cast", "desired_room", "approved_room").order_by("-created_at")
     filterset_fields = {
         "date": ["exact", "gte", "lte"],
         "status": ["exact"],
@@ -1658,6 +2611,14 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         store = get_user_store(self.request)
         return super().get_queryset().filter(store=store)
+
+    def check_manager(self, request):
+        """CSVエクスポート/インポートはmanagerのみ（staff/castによる操作は非対象）。
+        既存の approve/reject はこれまで通りstaff/managerともに利用可能（変更しない）。"""
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != "manager":
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("この操作はマネージャーのみ利用可能です")
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
@@ -1690,23 +2651,9 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         start_time = request.data.get("start_time") or str(obj.start_time)
         end_time = request.data.get("end_time") or str(obj.end_time)
 
-        # ShiftAssignment 作成（重複チェックは serializer に任せる）
-        from .serializers import ShiftAssignmentSerializer
-        sa_data = {
-            "date": date,
-            "cast": obj.cast_id,
-            "room": room.id,
-            "start_time": start_time,
-            "end_time": end_time,
-        }
-        sa_serializer = ShiftAssignmentSerializer(data=sa_data)
-        if not sa_serializer.is_valid():
-            return Response(sa_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        sa_serializer.save(store=obj.store)
-
-        obj.status = ShiftRequest.Status.APPROVED
-        obj.admin_memo = admin_memo
-        obj.save(update_fields=["status", "admin_memo", "updated_at"])
+        ok, err = _apply_shift_request_approval(obj, store, room, date, start_time, end_time, admin_memo, request.user)
+        if not ok:
+            return Response({"detail": err}, status=status.HTTP_400_BAD_REQUEST)
         return Response(OpShiftRequestSerializer(obj).data)
 
     @action(detail=True, methods=["post"])
@@ -1721,8 +2668,273 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         admin_memo = request.data.get("admin_memo", "")
         obj.status = ShiftRequest.Status.REJECTED
         obj.admin_memo = admin_memo
-        obj.save(update_fields=["status", "admin_memo", "updated_at"])
+        obj.decided_at = timezone.now()
+        obj.decided_by = request.user
+        obj.save(update_fields=["status", "admin_memo", "decided_at", "decided_by", "updated_at"])
         return Response(OpShiftRequestSerializer(obj).data)
+
+    # ──────────────────────────────────────
+    # シフト申請 CSV/Excel戻し承認の土台（v1: export → import(preview) → import(apply)）
+    # 危険度が高いため、いきなり本承認まで自動実行しない。
+    # apply は既存の approve() と同じ _apply_shift_request_approval() を再利用し、
+    # 承認ロジック自体を重複実装しない。manager のみ利用可能。
+    # ──────────────────────────────────────
+
+    @action(detail=False, methods=["get"])
+    def export_csv(self, request):
+        """GET /api/op/shift-requests/export_csv/?date=&status=&cast= — 一覧と同じ絞り込みでCSV出力（manager限定）。
+        Excelで編集する想定の列: approved_date/approved_start_time/approved_end_time/approved_room_id/admin_memo"""
+        self.check_manager(request)
+        queryset = self.filter_queryset(self.get_queryset())
+
+        output = io.StringIO()
+        output.write("﻿")  # BOM
+        writer = csv.writer(output)
+        writer.writerow(SHIFT_REQUEST_CSV_HEADERS)
+        for r in queryset:
+            writer.writerow([
+                r.id, r.cast_id, r.cast.name,
+                r.date.isoformat(), str(r.start_time)[:5], str(r.end_time)[:5],
+                r.desired_room_id or "", r.desired_room.name if r.desired_room_id else "",
+                r.approved_date.isoformat() if r.approved_date else "",
+                str(r.approved_start_time)[:5] if r.approved_start_time else "",
+                str(r.approved_end_time)[:5] if r.approved_end_time else "",
+                r.approved_room_id or "", r.approved_room.name if r.approved_room_id else "",
+                r.status,
+                r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "",
+                r.admin_memo,
+            ])
+
+        resp = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = 'attachment; filename="shift_requests.csv"'
+        return resp
+
+    def _validate_import_row(self, store, row, row_number):
+        """CSV/戻し承認1行分の検証。DBは更新しない（preview/apply共通のバリデーションのみ）。"""
+        from datetime import time as dt_time
+
+        errors = []
+        warnings = []
+
+        raw_id = (row.get("shift_request_id") or "").strip()
+        csv_data = {
+            "approved_date": (row.get("approved_date") or "").strip(),
+            "approved_start_time": (row.get("approved_start_time") or "").strip(),
+            "approved_end_time": (row.get("approved_end_time") or "").strip(),
+            "approved_room_id": (row.get("approved_room_id") or "").strip(),
+            "approved_room_name": None,
+            "admin_memo": row.get("admin_memo") or "",
+        }
+
+        if not raw_id.isdigit():
+            errors.append("shift_request_id が不正です（数値を指定してください）")
+            return {
+                "row_number": row_number, "shift_request_id": raw_id or None,
+                "original": None, "csv": csv_data, "errors": errors, "warnings": warnings,
+                "can_apply": False,
+            }
+
+        obj = (
+            ShiftRequest.objects
+            .select_related("cast", "desired_room", "approved_room")
+            .filter(pk=int(raw_id), store=store)
+            .first()
+        )
+        if obj is None:
+            errors.append("shift_request_id が見つかりません（自店舗の申請でない可能性があります）")
+            return {
+                "row_number": row_number, "shift_request_id": int(raw_id),
+                "original": None, "csv": csv_data, "errors": errors, "warnings": warnings,
+                "can_apply": False,
+            }
+
+        original = {
+            "cast_id": obj.cast_id,
+            "cast_name": obj.cast.name,
+            "date": obj.date.isoformat(),
+            "start_time": str(obj.start_time)[:5],
+            "end_time": str(obj.end_time)[:5],
+            "desired_room_name": obj.desired_room.name if obj.desired_room_id else None,
+            "status": obj.status,
+            "status_display": obj.get_status_display(),
+        }
+
+        cast_id_col = (row.get("cast_id") or "").strip()
+        if cast_id_col and cast_id_col.isdigit() and int(cast_id_col) != obj.cast_id:
+            errors.append("cast_id がこの申請のキャストと一致しません")
+
+        if obj.status != ShiftRequest.Status.REQUESTED:
+            errors.append(f"申請中（REQUESTED）ではないため反映できません（現在: {obj.get_status_display()}）")
+
+        approved_date = None
+        if not csv_data["approved_date"]:
+            errors.append("approved_date は必須です")
+        else:
+            try:
+                approved_date = date_type.fromisoformat(csv_data["approved_date"])
+            except ValueError:
+                errors.append("approved_date の形式が不正です（YYYY-MM-DD）")
+
+        def _parse_time(v):
+            if not v:
+                return None
+            try:
+                parts = v.split(":")
+                return dt_time(int(parts[0]), int(parts[1]))
+            except (ValueError, IndexError):
+                return None
+
+        start_t = _parse_time(csv_data["approved_start_time"])
+        if not csv_data["approved_start_time"]:
+            errors.append("approved_start_time は必須です")
+        elif start_t is None:
+            errors.append("approved_start_time の形式が不正です（HH:MM）")
+
+        end_t = _parse_time(csv_data["approved_end_time"])
+        if not csv_data["approved_end_time"]:
+            errors.append("approved_end_time は必須です")
+        elif end_t is None:
+            errors.append("approved_end_time の形式が不正です（HH:MM）")
+
+        if start_t and end_t and end_t <= start_t:
+            errors.append("開始時刻は終了時刻より前にしてください")
+
+        room = None
+        if not csv_data["approved_room_id"]:
+            errors.append("approved_room_id は必須です")
+        elif not csv_data["approved_room_id"].isdigit():
+            errors.append("approved_room_id が不正です（数値を指定してください）")
+        else:
+            room = Room.objects.filter(pk=int(csv_data["approved_room_id"]), store=store).first()
+            if room is None:
+                errors.append("approved_room_id が自店舗の部屋として見つかりません")
+        csv_data["approved_room_name"] = room.name if room else None
+
+        if approved_date and start_t and end_t:
+            conflict = ShiftAssignment.objects.filter(
+                store=store, date=approved_date, cast_id=obj.cast_id,
+                start_time__lt=end_t, end_time__gt=start_t,
+            ).exists()
+            if conflict:
+                warnings.append("同じキャストの既存シフトと時間帯が重複しています（反映すると別枠として登録されます）")
+
+        return {
+            "row_number": row_number,
+            "shift_request_id": obj.id,
+            "original": original,
+            "csv": csv_data,
+            "errors": errors,
+            "warnings": warnings,
+            "can_apply": len(errors) == 0,
+        }
+
+    @action(detail=False, methods=["post"])
+    def import_preview(self, request):
+        """POST /api/op/shift-requests/import_preview/ multipart file=<csv> — 反映せず検証結果のみ返す（manager限定）"""
+        self.check_manager(request)
+        store = get_user_store(request)
+
+        file_obj = request.FILES.get("file")
+        if not file_obj:
+            return Response({"detail": "file が必要です"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            text = file_obj.read().decode("utf-8-sig")
+        except UnicodeDecodeError:
+            return Response(
+                {"detail": "ファイルの文字コードが不正です（UTF-8で保存してください）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        reader = csv.DictReader(io.StringIO(text))
+        fieldnames = reader.fieldnames or []
+        missing = [h for h in SHIFT_REQUEST_IMPORT_REQUIRED_COLUMNS if h not in fieldnames]
+        if missing:
+            return Response(
+                {"detail": f"必須列が不足しています: {', '.join(missing)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rows = []
+        for i, row in enumerate(reader, start=2):  # 1行目はヘッダ
+            if not any((row or {}).values()):
+                continue
+            rows.append(self._validate_import_row(store, row, i))
+
+        applicable = sum(1 for r in rows if r["can_apply"])
+        return Response({
+            "total_rows": len(rows),
+            "applicable_rows": applicable,
+            "rows": rows,
+        })
+
+    @action(detail=False, methods=["post"])
+    def import_apply(self, request):
+        """POST /api/op/shift-requests/import_apply/ body: {"rows": [{shift_request_id, approved_date, ...}, ...]}
+        manager が明示的に確認したもの（import_previewのレスポンスから選択した行）のみをサーバ側で再検証し、
+        問題ない行だけ既存の承認ロジック（_apply_shift_request_approval）で反映する。manager限定。"""
+        self.check_manager(request)
+        store = get_user_store(request)
+
+        rows = request.data.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return Response(
+                {"detail": "rows は必須です（反映する行の配列。import_previewの結果から選択してください）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        results = []
+        with transaction.atomic():
+            for raw_row in rows:
+                if not isinstance(raw_row, dict):
+                    continue
+                row_number = raw_row.get("row_number") or 0
+                row_for_validation = {
+                    "shift_request_id": raw_row.get("shift_request_id"),
+                    "cast_id": raw_row.get("cast_id"),
+                    "approved_date": raw_row.get("approved_date"),
+                    "approved_start_time": raw_row.get("approved_start_time"),
+                    "approved_end_time": raw_row.get("approved_end_time"),
+                    "approved_room_id": raw_row.get("approved_room_id"),
+                    "admin_memo": raw_row.get("admin_memo") or "",
+                }
+                # 文字列化（プレビュー時と同じ検証ロジックを再利用するため）
+                row_for_validation = {k: ("" if v is None else str(v)) for k, v in row_for_validation.items()}
+
+                validated = self._validate_import_row(store, row_for_validation, row_number)
+                if not validated["can_apply"]:
+                    results.append({**validated, "applied": False})
+                    continue
+
+                room = Room.objects.filter(pk=int(row_for_validation["approved_room_id"]), store=store).first()
+                obj = ShiftRequest.objects.filter(pk=validated["shift_request_id"], store=store).first()
+                if obj is None or obj.status != ShiftRequest.Status.REQUESTED or room is None:
+                    validated["can_apply"] = False
+                    validated["errors"].append("反映直前に状態が変わったため反映できませんでした（再度エクスポートしてご確認ください）")
+                    results.append({**validated, "applied": False})
+                    continue
+
+                ok, err = _apply_shift_request_approval(
+                    obj, store, room,
+                    row_for_validation["approved_date"],
+                    row_for_validation["approved_start_time"],
+                    row_for_validation["approved_end_time"],
+                    row_for_validation["admin_memo"],
+                    request.user,
+                )
+                if not ok:
+                    validated["can_apply"] = False
+                    validated["errors"].append(err)
+                    results.append({**validated, "applied": False})
+                else:
+                    results.append({**validated, "applied": True})
+
+        applied_count = sum(1 for r in results if r["applied"])
+        return Response({
+            "applied_count": applied_count,
+            "total": len(results),
+            "results": results,
+        })
 
 
 
@@ -2402,6 +3614,66 @@ class SalesExportView(APIView):
         return resp
 
 
+def _parse_sales_dashboard_filters(request):
+    """cast / room / payment_method のオプションフィルタを解析する（不正値は無視して絞り込みなし扱い）。"""
+    def _int_or_none(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    cast_id = _int_or_none(request.query_params.get("cast"))
+    room_id = _int_or_none(request.query_params.get("room"))
+    payment_method = request.query_params.get("payment_method") or None
+    if payment_method not in Order.PaymentMethod.values:
+        payment_method = None
+    return cast_id, room_id, payment_method
+
+
+class SalesDashboardView(APIView):
+    """GET /api/op/sales-dashboard/?range=today|week|month or date_from&date_to&cast=&room=&payment_method=
+
+    Phase 3-D: manager向け売上集計ダッシュボード。既存 SalesSummaryView（/op/sales-summary/、Sales.vue用）
+    とは独立した別APIで、決済方法別/キャスト別（給与見込み込み）/部屋別の内訳を追加で返す。
+    """
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        date_from, date_to = _parse_sales_range(request)
+        if date_from is None:
+            return Response(
+                {"detail": "range (today/week/month) または date_from, date_to を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cast_id, room_id, payment_method = _parse_sales_dashboard_filters(request)
+        return Response(get_sales_dashboard(store, date_from, date_to, cast_id, room_id, payment_method))
+
+
+class SalesDashboardExportView(APIView):
+    """GET /api/op/sales-dashboard-export.csv?range=... または date_from&date_to&cast=&room=&payment_method=
+
+    集計値（サマリー/決済方法別/キャスト別/部屋別/日別）をセクション区切りのCSVで出力する。
+    """
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        date_from, date_to = _parse_sales_range(request)
+        if date_from is None:
+            return Response(
+                {"detail": "range (today/week/month) または date_from, date_to を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cast_id, room_id, payment_method = _parse_sales_dashboard_filters(request)
+        csv_content = get_sales_dashboard_csv(store, date_from, date_to, cast_id, room_id, payment_method)
+        resp = HttpResponse(csv_content, content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = (
+            f'attachment; filename="sales_dashboard_{date_from}_{date_to}.csv"'
+        )
+        return resp
+
+
 class CustomerExportView(APIView):
     """GET /api/op/customers-export.csv — 現在の店舗の顧客一覧をCSV出力（manager限定）"""
 
@@ -3060,4 +4332,47 @@ class StoreLineSettingsView(APIView):
             "line_morning_time": store.line_morning_time.strftime("%H:%M") if store.line_morning_time else "09:00",
             "line_two_hours_enabled": store.line_two_hours_enabled,
             "line_fifteen_minutes_enabled": store.line_fifteen_minutes_enabled,
+        })
+
+
+class StorePaymentFeeSettingsView(APIView):
+    """GET / PATCH /api/op/payment-fee-settings/ — 決済手数料率（参考値）の設定。manager のみ。
+    ここで設定した値は売上集計(/op/sales-dashboard/)・退勤提出の手数料見込み計算にのみ使用し、
+    確定精算・給与確定・DailySettlementViewには一切接続しない。"""
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        return Response({
+            "cash_fee_rate": store.cash_fee_rate,
+            "paypay_fee_rate": store.paypay_fee_rate,
+            "card_fee_rate": store.card_fee_rate,
+        })
+
+    def patch(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        fields = []
+        for key in ("cash_fee_rate", "paypay_fee_rate", "card_fee_rate"):
+            if key in request.data:
+                try:
+                    value = int(request.data[key])
+                except (TypeError, ValueError):
+                    return Response(
+                        {"detail": f"{key} は0〜100の整数で指定してください"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if value < 0 or value > 100:
+                    return Response(
+                        {"detail": f"{key} は0〜100の範囲で指定してください"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                setattr(store, key, value)
+                fields.append(key)
+        if fields:
+            store.save(update_fields=fields)
+        return Response({
+            "cash_fee_rate": store.cash_fee_rate,
+            "paypay_fee_rate": store.paypay_fee_rate,
+            "card_fee_rate": store.card_fee_rate,
         })

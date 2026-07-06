@@ -52,6 +52,7 @@ const form = ref({
 const paymentMethods = [
   { value: 'UNSET', label: '未設定', icon: 'ti-help' },
   { value: 'CASH', label: '現金', icon: 'ti-cash' },
+  { value: 'PAYPAY', label: 'PayPay', icon: 'ti-qrcode' },
   { value: 'CARD', label: 'カード', icon: 'ti-credit-card' },
 ]
 
@@ -273,6 +274,9 @@ async function submit() {
 async function submitCreate() {
   if (!form.value.customer || !form.value.cast || !form.value.course) {
     errorMsg.value = '顧客・キャスト・コースは必須です'
+    return
+  }
+  if (form.value.payment_method === 'UNSET' && !confirm('支払い方法が未設定です。このまま予約を作成しますか？')) {
     return
   }
   const startDt = `${form.value.startDate}T${form.value.startTime}:00`

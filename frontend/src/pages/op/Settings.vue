@@ -17,6 +17,7 @@ const menuItems = [
   { to: '/op/settings/media', icon: 'ti-antenna', label: '媒体管理', desc: '媒体の追加・編集・削除', managerOnly: true },
   { to: '/op/settings/csv-import', icon: 'ti-file-import', label: 'CSVインポート', desc: 'CSVファイルから一括登録', managerOnly: true },
   { to: '/op/settings/line', icon: 'ti-brand-line', label: 'LINE連携設定', desc: 'Webhook・Channel設定（マネージャーのみ）', managerOnly: true },
+  { to: '/op/settings/payment-fees', icon: 'ti-percentage', label: '決済手数料設定', desc: '現金/PayPay/カードの手数料率（参考値・マネージャーのみ）', managerOnly: true },
   { to: '/op/settings/phones', icon: 'ti-phone', label: 'CTI電話番号設定', desc: 'CTI着信番号の登録・編集', managerOnly: true },
   { to: '/op/settings/manual', icon: 'ti-book', label: '操作マニュアル', desc: 'Roominkの使い方ガイド' },
 ]

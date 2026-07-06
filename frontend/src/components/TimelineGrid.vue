@@ -239,6 +239,15 @@ function bandColorMeta(shift) {
   return { class: 'rk-shift-band--unset', style: null }
 }
 
+function castConfirmFlag(cast) {
+  // Phase 3-B-1 残課題: ShiftAssignment.confirmed_at（キャストによる事前出勤確認）の表示。
+  // clocked_in_at（実打刻／castStatus()）とは別概念。
+  const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
+  if (shifts.length === 0) return null
+  const anyConfirmed = shifts.some(s => s.confirmed_at)
+  return { confirmed: anyConfirmed, label: anyConfirmed ? '出勤確認済み' : '出勤未確認' }
+}
+
 function castStatus(cast) {
   const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
   if (shifts.length === 0) return null
@@ -457,6 +466,13 @@ onBeforeUnmount(() => {
                   :class="`rk-status--${castStatus(cast).key}`"
                   :title="castStatus(cast).label"
                 >{{ castStatus(cast).short }}</span>
+                <i
+                  v-if="castConfirmFlag(cast)"
+                  class="ti"
+                  :class="castConfirmFlag(cast).confirmed ? 'ti-square-check text-success' : 'ti-square text-muted'"
+                  :title="castConfirmFlag(cast).label"
+                  style="font-size: 12px;"
+                ></i>
               </div>
               <div class="rk-meta-row">
                 <span v-if="castShiftRange(cast)" class="rk-shift-time">{{ castShiftRange(cast) }}</span>
@@ -566,6 +582,13 @@ onBeforeUnmount(() => {
           <div v-if="castRoomLabel(visibleCast)" class="rk-castpop__row">
             <i class="ti ti-door"></i>
             <span>{{ castRoomLabel(visibleCast) }}</span>
+          </div>
+          <div v-if="castConfirmFlag(visibleCast)" class="rk-castpop__row">
+            <i
+              class="ti"
+              :class="castConfirmFlag(visibleCast).confirmed ? 'ti-square-check text-success' : 'ti-square text-muted'"
+            ></i>
+            <span>{{ castConfirmFlag(visibleCast).label }}</span>
           </div>
         </div>
 
