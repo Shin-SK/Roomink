@@ -38,18 +38,18 @@ const confirmingShift = ref(false)
 const confirmShiftError = ref('')
 
 // 退勤（Phase 3-A）
-const checkoutData = ref(null)
-const showCheckoutModal = ref(false)
-const checkoutForm = ref(emptyCheckoutForm())
-const checkoutSaving = ref(false)
-const checkoutError = ref('')
-
 const CHECKLIST_ITEMS = [
   { key: 'room_cleaned', label: '部屋の片付け・清掃をした' },
   { key: 'items_returned', label: '備品を返却した' },
   { key: 'cash_confirmed', label: '現金・売上を確認した' },
   { key: 'report_done', label: '特記事項があれば運営へ報告した' },
 ]
+
+const checkoutData = ref(null)
+const showCheckoutModal = ref(false)
+const checkoutForm = ref(emptyCheckoutForm())
+const checkoutSaving = ref(false)
+const checkoutError = ref('')
 
 function emptyCheckoutForm() {
   return {

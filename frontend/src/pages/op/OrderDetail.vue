@@ -26,6 +26,19 @@ const selectedExtension = ref(null)
 const selectedNominationFee = ref(null)
 const selectedDiscount = ref(null)
 
+// SMS送信履歴（表示のみ。再送信は行わない）
+const smsLogs = ref([])
+const smsLogsLoading = ref(true)
+const smsLogsError = ref('')
+const expandedSmsIds = ref([])
+
+const smsStatusCls = {
+  SENT: 'bg-success',
+  FAILED: 'bg-danger',
+  SKIPPED: 'bg-secondary',
+  PENDING: 'bg-warning text-dark',
+}
+
 const statusMap = {
   REQUESTED: { text: '予約リクエスト', cls: 'badge-pending' },
   CONFIRMED: { text: '確定済', cls: 'badge-approved' },
@@ -93,7 +106,37 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  fetchSmsLogs()
 })
+
+async function fetchSmsLogs() {
+  smsLogsLoading.value = true
+  smsLogsError.value = ''
+  try {
+    const list = await api.getOrderSmsLogs(props.id)
+    smsLogs.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    smsLogsError.value = e.message || 'SMS送信履歴の取得に失敗しました'
+    smsLogs.value = []
+  } finally {
+    smsLogsLoading.value = false
+  }
+}
+
+function toggleSmsBody(id) {
+  const i = expandedSmsIds.value.indexOf(id)
+  if (i === -1) expandedSmsIds.value.push(id)
+  else expandedSmsIds.value.splice(i, 1)
+}
+
+function isSmsExpanded(id) {
+  return expandedSmsIds.value.includes(id)
+}
+
+function smsBodyPreview(body) {
+  const s = (body || '').replace(/\n/g, ' ')
+  return s.length > 40 ? `${s.slice(0, 40)}…` : s
+}
 
 function openEdit() {
   mode.value = 'edit'
@@ -360,6 +403,57 @@ async function updatePaymentMethod(value) {
             </div>
           </div>
 
+          <!-- SMS送信履歴（表示のみ） -->
+          <div class="card mb-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+              <span><i class="ti ti-message-2"></i> SMS送信履歴</span>
+              <button
+                class="btn btn-outline-secondary btn-sm py-0"
+                :disabled="smsLogsLoading"
+                @click="fetchSmsLogs"
+              >
+                <i class="ti ti-refresh"></i> 更新
+              </button>
+            </div>
+            <div class="card-body p-0">
+              <div v-if="smsLogsLoading" class="text-muted text-center py-3 small">読み込み中...</div>
+              <div v-else-if="smsLogsError" class="alert alert-danger m-3 py-2 px-3 small mb-0">
+                {{ smsLogsError }}
+              </div>
+              <div v-else-if="!smsLogs.length" class="text-muted text-center py-3 small">
+                SMS送信履歴はありません
+              </div>
+              <div v-else>
+                <div v-for="log in smsLogs" :key="log.id" class="sms-row">
+                  <div class="d-flex align-items-center justify-content-between">
+                    <div class="sms-row__meta">
+                      <span class="badge me-1" :class="smsStatusCls[log.status] || 'bg-secondary'">
+                        {{ log.status_label }}
+                      </span>
+                      <span class="fw-bold">{{ formatDt(log.sent_at) }}</span>
+                    </div>
+                    <button class="btn btn-link btn-sm p-0" @click="toggleSmsBody(log.id)">
+                      {{ isSmsExpanded(log.id) ? '閉じる' : '本文' }}
+                    </button>
+                  </div>
+                  <div class="sms-row__sub text-muted">
+                    {{ log.template_type_label }}
+                    ／ 送信先: {{ log.to_phone || '—' }}
+                    ／ 支払方法: {{ log.payment_method_label || '—' }}
+                    <template v-if="log.created_by_name"> ／ 操作: {{ log.created_by_name }}</template>
+                  </div>
+                  <div v-if="!isSmsExpanded(log.id)" class="sms-row__preview text-muted">
+                    {{ smsBodyPreview(log.body) }}
+                  </div>
+                  <pre v-else class="sms-row__body">{{ log.body }}</pre>
+                  <div v-if="log.error_message" class="sms-row__error">
+                    <i class="ti ti-alert-triangle"></i> {{ log.error_message }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- アクション -->
           <div class="d-flex flex-column gap-2 mb-3">
             <button
@@ -488,6 +582,35 @@ async function updatePaymentMethod(value) {
 </template>
 
 <style scoped>
+.sms-row {
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.85rem;
+}
+.sms-row:last-child {
+  border-bottom: none;
+}
+.sms-row__sub {
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+.sms-row__preview {
+  font-size: 0.78rem;
+  margin-top: 4px;
+}
+.sms-row__body {
+  background: #f7f7f7;
+  padding: 0.5rem;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  font-size: 0.78rem;
+  margin: 4px 0 0;
+}
+.sms-row__error {
+  color: #b91c1c;
+  font-size: 0.75rem;
+  margin-top: 4px;
+}
 .card-fee-row td {
   background: #fff7ed;
   border-top: 1px dashed #fb923c;

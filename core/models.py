@@ -144,6 +144,10 @@ class ShiftAssignment(models.Model):
         null=True, blank=True,
         help_text="キャストによる出勤確認（事前）日時。Phase 3-B-1。clocked_in_at（実打刻）とは別概念。",
     )
+    display_order = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="タイムライン（キャスト別表示）の並び順。0=未設定で既存順（名前順）。シフト時間・部屋には影響しない。",
+    )
 
     class Meta:
         unique_together = ("store", "date", "cast", "start_time", "end_time")
@@ -438,18 +442,97 @@ class CallNote(models.Model):
         return f"Note#{self.pk} on Call#{self.call_id}"
 
 
+class SmsTemplate(models.Model):
+    """店舗ごと・支払方法ごとのSMS文面テンプレート。
+    未設定（レコード無し or is_active=False）の場合は notify.py の既定文言を使う。"""
+
+    class TemplateType(models.TextChoices):
+        RESERVATION_CONFIRMATION = "RESERVATION_CONFIRMATION", "予約確認"
+
+    # 差し込み可能な変数（画面の「使用可能な差し込み項目」と対応）
+    PLACEHOLDERS = (
+        "customer_name", "date", "start_time", "end_time",
+        "course_name", "cast_name", "room_name", "payment_method", "total_price",
+    )
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="sms_templates")
+    template_type = models.CharField(
+        max_length=32, choices=TemplateType.choices,
+        default=TemplateType.RESERVATION_CONFIRMATION,
+    )
+    payment_method = models.CharField(
+        max_length=10, choices=Order.PaymentMethod.choices,
+        default=Order.PaymentMethod.UNSET,
+    )
+    body = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=False, help_text="OFFの場合は既定文言を使用")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="updated_sms_templates",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("store", "template_type", "payment_method")
+
+    def __str__(self):
+        return f"SmsTemplate({self.store_id}/{self.template_type}/{self.payment_method})"
+
+
 class SmsLog(models.Model):
     class Status(models.TextChoices):
+        PENDING = "PENDING", "送信中"
         SENT = "SENT", "送信済"
         FAILED = "FAILED", "失敗"
+        SKIPPED = "SKIPPED", "対象外"
 
+    class TemplateType(models.TextChoices):
+        RESERVATION_CONFIRMATION = "RESERVATION_CONFIRMATION", "予約確認"
+        RESERVATION_CANCELLED = "RESERVATION_CANCELLED", "予約キャンセル"
+        CAST_NOTICE = "CAST_NOTICE", "キャスト通知"
+        REMINDER = "REMINDER", "リマインド"
+        OTHER = "OTHER", "その他"
+
+    class Provider(models.TextChoices):
+        TWILIO = "TWILIO", "Twilio"
+        NONE = "NONE", "未送信（ダミー）"
+        OTHER = "OTHER", "その他"
+
+    store = models.ForeignKey(
+        Store, on_delete=models.CASCADE, null=True, blank=True, related_name="sms_logs",
+    )
     order = models.ForeignKey(
         Order, on_delete=models.SET_NULL, null=True, blank=True, related_name="sms_logs",
+    )
+    customer = models.ForeignKey(
+        Customer, on_delete=models.SET_NULL, null=True, blank=True, related_name="sms_logs",
     )
     to_phone = models.CharField(max_length=20)
     body = models.TextField()
     status = models.CharField(max_length=10, choices=Status.choices)
+    template_type = models.CharField(
+        max_length=32, choices=TemplateType.choices, default=TemplateType.OTHER,
+    )
+    payment_method = models.CharField(
+        max_length=10, choices=Order.PaymentMethod.choices, blank=True, default="",
+    )
+    provider = models.CharField(
+        max_length=10, choices=Provider.choices, default=Provider.NONE,
+    )
+    provider_message_id = models.CharField(max_length=64, blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="created_sms_logs",
+    )
+    # 既存フィールド。送信試行の記録日時として維持する（FAILED/SKIPPED でも記録される）。
     sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["order", "-sent_at"]),
+        ]
 
     def __str__(self):
         return f"SMS→{self.to_phone} {self.status}"

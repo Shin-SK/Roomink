@@ -3,6 +3,7 @@ import io
 import logging
 import os
 import uuid
+from collections import defaultdict
 from datetime import date as date_type, datetime, timedelta
 
 from django.conf import settings
@@ -25,8 +26,8 @@ from .models import (
     CastExpenseTemplateHistory, CastNote, Course, Customer,
     CustomerMergeLog, DailySettlement, Discount, Extension, Medium,
     LineNotificationLog, NominationFee, Option, Order, OrderOption, PointLog,
-    Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, Store,
-    StorePhoneNumber, UserProfile,
+    Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
+    SmsTemplate, Store, StorePhoneNumber, UserProfile,
     generate_line_link_code,
 )
 from .serializers import (
@@ -63,6 +64,7 @@ from .serializers import (
     ScheduleResponseSerializer,
     ShiftAssignmentSerializer,
     ShiftConfirmNotificationLogSerializer,
+    SmsLogSerializer,
     StorePhoneNumberSerializer,
     build_customer_label,
     build_schedule_data,
@@ -79,6 +81,7 @@ from .services.sales import (
     get_sales_dashboard, get_sales_dashboard_csv,
 )
 from .services.notify import (
+    default_confirmation_preview as _default_sms_preview,
     notify_cast_order,
     notify_order_cancelled,
     notify_order_confirmed,
@@ -306,8 +309,8 @@ class OrderViewSet(viewsets.ModelViewSet):
             )
         order.status = Order.Status.CONFIRMED
         order.save(update_fields=["status", "updated_at"])
-        notify_order_confirmed(order)
-        notify_cast_order(order)
+        notify_order_confirmed(order, created_by=request.user)
+        notify_cast_order(order, created_by=request.user)
         return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=["post"])
@@ -320,7 +323,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             )
         order.status = Order.Status.CANCELLED
         order.save(update_fields=["status", "updated_at"])
-        notify_order_cancelled(order)
+        notify_order_cancelled(order, created_by=request.user)
         return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=["post"])
@@ -1239,6 +1242,13 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         store = get_user_store(self.request)
         return super().get_queryset().filter(store=store)
+
+    def get_serializer_context(self):
+        # store は read_only のため、シリアライザの重複チェック用に context で渡す
+        context = super().get_serializer_context()
+        if self.request.user.is_authenticated:
+            context["store"] = get_user_store(self.request)
+        return context
 
     def perform_create(self, serializer):
         serializer.save(store=get_user_store(self.request))
@@ -4376,3 +4386,334 @@ class StorePaymentFeeSettingsView(APIView):
             "paypay_fee_rate": store.paypay_fee_rate,
             "card_fee_rate": store.card_fee_rate,
         })
+
+
+# ──────────────────────────────────────
+# 週次シフト入力 / タイムライン並び替え / SMS設定・履歴
+# ──────────────────────────────────────
+
+def _require_staff_or_manager(request):
+    """staff / manager 以外（cast・customer）は PermissionDenied。"""
+    profile = getattr(request.user, "profile", None)
+    if profile is None or profile.role not in (UserProfile.Role.STAFF, UserProfile.Role.MANAGER):
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("この機能はスタッフ／マネージャーのみ利用できます。")
+
+
+def _parse_date(value, field="date"):
+    """YYYY-MM-DD → date。不正なら ValidationError。"""
+    from rest_framework.exceptions import ValidationError
+    if not value:
+        raise ValidationError({field: "日付を指定してください（YYYY-MM-DD）"})
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%d").date()
+    except ValueError:
+        raise ValidationError({field: f"日付の形式が不正です: {value}"})
+
+
+WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"]
+
+
+class WeeklyShiftView(APIView):
+    """GET/POST /api/op/shifts/weekly/
+    1キャスト×1週間分のシフトをまとめて新規登録する。staff/manager のみ。
+    既存シフトの上書き・削除はしない（新規追加のみ）。"""
+
+    def get(self, request):
+        _require_staff_or_manager(request)
+        store = get_user_store(request)
+
+        week_start = _parse_date(request.query_params.get("week_start"), "week_start")
+        cast_id = request.query_params.get("cast")
+        if not cast_id:
+            return Response({"detail": "cast を指定してください"}, status=status.HTTP_400_BAD_REQUEST)
+
+        cast = Cast.objects.filter(pk=cast_id, store=store).first()
+        if cast is None:
+            return Response({"detail": "対象のキャストが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+
+        week_end = week_start + timedelta(days=6)
+        existing = (
+            ShiftAssignment.objects
+            .filter(store=store, cast=cast, date__gte=week_start, date__lte=week_end)
+            .select_related("room")
+            .order_by("date", "start_time")
+        )
+        by_date = defaultdict(list)
+        for s in existing:
+            by_date[s.date].append(s)
+
+        days = []
+        for i in range(7):
+            d = week_start + timedelta(days=i)
+            days.append({
+                "date": d.isoformat(),
+                "weekday": WEEKDAY_LABELS[d.weekday()],
+                "existing_shifts": ShiftAssignmentSerializer(by_date.get(d, []), many=True).data,
+            })
+
+        return Response({
+            "cast": cast.id,
+            "cast_name": cast.name,
+            "week_start": week_start.isoformat(),
+            "week_end": week_end.isoformat(),
+            "days": days,
+        })
+
+    def post(self, request):
+        _require_staff_or_manager(request)
+        store = get_user_store(request)
+
+        week_start = _parse_date(request.data.get("week_start"), "week_start")
+        week_end = week_start + timedelta(days=6)
+
+        cast = Cast.objects.filter(pk=request.data.get("cast"), store=store).first()
+        if cast is None:
+            return Response({"detail": "対象のキャストが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+
+        items = request.data.get("items")
+        if not isinstance(items, list) or not items:
+            return Response({"detail": "items を1件以上指定してください"}, status=status.HTTP_400_BAD_REQUEST)
+
+        errors = []
+        payloads = []
+        for item in items:
+            if not isinstance(item, dict) or not item.get("enabled"):
+                continue
+            d = _parse_date(item.get("date"), "date")
+            if d < week_start or d > week_end:
+                errors.append({"date": item.get("date"), "detail": "指定した週の範囲外です"})
+                continue
+            payloads.append({
+                "date": d.isoformat(),
+                "cast": cast.id,
+                "room": item.get("room"),
+                "start_time": item.get("start_time"),
+                "end_time": item.get("end_time"),
+                "daily_memo": item.get("daily_memo") or "",
+            })
+
+        if not payloads and not errors:
+            return Response(
+                {"detail": "出勤する日が1日も選択されていません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 全件バリデーション（既存シフト衝突は ShiftAssignmentSerializer.validate が検出）
+        serializers_ok = []
+        for p in payloads:
+            ser = ShiftAssignmentSerializer(data=p, context={"store": store})
+            if ser.is_valid():
+                serializers_ok.append(ser)
+            else:
+                detail = "; ".join(
+                    f"{k}: {' '.join(str(x) for x in v)}" if isinstance(v, list) else f"{k}: {v}"
+                    for k, v in ser.errors.items()
+                )
+                errors.append({"date": p["date"], "detail": detail})
+
+        # リクエスト内での同一日重複（既存DBには無いため serializer では検出できない）
+        seen = defaultdict(list)
+        for ser in serializers_ok:
+            v = ser.validated_data
+            for other in seen[v["date"]]:
+                if v["start_time"] < other["end_time"] and v["end_time"] > other["start_time"]:
+                    errors.append({
+                        "date": v["date"].isoformat(),
+                        "detail": "同じリクエスト内で時間が重複しています",
+                    })
+            seen[v["date"]].append(v)
+
+        if errors:
+            return Response(
+                {"detail": "登録できない日があるため、1件も登録していません", "errors": errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            created = [ser.save(store=store) for ser in serializers_ok]
+
+        return Response(
+            {
+                "created_count": len(created),
+                "created": ShiftAssignmentSerializer(created, many=True).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ScheduleCastOrderView(APIView):
+    """GET/POST /api/op/schedule-cast-order/
+    タイムライン（キャスト別表示）の出勤セラピスト表示順。
+    display_order のみ更新し、シフト時間・部屋には影響しない。staff/manager のみ。"""
+
+    def get(self, request):
+        _require_staff_or_manager(request)
+        store = get_user_store(request)
+        d = _parse_date(request.query_params.get("date"))
+
+        shifts = (
+            ShiftAssignment.objects
+            .filter(store=store, date=d)
+            .select_related("cast", "room")
+        )
+        rows = [
+            {
+                "shift_assignment_id": s.id,
+                "cast_id": s.cast_id,
+                "cast_name": s.cast.name,
+                "room_name": s.room.name if s.room else "",
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "display_order": s.display_order,
+            }
+            for s in shifts
+        ]
+        # 未設定(0)は後ろ、それ以外は display_order 順。タイムライン表示と同じ並び。
+        rows.sort(key=lambda r: (
+            1 if not r["display_order"] else 0,
+            r["display_order"] or 0,
+            r["cast_name"],
+        ))
+        return Response({"date": d.isoformat(), "items": rows})
+
+    def post(self, request):
+        _require_staff_or_manager(request)
+        store = get_user_store(request)
+        d = _parse_date(request.data.get("date"))
+
+        items = request.data.get("items")
+        if not isinstance(items, list):
+            return Response({"detail": "items を指定してください"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 他店舗・他日付のシフトを並び替えられないよう、対象を store+date に限定する
+        allowed = {
+            s.id: s for s in ShiftAssignment.objects.filter(store=store, date=d)
+        }
+        updates = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            sid = item.get("shift_assignment_id")
+            shift = allowed.get(sid)
+            if shift is None:
+                return Response(
+                    {"detail": f"対象外のシフトが含まれています (id={sid})"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                order_value = int(item.get("display_order") or 0)
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "display_order は整数で指定してください"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if order_value < 0 or order_value > 32767:
+                return Response(
+                    {"detail": "display_order は0以上の整数で指定してください"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            shift.display_order = order_value
+            updates.append(shift)
+
+        if updates:
+            ShiftAssignment.objects.bulk_update(updates, ["display_order"])
+
+        return Response({"updated_count": len(updates)})
+
+
+class OrderSmsLogsView(APIView):
+    """GET /api/op/orders/<pk>/sms-logs/ — 予約ごとのSMS送信履歴。staff/manager のみ・自店舗のみ。"""
+
+    def get(self, request, pk):
+        _require_staff_or_manager(request)
+        store = get_user_store(request)
+
+        order = Order.objects.filter(pk=pk, store=store).first()
+        if order is None:
+            return Response({"detail": "対象の予約が見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+
+        logs = (
+            SmsLog.objects
+            .filter(order=order)
+            .select_related("created_by")
+            .order_by("-sent_at", "-id")
+        )
+        return Response(SmsLogSerializer(logs, many=True).data)
+
+
+class SmsTemplateSettingsView(APIView):
+    """GET/PUT /api/op/sms-templates/
+    支払方法別の予約確認SMS文面設定。閲覧は staff/manager、編集は manager のみ。"""
+
+    TEMPLATE_TYPE = SmsTemplate.TemplateType.RESERVATION_CONFIRMATION
+
+    def _payload(self, store):
+        existing = {
+            t.payment_method: t
+            for t in SmsTemplate.objects.filter(store=store, template_type=self.TEMPLATE_TYPE)
+        }
+        items = []
+        for value, label in Order.PaymentMethod.choices:
+            tpl = existing.get(value)
+            items.append({
+                "payment_method": value,
+                "payment_method_label": label,
+                "body": tpl.body if tpl else "",
+                "is_active": tpl.is_active if tpl else False,
+                "updated_by_name": (
+                    (tpl.updated_by.get_full_name() or tpl.updated_by.username)
+                    if tpl and tpl.updated_by else ""
+                ),
+                "updated_at": tpl.updated_at if tpl else None,
+                "default_body": _default_sms_preview(value),
+            })
+        return {
+            "template_type": self.TEMPLATE_TYPE,
+            "placeholders": list(SmsTemplate.PLACEHOLDERS),
+            "items": items,
+        }
+
+    def get(self, request):
+        _require_staff_or_manager(request)
+        store = get_user_store(request)
+        return Response(self._payload(store))
+
+    def put(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+
+        items = request.data.get("items")
+        if not isinstance(items, list):
+            return Response({"detail": "items を指定してください"}, status=status.HTTP_400_BAD_REQUEST)
+
+        valid_methods = set(Order.PaymentMethod.values)
+        with transaction.atomic():
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                pm = item.get("payment_method")
+                if pm not in valid_methods:
+                    return Response(
+                        {"detail": f"支払方法が不正です: {pm}"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                body = item.get("body") or ""
+                is_active = bool(item.get("is_active"))
+                if is_active and not body.strip():
+                    return Response(
+                        {"detail": "有効にする場合は本文を入力してください"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                SmsTemplate.objects.update_or_create(
+                    store=store,
+                    template_type=self.TEMPLATE_TYPE,
+                    payment_method=pm,
+                    defaults={
+                        "body": body,
+                        "is_active": is_active,
+                        "updated_by": request.user,
+                    },
+                )
+
+        return Response(self._payload(store))

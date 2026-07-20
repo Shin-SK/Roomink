@@ -8,6 +8,12 @@ Roomink Ops スモークテスト（Django test client / DRF APIClient ベース
   4. PayPay/カード手数料の精算反映（Order.PaymentMethod.PAYPAY・手数料設定・sales-dashboardの手数料見込み）
   5. シフト申請CSV戻し承認の土台（export_csv → import_preview → import_apply、既存承認ロジック再利用）
 
+今回追加した4機能（WeeklyShiftSmokeTest 以降）:
+  6. 週次シフト入力（/op/shifts/weekly/）
+  7. SMS文面設定（/op/sms-templates/・支払方法別テンプレート）
+  8. 予約ごとのSMS送信履歴（/op/orders/<id>/sms-logs/）
+  9. タイムラインの出勤セラピスト並び替え（/op/schedule-cast-order/）
+
 既存機能（DailySettlementView, CastDailyCheckout, CastAdjustment, Order の基本挙動）を壊していないことも
 あわせて確認する。外部API送信・本番DB操作は一切行わない（テストはDjangoのテスト用DBのみを使用する）。
 
@@ -16,7 +22,7 @@ Roomink Ops スモークテスト（Django test client / DRF APIClient ベース
 """
 import csv
 import io
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -25,8 +31,9 @@ from rest_framework.test import APIClient
 from core.models import (
     Cast, CastAdjustment, CastDailyCheckout, CastNote, Course, Customer,
     Order, Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest,
-    Store, UserProfile,
+    SmsTemplate, Store, UserProfile,
 )
+from core.services.notify import build_confirmation_body
 
 User = get_user_model()
 
@@ -425,3 +432,216 @@ class ExistingFeatureNotBrokenSmokeTest(RoomankOpsSmokeTestBase):
         res = cast_client.get("/api/cast/adjustments/")
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()["open_total"], 500)
+
+
+# ──────────────────────────────────────
+# 6〜9. 週次シフト入力 / SMS文面設定 / SMS送信履歴 / タイムライン並び替え
+#   外部SMS実送信は行わない（Twilio環境変数が無い場合はダミー送信＋SmsLog記録のみ）
+# ──────────────────────────────────────
+
+class WeeklyShiftAndSmsSmokeTest(TestCase):
+    def setUp(self):
+        self.store = Store.objects.create(name="S1")
+        self.other = Store.objects.create(name="S2")
+        self.room = Room.objects.create(store=self.store, name="R1")
+        self.other_room = Room.objects.create(store=self.other, name="R2")
+        self.cast = Cast.objects.create(store=self.store, name="C1")
+        self.other_cast = Cast.objects.create(store=self.other, name="C2")
+
+        self.mgr = User.objects.create_user("mgr", password="x")
+        UserProfile.objects.create(user=self.mgr, store=self.store, role="manager")
+        self.cast_user = User.objects.create_user("castu", password="x")
+        UserProfile.objects.create(user=self.cast_user, store=self.store, role="cast")
+
+        self.client = APIClient()
+        self.client.force_authenticate(self.mgr)
+        self.week = date(2026, 7, 13)  # 月曜
+
+    # 1. 週次シフト入力
+    def test_weekly_create(self):
+        res = self.client.post("/api/op/shifts/weekly/", {
+            "cast": self.cast.id,
+            "week_start": self.week.isoformat(),
+            "items": [
+                {"date": "2026-07-13", "enabled": True, "start_time": "18:00",
+                 "end_time": "23:00", "room": self.room.id},
+                {"date": "2026-07-14", "enabled": False},
+                {"date": "2026-07-15", "enabled": True, "start_time": "18:00",
+                 "end_time": "23:00", "room": self.room.id},
+            ],
+        }, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["created_count"], 2)
+        self.assertEqual(ShiftAssignment.objects.filter(store=self.store).count(), 2)
+
+    def test_weekly_conflict_is_all_or_nothing(self):
+        ShiftAssignment.objects.create(
+            store=self.store, date=date(2026, 7, 13), cast=self.cast,
+            room=self.room, start_time=time(18, 0), end_time=time(23, 0),
+        )
+        res = self.client.post("/api/op/shifts/weekly/", {
+            "cast": self.cast.id,
+            "week_start": self.week.isoformat(),
+            "items": [
+                {"date": "2026-07-13", "enabled": True, "start_time": "19:00",
+                 "end_time": "22:00", "room": self.room.id},
+                {"date": "2026-07-14", "enabled": True, "start_time": "18:00",
+                 "end_time": "23:00", "room": self.room.id},
+            ],
+        }, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertTrue(res.data["errors"])
+        # 1件も登録されない
+        self.assertEqual(ShiftAssignment.objects.filter(store=self.store).count(), 1)
+
+    def test_weekly_rejects_other_store_room(self):
+        res = self.client.post("/api/op/shifts/weekly/", {
+            "cast": self.cast.id,
+            "week_start": self.week.isoformat(),
+            "items": [{"date": "2026-07-13", "enabled": True, "start_time": "18:00",
+                       "end_time": "23:00", "room": self.other_room.id}],
+        }, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(ShiftAssignment.objects.count(), 0)
+
+    def test_weekly_rejects_other_store_cast(self):
+        res = self.client.post("/api/op/shifts/weekly/", {
+            "cast": self.other_cast.id,
+            "week_start": self.week.isoformat(),
+            "items": [{"date": "2026-07-13", "enabled": True, "start_time": "18:00",
+                       "end_time": "23:00", "room": self.room.id}],
+        }, format="json")
+        self.assertEqual(res.status_code, 404)
+
+    def test_weekly_forbidden_for_cast_role(self):
+        self.client.force_authenticate(self.cast_user)
+        res = self.client.get(f"/api/op/shifts/weekly/?cast={self.cast.id}&week_start={self.week}")
+        self.assertEqual(res.status_code, 403)
+
+    # 4. 並び替え
+    def test_cast_order_roundtrip(self):
+        c2 = Cast.objects.create(store=self.store, name="AAA")
+        s1 = ShiftAssignment.objects.create(
+            store=self.store, date=self.week, cast=self.cast, room=self.room,
+            start_time=time(18, 0), end_time=time(23, 0))
+        s2 = ShiftAssignment.objects.create(
+            store=self.store, date=self.week, cast=c2, room=self.room,
+            start_time=time(18, 0), end_time=time(23, 0))
+
+        res = self.client.post("/api/op/schedule-cast-order/", {
+            "date": self.week.isoformat(),
+            "items": [
+                {"shift_assignment_id": s1.id, "display_order": 1},
+                {"shift_assignment_id": s2.id, "display_order": 2},
+            ],
+        }, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+
+        # タイムラインが display_order 順（名前順 AAA が先ではなくなる）
+        sched = self.client.get(f"/api/op/schedule/?date={self.week}")
+        names = [c["name"] for c in sched.data["casts"]]
+        self.assertEqual(names, ["C1", "AAA"])
+
+        # シフト時間・部屋は不変
+        s1.refresh_from_db()
+        self.assertEqual(s1.start_time, time(18, 0))
+        self.assertEqual(s1.room_id, self.room.id)
+
+    def test_cast_order_rejects_other_store_shift(self):
+        foreign = ShiftAssignment.objects.create(
+            store=self.other, date=self.week, cast=self.other_cast,
+            room=self.other_room, start_time=time(18, 0), end_time=time(23, 0))
+        res = self.client.post("/api/op/schedule-cast-order/", {
+            "date": self.week.isoformat(),
+            "items": [{"shift_assignment_id": foreign.id, "display_order": 1}],
+        }, format="json")
+        self.assertEqual(res.status_code, 400)
+        foreign.refresh_from_db()
+        self.assertEqual(foreign.display_order, 0)
+
+    # 2 & 3. SMS
+    def _make_order(self, pm=Order.PaymentMethod.CASH):
+        cu = Customer.objects.create(store=self.store, display_name="山田", phone="09012345678")
+        course = Course.objects.create(store=self.store, name="60分", duration=60, price=10000)
+        from django.utils import timezone
+        start = timezone.now()
+        return Order.objects.create(
+            store=self.store, cast=self.cast, room=self.room, customer=cu,
+            course=course, course_name="60分", course_price=10000, total_price=10000,
+            start=start, end=start + timedelta(minutes=60),
+            status=Order.Status.REQUESTED, payment_method=pm,
+        )
+
+    def test_sms_template_used_when_active(self):
+        order = self._make_order(Order.PaymentMethod.PAYPAY)
+        SmsTemplate.objects.create(
+            store=self.store,
+            template_type=SmsTemplate.TemplateType.RESERVATION_CONFIRMATION,
+            payment_method=Order.PaymentMethod.PAYPAY,
+            body="{customer_name}様 PayPay {total_price}円 {course_name}",
+            is_active=True,
+        )
+        body = build_confirmation_body(order)
+        self.assertEqual(body, "山田様 PayPay 10,000円 60分")
+
+    def test_sms_default_used_when_no_template(self):
+        order = self._make_order(Order.PaymentMethod.CASH)
+        body = build_confirmation_body(order)
+        self.assertIn("現金でのお支払い", body)
+
+    def test_sms_inactive_template_falls_back(self):
+        order = self._make_order(Order.PaymentMethod.CASH)
+        SmsTemplate.objects.create(
+            store=self.store,
+            template_type=SmsTemplate.TemplateType.RESERVATION_CONFIRMATION,
+            payment_method=Order.PaymentMethod.CASH,
+            body="使わない文面", is_active=False,
+        )
+        self.assertIn("現金でのお支払い", build_confirmation_body(order))
+
+    def test_confirm_creates_sms_log_and_detail_api(self):
+        order = self._make_order(Order.PaymentMethod.CARD)
+        res = self.client.post(f"/api/orders/{order.id}/confirm/")
+        self.assertEqual(res.status_code, 200, res.data)
+
+        logs = self.client.get(f"/api/op/orders/{order.id}/sms-logs/")
+        self.assertEqual(logs.status_code, 200)
+        kinds = {l["template_type"]: l for l in logs.data}
+        self.assertIn("RESERVATION_CONFIRMATION", kinds)
+        confirm_log = kinds["RESERVATION_CONFIRMATION"]
+        self.assertEqual(confirm_log["status"], "SENT")
+        self.assertEqual(confirm_log["to_phone"], "09012345678")
+        self.assertEqual(confirm_log["payment_method"], "CARD")
+        self.assertTrue(confirm_log["sent_at"])
+        # キャスト通知は電話番号が無いので SKIPPED
+        self.assertEqual(kinds["CAST_NOTICE"]["status"], "SKIPPED")
+
+    def test_sms_logs_other_store_404(self):
+        order = self._make_order()
+        other_user = User.objects.create_user("o", password="x")
+        UserProfile.objects.create(user=other_user, store=self.other, role="manager")
+        self.client.force_authenticate(other_user)
+        res = self.client.get(f"/api/op/orders/{order.id}/sms-logs/")
+        self.assertEqual(res.status_code, 404)
+
+    def test_sms_templates_put_manager_and_staff_readonly(self):
+        res = self.client.put("/api/op/sms-templates/", {
+            "items": [{"payment_method": "CASH", "body": "現金文面", "is_active": True}],
+        }, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(len(res.data["items"]), 4)
+
+        staff = User.objects.create_user("st", password="x")
+        UserProfile.objects.create(user=staff, store=self.store, role="staff")
+        self.client.force_authenticate(staff)
+        self.assertEqual(self.client.get("/api/op/sms-templates/").status_code, 200)
+        self.assertEqual(self.client.put("/api/op/sms-templates/", {"items": []}, format="json").status_code, 403)
+
+    def test_sms_templates_store_scoped(self):
+        SmsTemplate.objects.create(
+            store=self.other,
+            template_type=SmsTemplate.TemplateType.RESERVATION_CONFIRMATION,
+            payment_method=Order.PaymentMethod.CASH, body="他店舗", is_active=True)
+        res = self.client.get("/api/op/sms-templates/")
+        bodies = [i["body"] for i in res.data["items"]]
+        self.assertNotIn("他店舗", bodies)

@@ -9,7 +9,7 @@ from .models import (
     CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerMergeLog,
     DailySettlement, LineNotificationLog, Option, Order, PointLog, Room,
-    ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog, Store,
+    ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog, SmsTemplate, Store,
     StorePhoneNumber, UserProfile,
     generate_line_link_code,
 )
@@ -167,7 +167,14 @@ class CallNoteAdmin(admin.ModelAdmin):
 
 @admin.register(SmsLog)
 class SmsLogAdmin(admin.ModelAdmin):
-    list_display = ("id", "order", "to_phone", "status", "sent_at")
+    list_display = ("id", "order", "to_phone", "template_type", "status", "sent_at")
+    list_filter = ("store", "status", "template_type")
+
+
+@admin.register(SmsTemplate)
+class SmsTemplateAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "template_type", "payment_method", "is_active", "updated_at")
+    list_filter = ("store", "template_type", "payment_method", "is_active")
 
 
 @admin.register(LineNotificationLog)

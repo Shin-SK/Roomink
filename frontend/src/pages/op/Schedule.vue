@@ -58,6 +58,13 @@ const modalCast = ref('')
 const modalStartTime = ref('')
 const modalCustomerId = ref('')
 
+// 出勤セラピスト並び替えモーダル（キャスト別表示のみ）
+const showOrderModal = ref(false)
+const orderRows = ref([])
+const orderLoading = ref(false)
+const orderSaving = ref(false)
+const orderError = ref('')
+
 // 電話番号検索 → 顧客情報カード
 const phoneInput = ref('')
 const showCustomerCard = ref(false)
@@ -132,6 +139,69 @@ function loadSchedule() {
 
 function onBlockClick(order) {
   router.push(`/op/orders/${order.id}`)
+}
+
+// ── 出勤セラピスト並び替え ──────────────────
+// 1キャストが同日に複数シフトを持つ場合があるため、キャスト単位の行にまとめ、
+// 保存時はそのキャストの全シフトへ同じ display_order を書き込む。
+async function openOrderModal() {
+  showOrderModal.value = true
+  orderError.value = ''
+  orderLoading.value = true
+  try {
+    const data = await api.getScheduleCastOrder(selectedDate.value)
+    const byCast = new Map()
+    for (const item of data.items) {
+      if (!byCast.has(item.cast_id)) {
+        byCast.set(item.cast_id, {
+          cast_id: item.cast_id,
+          cast_name: item.cast_name,
+          shift_ids: [],
+          times: [],
+        })
+      }
+      const row = byCast.get(item.cast_id)
+      row.shift_ids.push(item.shift_assignment_id)
+      row.times.push(`${String(item.start_time).slice(0, 5)}〜${String(item.end_time).slice(0, 5)}`)
+    }
+    orderRows.value = Array.from(byCast.values())
+  } catch (e) {
+    orderError.value = e.message || '出勤セラピストの取得に失敗しました'
+    orderRows.value = []
+  } finally {
+    orderLoading.value = false
+  }
+}
+
+function closeOrderModal() {
+  showOrderModal.value = false
+}
+
+function moveRow(index, delta) {
+  const target = index + delta
+  if (target < 0 || target >= orderRows.value.length) return
+  const rows = orderRows.value
+  ;[rows[index], rows[target]] = [rows[target], rows[index]]
+}
+
+async function saveOrder() {
+  orderSaving.value = true
+  orderError.value = ''
+  try {
+    const items = []
+    orderRows.value.forEach((row, i) => {
+      row.shift_ids.forEach(id => {
+        items.push({ shift_assignment_id: id, display_order: i + 1 })
+      })
+    })
+    await api.saveScheduleCastOrder({ date: selectedDate.value, items })
+    showOrderModal.value = false
+    await fetchSchedule()
+  } catch (e) {
+    orderError.value = e.message || '並び順の保存に失敗しました'
+  } finally {
+    orderSaving.value = false
+  }
 }
 
 function openCreateModal({ cast = '', customer = '', startTime = '' } = {}) {
@@ -385,6 +455,14 @@ onMounted(loadSchedule)
         >
           <i class="ti ti-search me-1"></i>番号検索
         </button>
+        <button
+          v-if="viewMode === 'cast'"
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          @click="openOrderModal"
+        >
+          <i class="ti ti-arrows-sort me-1"></i>並び替え
+        </button>
       </div>
 
       <!-- 検索アコーディオン -->
@@ -451,6 +529,64 @@ onMounted(loadSchedule)
       </div>
     </div>
 
+    <!-- 出勤セラピスト並び替え -->
+    <div v-if="showOrderModal" class="modal d-block" style="background: rgba(0,0,0,0.3);" @click.self="closeOrderModal">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="ti ti-arrows-sort me-1"></i>出勤セラピストの並び替え（{{ selectedDate }}）
+            </h5>
+            <button type="button" class="btn-close" @click="closeOrderModal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-info py-2 px-3 small">
+              タイムライン（キャスト別表示）の表示順のみ変更します。
+              シフトの時間・部屋は変更されません。
+            </div>
+
+            <div v-if="orderError" class="alert alert-danger py-2 px-3 small">{{ orderError }}</div>
+
+            <div v-if="orderLoading" class="text-center py-3">
+              <div class="spinner-border text-primary"></div>
+            </div>
+            <div v-else-if="!orderRows.length" class="text-muted text-center py-3 small">
+              この日の出勤セラピストはいません
+            </div>
+            <div v-else class="order-list">
+              <div v-for="(row, i) in orderRows" :key="row.cast_id" class="order-row">
+                <span class="order-row__no">{{ i + 1 }}</span>
+                <div class="flex-grow-1">
+                  <div class="fw-bold">{{ row.cast_name }}</div>
+                  <small class="text-muted">{{ row.times.join(' / ') }}</small>
+                </div>
+                <div class="btn-group">
+                  <button
+                    class="btn btn-sm btn-outline-secondary"
+                    :disabled="i === 0"
+                    @click="moveRow(i, -1)"
+                  ><i class="ti ti-arrow-up"></i></button>
+                  <button
+                    class="btn btn-sm btn-outline-secondary"
+                    :disabled="i === orderRows.length - 1"
+                    @click="moveRow(i, 1)"
+                  ><i class="ti ti-arrow-down"></i></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline-secondary" @click="closeOrderModal">キャンセル</button>
+            <button
+              class="btn btn-primary"
+              :disabled="orderSaving || orderLoading || !orderRows.length"
+              @click="saveOrder"
+            >{{ orderSaving ? '保存中...' : '保存' }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 顧客情報カード -->
     <CustomerInfoCard
       v-if="showCustomerCard"
@@ -472,6 +608,25 @@ onMounted(loadSchedule)
 </template>
 
 <style scoped lang="scss">
+.order-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f0f0f0;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &__no {
+    width: 1.5rem;
+    text-align: center;
+    color: #888;
+    font-size: 0.8rem;
+  }
+}
+
 .rk-actions {
   display: flex;
   align-items: center;

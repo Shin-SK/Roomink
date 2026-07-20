@@ -299,6 +299,12 @@ async function onClearClockIn(s) {
   <LayoutOperator>
     <template #title>シフト管理</template>
 
+    <div class="mb-3">
+      <router-link to="/op/shifts/weekly" class="btn btn-primary btn-sm">
+        <i class="ti ti-calendar-week"></i> 週次シフト入力（1週間分まとめて登録）
+      </router-link>
+    </div>
+
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
     <!-- 出勤確認アラート（Phase 3-F土台） -->

@@ -12,6 +12,8 @@ const OrderDetail = () => import('./pages/op/OrderDetail.vue')
 const CustomerList = () => import('./pages/op/CustomerList.vue')
 const CustomerDetail = () => import('./pages/op/CustomerDetail.vue')
 const ShiftList = () => import('./pages/op/ShiftList.vue')
+const ShiftWeekly = () => import('./pages/op/ShiftWeekly.vue')
+const SettingsSmsTemplates = () => import('./pages/op/SettingsSmsTemplates.vue')
 const OpShiftRequests = () => import('./pages/op/OpShiftRequests.vue')
 const Settings = () => import('./pages/op/Settings.vue')
 const SettingsCasts = () => import('./pages/op/SettingsCasts.vue')
@@ -69,6 +71,7 @@ const routes = [
   { path: '/op/customers', name: 'customer-list', component: CustomerList },
   { path: '/op/customers/:id', name: 'customer-detail', component: CustomerDetail, props: true },
   { path: '/op/shifts', name: 'shift-list', component: ShiftList },
+  { path: '/op/shifts/weekly', name: 'shift-weekly', component: ShiftWeekly },
   { path: '/op/shift-requests', name: 'op-shift-requests', component: OpShiftRequests },
   { path: '/op/rooms', name: 'room-schedule', component: RoomSchedule },
   { path: '/op/cast-expenses', name: 'cast-expenses', component: CastExpenses },
@@ -92,6 +95,7 @@ const routes = [
   { path: '/op/settings/media', name: 'settings-media', component: SettingsMedia },
   { path: '/op/settings/csv-import', name: 'settings-csv-import', component: SettingsCsvImport },
   { path: '/op/settings/line', name: 'settings-line', component: SettingsLine },
+  { path: '/op/settings/sms-templates', name: 'settings-sms-templates', component: SettingsSmsTemplates },
   { path: '/op/settings/phones', name: 'settings-phones', component: SettingsPhones },
   { path: '/op/settings/manual', name: 'settings-manual', component: SettingsManual },
   { path: '/op/settings/manual/:slug', name: 'manual-article', component: ManualArticle, props: true },

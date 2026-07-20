@@ -40,7 +40,11 @@ async function request(method, path, body) {
         ? Object.values(data).flat().join('\n')
         : '') ||
       `Error ${res.status}`
-    throw new Error(msg)
+    const err = new Error(msg)
+    // 呼び出し側で detail 以外（週次シフトの日別エラー等）も参照できるようにする
+    err.data = data
+    err.status = res.status
+    throw err
   }
   return data
 }
@@ -197,6 +201,19 @@ export const api = {
   deleteShift: (id) => request('DELETE', `/shifts/${id}/`),
   clockInShift: (id) => request('POST', `/shifts/${id}/clock-in/`),
   clearClockInShift: (id) => request('POST', `/shifts/${id}/clear-clock-in/`),
+
+  // 週次シフト入力（1キャスト×1週間まとめて登録）
+  getWeeklyShifts: (castId, weekStart) => request('GET', `/op/shifts/weekly/?cast=${castId}&week_start=${weekStart}`),
+  createWeeklyShifts: (body) => request('POST', '/op/shifts/weekly/', body),
+
+  // タイムライン並び替え（キャスト別表示の display_order）
+  getScheduleCastOrder: (date) => request('GET', `/op/schedule-cast-order/?date=${date}`),
+  saveScheduleCastOrder: (body) => request('POST', '/op/schedule-cast-order/', body),
+
+  // SMS文面設定 / SMS送信履歴
+  getSmsTemplates: () => request('GET', '/op/sms-templates/'),
+  updateSmsTemplates: (items) => request('PUT', '/op/sms-templates/', { items }),
+  getOrderSmsLogs: (id) => request('GET', `/op/orders/${id}/sms-logs/`),
 
   // Cast
   getCastToday: (date) => request('GET', `/cast/today/?date=${date}`),

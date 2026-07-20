@@ -33,6 +33,8 @@ from .models import (
     ShiftAssignment,
     ShiftConfirmNotificationLog,
     ShiftRequest,
+    SmsLog,
+    SmsTemplate,
     Store,
     StorePhoneNumber,
     UserProfile,
@@ -402,7 +404,13 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["store"]
 
     def validate(self, data):
-        store = data.get("store", getattr(self.instance, "store", None))
+        # store は read_only のため新規作成時は data に載らない。
+        # ViewSet / 週次入力から context 経由で受け取り、重複チェックを店舗内に限定する。
+        store = (
+            data.get("store")
+            or getattr(self.instance, "store", None)
+            or self.context.get("store")
+        )
         date = data.get("date", getattr(self.instance, "date", None))
         cast = data.get("cast", getattr(self.instance, "cast", None))
         start_time = data.get("start_time", getattr(self.instance, "start_time", None))
@@ -410,6 +418,13 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
 
         if start_time and end_time and end_time <= start_time:
             raise serializers.ValidationError("end_time は start_time より後にしてください")
+
+        room = data.get("room", getattr(self.instance, "room", None))
+        if store is not None:
+            if cast is not None and cast.store_id != store.id:
+                raise serializers.ValidationError("他店舗のキャストは指定できません")
+            if room is not None and room.store_id != store.id:
+                raise serializers.ValidationError("他店舗のルームは指定できません")
 
         qs = ShiftAssignment.objects.filter(
             store=store, date=date, cast=cast,
@@ -853,6 +868,18 @@ def build_schedule_data(store, date):
     cast_ids_with_shift = set(shifts_by_cast.keys())
     casts = Cast.objects.filter(store=store, pk__in=cast_ids_with_shift).order_by("name")
 
+    # タイムライン表示順: display_order（1〜）が設定されたキャストを先頭に、
+    # 未設定（0）は従来どおり名前順で後ろに並べる。
+    def _cast_sort_key(c):
+        orders_set = [
+            s.display_order for s in shifts_by_cast.get(c.id, []) if s.display_order
+        ]
+        if orders_set:
+            return (0, min(orders_set), c.name)
+        return (1, 0, c.name)
+
+    casts = sorted(casts, key=_cast_sort_key)
+
     cast_data = []
     for c in casts:
         cast_data.append({
@@ -1017,4 +1044,54 @@ class CallLogSerializer(serializers.ModelSerializer):
         if not obj.assigned_to_id:
             return ""
         u = obj.assigned_to
+        return u.get_full_name() or u.username
+
+
+# ──────────────────────────────────────
+# SMS（文面テンプレート / 送信履歴）
+# ──────────────────────────────────────
+
+class SmsTemplateSerializer(serializers.ModelSerializer):
+    payment_method_label = serializers.CharField(source="get_payment_method_display", read_only=True)
+    updated_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SmsTemplate
+        fields = [
+            "id", "template_type", "payment_method", "payment_method_label",
+            "body", "is_active", "updated_by_name", "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_updated_by_name(self, obj):
+        if not obj.updated_by_id:
+            return ""
+        u = obj.updated_by
+        return u.get_full_name() or u.username
+
+
+class SmsLogSerializer(serializers.ModelSerializer):
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+    template_type_label = serializers.CharField(source="get_template_type_display", read_only=True)
+    payment_method_label = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SmsLog
+        fields = [
+            "id", "order", "to_phone", "body", "status", "status_label",
+            "template_type", "template_type_label", "payment_method", "payment_method_label",
+            "provider", "provider_message_id", "error_message",
+            "created_by_name", "sent_at",
+        ]
+
+    def get_payment_method_label(self, obj):
+        if not obj.payment_method:
+            return ""
+        return dict(Order.PaymentMethod.choices).get(obj.payment_method, obj.payment_method)
+
+    def get_created_by_name(self, obj):
+        if not obj.created_by_id:
+            return ""
+        u = obj.created_by
         return u.get_full_name() or u.username
