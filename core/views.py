@@ -2,6 +2,7 @@ import csv
 import io
 import logging
 import os
+import secrets
 import uuid
 from collections import defaultdict
 from datetime import date as date_type, datetime, timedelta
@@ -19,6 +20,9 @@ from rest_framework.decorators import action, api_view, authentication_classes, 
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
+from twilio.request_validator import RequestValidator
 
 from .models import (
     CallLog, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
@@ -88,6 +92,22 @@ from .services.notify import (
 )
 
 
+def document_object_api_view(cls):
+    """手書きAPIViewを汎用JSON契約としてOpenAPIへ含める。"""
+    for method_name in ("get", "post", "put", "patch", "delete"):
+        method = cls.__dict__.get(method_name)
+        if method is None:
+            continue
+        request_schema = None if method_name in ("get", "delete") else OpenApiTypes.OBJECT
+        decorated = extend_schema(
+            operation_id=f"{cls.__name__}_{method_name}".lower(),
+            request=request_schema,
+            responses=OpenApiTypes.OBJECT,
+        )(method)
+        setattr(cls, method_name, decorated)
+    return cls
+
+
 def get_user_store(request):
     """request.user の所属 Store を返す。未設定なら明示エラー。"""
     profile = getattr(request.user, "profile", None)
@@ -104,6 +124,7 @@ def get_user_store(request):
 # Auth
 # ──────────────────────────────────────
 
+@extend_schema(operation_id="auth_login", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -122,43 +143,26 @@ def auth_login(request):
     return Response({"ok": True, "username": user.username})
 
 
+@extend_schema(operation_id="auth_logout", request=None, responses=OpenApiTypes.OBJECT)
 @api_view(["POST"])
 def auth_logout(request):
     logout(request)
     return Response({"ok": True})
 
 
+@extend_schema(operation_id="auth_password_reset", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
 def auth_password_reset(request):
-    """簡易パスワードリセット：ユーザー名のみで即時更新（メアド検証なし／社内ツール前提）"""
-    from django.contrib.auth.models import User
-    raw_username = request.data.get("username", "")
-    username = normalize_phone(raw_username) if any(c.isdigit() for c in raw_username) else raw_username
-    new_password = request.data.get("new_password", "")
-    if not username or not new_password:
-        return Response(
-            {"detail": "ユーザー名と新パスワードを入力してください"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    if len(new_password) < 4:
-        return Response(
-            {"detail": "パスワードは4文字以上にしてください"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    try:
-        user = User.objects.get(username=username)
-    except User.DoesNotExist:
-        return Response(
-            {"detail": "ユーザーが見つかりません"},
-            status=status.HTTP_404_NOT_FOUND,
-        )
-    user.set_password(new_password)
-    user.save(update_fields=["password"])
-    return Response({"ok": True})
+    """公開パスワード再設定は、本人確認手段を導入するまで利用不可。"""
+    return Response(
+        {"detail": "パスワード再設定は現在利用できません。管理者へお問い合わせください。"},
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
 
 
+@extend_schema(operation_id="auth_me", request=None, responses=OpenApiTypes.OBJECT)
 @api_view(["GET"])
 @ensure_csrf_cookie
 def auth_me(request):
@@ -181,6 +185,7 @@ def auth_me(request):
     })
 
 
+@extend_schema(operation_id="auth_profile_update", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @api_view(["PATCH"])
 def auth_profile_update(request):
     user = request.user
@@ -209,6 +214,7 @@ def auth_profile_update(request):
     })
 
 
+@extend_schema(operation_id="csrf_token", request=None, responses=OpenApiTypes.OBJECT)
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -222,6 +228,7 @@ def csrf_token_view(request):
 # Schedule
 # ──────────────────────────────────────
 
+@document_object_api_view
 class ScheduleView(APIView):
     def get(self, request):
         date_str = request.query_params.get("date")
@@ -244,6 +251,7 @@ class ScheduleView(APIView):
         return Response(serializer.data)
 
 
+@document_object_api_view
 class RoomScheduleView(APIView):
     def get(self, request):
         date_str = request.query_params.get("date")
@@ -450,6 +458,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 # Cast Today / ACK
 # ──────────────────────────────────────
 
+@document_object_api_view
 class CastTodayView(APIView):
     """GET /api/cast/today/?date=YYYY-MM-DD — キャスト本人の当日予約一覧"""
 
@@ -582,6 +591,7 @@ def _compute_payment_fee_estimate(store, cast, d):
     }
 
 
+@document_object_api_view
 class CastTodaySalesView(APIView):
     """GET /api/cast/today-sales/ — キャスト本人の本日の売上/給与見込み（DONEのみ）"""
 
@@ -597,6 +607,7 @@ class CastTodaySalesView(APIView):
         return Response(_compute_cast_done_sales(cast, today))
 
 
+@document_object_api_view
 class CastCheckoutView(APIView):
     """
     GET /api/cast/checkout/ — 本日の見込み・固定雑費テンプレ・既存提出内容を返す
@@ -724,6 +735,7 @@ def _serialize_shift_for_confirm(shift):
     }
 
 
+@document_object_api_view
 class CastShiftConfirmView(APIView):
     """
     GET /api/cast/shift-confirm/ — 本日 or 直近未来のShiftAssignmentと出勤確認状況を返す
@@ -784,6 +796,7 @@ class CastShiftConfirmView(APIView):
         })
 
 
+@document_object_api_view
 class CastAckView(APIView):
     """POST /api/cast/orders/{id}/ack/ — キャストが予約を確認"""
 
@@ -829,6 +842,7 @@ class CastAckView(APIView):
         })
 
 
+@document_object_api_view
 class OpOrderCastAckView(APIView):
     """POST /api/op/orders/{id}/cast-ack/ — 運営が代理でキャスト確認済みにする"""
 
@@ -872,6 +886,7 @@ class OpOrderCastAckView(APIView):
 # Customer — signup / mypage / booking
 # ──────────────────────────────────────
 
+@document_object_api_view
 class StoreListPublicView(APIView):
     """GET /api/cu/store-list/ — 全店舗一覧（サインアップ用、認証不要）"""
     authentication_classes = []
@@ -887,6 +902,7 @@ class StoreListPublicView(APIView):
         })
 
 
+@document_object_api_view
 class CustomerStoresView(APIView):
     """GET /api/cu/stores/ — 顧客が所属する店舗一覧"""
     permission_classes = [IsAuthenticated]
@@ -907,6 +923,7 @@ class CustomerStoresView(APIView):
         return Response({"stores": stores})
 
 
+@extend_schema(operation_id="customer_signup", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -964,6 +981,7 @@ def customer_signup(request):
     return Response({"ok": True, "username": user.username}, status=status.HTTP_201_CREATED)
 
 
+@document_object_api_view
 class CustomerMypageView(APIView):
     """GET /api/cu/mypage/ — 顧客マイページ"""
     permission_classes = [IsAuthenticated]
@@ -1073,6 +1091,7 @@ class CustomerMypageView(APIView):
         })
 
 
+@document_object_api_view
 class CustomerAvailableSlotsView(APIView):
     """GET /api/cu/available-slots/?cast={id}&date={YYYY-MM-DD}"""
     permission_classes = [IsAuthenticated]
@@ -1142,6 +1161,7 @@ class CustomerAvailableSlotsView(APIView):
         })
 
 
+@document_object_api_view
 class CustomerBookingOptionsView(APIView):
     """GET /api/cu/booking/options/ — 予約フォーム選択肢"""
     permission_classes = [IsAuthenticated]
@@ -1163,6 +1183,7 @@ class CustomerBookingOptionsView(APIView):
         return Response({"casts": casts, "courses": courses, "options": options})
 
 
+@document_object_api_view
 class CustomerBookingCreateView(APIView):
     """POST /api/cu/bookings/ — 顧客からの予約申請"""
     permission_classes = [IsAuthenticated]
@@ -1179,6 +1200,7 @@ class CustomerBookingCreateView(APIView):
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
 
+@document_object_api_view
 class CustomerReservationDetailView(APIView):
     """GET /api/cu/reservations/<id>/ — 顧客向け予約詳細"""
     permission_classes = [IsAuthenticated]
@@ -1511,6 +1533,9 @@ class CastViewSet(viewsets.ModelViewSet):
 
 class StaffViewSet(viewsets.ViewSet):
     """スタッフ (role=staff/manager) の CRUD"""
+
+    queryset = UserProfile.objects.none()
+    serializer_class = StaffSerializer
 
     def list(self, request):
         store = get_user_store(request)
@@ -2116,6 +2141,7 @@ class CastAdjustmentViewSet(viewsets.ModelViewSet):
         return resp
 
 
+@document_object_api_view
 class CastAdjustmentListView(APIView):
     """GET /api/cast/adjustments/ — cast本人の未解消調整金一覧+合計、解消済み履歴（直近分のみ）。
     Phase 3-E: 給与確定・支払い処理とは接続しない、閲覧専用（作成/編集/解消/無効化は不可）。"""
@@ -2257,6 +2283,7 @@ class CastNoteViewSet(viewsets.ModelViewSet):
         return Response(CastNoteSerializer(instance).data)
 
 
+@document_object_api_view
 class CastNoteListView(APIView):
     """GET /api/cast/notes/ — cast本人がマイページから閲覧するノート一覧（公開済み・自分向け可視性のみ）。
     まずは一覧+本文同梱（フロント側でモーダル詳細表示する想定）。既読管理・コメント機能は今回対象外。"""
@@ -2296,6 +2323,7 @@ class CastNoteListView(APIView):
 # 通知送信は行わない。DB変更なし（confirmed_at + 現在時刻から都度判定）。
 # ──────────────────────────────────────
 
+@document_object_api_view
 class ShiftConfirmAlertsView(APIView):
     """GET /api/op/shift-confirm-alerts/ — 本日以降の未確認シフトのうち、開始2時間前を切ったものをアラートとして返す。
     manager/staff共通（ShiftList.vueと同じ店舗スコープ）。LINE/SMS/メール等の外部送信は一切行わない。
@@ -2353,6 +2381,7 @@ class ShiftConfirmAlertsView(APIView):
         return Response({"alerts": alerts, "external_send_supported": False})
 
 
+@document_object_api_view
 class ShiftConfirmNotificationTestView(APIView):
     """POST /api/op/shift-confirm-alerts/{shift_id}/mark_notification_test/
     出勤確認アラートの外部通知の土台（Phase 4）。実送信は行わず、
@@ -2469,6 +2498,7 @@ class PointLogViewSet(viewsets.ModelViewSet):
 # Cast Point Summary API
 # ──────────────────────────────────────
 
+@document_object_api_view
 class CastPointSummaryView(APIView):
     """GET /api/cast/points/ — cast 本人のポイント累計 + 直近履歴"""
 
@@ -3046,6 +3076,7 @@ def _upsert_rows(store, model_key, rows):
     return created, updated
 
 
+@document_object_api_view
 class CsvImportView(APIView):
     """
     POST /api/op/csv-import/?model=room
@@ -3109,9 +3140,14 @@ class CsvImportView(APIView):
 # CTI — Webhook / Queue
 # ──────────────────────────────────────
 
-CTI_SHARED_TOKEN = os.getenv("CTI_SHARED_TOKEN", "dev-token")
+def _is_valid_cti_token(token):
+    configured_token = os.getenv("CTI_SHARED_TOKEN", "")
+    if not configured_token.strip():
+        return False
+    return secrets.compare_digest(str(token or ""), configured_token)
 
 
+@document_object_api_view
 class CtiInboundView(APIView):
     """
     POST /api/op/cti/inbound/
@@ -3123,7 +3159,7 @@ class CtiInboundView(APIView):
 
     def post(self, request):
         token = request.META.get("HTTP_X_CTI_TOKEN", "")
-        if token != CTI_SHARED_TOKEN:
+        if not _is_valid_cti_token(token):
             return Response({"detail": "無効なトークンです"}, status=status.HTTP_403_FORBIDDEN)
 
         contact_id = request.data.get("contact_id")
@@ -3189,6 +3225,7 @@ class CtiInboundView(APIView):
         }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
+@document_object_api_view
 class CtiQueueView(APIView):
     """GET /api/op/cti/queue/ — 未対応 / 対応中コール一覧"""
 
@@ -3220,6 +3257,7 @@ class CtiQueueView(APIView):
         return Response({"calls": data})
 
 
+@document_object_api_view
 class CtiCallStartView(APIView):
     """POST /api/op/cti/calls/{id}/start/ — 対応開始"""
 
@@ -3241,6 +3279,7 @@ class CtiCallStartView(APIView):
         return Response({"id": call.id, "status": call.status})
 
 
+@document_object_api_view
 class CtiCallDoneView(APIView):
     """POST /api/op/cti/calls/{id}/done/ — 対応完了"""
 
@@ -3261,6 +3300,7 @@ class CtiCallDoneView(APIView):
         return Response({"id": call.id, "status": call.status})
 
 
+@document_object_api_view
 class CtiCallNoteView(APIView):
     """POST /api/op/cti/calls/{id}/notes/ — メモ追加"""
 
@@ -3406,6 +3446,56 @@ class CallLogViewSet(viewsets.ModelViewSet):
 # Twilio Webhook
 # ──────────────────────────────────────
 
+def _mask_phone(phone):
+    digits = "".join(char for char in str(phone or "") if char.isdigit())
+    return f"***{digits[-4:]}" if digits else "***"
+
+
+def _twilio_validation_url(request):
+    public_base_url = settings.TWILIO_WEBHOOK_PUBLIC_BASE_URL
+    if public_base_url:
+        return f"{public_base_url}{request.get_full_path()}"
+    return request.build_absolute_uri()
+
+
+def _is_valid_twilio_request(request):
+    allow_unsigned = (
+        settings.TWILIO_WEBHOOK_ALLOW_UNSIGNED
+        and settings.DEBUG
+        and "DYNO" not in os.environ
+    )
+    if allow_unsigned:
+        logger.warning("Twilio webhook signature validation is explicitly disabled")
+        return True
+
+    auth_token = settings.TWILIO_AUTH_TOKEN
+    signature = request.headers.get("X-Twilio-Signature", "")
+    if not auth_token:
+        logger.error("Twilio webhook rejected: Auth Token is not configured")
+        return False
+    if not signature:
+        logger.warning("Twilio webhook rejected: missing signature")
+        return False
+
+    try:
+        is_valid = RequestValidator(auth_token).validate(
+            _twilio_validation_url(request),
+            request.POST,
+            signature,
+        )
+    except Exception:
+        logger.warning("Twilio webhook rejected: signature validation failed")
+        return False
+    if not is_valid:
+        logger.warning("Twilio webhook rejected: invalid signature")
+    return is_valid
+
+
+def _twilio_forbidden_response():
+    return HttpResponse("Forbidden", content_type="text/plain", status=403)
+
+
+@extend_schema(operation_id="twilio_voice_webhook", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.STR)
 @csrf_exempt
 @api_view(["POST"])
 @authentication_classes([])
@@ -3417,12 +3507,18 @@ def twilio_voice_webhook(request):
     form-encoded で From, To, CallSid, CallStatus が届く。
     既存 CTI ロジックで CallLog を作成し、TwiML を返す。
     """
+    if not _is_valid_twilio_request(request):
+        return _twilio_forbidden_response()
+
     call_sid = request.data.get("CallSid", "")
     raw_from = request.data.get("From", "")
     raw_to = request.data.get("To", "")
     call_status = request.data.get("CallStatus", "")
 
-    logger.info("Twilio voice webhook: CallSid=%s From=%s To=%s Status=%s", call_sid, raw_from, raw_to, call_status)
+    logger.info(
+        "Twilio voice webhook: CallSid=%s From=%s To=%s Status=%s",
+        call_sid, _mask_phone(raw_from), _mask_phone(raw_to), call_status,
+    )
 
     if not call_sid or not raw_from or not raw_to:
         logger.warning("Twilio voice webhook: missing required fields")
@@ -3434,12 +3530,18 @@ def twilio_voice_webhook(request):
 
     from_phone = normalize_phone(raw_from)
     to_phone = normalize_phone(raw_to)
-    logger.info("Twilio voice: normalized from=%s to=%s", from_phone, to_phone)
+    logger.info(
+        "Twilio voice: normalized from=%s to=%s",
+        _mask_phone(from_phone), _mask_phone(to_phone),
+    )
 
     # to_phone → StorePhoneNumber で store 特定
     store_phone = StorePhoneNumber.objects.select_related("store").filter(phone=to_phone, is_active=True).first()
     if not store_phone:
-        logger.warning("Twilio voice: StorePhoneNumber not found for to=%s (raw=%s)", to_phone, raw_to)
+        logger.warning(
+            "Twilio voice: StorePhoneNumber not found for to=%s",
+            _mask_phone(to_phone),
+        )
         return HttpResponse(
             '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="ja-JP">この番号は登録されていません</Say></Response>',
             content_type="application/xml",
@@ -3491,6 +3593,7 @@ def twilio_voice_webhook(request):
     return HttpResponse(twiml, content_type="application/xml")
 
 
+@extend_schema(operation_id="twilio_status_webhook", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.STR)
 @csrf_exempt
 @api_view(["POST"])
 @authentication_classes([])
@@ -3501,12 +3604,18 @@ def twilio_status_webhook(request):
     Twilio StatusCallback: 通話ステータス変更時に呼ばれる。
     completed / no-answer / busy / failed / canceled を CallLog に反映。
     """
+    if not _is_valid_twilio_request(request):
+        return _twilio_forbidden_response()
+
     call_sid = request.data.get("CallSid", "")
     call_status = request.data.get("CallStatus", "")
     raw_from = request.data.get("From", "")
     raw_to = request.data.get("To", "")
 
-    logger.info("Twilio status webhook: CallSid=%s Status=%s From=%s To=%s", call_sid, call_status, raw_from, raw_to)
+    logger.info(
+        "Twilio status webhook: CallSid=%s Status=%s From=%s To=%s",
+        call_sid, call_status, _mask_phone(raw_from), _mask_phone(raw_to),
+    )
 
     if not call_sid:
         return HttpResponse("ok", content_type="text/plain")
@@ -3532,7 +3641,10 @@ def twilio_status_webhook(request):
                 )
                 logger.info("Twilio status fallback: created CallLog#%s for %s", call.pk, call_sid)
             else:
-                logger.warning("Twilio status fallback: StorePhoneNumber not found for to=%s", to_phone)
+                logger.warning(
+                    "Twilio status fallback: StorePhoneNumber not found for to=%s",
+                    _mask_phone(to_phone),
+                )
                 return HttpResponse("ok", content_type="text/plain")
         else:
             logger.warning("Twilio status webhook: CallLog not found for %s and no From/To for fallback", call_sid)
@@ -3588,6 +3700,7 @@ def _require_manager(request):
         raise PermissionDenied("この機能はマネージャーのみ利用できます。")
 
 
+@document_object_api_view
 class SalesSummaryView(APIView):
     """GET /api/op/sales-summary/?range=today|week|month or date_from&date_to"""
 
@@ -3603,6 +3716,7 @@ class SalesSummaryView(APIView):
         return Response(get_sales_summary(store, date_from, date_to))
 
 
+@document_object_api_view
 class SalesExportView(APIView):
     """GET /api/op/sales-export.csv?range=..."""
 
@@ -3640,6 +3754,7 @@ def _parse_sales_dashboard_filters(request):
     return cast_id, room_id, payment_method
 
 
+@document_object_api_view
 class SalesDashboardView(APIView):
     """GET /api/op/sales-dashboard/?range=today|week|month or date_from&date_to&cast=&room=&payment_method=
 
@@ -3660,6 +3775,7 @@ class SalesDashboardView(APIView):
         return Response(get_sales_dashboard(store, date_from, date_to, cast_id, room_id, payment_method))
 
 
+@document_object_api_view
 class SalesDashboardExportView(APIView):
     """GET /api/op/sales-dashboard-export.csv?range=... または date_from&date_to&cast=&room=&payment_method=
 
@@ -3684,6 +3800,7 @@ class SalesDashboardExportView(APIView):
         return resp
 
 
+@document_object_api_view
 class CustomerExportView(APIView):
     """GET /api/op/customers-export.csv — 現在の店舗の顧客一覧をCSV出力（manager限定）"""
 
@@ -3716,6 +3833,7 @@ class CustomerExportView(APIView):
 # Daily Settlement — manager only
 # ──────────────────────────────────────
 
+@document_object_api_view
 class DailySettlementView(APIView):
     """GET /api/op/daily-settlement/?date=YYYY-MM-DD"""
 
@@ -3888,6 +4006,7 @@ class DailySettlementView(APIView):
         })
 
 
+@document_object_api_view
 class DailySettlementLockView(APIView):
     """POST /api/op/daily-settlement/lock/ — 清算確定
     body: { date, rows, totals }
@@ -3929,6 +4048,7 @@ class DailySettlementLockView(APIView):
         return Response({"ok": True, "status": "LOCKED", "date": date_str})
 
 
+@document_object_api_view
 class DailySettlementUnlockView(APIView):
     """POST /api/op/daily-settlement/unlock/ — 清算ロック解除"""
 
@@ -3957,6 +4077,7 @@ class DailySettlementUnlockView(APIView):
         return Response({"ok": True, "status": "OPEN", "date": date_str})
 
 
+@document_object_api_view
 class DailySettlementExportView(APIView):
     """GET /api/op/daily-settlement/export/?date=YYYY-MM-DD — CSV出力"""
 
@@ -4044,6 +4165,7 @@ class DailySettlementExportView(APIView):
 # LINE Webhook
 # ──────────────────────────────────────
 
+@extend_schema(operation_id="line_webhook", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @csrf_exempt
 @api_view(["POST"])
 @authentication_classes([])
@@ -4055,6 +4177,7 @@ def line_webhook(request):
     return _handle_line_webhook(request, channel_secret, channel_token)
 
 
+@extend_schema(operation_id="line_webhook_store", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @csrf_exempt
 @api_view(["POST"])
 @authentication_classes([])
@@ -4157,6 +4280,7 @@ def _line_reply(channel_token, reply_token, text):
 # LINE 連携コード再発行
 # ──────────────────────────────────────
 
+@document_object_api_view
 class CastLineLinkView(APIView):
     """GET  /api/cast/line-link/ — 連携状態取得
        POST /api/cast/line-link/regenerate/ — 連携コード再発行
@@ -4199,6 +4323,7 @@ class CastLineLinkView(APIView):
 # LINE アラート API（operator 向け）
 # ──────────────────────────────────────
 
+@document_object_api_view
 class LineAlertsView(APIView):
     """GET /api/op/line-alerts/ — 当日の LINE 未連携 cast + 送信失敗を返す"""
 
@@ -4288,6 +4413,7 @@ class LineAlertsView(APIView):
 # Store LINE設定 (manager only)
 # ──────────────────────────────────────
 
+@document_object_api_view
 class StoreLineSettingsView(APIView):
     """GET / PATCH /api/op/line-settings/"""
 
@@ -4345,6 +4471,7 @@ class StoreLineSettingsView(APIView):
         })
 
 
+@document_object_api_view
 class StorePaymentFeeSettingsView(APIView):
     """GET / PATCH /api/op/payment-fee-settings/ — 決済手数料率（参考値）の設定。manager のみ。
     ここで設定した値は売上集計(/op/sales-dashboard/)・退勤提出の手数料見込み計算にのみ使用し、
@@ -4414,6 +4541,7 @@ def _parse_date(value, field="date"):
 WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"]
 
 
+@document_object_api_view
 class WeeklyShiftView(APIView):
     """GET/POST /api/op/shifts/weekly/
     1キャスト×1週間分のシフトをまとめて新規登録する。staff/manager のみ。
@@ -4542,6 +4670,7 @@ class WeeklyShiftView(APIView):
         )
 
 
+@document_object_api_view
 class ScheduleCastOrderView(APIView):
     """GET/POST /api/op/schedule-cast-order/
     タイムライン（キャスト別表示）の出勤セラピスト表示順。
@@ -4622,6 +4751,7 @@ class ScheduleCastOrderView(APIView):
         return Response({"updated_count": len(updates)})
 
 
+@document_object_api_view
 class OrderSmsLogsView(APIView):
     """GET /api/op/orders/<pk>/sms-logs/ — 予約ごとのSMS送信履歴。staff/manager のみ・自店舗のみ。"""
 
@@ -4642,6 +4772,7 @@ class OrderSmsLogsView(APIView):
         return Response(SmsLogSerializer(logs, many=True).data)
 
 
+@document_object_api_view
 class SmsTemplateSettingsView(APIView):
     """GET/PUT /api/op/sms-templates/
     支払方法別の予約確認SMS文面設定。閲覧は staff/manager、編集は manager のみ。"""

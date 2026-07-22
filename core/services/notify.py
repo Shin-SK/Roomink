@@ -21,6 +21,10 @@ TWILIO_FROM_PHONE = os.getenv("TWILIO_FROM_PHONE", "")
 
 # ── low-level ─────────────────────────────────
 
+def _mask_phone(phone: str) -> str:
+    digits = "".join(char for char in str(phone or "") if char.isdigit())
+    return f"***{digits[-4:]}" if digits else "***"
+
 def _format_to_e164(phone: str) -> str:
     """国内番号を E.164 形式に変換（0XX → +81XX）"""
     if phone.startswith("+"):
@@ -57,7 +61,7 @@ def send_sms(
         return _send_twilio(to_phone, body, meta)
 
     # ダミー送信
-    logger.info("SMS dummy send → %s : %s", to_phone, body[:60])
+    logger.info("SMS dummy send → %s", _mask_phone(to_phone))
     return SmsLog.objects.create(
         to_phone=to_phone, body=body,
         status=SmsLog.Status.SENT,
@@ -88,7 +92,7 @@ def _send_twilio(to_phone: str, body: str, meta: dict) -> SmsLog:
             from_=TWILIO_FROM_PHONE,
             to=_format_to_e164(to_phone),
         )
-        logger.info("SMS sent via Twilio → %s sid=%s", to_phone, message.sid)
+        logger.info("SMS sent via Twilio → %s sid=%s", _mask_phone(to_phone), message.sid)
         return SmsLog.objects.create(
             to_phone=to_phone, body=body,
             status=SmsLog.Status.SENT,
@@ -97,7 +101,7 @@ def _send_twilio(to_phone: str, body: str, meta: dict) -> SmsLog:
             **meta,
         )
     except Exception as e:
-        logger.error("SMS send failed → %s : %s", to_phone, str(e))
+        logger.error("SMS send failed → %s : %s", _mask_phone(to_phone), str(e))
         return SmsLog.objects.create(
             to_phone=to_phone, body=body,
             status=SmsLog.Status.FAILED,

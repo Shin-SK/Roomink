@@ -22,16 +22,22 @@ Roomink Ops スモークテスト（Django test client / DRF APIClient ベース
 """
 import csv
 import io
+import json
+import os
 from datetime import date, time, timedelta
+from unittest.mock import patch
+from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import Client, TestCase, override_settings
 from rest_framework.test import APIClient
+from twilio.request_validator import RequestValidator
 
 from core.models import (
-    Cast, CastAdjustment, CastDailyCheckout, CastNote, Course, Customer,
-    Order, Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest,
-    SmsTemplate, Store, UserProfile,
+    CallLog, Cast, CastAdjustment, CastDailyCheckout, CastNote, Course, Customer,
+    CastExpenseTemplate, CastExpenseTemplateHistory, Order, Room, StorePhoneNumber,
+    ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsTemplate,
+    Store, UserProfile,
 )
 from core.services.notify import build_confirmation_body
 
@@ -118,6 +124,384 @@ class AuthAndPermissionSmokeTest(RoomankOpsSmokeTestBase):
         client = self.client_as(self.cast_user_a)
         res = client.get("/api/op/sales-dashboard/?range=today")
         self.assertEqual(res.status_code, 403)
+
+
+class PublicPasswordResetDisabledTest(RoomankOpsSmokeTestBase):
+    """公開パスワード再設定APIがDBを更新せず、ユーザーの存在も漏らさないことを確認する。"""
+
+    endpoint = "/api/auth/password-reset/"
+    disabled_response = {"detail": "パスワード再設定は現在利用できません。管理者へお問い合わせください。"}
+
+    def test_anonymous_request_is_disabled_without_database_access(self):
+        client = APIClient()
+
+        with self.assertNumQueries(0):
+            existing = client.post(
+                self.endpoint,
+                {"username": self.manager_a.username, "new_password": "changed-password"},
+                format="json",
+            )
+            missing = client.post(
+                self.endpoint,
+                {"username": "missing-user", "new_password": "changed-password"},
+                format="json",
+            )
+
+        self.assertEqual(existing.status_code, 503)
+        self.assertEqual(missing.status_code, 503)
+        self.assertEqual(existing.json(), self.disabled_response)
+        self.assertEqual(missing.json(), self.disabled_response)
+        self.manager_a.refresh_from_db()
+        self.assertTrue(self.manager_a.check_password("pass1234"))
+        self.assertFalse(self.manager_a.check_password("changed-password"))
+
+    def test_authenticated_general_user_cannot_reset_another_user_password(self):
+        client = self.client_as(self.cast_user_a)
+
+        with self.assertNumQueries(0):
+            response = client.post(
+                self.endpoint,
+                {"username": self.manager_a.username, "new_password": "changed-password"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), self.disabled_response)
+        self.manager_a.refresh_from_db()
+        self.assertTrue(self.manager_a.check_password("pass1234"))
+        self.assertFalse(self.manager_a.check_password("changed-password"))
+
+    def test_normal_login_and_logout_still_work(self):
+        client = APIClient()
+        login_response = client.post(
+            "/api/auth/login/",
+            {"username": self.manager_a.username, "password": "pass1234"},
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, 200)
+        self.assertEqual(client.get("/api/auth/me/").status_code, 200)
+
+        logout_response = client.post("/api/auth/logout/", format="json")
+        self.assertEqual(logout_response.status_code, 200)
+        self.assertEqual(client.get("/api/auth/me/").status_code, 403)
+
+    def test_django_admin_password_change_still_works(self):
+        admin = User.objects.create_superuser(
+            username="security_test_admin",
+            email="admin@example.com",
+            password="admin-pass1234",
+        )
+        client = Client()
+        client.force_login(admin)
+
+        response = client.post(
+            f"/admin/auth/user/{self.manager_a.pk}/password/",
+            {"password1": "admin-reset-pass1234", "password2": "admin-reset-pass1234"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.manager_a.refresh_from_db()
+        self.assertTrue(self.manager_a.check_password("admin-reset-pass1234"))
+
+
+class CastExpenseTemplateHistorySerializerTest(RoomankOpsSmokeTestBase):
+    endpoint = "/api/cast-expense-template-histories/"
+
+    def test_history_api_returns_empty_results(self):
+        response = self.client_as(self.manager_a).get(
+            self.endpoint,
+            {"cast": self.cast_a.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_history_api_serializes_editor_name_and_null_editor(self):
+        self.manager_a.first_name = "履歴"
+        self.manager_a.last_name = "編集者"
+        self.manager_a.save(update_fields=["first_name", "last_name"])
+        template = CastExpenseTemplate.objects.create(
+            store=self.store_a,
+            cast=self.cast_a,
+            name="固定雑費",
+            amount=1000,
+        )
+        with_editor = CastExpenseTemplateHistory.objects.create(
+            template=template,
+            cast=self.cast_a,
+            name=template.name,
+            amount=template.amount,
+            memo=template.memo,
+            is_active=template.is_active,
+            action=CastExpenseTemplateHistory.Action.CREATE,
+            edited_by=self.manager_a,
+        )
+        without_editor = CastExpenseTemplateHistory.objects.create(
+            template=template,
+            cast=self.cast_a,
+            name=template.name,
+            amount=template.amount,
+            memo=template.memo,
+            is_active=template.is_active,
+            action=CastExpenseTemplateHistory.Action.UPDATE,
+            edited_by=None,
+        )
+
+        response = self.client_as(self.manager_a).get(
+            self.endpoint,
+            {"cast": self.cast_a.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        histories = {item["id"]: item for item in response.json()["results"]}
+        self.assertEqual(histories[with_editor.pk]["edited_by_name"], "履歴 編集者")
+        self.assertIsNone(histories[without_editor.pk]["edited_by_name"])
+
+
+class CtiInboundAuthenticationTest(RoomankOpsSmokeTestBase):
+    endpoint = "/api/op/cti/inbound/"
+    configured_token = "cti-test-token-with-sufficient-length"
+    rejected_response = {"detail": "無効なトークンです"}
+
+    def setUp(self):
+        super().setUp()
+        StorePhoneNumber.objects.create(
+            store=self.store_a,
+            phone="05012345678",
+            is_active=True,
+        )
+        self.payload = {
+            "contact_id": "cti-auth-test",
+            "from_phone": "09012345678",
+            "to_phone": "05012345678",
+        }
+
+    def post(self, token=None):
+        headers = {"HTTP_X_CTI_TOKEN": token} if token is not None else {}
+        return APIClient().post(self.endpoint, self.payload, format="json", **headers)
+
+    @patch.dict("os.environ", {"CTI_SHARED_TOKEN": configured_token})
+    def test_explicit_correct_token_preserves_existing_processing(self):
+        response = self.post(self.configured_token)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(CallLog.objects.filter(contact_id=self.payload["contact_id"]).exists())
+
+    @patch.dict("os.environ", {"CTI_SHARED_TOKEN": configured_token})
+    def test_missing_and_invalid_tokens_are_rejected_without_database_access(self):
+        for token in (None, "invalid-token", "dev-token"):
+            with self.subTest(token=token), self.assertNumQueries(0):
+                response = self.post(token)
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json(), self.rejected_response)
+
+        self.assertFalse(CallLog.objects.filter(contact_id=self.payload["contact_id"]).exists())
+
+    def test_unset_empty_and_whitespace_configuration_fail_closed(self):
+        responses = []
+        for configured_value in (None, "", "   "):
+            with self.subTest(configured_value=configured_value):
+                with patch.dict("os.environ", {}, clear=False):
+                    if configured_value is None:
+                        os.environ.pop("CTI_SHARED_TOKEN", None)
+                    else:
+                        os.environ["CTI_SHARED_TOKEN"] = configured_value
+                    with self.assertNumQueries(0):
+                        response = self.post(self.configured_token)
+                responses.append((response.status_code, response.json()))
+
+        self.assertEqual(
+            responses,
+            [(403, self.rejected_response)] * 3,
+        )
+        self.assertFalse(CallLog.objects.filter(contact_id=self.payload["contact_id"]).exists())
+
+    @patch.dict("os.environ", {"CTI_SHARED_TOKEN": configured_token})
+    def test_rejection_does_not_expose_token_in_response_or_logs(self):
+        submitted_token = "do-not-expose-this-invalid-token"
+
+        with patch("core.views.logger") as logger_mock, self.assertNumQueries(0):
+            response = self.post(submitted_token)
+
+        self.assertNotIn(submitted_token, response.content.decode())
+        self.assertNotIn(self.configured_token, response.content.decode())
+        self.assertNotIn(submitted_token, str(logger_mock.method_calls))
+        self.assertNotIn(self.configured_token, str(logger_mock.method_calls))
+
+
+@override_settings(
+    TWILIO_AUTH_TOKEN="twilio-webhook-test-token",
+    TWILIO_WEBHOOK_PUBLIC_BASE_URL="https://roomink.example",
+    TWILIO_WEBHOOK_ALLOW_UNSIGNED=False,
+)
+class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
+    voice_endpoint = "/api/webhook/twilio/voice/"
+    status_endpoint = "/api/webhook/twilio/status/"
+    auth_token = "twilio-webhook-test-token"
+    from_phone = "+819012345678"
+    to_phone = "+15075800167"
+
+    def setUp(self):
+        super().setUp()
+        StorePhoneNumber.objects.create(
+            store=self.store_a,
+            phone="15075800167",
+            is_active=True,
+        )
+
+    def signed_post(self, endpoint, public_url, data, signature=None, **extra):
+        if signature is None:
+            signature = RequestValidator(self.auth_token).compute_signature(public_url, data)
+        return APIClient().post(
+            endpoint,
+            urlencode(data),
+            content_type="application/x-www-form-urlencoded",
+            HTTP_X_TWILIO_SIGNATURE=signature,
+            **extra,
+        )
+
+    def voice_data(self, call_sid="CAvoice-valid"):
+        return {
+            "CallSid": call_sid,
+            "From": self.from_phone,
+            "To": self.to_phone,
+            "CallStatus": "ringing",
+        }
+
+    def status_data(self, call_sid="CAstatus-valid", call_status="no-answer"):
+        return {
+            "CallSid": call_sid,
+            "From": self.from_phone,
+            "To": self.to_phone,
+            "CallStatus": call_status,
+        }
+
+    def test_valid_voice_signature_succeeds_and_masks_phone_logs(self):
+        data = self.voice_data()
+
+        with self.assertLogs("core.views", level="INFO") as captured:
+            response = self.signed_post(
+                self.voice_endpoint,
+                f"https://roomink.example{self.voice_endpoint}",
+                data,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        call = CallLog.objects.get(contact_id=data["CallSid"])
+        self.assertEqual(call.from_phone, "09012345678")
+        self.assertEqual(call.to_phone, "15075800167")
+        logs = "\n".join(captured.output)
+        self.assertNotIn(self.from_phone, logs)
+        self.assertNotIn("09012345678", logs)
+        self.assertNotIn(self.to_phone, logs)
+        self.assertNotIn("15075800167", logs)
+        self.assertIn("***5678", logs)
+        self.assertIn("***0167", logs)
+
+    @override_settings(
+        TWILIO_WEBHOOK_PUBLIC_BASE_URL="",
+        USE_X_FORWARDED_HOST=True,
+        SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+        ALLOWED_HOSTS=["hooks.roomink.example"],
+    )
+    def test_valid_status_signature_with_https_proxy_and_query_succeeds(self):
+        data = self.status_data()
+        call = CallLog.objects.create(
+            store=self.store_a,
+            contact_id=data["CallSid"],
+            from_phone="09012345678",
+            to_phone="15075800167",
+        )
+        endpoint = f"{self.status_endpoint}?source=twilio"
+        public_url = f"https://hooks.roomink.example{endpoint}"
+
+        with self.assertLogs("core.views", level="INFO") as captured:
+            response = self.signed_post(
+                endpoint,
+                public_url,
+                data,
+                HTTP_X_FORWARDED_PROTO="https",
+                HTTP_X_FORWARDED_HOST="hooks.roomink.example",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        call.refresh_from_db()
+        self.assertEqual(call.status, CallLog.Status.MISSED)
+        logs = "\n".join(captured.output)
+        self.assertNotIn(self.from_phone, logs)
+        self.assertNotIn(self.to_phone, logs)
+        self.assertIn("***5678", logs)
+        self.assertIn("***0167", logs)
+
+    def test_missing_signatures_are_rejected_without_database_access(self):
+        for endpoint, data in (
+            (self.voice_endpoint, self.voice_data("CAmissing-voice")),
+            (self.status_endpoint, self.status_data("CAmissing-status")),
+        ):
+            with self.subTest(endpoint=endpoint), self.assertNumQueries(0):
+                response = APIClient().post(
+                    endpoint,
+                    urlencode(data),
+                    content_type="application/x-www-form-urlencoded",
+                )
+                self.assertEqual(response.status_code, 403)
+        self.assertFalse(CallLog.objects.filter(contact_id__startswith="CAmissing-").exists())
+
+    def test_invalid_signatures_are_rejected_without_database_access(self):
+        for endpoint, data in (
+            (self.voice_endpoint, self.voice_data("CAinvalid-voice")),
+            (self.status_endpoint, self.status_data("CAinvalid-status")),
+        ):
+            with self.subTest(endpoint=endpoint), self.assertNumQueries(0):
+                response = self.signed_post(
+                    endpoint,
+                    f"https://roomink.example{endpoint}",
+                    data,
+                    signature="invalid-signature",
+                )
+                self.assertEqual(response.status_code, 403)
+        self.assertFalse(CallLog.objects.filter(contact_id__startswith="CAinvalid-").exists())
+
+    @override_settings(TWILIO_AUTH_TOKEN="")
+    def test_missing_auth_token_fails_closed_without_database_access(self):
+        data = self.voice_data("CAmissing-token")
+
+        with self.assertNumQueries(0):
+            response = self.signed_post(
+                self.voice_endpoint,
+                f"https://roomink.example{self.voice_endpoint}",
+                data,
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(CallLog.objects.filter(contact_id=data["CallSid"]).exists())
+
+    @override_settings(TWILIO_AUTH_TOKEN="", TWILIO_WEBHOOK_ALLOW_UNSIGNED=True, DEBUG=True)
+    def test_explicit_unsigned_development_setting_preserves_voice_processing(self):
+        data = self.voice_data("CAunsigned-development")
+
+        response = APIClient().post(
+            self.voice_endpoint,
+            urlencode(data),
+            content_type="application/x-www-form-urlencoded",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(CallLog.objects.filter(contact_id=data["CallSid"]).exists())
+
+    @override_settings(TWILIO_AUTH_TOKEN="", TWILIO_WEBHOOK_ALLOW_UNSIGNED=True, DEBUG=True)
+    def test_heroku_remains_fail_closed_when_unsigned_setting_is_requested(self):
+        data = self.voice_data("CAunsigned-heroku")
+
+        with patch.dict("os.environ", {"DYNO": "web.1"}), self.assertNumQueries(0):
+            response = APIClient().post(
+                self.voice_endpoint,
+                urlencode(data),
+                content_type="application/x-www-form-urlencoded",
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(CallLog.objects.filter(contact_id=data["CallSid"]).exists())
 
 
 class AreaSalesDashboardSmokeTest(RoomankOpsSmokeTestBase):
@@ -601,8 +985,12 @@ class WeeklyShiftAndSmsSmokeTest(TestCase):
 
     def test_confirm_creates_sms_log_and_detail_api(self):
         order = self._make_order(Order.PaymentMethod.CARD)
-        res = self.client.post(f"/api/orders/{order.id}/confirm/")
+        with self.assertLogs("core.services.notify", level="INFO") as captured:
+            res = self.client.post(f"/api/orders/{order.id}/confirm/")
         self.assertEqual(res.status_code, 200, res.data)
+        log_output = "\n".join(captured.output)
+        self.assertNotIn("09012345678", log_output)
+        self.assertIn("***5678", log_output)
 
         logs = self.client.get(f"/api/op/orders/{order.id}/sms-logs/")
         self.assertEqual(logs.status_code, 200)
@@ -645,3 +1033,22 @@ class WeeklyShiftAndSmsSmokeTest(TestCase):
         res = self.client.get("/api/op/sms-templates/")
         bodies = [i["body"] for i in res.data["items"]]
         self.assertNotIn("他店舗", bodies)
+
+
+class OpenApiSchemaSmokeTest(TestCase):
+    def test_schema_contains_handwritten_api_views_and_webhooks(self):
+        response = Client().get(
+            "/api/schema/",
+            HTTP_ACCEPT="application/vnd.oai.openapi+json",
+        )
+        self.assertEqual(response.status_code, 200)
+        schema = json.loads(response.content)
+        paths = schema["paths"]
+        for path in (
+            "/api/auth/login/",
+            "/api/op/schedule/",
+            "/api/op/daily-settlement/",
+            "/api/webhook/twilio/voice/",
+            "/api/webhook/twilio/status/",
+        ):
+            self.assertIn(path, paths)

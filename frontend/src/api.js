@@ -79,7 +79,6 @@ export const api = {
   csrf: () => request('GET', '/auth/csrf/'),
   login: (username, password) => request('POST', '/auth/login/', { username, password }),
   logout: () => request('POST', '/auth/logout/'),
-  passwordReset: (username, new_password) => request('POST', '/auth/password-reset/', { username, new_password }),
   me: () => request('GET', '/auth/me/'),
   updateProfile: (body) => request('PATCH', '/auth/profile/', body),
 

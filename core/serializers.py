@@ -1,5 +1,6 @@
 from datetime import timedelta
 from collections import defaultdict
+from typing import List, Optional
 
 from rest_framework import serializers
 
@@ -68,7 +69,7 @@ class CastSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["store", "line_user_id", "line_linked_at"]
 
-    def get_line_linked(self, obj):
+    def get_line_linked(self, obj) -> bool:
         return obj.line_user_id is not None
 
 
@@ -147,7 +148,7 @@ class PointLogSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["store", "created_by"]
 
-    def get_created_by_name(self, obj):
+    def get_created_by_name(self, obj) -> Optional[str]:
         if obj.created_by:
             return obj.created_by.username
         return None
@@ -186,6 +187,11 @@ class CastExpenseTemplateHistorySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def get_edited_by_name(self, obj) -> Optional[str]:
+        if not obj.edited_by:
+            return None
+        return obj.edited_by.get_full_name() or obj.edited_by.username
+
 
 class CastCheckoutExpenseSnapshotSerializer(serializers.ModelSerializer):
     class Meta:
@@ -212,13 +218,8 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [f for f in fields if f != "manager_memo"]
 
-    def get_reviewed_by_name(self, obj):
+    def get_reviewed_by_name(self, obj) -> Optional[str]:
         return obj.reviewed_by.username if obj.reviewed_by else None
-
-    def get_edited_by_name(self, obj):
-        if not obj.edited_by:
-            return None
-        return obj.edited_by.get_full_name() or obj.edited_by.username
 
 
 class CastAdjustmentSerializer(serializers.ModelSerializer):
@@ -244,10 +245,10 @@ class CastAdjustmentSerializer(serializers.ModelSerializer):
             "resolved_by", "resolved_at", "resolved_memo",
         ]
 
-    def get_created_by_name(self, obj):
+    def get_created_by_name(self, obj) -> Optional[str]:
         return obj.created_by.username if obj.created_by else None
 
-    def get_resolved_by_name(self, obj):
+    def get_resolved_by_name(self, obj) -> Optional[str]:
         return obj.resolved_by.username if obj.resolved_by else None
 
 
@@ -281,10 +282,10 @@ class CastNoteSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["store", "created_by", "updated_by", "published_at", "created_at", "updated_at"]
 
-    def get_created_by_name(self, obj):
+    def get_created_by_name(self, obj) -> Optional[str]:
         return obj.created_by.username if obj.created_by else None
 
-    def get_updated_by_name(self, obj):
+    def get_updated_by_name(self, obj) -> Optional[str]:
         return obj.updated_by.username if obj.updated_by else None
 
 
@@ -320,7 +321,7 @@ class ShiftConfirmNotificationLogSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def get_created_by_name(self, obj):
+    def get_created_by_name(self, obj) -> Optional[str]:
         return obj.created_by.username if obj.created_by else None
 
 
@@ -459,7 +460,7 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
             "decided_at", "decided_by",
         ]
 
-    def get_decided_by_name(self, obj):
+    def get_decided_by_name(self, obj) -> Optional[str]:
         if not obj.decided_by:
             return None
         return obj.decided_by.get_full_name() or obj.decided_by.username
@@ -504,7 +505,7 @@ class OpShiftRequestSerializer(serializers.ModelSerializer):
             "decided_at", "decided_by",
         ]
 
-    def get_decided_by_name(self, obj):
+    def get_decided_by_name(self, obj) -> Optional[str]:
         if not obj.decided_by:
             return None
         return obj.decided_by.get_full_name() or obj.decided_by.username
@@ -548,19 +549,19 @@ class OrderSerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
         ]
 
-    def get_customer_label(self, obj):
+    def get_customer_label(self, obj) -> str:
         return build_customer_label(obj.customer)
 
-    def get_options(self, obj):
+    def get_options(self, obj) -> List[str]:
         # prefetch_related 済みの場合 DB クエリを避ける
         if hasattr(obj, '_prefetched_objects_cache') and 'options' in obj._prefetched_objects_cache:
             return [o.name for o in obj.options.all()]
         return list(obj.options.values_list("name", flat=True))
 
-    def get_option_ids(self, obj):
+    def get_option_ids(self, obj) -> List[int]:
         return list(obj.options.values_list("id", flat=True))
 
-    def get_is_unconfirmed(self, obj):
+    def get_is_unconfirmed(self, obj) -> bool:
         return not CastAck.objects.filter(order=obj, acked_at__isnull=False).exists()
 
 
@@ -1009,7 +1010,7 @@ class CallNoteSerializer(serializers.ModelSerializer):
         fields = ["id", "body", "author", "author_label", "created_at"]
         read_only_fields = ["author", "created_at"]
 
-    def get_author_label(self, obj):
+    def get_author_label(self, obj) -> str:
         if not obj.author_id:
             return ""
         u = obj.author
@@ -1035,12 +1036,12 @@ class CallLogSerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
         ]
 
-    def get_customer_label(self, obj):
+    def get_customer_label(self, obj) -> str:
         if not obj.customer_id:
             return ""
         return build_customer_label(obj.customer)
 
-    def get_assigned_to_label(self, obj):
+    def get_assigned_to_label(self, obj) -> str:
         if not obj.assigned_to_id:
             return ""
         u = obj.assigned_to
@@ -1063,7 +1064,7 @@ class SmsTemplateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
-    def get_updated_by_name(self, obj):
+    def get_updated_by_name(self, obj) -> str:
         if not obj.updated_by_id:
             return ""
         u = obj.updated_by
@@ -1085,12 +1086,12 @@ class SmsLogSerializer(serializers.ModelSerializer):
             "created_by_name", "sent_at",
         ]
 
-    def get_payment_method_label(self, obj):
+    def get_payment_method_label(self, obj) -> str:
         if not obj.payment_method:
             return ""
         return dict(Order.PaymentMethod.choices).get(obj.payment_method, obj.payment_method)
 
-    def get_created_by_name(self, obj):
+    def get_created_by_name(self, obj) -> str:
         if not obj.created_by_id:
             return ""
         u = obj.created_by

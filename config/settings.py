@@ -1,16 +1,32 @@
 import os
 from pathlib import Path
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret-key")
-DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
+IS_PRODUCTION = "DYNO" in os.environ or os.getenv("DJANGO_ENV", "").lower() == "production"
+
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
+if IS_PRODUCTION and not SECRET_KEY:
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY is required in production")
+if not SECRET_KEY:
+    SECRET_KEY = "dev-secret-key"
+
+DEBUG = False if IS_PRODUCTION else os.getenv("DJANGO_DEBUG", "1") == "1"
 
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0,.ngrok-free.dev,.ngrok-free.app").split(",")
 if "DYNO" in os.environ:
     ALLOWED_HOSTS.append("roomink-0315e6e58623.herokuapp.com")
+
+# Heroku / reverse proxy 配下の公開URLを正しく復元する。
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+SECURE_SSL_REDIRECT = IS_PRODUCTION
+SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "3600" if IS_PRODUCTION else "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", "0") == "1"
+SECURE_HSTS_PRELOAD = os.getenv("DJANGO_SECURE_HSTS_PRELOAD", "0") == "1"
 
 LOGGING = {
     "version": 1,
@@ -87,7 +103,7 @@ if "DYNO" in os.environ:
     CSRF_TRUSTED_ORIGINS.append("https://roomink.netlify.app")
 
 # --- Cross-origin cookie settings (for Amplify ↔ App Runner) ---
-if _cors_env or "DYNO" in os.environ:
+if _cors_env or IS_PRODUCTION:
     SESSION_COOKIE_SAMESITE = "None"
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SAMESITE = "None"
@@ -114,6 +130,18 @@ REST_FRAMEWORK = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "Roomink API",
     "VERSION": "0.1.0",
+    "ENUM_NAME_OVERRIDES": {
+        "ShiftRequestStatusEnum": "core.models.ShiftRequest.Status",
+        "OrderStatusEnum": "core.models.Order.Status",
+        "CallLogStatusEnum": "core.models.CallLog.Status",
+        "SmsLogStatusEnum": "core.models.SmsLog.Status",
+        "LineNotificationStatusEnum": "core.models.LineNotificationLog.Status",
+        "DailySettlementStatusEnum": "core.models.DailySettlement.Status",
+        "CastDailyCheckoutStatusEnum": "core.models.CastDailyCheckout.Status",
+        "CastAdjustmentStatusEnum": "core.models.CastAdjustment.Status",
+        "CastNoteStatusEnum": "core.models.CastNote.Status",
+        "ShiftConfirmNotificationStatusEnum": "core.models.ShiftConfirmNotificationLog.Status",
+    },
 }
 
 ROOT_URLCONF = "config.urls"
@@ -192,6 +220,11 @@ STORAGES = {
     },
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# --- Twilio Webhook signature validation ---
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_WEBHOOK_PUBLIC_BASE_URL = os.getenv("TWILIO_WEBHOOK_PUBLIC_BASE_URL", "").rstrip("/")
+TWILIO_WEBHOOK_ALLOW_UNSIGNED = os.getenv("TWILIO_WEBHOOK_ALLOW_UNSIGNED", "0") == "1"
 
 # --- LINE Messaging API ---
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
