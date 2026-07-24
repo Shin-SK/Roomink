@@ -28,6 +28,32 @@ const isManager = computed(() => getAuthRole() === 'manager')
 const merging = ref(false)
 const mergeTarget = ref(null)
 const showMergeConfirm = ref(false)
+const invitation = ref(null)
+const invitationError = ref('')
+const reissuingInvitation = ref(false)
+
+const invitationStateLabel = computed(() => ({
+  NOT_ISSUED: '未発行',
+  ACTIVE: '初回設定待ち',
+  EXPIRED: '期限切れ',
+  INVALIDATED: '無効',
+  USED: '使用済み',
+  ACCOUNT_CREATED: 'アカウント設定済み',
+}[invitation.value?.state] || '未確認'))
+const canReissueInvitation = computed(() => (
+  invitation.value &&
+  !invitation.value.account_exists &&
+  (invitation.value.state !== 'NOT_ISSUED' || invitation.value.sms_status === 'CONFIG_MISSING')
+))
+
+async function loadInvitation() {
+  invitationError.value = ''
+  try {
+    invitation.value = await api.getCustomerInvitation(props.id)
+  } catch (e) {
+    invitationError.value = e.message || '招待状態を取得できませんでした'
+  }
+}
 
 function openMerge(dup) {
   mergeTarget.value = dup
@@ -43,6 +69,7 @@ async function executeMerge() {
     mergeTarget.value = null
     // 再読み込み
     customer.value = await api.getCustomer(props.id)
+    loadInvitation()
     api.getCustomerDuplicates(props.id).then(data => {
       duplicates.value = Array.isArray(data) ? data : []
     }).catch(() => {})
@@ -97,6 +124,7 @@ onMounted(async () => {
   }
   try {
     customer.value = await api.getCustomer(props.id)
+    loadInvitation()
     // 重複候補を非同期で取得
     api.getCustomerDuplicates(props.id).then(data => {
       duplicates.value = Array.isArray(data) ? data : []
@@ -170,6 +198,23 @@ async function save() {
 
 function goBack() {
   router.push('/op/customers')
+}
+
+async function reissueInvitation() {
+  if (!window.confirm('以前の未使用URLを無効にして、初回設定SMSを再発行しますか？')) return
+  invitationError.value = ''
+  reissuingInvitation.value = true
+  try {
+    invitation.value = await api.reissueCustomerInvitation(props.id)
+  } catch (e) {
+    invitationError.value = e.message || '再発行できませんでした'
+  } finally {
+    reissuingInvitation.value = false
+  }
+}
+
+function formatInvitationDate(value) {
+  return value ? new Date(value).toLocaleString('ja-JP') : '—'
 }
 </script>
 
@@ -331,6 +376,40 @@ function goBack() {
           </form>
         </div>
       </div>
+
+      <div v-if="!isNew" class="card mb-4">
+        <div class="card-header">
+          <i class="ti ti-message-circle"></i> お客様アカウント
+        </div>
+        <div class="card-body">
+          <div v-if="invitationError" class="alert alert-danger py-2 px-3">{{ invitationError }}</div>
+          <template v-if="invitation">
+            <dl class="row mb-3">
+              <dt class="col-sm-4">状態</dt>
+              <dd class="col-sm-8 mb-2"><strong>{{ invitationStateLabel }}</strong></dd>
+              <dt class="col-sm-4">案内SMS</dt>
+              <dd class="col-sm-8 mb-2">{{ invitation.sms_status_label || '記録なし' }}</dd>
+              <dt class="col-sm-4">発行日時</dt>
+              <dd class="col-sm-8 mb-2">{{ formatInvitationDate(invitation.created_at) }}</dd>
+              <dt class="col-sm-4">有効期限</dt>
+              <dd class="col-sm-8 mb-0">{{ formatInvitationDate(invitation.expires_at) }}</dd>
+            </dl>
+            <p class="small text-muted">
+              初回設定URLそのものは安全のため画面や送信履歴に保存・表示しません。
+            </p>
+            <button
+              v-if="canReissueInvitation"
+              class="btn btn-outline-primary"
+              :disabled="reissuingInvitation"
+              @click="reissueInvitation"
+            >
+              {{ reissuingInvitation ? '再発行中...' : '初回設定SMSを再発行' }}
+            </button>
+          </template>
+          <div v-else-if="!invitationError" class="text-muted">招待状態を確認中です...</div>
+        </div>
+      </div>
+
       <!-- 重複候補 -->
       <div v-if="!isNew && duplicates.length" class="card mb-4 border-warning">
         <div class="card-header bg-warning bg-opacity-10">

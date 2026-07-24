@@ -49,6 +49,7 @@ const CastManual = () => import('./pages/cast/CastManual.vue')
 const CastManualArticle = () => import('./pages/cast/CastManualArticle.vue')
 const CuLogin = () => import('./pages/cu/CuLogin.vue')
 const CuSignup = () => import('./pages/cu/CuSignup.vue')
+const CuActivate = () => import('./pages/cu/CuActivate.vue')
 const CuMypage = () => import('./pages/cu/CuMypage.vue')
 const CuBooking = () => import('./pages/cu/CuBooking.vue')
 const CuSubmitted = () => import('./pages/cu/CuSubmitted.vue')
@@ -113,6 +114,7 @@ const routes = [
   // Customer
   { path: '/cu/login', name: 'cu-login', component: CuLogin, meta: { public: true } },
   { path: '/cu/signup', name: 'cu-signup', component: CuSignup, meta: { public: true } },
+  { path: '/cu/activate', name: 'cu-activate', component: CuActivate, meta: { public: true } },
   { path: '/cu/mypage', name: 'cu-mypage', component: CuMypage },
   { path: '/cu/booking', name: 'cu-booking', component: CuBooking },
   { path: '/cu/submitted', name: 'cu-submitted', component: CuSubmitted },
@@ -138,7 +140,7 @@ async function ensureAuth() {
   if (authCache) return authCache
   try {
     const me = await api.me()
-    authCache = { authed: true, role: me.role }
+    authCache = { authed: true, role: me.role, roles: me.roles || [me.role] }
   } catch {
     authCache = { authed: false, role: null }
   }
@@ -146,7 +148,9 @@ async function ensureAuth() {
 }
 
 function homeForRole(role) {
-  return role === 'cast' ? '/cast/mypage' : '/op/dashboard'
+  if (role === 'cast') return '/cast/mypage'
+  if (role === 'customer') return '/cu/mypage'
+  return '/op/dashboard'
 }
 
 router.beforeEach(async (to) => {
@@ -161,6 +165,7 @@ router.beforeEach(async (to) => {
   if (isCu) {
     const auth = await ensureAuth()
     if (!auth.authed) return { name: 'cu-login', query: { next: to.fullPath } }
+    if (!auth.roles.includes('customer')) return { path: homeForRole(auth.role) }
     return
   }
 
@@ -178,9 +183,11 @@ router.beforeEach(async (to) => {
   if (auth.role === 'cast') {
     // cast が /op/* に来た場合、/op/profile (castAllowed) 以外は拒否
     if (isOp && !to.meta.castAllowed) return { path: '/cast/mypage' }
-  } else {
+  } else if (auth.role === 'staff' || auth.role === 'manager') {
     // staff / manager が /cast/* に来た場合は拒否
     if (isCast) return { path: '/op/dashboard' }
+  } else {
+    return { path: homeForRole(auth.role) }
   }
 })
 

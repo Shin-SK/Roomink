@@ -7,7 +7,7 @@ from django.utils.html import format_html
 from .models import (
     CallLog, CallNote, Cast, CastCheckoutExpenseSnapshot, CastDailyCheckout,
     CastExpense, CastExpenseTemplate,
-    CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerMergeLog,
+    CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerAccountInvitation, CustomerMergeLog,
     DailySettlement, LineNotificationLog, Option, Order, PointLog, Room,
     ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog, SmsTemplate, Store,
     StorePhoneNumber, UserProfile,
@@ -103,6 +103,17 @@ class CustomerAdmin(admin.ModelAdmin):
     list_display = ("id", "store", "phone", "display_name", "flag", "ban_type", "user")
     list_filter = ("store", "flag", "ban_type")
     search_fields = ("phone", "display_name")
+
+
+@admin.register(CustomerAccountInvitation)
+class CustomerAccountInvitationAdmin(admin.ModelAdmin):
+    list_display = ("id", "customer", "order", "expires_at", "used_at", "invalidated_at", "created_at")
+    list_filter = ("customer__store", "used_at", "invalidated_at")
+    readonly_fields = (
+        "customer", "order", "token_hash", "expires_at", "used_at",
+        "invalidated_at", "created_by", "sms_log", "created_at",
+    )
+    search_fields = ("customer__phone", "customer__display_name")
 
 
 @admin.register(Course)

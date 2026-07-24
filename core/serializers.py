@@ -79,7 +79,7 @@ class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = "__all__"
-        read_only_fields = ["store"]
+        read_only_fields = ["store", "user"]
 
     def validate_phone(self, value):
         return normalize_phone(value)

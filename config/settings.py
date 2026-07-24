@@ -226,6 +226,10 @@ TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_WEBHOOK_PUBLIC_BASE_URL = os.getenv("TWILIO_WEBHOOK_PUBLIC_BASE_URL", "").rstrip("/")
 TWILIO_WEBHOOK_ALLOW_UNSIGNED = os.getenv("TWILIO_WEBHOOK_ALLOW_UNSIGNED", "0") == "1"
 
+# --- Customer account invitation / SMS delivery ---
+FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
+SMS_DUMMY_MODE = os.getenv("SMS_DUMMY_MODE", "0") == "1"
+
 # --- LINE Messaging API ---
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")

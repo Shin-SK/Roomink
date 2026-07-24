@@ -820,7 +820,7 @@ class ExistingFeatureNotBrokenSmokeTest(RoomankOpsSmokeTestBase):
 
 # ──────────────────────────────────────
 # 6〜9. 週次シフト入力 / SMS文面設定 / SMS送信履歴 / タイムライン並び替え
-#   外部SMS実送信は行わない（Twilio環境変数が無い場合はダミー送信＋SmsLog記録のみ）
+#   外部SMS実送信は行わない（設定不足としてSmsLogへ記録する）
 # ──────────────────────────────────────
 
 class WeeklyShiftAndSmsSmokeTest(TestCase):
@@ -997,7 +997,7 @@ class WeeklyShiftAndSmsSmokeTest(TestCase):
         kinds = {l["template_type"]: l for l in logs.data}
         self.assertIn("RESERVATION_CONFIRMATION", kinds)
         confirm_log = kinds["RESERVATION_CONFIRMATION"]
-        self.assertEqual(confirm_log["status"], "SENT")
+        self.assertEqual(confirm_log["status"], "CONFIG_MISSING")
         self.assertEqual(confirm_log["to_phone"], "09012345678")
         self.assertEqual(confirm_log["payment_method"], "CARD")
         self.assertTrue(confirm_log["sent_at"])

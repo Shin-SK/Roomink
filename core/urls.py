@@ -57,7 +57,10 @@ urlpatterns = [
     # customer
     path("cu/store-list/", views.StoreListPublicView.as_view(), name="cu-store-list"),
     path("cu/stores/", views.CustomerStoresView.as_view(), name="cu-stores"),
+    path("cu/login/", views.customer_login, name="cu-login"),
     path("cu/signup/", views.customer_signup, name="cu-signup"),
+    path("cu/activate/preview/", views.customer_activation_preview, name="cu-activate-preview"),
+    path("cu/activate/", views.customer_activate, name="cu-activate"),
     path("cu/mypage/", views.CustomerMypageView.as_view(), name="cu-mypage"),
     path("cu/available-slots/", views.CustomerAvailableSlotsView.as_view(), name="cu-available-slots"),
     path("cu/booking/options/", views.CustomerBookingOptionsView.as_view(), name="cu-booking-options"),
@@ -67,6 +70,7 @@ urlpatterns = [
     # operator
     path("op/orders/<int:pk>/cast-ack/", views.OpOrderCastAckView.as_view(), name="op-order-cast-ack"),
     path("op/orders/<int:pk>/sms-logs/", views.OrderSmsLogsView.as_view(), name="op-order-sms-logs"),
+    path("op/customers/<int:pk>/invitation/", views.CustomerInvitationStatusView.as_view(), name="op-customer-invitation"),
     path("op/shifts/weekly/", views.WeeklyShiftView.as_view(), name="op-shifts-weekly"),
     path("op/schedule-cast-order/", views.ScheduleCastOrderView.as_view(), name="op-schedule-cast-order"),
     path("op/sms-templates/", views.SmsTemplateSettingsView.as_view(), name="op-sms-templates"),

@@ -105,6 +105,8 @@ export const api = {
   getCustomer: (id) => request('GET', `/customers/${id}/`),
   createCustomer: (body) => request('POST', '/customers/', body),
   updateCustomer: (id, body) => request('PATCH', `/customers/${id}/`, body),
+  getCustomerInvitation: (id) => request('GET', `/op/customers/${id}/invitation/`),
+  reissueCustomerInvitation: (id) => request('POST', `/op/customers/${id}/invitation/`, {}),
   getCustomerDuplicates: (id) => request('GET', `/customers/${id}/duplicates/`),
   mergeCustomer: (keepId, mergeId) => request('POST', `/customers/${keepId}/merge/`, { merge_id: mergeId }),
   checkCustomerDuplicate: (phone, name) => {
@@ -291,14 +293,16 @@ export const api = {
   applyShiftRequestsImport: (rows) => request('POST', '/op/shift-requests/import_apply/', { rows }),
 
   // Customer
-  customerSignup: (phone, password, display_name, store_id) => request('POST', '/cu/signup/', { phone, password, display_name, store_id }),
+  customerLogin: (phone, password) => request('POST', '/cu/login/', { phone, password }),
+  getCustomerActivation: (token) => request('POST', '/cu/activate/preview/', { token }),
+  activateCustomer: (token, password, passwordConfirm) => request('POST', '/cu/activate/', { token, password, password_confirm: passwordConfirm }),
   getStoreListPublic: () => request('GET', '/cu/store-list/'),
   getCustomerStores: () => request('GET', '/cu/stores/'),
   getCustomerMypage: (storeId) => request('GET', `/cu/mypage/${storeId ? '?store=' + storeId : ''}`),
   getBookingOptions: (storeId) => request('GET', `/cu/booking/options/${storeId ? '?store=' + storeId : ''}`),
   getAvailableSlots: (castId, date, storeId) => request('GET', `/cu/available-slots/?cast=${castId}&date=${date}${storeId ? '&store=' + storeId : ''}`),
   createCustomerBooking: (body, storeId) => request('POST', `/cu/bookings/${storeId ? '?store=' + storeId : ''}`, body),
-  getCustomerReservation: (id) => request('GET', `/cu/reservations/${id}/`),
+  getCustomerReservation: (id, storeId) => request('GET', `/cu/reservations/${id}/${storeId ? '?store=' + storeId : ''}`),
 
   // CTI
   getCtiQueue: () => request('GET', '/op/cti/queue/'),

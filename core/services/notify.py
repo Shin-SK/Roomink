@@ -1,7 +1,7 @@
 """
 通知サービス層 — Twilio SMS 送信
 環境変数 TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_PHONE が設定されていれば
-Twilio 経由で実送信する。未設定ならダミー送信（ログ + SmsLog 記録のみ）。
+Twilio 経由で実送信する。未設定時は明示的な SMS_DUMMY_MODE の場合だけダミー記録する。
 
 予約確認SMSの文面は、店舗の SmsTemplate（支払方法別）が有効なら優先して使用し、
 未設定なら従来どおり下記の既定文言を使う。
@@ -9,6 +9,9 @@ Twilio 経由で実送信する。未設定ならダミー送信（ログ + SmsL
 import logging
 import os
 from typing import Optional
+from urllib.parse import urlencode
+
+from django.conf import settings
 
 from core.models import Order, SmsLog, SmsTemplate
 
@@ -40,17 +43,20 @@ def send_sms(
     order: Optional[Order] = None,
     template_type: str = SmsLog.TemplateType.OTHER,
     created_by=None,
+    log_body: Optional[str] = None,
 ) -> SmsLog:
     """
-    SMS 送信。Twilio 環境変数があれば実送信、なければダミー。
+    SMS 送信。Twilio 環境変数があれば実送信する。
+    log_body を指定した場合、機密URLを含む実送信本文の代わりに安全な本文を保存する。
     成功/失敗/対象外いずれも SmsLog に記録する。
     """
     meta = _log_meta(order, template_type, created_by)
+    persisted_body = log_body if log_body is not None else body
 
     if not to_phone or to_phone == "cast":
-        logger.info("SMS skip (no valid phone) → %s", to_phone)
+        logger.info("SMS skip (no valid phone) → %s", _mask_phone(to_phone))
         return SmsLog.objects.create(
-            to_phone=to_phone or "", body=body,
+            to_phone=to_phone or "", body=persisted_body,
             status=SmsLog.Status.SKIPPED,
             provider=SmsLog.Provider.NONE,
             error_message="送信先電話番号が未設定のため送信していません",
@@ -58,14 +64,21 @@ def send_sms(
         )
 
     if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM_PHONE:
-        return _send_twilio(to_phone, body, meta)
+        return _send_twilio(to_phone, body, persisted_body, meta)
 
-    # ダミー送信
-    logger.info("SMS dummy send → %s", _mask_phone(to_phone))
+    if settings.SMS_DUMMY_MODE:
+        logger.info("SMS development dummy → %s", _mask_phone(to_phone))
+        send_status = SmsLog.Status.DUMMY
+        error_message = "DEVELOPMENT_DUMMY"
+    else:
+        logger.warning("SMS not sent (configuration missing) → %s", _mask_phone(to_phone))
+        send_status = SmsLog.Status.CONFIG_MISSING
+        error_message = "SMS_CONFIG_MISSING"
     return SmsLog.objects.create(
-        to_phone=to_phone, body=body,
-        status=SmsLog.Status.SENT,
+        to_phone=to_phone, body=persisted_body,
+        status=send_status,
         provider=SmsLog.Provider.NONE,
+        error_message=error_message,
         **meta,
     )
 
@@ -82,7 +95,7 @@ def _log_meta(order: Optional[Order], template_type: str, created_by) -> dict:
     }
 
 
-def _send_twilio(to_phone: str, body: str, meta: dict) -> SmsLog:
+def _send_twilio(to_phone: str, body: str, persisted_body: str, meta: dict) -> SmsLog:
     """Twilio API で SMS を送信。TWILIO_FROM_PHONE は取得済みの SMS 送信可能な Twilio 番号。"""
     try:
         from twilio.rest import Client
@@ -94,19 +107,20 @@ def _send_twilio(to_phone: str, body: str, meta: dict) -> SmsLog:
         )
         logger.info("SMS sent via Twilio → %s sid=%s", _mask_phone(to_phone), message.sid)
         return SmsLog.objects.create(
-            to_phone=to_phone, body=body,
+            to_phone=to_phone, body=persisted_body,
             status=SmsLog.Status.SENT,
             provider=SmsLog.Provider.TWILIO,
             provider_message_id=message.sid or "",
             **meta,
         )
     except Exception as e:
-        logger.error("SMS send failed → %s : %s", _mask_phone(to_phone), str(e))
+        safe_error = str(e).replace(str(to_phone), _mask_phone(to_phone))
+        logger.error("SMS send failed → %s : %s", _mask_phone(to_phone), safe_error)
         return SmsLog.objects.create(
-            to_phone=to_phone, body=body,
+            to_phone=to_phone, body=persisted_body,
             status=SmsLog.Status.FAILED,
             provider=SmsLog.Provider.TWILIO,
-            error_message=str(e),
+            error_message=safe_error,
             **meta,
         )
 
@@ -199,13 +213,59 @@ def build_confirmation_body(order: Order) -> str:
 
 def notify_order_confirmed(order: Order, created_by=None) -> SmsLog:
     """予約確定時に顧客へ通知"""
-    return send_sms(
-        to_phone=order.customer.phone,
-        body=build_confirmation_body(order),
+    return notify_customer_account(order.customer, order=order, created_by=created_by)
+
+
+def notify_customer_account(customer, order=None, created_by=None, force=False) -> SmsLog:
+    """顧客の登録状態に応じ、初回設定URLまたはログインURLを予約案内へ付加する。"""
+    from core.services.customer_invitation import issue_customer_invitation
+
+    base_body = build_confirmation_body(order) if order else "【Roomink】お客様アカウントのご案内です。"
+    frontend_url = settings.FRONTEND_URL
+    if not frontend_url:
+        logger.warning("Customer account SMS not sent (FRONTEND_URL missing) → %s", _mask_phone(customer.phone))
+        return SmsLog.objects.create(
+            to_phone=customer.phone,
+            body="【Roomink】顧客案内（URL設定不足のため未送信）",
+            status=SmsLog.Status.CONFIG_MISSING,
+            provider=SmsLog.Provider.NONE,
+            error_message="FRONTEND_URL_MISSING",
+            **_log_meta(order, SmsLog.TemplateType.RESERVATION_CONFIRMATION, created_by),
+        )
+
+    invitation = None
+    if customer.user_id:
+        next_path = f"/cu/reservations/{order.id}?store={customer.store_id}" if order else f"/cu/mypage?store={customer.store_id}"
+        customer_url = f"{frontend_url}/cu/login?{urlencode({'next': next_path})}"
+        guidance = "予約内容は次のURLから確認できます。"
+    else:
+        invitation, raw_token = issue_customer_invitation(
+            customer,
+            order=order,
+            created_by=created_by,
+            force=force,
+        )
+        if raw_token:
+            customer_url = f"{frontend_url}/cu/activate?{urlencode({'token': raw_token})}"
+            guidance = "次のURLから72時間以内にパスワードを設定してください。"
+        else:
+            customer_url = f"{frontend_url}/cu/signup"
+            guidance = "すでに初回設定のご案内を送信済みです。案内が見つからない場合は店舗へお問い合わせください。"
+
+    body = f"{base_body}\n{guidance}\n{customer_url}"
+    safe_body = f"{base_body}\n{guidance}\n[顧客用リンク]"
+    sms_log = send_sms(
+        to_phone=customer.phone,
+        body=body,
         order=order,
         template_type=SmsLog.TemplateType.RESERVATION_CONFIRMATION,
         created_by=created_by,
+        log_body=safe_body,
     )
+    if invitation and invitation.sms_log_id is None:
+        invitation.sms_log = sms_log
+        invitation.save(update_fields=["sms_log"])
+    return sms_log
 
 
 def notify_cast_order(order: Order, created_by=None) -> SmsLog:

@@ -14,8 +14,9 @@ const loading = ref(false)
 onMounted(async () => {
   try { await api.csrf() } catch { /* ignore */ }
   try {
-    await api.me()
-    router.replace(route.query.next || '/cu/mypage')
+    const me = await api.me()
+    const roles = me.roles || [me.role]
+    if (roles.includes('customer')) router.replace(route.query.next || '/cu/mypage')
   } catch {
     // 未ログイン
   }
@@ -25,7 +26,7 @@ async function onSubmit() {
   error.value = ''
   loading.value = true
   try {
-    await api.login(phone.value, password.value)
+    await api.customerLogin(phone.value, password.value)
     resetAuthCache()
     router.push(route.query.next || '/cu/mypage')
   } catch (e) {

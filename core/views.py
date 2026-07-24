@@ -9,6 +9,7 @@ from datetime import date as date_type, datetime, timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
 from django.db.models import ProtectedError
@@ -89,6 +90,13 @@ from .services.notify import (
     notify_cast_order,
     notify_order_cancelled,
     notify_order_confirmed,
+    notify_customer_account,
+)
+from .services.customer_invitation import (
+    INVALID_INVITATION_MESSAGE,
+    activate_customer_invitation,
+    get_valid_invitation,
+    serialize_invitation_status,
 )
 
 
@@ -166,22 +174,31 @@ def auth_password_reset(request):
 @api_view(["GET"])
 @ensure_csrf_cookie
 def auth_me(request):
-    try:
-        profile = UserProfile.objects.select_related("store").get(user=request.user)
-    except UserProfile.DoesNotExist:
+    profile = UserProfile.objects.select_related("store").filter(user=request.user).first()
+    customer_profiles = list(
+        Customer.objects.filter(user=request.user).select_related("store").order_by("id")
+    )
+    if profile is None and not customer_profiles:
         return Response(
             {"detail": "プロフィールが未作成です。管理者に連絡してください。"},
             status=status.HTTP_403_FORBIDDEN,
         )
-    store = profile.store
+    roles = []
+    if profile:
+        roles.append(profile.role)
+    if customer_profiles:
+        roles.append("customer")
+    store = profile.store if profile else customer_profiles[0].store
+    primary_role = profile.role if profile else "customer"
     return Response({
         "id": request.user.id,
         "username": request.user.username,
         "display_name": request.user.first_name or request.user.username,
-        "avatar_url": profile.avatar_url,
+        "avatar_url": profile.avatar_url if profile else "",
         "store_id": store.id,
         "store_name": store.name,
-        "role": profile.role,
+        "role": primary_role,
+        "roles": roles,
     })
 
 
@@ -928,57 +945,95 @@ class CustomerStoresView(APIView):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def customer_signup(request):
-    """POST /api/cu/signup/ — 顧客アカウント作成"""
-    from django.contrib.auth.models import User
+    """本人確認のない公開登録は停止し、予約確定時の招待に限定する。"""
+    return Response(
+        {"detail": "新規登録は予約確定後にSMSで届く案内から行ってください。"},
+        status=status.HTTP_410_GONE,
+    )
 
+
+@extend_schema(operation_id="customer_login", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def customer_login(request):
     phone = normalize_phone((request.data.get("phone") or "").strip())
     password = request.data.get("password", "")
-    display_name = (request.data.get("display_name") or "").strip()
-
+    failure = {"detail": "電話番号またはパスワードが正しくありません"}
     if not phone or not password:
-        return Response(
-            {"detail": "電話番号とパスワードは必須です"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return Response(failure, status=status.HTTP_401_UNAUTHORIZED)
 
-    if User.objects.filter(username=phone).exists():
-        return Response(
-            {"detail": "この電話番号は既に登録されています"},
-            status=status.HTTP_409_CONFLICT,
+    candidates = Customer.objects.filter(
+        user__isnull=False,
+        phone__endswith=phone[-4:],
+    ).select_related("user")
+    users = {
+        customer.user_id: customer.user
+        for customer in candidates
+        if normalize_phone(customer.phone) == phone
+    }
+    if len(users) != 1:
+        # 存在しない電話番号でもpassword hash計算を行い、応答時間による列挙を抑える。
+        authenticate(
+            request,
+            username="__roomink_customer_login_dummy__",
+            password=password,
         )
+        return Response(failure, status=status.HTTP_401_UNAUTHORIZED)
 
-    store_id = request.data.get("store_id")
-    if not store_id:
-        return Response(
-            {"detail": "store_id は必須です"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    store = Store.objects.filter(id=store_id).first()
-    if store is None:
-        return Response(
-            {"detail": "指定された店舗が見つかりません"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    with transaction.atomic():
-        user = User.objects.create_user(username=phone, password=password)
-        customer, created = Customer.objects.get_or_create(
-            store=store, phone=phone,
-            defaults={"display_name": display_name},
-        )
-        if not created and customer.user_id is not None:
-            user.delete()
-            return Response(
-                {"detail": "この電話番号は既に登録されています"},
-                status=status.HTTP_409_CONFLICT,
-            )
-        customer.user = user
-        if display_name and not customer.display_name:
-            customer.display_name = display_name
-        customer.save()
-
+    candidate = next(iter(users.values()))
+    user = authenticate(request, username=candidate.username, password=password)
+    if user is None:
+        return Response(failure, status=status.HTTP_401_UNAUTHORIZED)
     login(request, user)
-    return Response({"ok": True, "username": user.username}, status=status.HTTP_201_CREATED)
+    return Response({"ok": True})
+
+
+@extend_schema(
+    operation_id="customer_activation_preview",
+    request=OpenApiTypes.OBJECT,
+    responses=OpenApiTypes.OBJECT,
+)
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def customer_activation_preview(request):
+    invitation = get_valid_invitation(request.data.get("token", ""))
+    if invitation is None:
+        return Response(
+            {"detail": INVALID_INVITATION_MESSAGE},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    digits = normalize_phone(invitation.customer.phone)
+    return Response({
+        "masked_phone": f"***{digits[-4:]}" if digits else "***",
+        "expires_at": invitation.expires_at,
+    })
+
+
+@extend_schema(
+    operation_id="customer_activation_complete",
+    request=OpenApiTypes.OBJECT,
+    responses=OpenApiTypes.OBJECT,
+)
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def customer_activate(request):
+    try:
+        _, next_path = activate_customer_invitation(
+            request,
+            request.data.get("token", ""),
+            request.data.get("password", ""),
+            request.data.get("password_confirm", ""),
+        )
+    except DjangoValidationError as exc:
+        messages = list(exc.messages)
+        return Response(
+            {"detail": messages[0] if len(messages) == 1 else messages},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response({"ok": True, "next": next_path})
 
 
 @document_object_api_view
@@ -4770,6 +4825,44 @@ class OrderSmsLogsView(APIView):
             .order_by("-sent_at", "-id")
         )
         return Response(SmsLogSerializer(logs, many=True).data)
+
+
+@document_object_api_view
+class CustomerInvitationStatusView(APIView):
+    """顧客アカウント招待の状態確認と、運営による安全な再発行。"""
+
+    def _customer(self, request, pk):
+        _require_staff_or_manager(request)
+        store = get_user_store(request)
+        customer = Customer.objects.filter(pk=pk, store=store).first()
+        if customer is None:
+            from rest_framework.exceptions import NotFound
+            raise NotFound("対象の顧客が見つかりません")
+        return customer
+
+    def get(self, request, pk):
+        return Response(serialize_invitation_status(self._customer(request, pk)))
+
+    def post(self, request, pk):
+        customer = self._customer(request, pk)
+        if customer.user_id:
+            return Response(
+                {"detail": "この顧客はアカウント設定済みです。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        order = (
+            customer.orders
+            .exclude(status__in=[Order.Status.REQUESTED, Order.Status.CANCELLED])
+            .order_by("-created_at")
+            .first()
+        )
+        if order is None and not customer.account_invitations.exists():
+            return Response(
+                {"detail": "予約確定後に初回案内を発行できます。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        notify_customer_account(customer, order=order, created_by=request.user, force=True)
+        return Response(serialize_invitation_status(customer))
 
 
 @document_object_api_view

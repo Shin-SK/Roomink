@@ -11,7 +11,7 @@ const order = ref(null)
 
 onMounted(async () => {
   try {
-    order.value = await api.getCustomerReservation(route.params.id)
+    order.value = await api.getCustomerReservation(route.params.id, route.query.store)
   } catch (e) {
     error.value = e.message
   } finally {

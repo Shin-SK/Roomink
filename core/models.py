@@ -358,6 +358,48 @@ class Order(models.Model):
         return f"Order#{self.pk} {self.cast} {self.start:%m/%d %H:%M}"
 
 
+class CustomerAccountInvitation(models.Model):
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        related_name="account_invitations",
+    )
+    order = models.ForeignKey(
+        Order,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="customer_account_invitations",
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_customer_account_invitations",
+    )
+    sms_log = models.ForeignKey(
+        "SmsLog",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="customer_account_invitations",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["customer", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"CustomerAccountInvitation#{self.pk} customer={self.customer_id}"
+
+
 class OrderOption(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     option = models.ForeignKey(Option, on_delete=models.PROTECT)
@@ -486,6 +528,8 @@ class SmsLog(models.Model):
         SENT = "SENT", "送信済"
         FAILED = "FAILED", "失敗"
         SKIPPED = "SKIPPED", "対象外"
+        DUMMY = "DUMMY", "開発用ダミー"
+        CONFIG_MISSING = "CONFIG_MISSING", "設定不足"
 
     class TemplateType(models.TextChoices):
         RESERVATION_CONFIRMATION = "RESERVATION_CONFIRMATION", "予約確認"
@@ -510,7 +554,7 @@ class SmsLog(models.Model):
     )
     to_phone = models.CharField(max_length=20)
     body = models.TextField()
-    status = models.CharField(max_length=10, choices=Status.choices)
+    status = models.CharField(max_length=20, choices=Status.choices)
     template_type = models.CharField(
         max_length=32, choices=TemplateType.choices, default=TemplateType.OTHER,
     )
