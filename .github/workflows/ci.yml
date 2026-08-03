@@ -134,6 +134,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Set up npm 11
+        run: npm install --global npm@11.12.1
+
       - name: Install frontend dependencies
         run: npm ci
 
