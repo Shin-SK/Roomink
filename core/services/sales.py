@@ -4,6 +4,26 @@ from datetime import timedelta
 
 from django.db.models import Sum, Count
 
+from .business_datetime import (
+    business_date_for_datetime,
+    business_day_range,
+    format_business_time,
+)
+
+
+def get_done_orders_for_business_range(store, date_from, date_to):
+    """指定した営業日範囲のDONE注文QuerySetを返す。"""
+    from ..models import Order
+
+    range_start, _ = business_day_range(date_from, store.timezone)
+    _, range_end = business_day_range(date_to, store.timezone)
+    return Order.objects.filter(
+        store=store,
+        status=Order.Status.DONE,
+        start__gte=range_start,
+        start__lt=range_end,
+    )
+
 
 def payment_fee_rates(store):
     """決済方法ごとの手数料率（%・参考値）を返す。Store設定が未設定/存在しない場合は固定値にフォールバックする。
@@ -20,16 +40,9 @@ def payment_fee_rates(store):
 
 def get_sales_summary(store, date_from, date_to):
     """
-    store の DONE 注文を start 日付ベースで集計し、summary dict を返す。
+    store の DONE 注文を営業日ベースで集計し、summary dict を返す。
     """
-    from ..models import Order
-
-    qs = Order.objects.filter(
-        store=store,
-        status=Order.Status.DONE,
-        start__date__gte=date_from,
-        start__date__lte=date_to,
-    )
+    qs = get_done_orders_for_business_range(store, date_from, date_to)
 
     agg = qs.aggregate(
         total_sales=Sum("total_price"),
@@ -41,16 +54,14 @@ def get_sales_summary(store, date_from, date_to):
 
     # by_day: 期間内の全日を埋める
     day_map = {}
-    for row in (
-        qs.values("start__date")
-        .annotate(sales=Sum("total_price"), orders=Count("id"))
-        .order_by("start__date")
-    ):
-        day_map[row["start__date"]] = {
-            "date": row["start__date"].isoformat(),
-            "sales": row["sales"],
-            "orders": row["orders"],
-        }
+    for row in qs.values("start", "total_price"):
+        business_date = business_date_for_datetime(row["start"], store.timezone)
+        entry = day_map.setdefault(
+            business_date,
+            {"date": business_date.isoformat(), "sales": 0, "orders": 0},
+        )
+        entry["sales"] += row["total_price"]
+        entry["orders"] += 1
 
     by_day = []
     d = date_from
@@ -72,15 +83,8 @@ def get_sales_csv(store, date_from, date_to):
     """
     store の DONE 注文明細を CSV 文字列で返す。UTF-8 BOM 付き。
     """
-    from ..models import Order
-
     orders = (
-        Order.objects.filter(
-            store=store,
-            status=Order.Status.DONE,
-            start__date__gte=date_from,
-            start__date__lte=date_to,
-        )
+        get_done_orders_for_business_range(store, date_from, date_to)
         .select_related("cast", "room", "customer")
         .order_by("start")
     )
@@ -94,6 +98,7 @@ def get_sales_csv(store, date_from, date_to):
         "延長料金", "指名料", "割引額", "合計金額", "決済方法", "媒体名",
     ])
     for o in orders:
+        business_date = business_date_for_datetime(o.start, store.timezone)
         customer_label = ""
         customer_phone = ""
         if o.customer:
@@ -102,9 +107,9 @@ def get_sales_csv(store, date_from, date_to):
             customer_phone = c.phone or ""
         writer.writerow([
             o.pk,
-            o.start.strftime("%Y-%m-%d"),
-            o.start.strftime("%H:%M"),
-            o.end.strftime("%H:%M"),
+            business_date.isoformat(),
+            format_business_time(o.start, business_date, store.timezone),
+            format_business_time(o.end, business_date, store.timezone),
             customer_label,
             customer_phone,
             o.cast.name if o.cast else "",
@@ -125,7 +130,7 @@ def get_sales_csv(store, date_from, date_to):
 def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, payment_method=None):
     """
     manager向け売上集計ダッシュボード（Phase 3-D）用の集計。
-    get_sales_summary() と同じ対象（store の DONE 注文、start 日付ベース）を、
+    get_sales_summary() と同じ対象（store の DONE 注文、営業日ベース）を、
     決済方法別/キャスト別（給与見込み込み）/部屋別/日別に内訳集計して返す。
     既存の get_sales_summary() / Sales.vue には影響しない別関数。
     """
@@ -133,12 +138,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
 
     from ..models import Cast, Order, Room
 
-    qs = Order.objects.filter(
-        store=store,
-        status=Order.Status.DONE,
-        start__date__gte=date_from,
-        start__date__lte=date_to,
-    )
+    qs = get_done_orders_for_business_range(store, date_from, date_to)
     if cast_id:
         qs = qs.filter(cast_id=cast_id)
     if room_id:
@@ -268,16 +268,14 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
 
     # 日別（期間内の全日を埋める）
     day_map = {}
-    for row in (
-        qs.values("start__date")
-        .annotate(sales=Sum("total_price"), orders=Count("id"))
-        .order_by("start__date")
-    ):
-        day_map[row["start__date"]] = {
-            "date": row["start__date"].isoformat(),
-            "sales": row["sales"] or 0,
-            "orders": row["orders"],
-        }
+    for row in qs.values("start", "total_price"):
+        business_date = business_date_for_datetime(row["start"], store.timezone)
+        entry = day_map.setdefault(
+            business_date,
+            {"date": business_date.isoformat(), "sales": 0, "orders": 0},
+        )
+        entry["sales"] += row["total_price"]
+        entry["orders"] += 1
     by_day = []
     d = date_from
     while d <= date_to:

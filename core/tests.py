@@ -537,7 +537,15 @@ class AreaSalesDashboardSmokeTest(RoomankOpsSmokeTestBase):
 
     def _today_dt(self, hour):
         from django.utils import timezone
-        return timezone.make_aware(timezone.datetime.combine(date.today(), timezone.datetime.min.time())).replace(hour=hour)
+        from core.services.business_datetime import business_date_for_datetime
+
+        business_date = business_date_for_datetime(
+            timezone.now(),
+            self.store_a.timezone,
+        )
+        return timezone.make_aware(
+            timezone.datetime.combine(business_date, timezone.datetime.min.time())
+        ).replace(hour=hour)
 
 
 class CastNoteSmokeTest(RoomankOpsSmokeTestBase):
@@ -795,6 +803,7 @@ class ExistingFeatureNotBrokenSmokeTest(RoomankOpsSmokeTestBase):
         self.assertIn("net_sales_after_payment_fee", data)
         self.assertIn("done_count", data)
         self.assertTrue(data["can_submit"])
+        checkout_date = date.fromisoformat(data["date"])
 
         res = cast_client.post("/api/cast/checkout/", {
             "actual_take_home_amount": 1000,
@@ -802,7 +811,12 @@ class ExistingFeatureNotBrokenSmokeTest(RoomankOpsSmokeTestBase):
             "checklist_json": {},
         }, format="json")
         self.assertEqual(res.status_code, 201)
-        self.assertTrue(CastDailyCheckout.objects.filter(cast=self.cast_a, date=date.today()).exists())
+        self.assertTrue(
+            CastDailyCheckout.objects.filter(
+                cast=self.cast_a,
+                date=checkout_date,
+            ).exists()
+        )
 
     def test_cast_adjustment_flow_still_works(self):
         mgr = self.client_as(self.manager_a)
