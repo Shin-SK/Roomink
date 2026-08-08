@@ -41,6 +41,8 @@ const roomOrdersAdapter = computed(() =>
     course_name: o.course_name,
     start: o.start,
     end: o.end,
+    start_time_extended: o.start_time_extended,
+    end_time_extended: o.end_time_extended,
     status: o.status,
     options: o.options,
     is_unconfirmed: o.is_unconfirmed,
@@ -56,6 +58,7 @@ const showPhoneSearch = ref(false)
 const showCreateModal = ref(false)
 const modalCast = ref('')
 const modalStartTime = ref('')
+const modalStartDate = ref('')
 const modalCustomerId = ref('')
 
 // 出勤セラピスト並び替えモーダル（キャスト別表示のみ）
@@ -162,7 +165,7 @@ async function openOrderModal() {
       }
       const row = byCast.get(item.cast_id)
       row.shift_ids.push(item.shift_assignment_id)
-      row.times.push(`${String(item.start_time).slice(0, 5)}〜${String(item.end_time).slice(0, 5)}`)
+      row.times.push(`${String(item.start_time).slice(0, 5)}〜${item.end_time_extended || String(item.end_time).slice(0, 5)}`)
     }
     orderRows.value = Array.from(byCast.values())
   } catch (e) {
@@ -204,11 +207,26 @@ async function saveOrder() {
   }
 }
 
-function openCreateModal({ cast = '', customer = '', startTime = '' } = {}) {
+function openCreateModal({ cast = '', customer = '', startTime = '', startDate = '' } = {}) {
   modalCast.value = cast
   modalCustomerId.value = customer
   modalStartTime.value = startTime || '15:00'
+  modalStartDate.value = startDate || selectedDate.value
   showCreateModal.value = true
+}
+
+function resolveTimelineStart(startTime) {
+  const [hour, minute] = String(startTime).split(':').map(Number)
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    return { date: selectedDate.value, time: startTime }
+  }
+  const d = new Date(`${selectedDate.value}T12:00:00`)
+  d.setDate(d.getDate() + Math.floor(hour / 24))
+  const pad = value => String(value).padStart(2, '0')
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(hour % 24)}:${pad(minute)}`,
+  }
 }
 
 function onCreateOrder(payload) {
@@ -219,7 +237,8 @@ function onCreateOrder(payload) {
   const cast = payload && payload.cast ? payload.cast : payload
   const startTime = (payload && payload.start_time) || ''
   if (!cast || !cast.id) return
-  openCreateModal({ cast: cast.id, startTime })
+  const resolved = resolveTimelineStart(startTime)
+  openCreateModal({ cast: cast.id, startTime: resolved.time, startDate: resolved.date })
 }
 
 function onOrderCreated({ order }) {
@@ -515,7 +534,7 @@ onMounted(loadSchedule)
           </div>
           <div class="modal-body">
             <OrderForm
-              :initial-date="selectedDate"
+              :initial-date="modalStartDate"
               :initial-cast="modalCast"
               :initial-customer-id="modalCustomerId"
               :initial-start-time="modalStartTime"

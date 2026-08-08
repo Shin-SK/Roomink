@@ -198,6 +198,22 @@ def business_day_range(
     return start_at, end_at
 
 
+def format_business_time(value, business_date, timezone_name="Asia/Tokyo"):
+    """aware datetimeを指定営業日のHH:MM（最大29:00）へ変換する。"""
+    if not isinstance(value, datetime) or value.utcoffset() is None:
+        raise BusinessDateTimeError("timezone-aware datetimeを指定してください。")
+    if not isinstance(business_date, date) or isinstance(business_date, datetime):
+        raise BusinessDateTimeError("business_dateはdatetime.dateで指定してください。")
+    target_timezone = _coerce_timezone(timezone_name)
+    local_value = value.astimezone(target_timezone)
+    day_offset = (local_value.date() - business_date).days
+    _validate_day_offset(day_offset)
+    return format_extended_time(
+        local_value.time().replace(tzinfo=None),
+        day_offset,
+    )
+
+
 def intervals_overlap(start_a, end_a, start_b, end_b):
     """半開区間同士が重なるかを返す。境界が接するだけなら重複しない。"""
     values = (start_a, end_a, start_b, end_b)

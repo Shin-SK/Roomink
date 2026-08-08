@@ -101,6 +101,10 @@ const effectiveStartHour = computed(() => {
       if (Number.isFinite(h) && h < earliest) earliest = h
     }
   }
+  for (const order of props.orders || []) {
+    const h = parseInt(orderStartTime(order).slice(0, 2), 10)
+    if (Number.isFinite(h) && h < earliest) earliest = h
+  }
   return Math.max(0, earliest)
 })
 
@@ -109,7 +113,7 @@ const effectiveEndHour = computed(() => {
   for (const c of props.casts || []) {
     const shifts = Array.isArray(c.shifts) ? c.shifts : []
     for (const s of shifts) {
-      const t = (s.end_time || '').slice(0, 5)
+      const t = (s.end_time_extended || s.end_time || '').slice(0, 5)
       if (!t) continue
       const h = parseInt(t.slice(0, 2), 10)
       const m = parseInt(t.slice(3, 5), 10) || 0
@@ -117,7 +121,14 @@ const effectiveEndHour = computed(() => {
       if (Number.isFinite(eff) && eff > latest) latest = eff
     }
   }
-  return Math.min(23, latest)
+  for (const order of props.orders || []) {
+    const t = orderEndTime(order)
+    const h = parseInt(t.slice(0, 2), 10)
+    const m = parseInt(t.slice(3, 5), 10) || 0
+    const eff = m > 0 ? h + 1 : h
+    if (Number.isFinite(eff) && eff > latest) latest = eff
+  }
+  return Math.min(29, latest)
 })
 
 const hours = computed(() => {
@@ -166,8 +177,16 @@ function formatTime(dt) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function orderStartTime(order) {
+  return order.start_time_extended || formatTime(order.start)
+}
+
+function orderEndTime(order) {
+  return order.end_time_extended || formatTime(order.end)
+}
+
 function blockMeta(order) {
-  const t = `${formatTime(order.start)}–${formatTime(order.end)}`
+  const t = `${orderStartTime(order)}–${orderEndTime(order)}`
   if (order.status === 'REQUESTED') return `申請中 / ${t}`
   return t
 }
@@ -191,7 +210,7 @@ function castShiftRange(cast) {
   let maxEnd = null
   for (const s of shifts) {
     const st = (s.start_time || '').slice(0, 5)
-    const ed = (s.end_time || '').slice(0, 5)
+    const ed = (s.end_time_extended || s.end_time || '').slice(0, 5)
     if (st && (minStart === null || st < minStart)) minStart = st
     if (ed && (maxEnd === null || ed > maxEnd)) maxEnd = ed
   }
@@ -281,7 +300,7 @@ const shiftBands = computed(() => {
     const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
     for (const s of shifts) {
       const st = (s.start_time || '').slice(0, 5)
-      const ed = (s.end_time || '').slice(0, 5)
+      const ed = (s.end_time_extended || s.end_time || '').slice(0, 5)
       if (!st || !ed) continue
       const stMin = parseTimeToMin(st)
       const edMin = parseTimeToMin(ed)
@@ -311,7 +330,7 @@ const intervalBlocks = computed(() => {
       .filter(o => o.cast_id === cast.id && o.status !== 'CANCELLED')
       .sort((a, b) => new Date(a.end) - new Date(b.end))
     for (const order of castOrders) {
-      const endTime = formatTime(order.end)
+      const endTime = orderEndTime(order)
       const endMin = parseTimeToMin(endTime)
       const intervalEndMin = endMin + interval
       const intervalEnd = `${String(Math.floor(intervalEndMin / 60)).padStart(2, '0')}:${String(intervalEndMin % 60).padStart(2, '0')}`
@@ -520,8 +539,8 @@ onBeforeUnmount(() => {
             href="#"
             :data-order-id="order.id"
             :data-row="castIndexMap[order.cast_id] ?? 0"
-            :data-start="formatTime(order.start)"
-            :data-end="formatTime(order.end)"
+            :data-start="orderStartTime(order)"
+            :data-end="orderEndTime(order)"
             @click.prevent.stop="emit('block-click', order)"
           >
             <div class="rk-block__title">{{ order.customer_label }} ({{ order.course_name }})</div>
