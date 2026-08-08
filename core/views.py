@@ -98,6 +98,7 @@ from .services.customer_invitation import (
     get_valid_invitation,
     serialize_invitation_status,
 )
+from .services.business_datetime import build_business_interval, intervals_overlap
 
 
 def document_object_api_view(cls):
@@ -4673,6 +4674,7 @@ class WeeklyShiftView(APIView):
                 "room": item.get("room"),
                 "start_time": item.get("start_time"),
                 "end_time": item.get("end_time"),
+                "end_day_offset": item.get("end_day_offset", 0),
                 "daily_memo": item.get("daily_memo") or "",
             })
 
@@ -4695,17 +4697,24 @@ class WeeklyShiftView(APIView):
                 )
                 errors.append({"date": p["date"], "detail": detail})
 
-        # リクエスト内での同一日重複（既存DBには無いため serializer では検出できない）
-        seen = defaultdict(list)
+        # リクエスト内での重複（翌日まで続くシフトも含む）
+        seen_intervals = []
         for ser in serializers_ok:
             v = ser.validated_data
-            for other in seen[v["date"]]:
-                if v["start_time"] < other["end_time"] and v["end_time"] > other["start_time"]:
+            start_at, end_at = build_business_interval(
+                v["date"],
+                v["start_time"],
+                v["end_time"],
+                end_day_offset=v.get("end_day_offset", 0),
+                timezone_name=store.timezone,
+            )
+            for other_start, other_end in seen_intervals:
+                if intervals_overlap(start_at, end_at, other_start, other_end):
                     errors.append({
                         "date": v["date"].isoformat(),
                         "detail": "同じリクエスト内で時間が重複しています",
                     })
-            seen[v["date"]].append(v)
+            seen_intervals.append((start_at, end_at))
 
         if errors:
             return Response(
