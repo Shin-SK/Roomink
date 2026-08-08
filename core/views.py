@@ -84,6 +84,7 @@ from .services.pricing import recalculate_order_total
 from .services.sales import (
     get_sales_summary, get_sales_csv,
     get_sales_dashboard, get_sales_dashboard_csv,
+    get_done_orders_for_business_range,
 )
 from .services.notify import (
     default_confirmation_preview as _default_sms_preview,
@@ -100,6 +101,7 @@ from .services.customer_invitation import (
 )
 from .services.business_datetime import (
     BusinessDateTimeError,
+    business_date_for_datetime,
     build_business_interval,
     format_extended_time,
     intervals_overlap,
@@ -571,9 +573,7 @@ def _compute_cast_done_sales(cast, d):
     """指定キャスト・指定日のDONE注文を集計し、売上/給与見込みを返す（CastTodaySalesView/CastCheckoutViewで共用）"""
     import math
 
-    done_orders = Order.objects.filter(
-        cast=cast, start__date=d, status=Order.Status.DONE,
-    )
+    done_orders = get_done_orders_for_business_range(cast.store, d, d).filter(cast=cast)
 
     done_count = done_orders.count()
     total_sales = sum(o.total_price for o in done_orders)
@@ -600,7 +600,7 @@ def _compute_payment_fee_estimate(store, cast, d):
     import math
     from .services.sales import payment_fee_rates
 
-    done_orders = Order.objects.filter(cast=cast, start__date=d, status=Order.Status.DONE)
+    done_orders = get_done_orders_for_business_range(store, d, d).filter(cast=cast)
     fee_rates = payment_fee_rates(store)
 
     total_sales = 0
@@ -628,7 +628,7 @@ class CastTodaySalesView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        today = timezone.localdate()
+        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
         return Response(_compute_cast_done_sales(cast, today))
 
 
@@ -649,7 +649,7 @@ class CastCheckoutView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        today = timezone.localdate()
+        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
         sales = _compute_cast_done_sales(cast, today)
         fee = _compute_payment_fee_estimate(cast.store, cast, today)
 
@@ -678,7 +678,7 @@ class CastCheckoutView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        today = timezone.localdate()
+        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
         existing = CastDailyCheckout.objects.filter(cast=cast, date=today).first()
         if existing is not None and existing.status != CastDailyCheckout.Status.RETURNED:
             return Response(
@@ -3766,9 +3766,9 @@ def twilio_status_webhook(request):
 # Sales
 # ──────────────────────────────────────
 
-def _parse_sales_range(request):
+def _parse_sales_range(request, store):
     """range / date_from / date_to パラメータを解析して (date_from, date_to) を返す。"""
-    today = date_type.today()
+    today = business_date_for_datetime(timezone.now(), store.timezone)
     range_key = request.query_params.get("range")
 
     if range_key == "today":
@@ -3805,7 +3805,7 @@ class SalesSummaryView(APIView):
     def get(self, request):
         _require_manager(request)
         store = get_user_store(request)
-        date_from, date_to = _parse_sales_range(request)
+        date_from, date_to = _parse_sales_range(request, store)
         if date_from is None:
             return Response(
                 {"detail": "range (today/week/month) または date_from, date_to を指定してください"},
@@ -3821,7 +3821,7 @@ class SalesExportView(APIView):
     def get(self, request):
         _require_manager(request)
         store = get_user_store(request)
-        date_from, date_to = _parse_sales_range(request)
+        date_from, date_to = _parse_sales_range(request, store)
         if date_from is None:
             return Response(
                 {"detail": "range (today/week/month) または date_from, date_to を指定してください"},
@@ -3863,7 +3863,7 @@ class SalesDashboardView(APIView):
     def get(self, request):
         _require_manager(request)
         store = get_user_store(request)
-        date_from, date_to = _parse_sales_range(request)
+        date_from, date_to = _parse_sales_range(request, store)
         if date_from is None:
             return Response(
                 {"detail": "range (today/week/month) または date_from, date_to を指定してください"},
@@ -3883,7 +3883,7 @@ class SalesDashboardExportView(APIView):
     def get(self, request):
         _require_manager(request)
         store = get_user_store(request)
-        date_from, date_to = _parse_sales_range(request)
+        date_from, date_to = _parse_sales_range(request, store)
         if date_from is None:
             return Response(
                 {"detail": "range (today/week/month) または date_from, date_to を指定してください"},
@@ -3981,7 +3981,8 @@ class DailySettlementView(APIView):
             if s.cast_id not in cast_shifts:
                 cast_shifts[s.cast_id] = []
             cast_shifts[s.cast_id].append(
-                f"{str(s.start_time)[:5]}-{str(s.end_time)[:5]}"
+                f"{str(s.start_time)[:5]}-"
+                f"{format_extended_time(s.end_time, s.end_day_offset)}"
             )
 
         if not cast_ids:
@@ -3990,9 +3991,8 @@ class DailySettlementView(APIView):
         casts = {c.id: c for c in Cast.objects.filter(pk__in=cast_ids)}
 
         # DONE 注文
-        done_orders = (
-            Order.objects
-            .filter(store=store, start__date=d, status=Order.Status.DONE, cast_id__in=cast_ids)
+        done_orders = get_done_orders_for_business_range(store, d, d).filter(
+            cast_id__in=cast_ids,
         )
         from collections import defaultdict
         orders_by_cast = defaultdict(list)
