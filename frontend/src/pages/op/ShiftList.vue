@@ -156,7 +156,7 @@ function openEdit(s) {
     cast: s.cast,
     room: s.room,
     start_time: s.start_time?.slice(0, 5) || '',
-    end_time: s.end_time?.slice(0, 5) || '',
+    end_time: s.end_time_extended || s.end_time?.slice(0, 5) || '',
     daily_memo: s.daily_memo || '',
     is_absent: !!s.is_absent,
   }
@@ -168,12 +168,26 @@ async function onSave() {
   saving.value = true
   formError.value = ''
   try {
+    if (!/^\d{2}:\d{2}$/.test(form.value.end_time)) {
+      throw new Error('終了時間はHH:MM形式で入力してください')
+    }
+    const [extendedEndHour, extendedEndMinute] = form.value.end_time.split(':').map(Number)
+    if (
+      extendedEndHour < 0
+      || extendedEndHour > 29
+      || extendedEndMinute < 0
+      || extendedEndMinute > 59
+      || (extendedEndHour === 29 && extendedEndMinute !== 0)
+    ) {
+      throw new Error('終了時間は00:00から29:00までで入力してください')
+    }
     const body = {
       date: form.value.date,
       cast: Number(form.value.cast),
       room: Number(form.value.room),
       start_time: form.value.start_time,
-      end_time: form.value.end_time,
+      end_time: `${String(extendedEndHour % 24).padStart(2, '0')}:${String(extendedEndMinute).padStart(2, '0')}`,
+      end_day_offset: extendedEndHour >= 24 ? 1 : 0,
       daily_memo: form.value.daily_memo || '',
       is_absent: !!form.value.is_absent,
     }
@@ -497,7 +511,7 @@ async function onClearClockIn(s) {
                   </td>
                   <td>{{ s.room_name || roomName(s.room) }}</td>
                   <td>{{ s.start_time?.slice(0, 5) }}</td>
-                  <td>{{ s.end_time?.slice(0, 5) }}</td>
+                  <td>{{ s.end_time_extended || s.end_time?.slice(0, 5) }}</td>
                   <td>
                     <button
                       v-if="s.date === today && !s.clocked_in_at"
@@ -599,7 +613,15 @@ async function onClearClockIn(s) {
               </div>
               <div class="col-6 mb-3">
                 <label class="form-label">終了時間</label>
-                <input v-model="form.end_time" type="time" step="1800" class="form-control" />
+                <input
+                  v-model.trim="form.end_time"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="5"
+                  placeholder="例: 23:00 / 29:00"
+                  class="form-control"
+                />
+                <div class="form-text">HH:MM形式。24:00以降は翌日の時刻として保存されます（最大29:00）。</div>
               </div>
             </div>
             <div class="mb-3">

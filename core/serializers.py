@@ -40,6 +40,12 @@ from .models import (
     StorePhoneNumber,
     UserProfile,
 )
+from .services.business_datetime import (
+    BusinessDateTimeError,
+    build_business_interval,
+    format_extended_time,
+    intervals_overlap,
+)
 
 User = get_user_model()
 
@@ -398,6 +404,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
     cast_name = serializers.CharField(source="cast.name", read_only=True)
     cast_avatar_url = serializers.CharField(source="cast.avatar_url", read_only=True)
     room_name = serializers.CharField(source="room.name", read_only=True)
+    end_time_extended = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftAssignment
@@ -416,9 +423,24 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         cast = data.get("cast", getattr(self.instance, "cast", None))
         start_time = data.get("start_time", getattr(self.instance, "start_time", None))
         end_time = data.get("end_time", getattr(self.instance, "end_time", None))
+        end_day_offset = data.get(
+            "end_day_offset",
+            getattr(self.instance, "end_day_offset", 0),
+        )
 
-        if start_time and end_time and end_time <= start_time:
-            raise serializers.ValidationError("end_time は start_time より後にしてください")
+        start_at = end_at = None
+        if date and start_time and end_time:
+            try:
+                format_extended_time(end_time, end_day_offset)
+                start_at, end_at = build_business_interval(
+                    date,
+                    start_time,
+                    end_time,
+                    end_day_offset=end_day_offset,
+                    timezone_name=store.timezone if store else "Asia/Tokyo",
+                )
+            except BusinessDateTimeError as exc:
+                raise serializers.ValidationError(str(exc)) from exc
 
         room = data.get("room", getattr(self.instance, "room", None))
         if store is not None:
@@ -427,17 +449,34 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             if room is not None and room.store_id != store.id:
                 raise serializers.ValidationError("他店舗のルームは指定できません")
 
-        qs = ShiftAssignment.objects.filter(
-            store=store, date=date, cast=cast,
-            start_time__lt=end_time,
-            end_time__gt=start_time,
-        )
-        if self.instance:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            raise serializers.ValidationError("このキャストの既存シフトと時間が重複しています")
+        if store and cast and date and start_at and end_at:
+            qs = ShiftAssignment.objects.filter(
+                store=store,
+                cast=cast,
+                date__range=(date - timedelta(days=1), date + timedelta(days=1)),
+            )
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            for existing in qs:
+                try:
+                    existing_start, existing_end = build_business_interval(
+                        existing.date,
+                        existing.start_time,
+                        existing.end_time,
+                        end_day_offset=existing.end_day_offset,
+                        timezone_name=store.timezone,
+                    )
+                except BusinessDateTimeError:
+                    continue
+                if intervals_overlap(start_at, end_at, existing_start, existing_end):
+                    raise serializers.ValidationError(
+                        "このキャストの既存シフトと時間が重複しています"
+                    )
 
         return data
+
+    def get_end_time_extended(self, obj) -> str:
+        return format_extended_time(obj.end_time, obj.end_day_offset)
 
 
 # ──────────────────────────────────────
