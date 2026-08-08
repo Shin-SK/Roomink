@@ -70,11 +70,27 @@ const approveAdminMemo = ref('')
 const approveError = ref('')
 const approving = ref(false)
 
+function normalizeExtendedEndTime(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value || '')
+  if (!match) throw new Error('終了時間はHH:MM形式で入力してください（例: 23:00 / 29:00）')
+
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (minute > 59 || hour > 29 || (hour === 29 && minute !== 0)) {
+    throw new Error('終了時間は00:00〜29:00で入力してください')
+  }
+
+  return {
+    end_time: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+    end_day_offset: hour >= 24 ? 1 : 0,
+  }
+}
+
 function openApprove(r) {
   approveTarget.value = r
   approveDate.value = r.date || ''
   approveStartTime.value = r.start_time?.slice(0, 5) || ''
-  approveEndTime.value = r.end_time?.slice(0, 5) || ''
+  approveEndTime.value = r.end_time_extended || r.end_time?.slice(0, 5) || ''
   approveRoom.value = r.desired_room || ''
   approveAdminMemo.value = ''
   approveError.value = ''
@@ -86,13 +102,20 @@ async function doApprove() {
   if (!approveStartTime.value) { approveError.value = '開始時間を入力してください'; return }
   if (!approveEndTime.value) { approveError.value = '終了時間を入力してください'; return }
   if (!approveRoom.value) { approveError.value = '部屋を選択してください'; return }
+  let normalizedEnd
+  try {
+    normalizedEnd = normalizeExtendedEndTime(approveEndTime.value)
+  } catch (e) {
+    approveError.value = e.message
+    return
+  }
   approving.value = true
   approveError.value = ''
   try {
     await api.approveShiftRequest(approveTarget.value.id, {
       date: approveDate.value,
       start_time: approveStartTime.value,
-      end_time: approveEndTime.value,
+      ...normalizedEnd,
       room: Number(approveRoom.value),
       admin_memo: approveAdminMemo.value,
     })
@@ -284,14 +307,14 @@ async function doApply() {
               <td>{{ r.cast_name }}</td>
               <td>
                 <div>{{ r.date }}</div>
-                <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</div>
+                <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time_extended || r.end_time?.slice(0,5) }}</div>
                 <div class="small text-muted">{{ r.desired_room_name || '-' }}</div>
               </td>
               <td>
                 <template v-if="r.status === 'APPROVED'">
                   <template v-if="r.approved_date">
                     <div>{{ r.approved_date }}</div>
-                    <div class="small text-muted">{{ r.approved_start_time?.slice(0,5) }}-{{ r.approved_end_time?.slice(0,5) }}</div>
+                    <div class="small text-muted">{{ r.approved_start_time?.slice(0,5) }}-{{ r.approved_end_time_extended || r.approved_end_time?.slice(0,5) }}</div>
                     <div class="small text-muted">{{ r.approved_room_name || '-' }}</div>
                   </template>
                   <span v-else class="text-muted small">履歴未記録（旧データ）</span>
@@ -346,14 +369,14 @@ async function doApply() {
                 <tr v-for="r in g.items" :key="r.id">
                   <td>{{ r.cast_name }}</td>
                   <td>
-                    <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</div>
+                    <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time_extended || r.end_time?.slice(0,5) }}</div>
                     <div class="small text-muted">{{ r.desired_room_name || '-' }}</div>
                   </td>
                   <td>
                     <template v-if="r.status === 'APPROVED'">
                       <template v-if="r.approved_date">
                         <div>{{ r.approved_date }}</div>
-                        <div class="small text-muted">{{ r.approved_start_time?.slice(0,5) }}-{{ r.approved_end_time?.slice(0,5) }}</div>
+                        <div class="small text-muted">{{ r.approved_start_time?.slice(0,5) }}-{{ r.approved_end_time_extended || r.approved_end_time?.slice(0,5) }}</div>
                         <div class="small text-muted">{{ r.approved_room_name || '-' }}</div>
                       </template>
                       <span v-else class="text-muted small">履歴未記録（旧データ）</span>
@@ -409,14 +432,14 @@ async function doApply() {
                 <tr v-for="r in g.items" :key="r.id">
                   <td>
                     <div>{{ r.date }}</div>
-                    <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time?.slice(0,5) }}</div>
+                    <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time_extended || r.end_time?.slice(0,5) }}</div>
                     <div class="small text-muted">{{ r.desired_room_name || '-' }}</div>
                   </td>
                   <td>
                     <template v-if="r.status === 'APPROVED'">
                       <template v-if="r.approved_date">
                         <div>{{ r.approved_date }}</div>
-                        <div class="small text-muted">{{ r.approved_start_time?.slice(0,5) }}-{{ r.approved_end_time?.slice(0,5) }}</div>
+                        <div class="small text-muted">{{ r.approved_start_time?.slice(0,5) }}-{{ r.approved_end_time_extended || r.approved_end_time?.slice(0,5) }}</div>
                         <div class="small text-muted">{{ r.approved_room_name || '-' }}</div>
                       </template>
                       <span v-else class="text-muted small">履歴未記録（旧データ）</span>
@@ -468,7 +491,7 @@ async function doApply() {
             <p>
               <strong>{{ approveTarget?.cast_name }}</strong>
               <span class="text-muted small">（申請: {{ approveTarget?.date }}
-              {{ approveTarget?.start_time?.slice(0,5) }}-{{ approveTarget?.end_time?.slice(0,5) }}）</span>
+              {{ approveTarget?.start_time?.slice(0,5) }}-{{ approveTarget?.end_time_extended || approveTarget?.end_time?.slice(0,5) }}）</span>
             </p>
             <div class="mb-3">
               <label class="form-label">日付（必須）</label>
@@ -481,7 +504,15 @@ async function doApply() {
               </div>
               <div class="col mb-3">
                 <label class="form-label">終了（必須）</label>
-                <input v-model="approveEndTime" type="time" class="form-control">
+                <input
+                  v-model="approveEndTime"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="5"
+                  placeholder="例: 23:00 / 29:00"
+                  class="form-control"
+                >
+                <div class="form-text">翌朝は24:00〜29:00で入力できます。</div>
               </div>
             </div>
             <div class="mb-3">
@@ -519,7 +550,7 @@ async function doApply() {
             <p>
               <strong>{{ rejectTarget?.cast_name }}</strong> /
               {{ rejectTarget?.date }}
-              {{ rejectTarget?.start_time?.slice(0,5) }}-{{ rejectTarget?.end_time?.slice(0,5) }}
+              {{ rejectTarget?.start_time?.slice(0,5) }}-{{ rejectTarget?.end_time_extended || rejectTarget?.end_time?.slice(0,5) }}
             </p>
             <div class="mb-3">
               <label class="form-label">管理者メモ（任意）</label>

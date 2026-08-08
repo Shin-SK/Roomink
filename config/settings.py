@@ -131,6 +131,7 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "Roomink API",
     "VERSION": "0.1.0",
     "ENUM_NAME_OVERRIDES": {
+        "EndDayOffsetEnum": "core.models.DAY_OFFSET_CHOICES",
         "ShiftRequestStatusEnum": "core.models.ShiftRequest.Status",
         "OrderStatusEnum": "core.models.Order.Status",
         "CallLogStatusEnum": "core.models.CallLog.Status",

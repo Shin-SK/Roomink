@@ -6,6 +6,9 @@ from django.conf import settings
 from django.db import models
 
 
+DAY_OFFSET_CHOICES = ((0, "当日"), (1, "翌日"))
+
+
 def generate_line_link_code():
     """6桁の英数字連携コードを生成"""
     alphabet = string.ascii_uppercase + string.digits
@@ -138,7 +141,7 @@ class ShiftAssignment(models.Model):
     start_time = models.TimeField()
     end_time = models.TimeField()
     end_day_offset = models.PositiveSmallIntegerField(
-        choices=((0, "当日"), (1, "翌日")),
+        choices=DAY_OFFSET_CHOICES,
         default=0,
         help_text="終了時刻がシフト日の翌日に属する場合は1",
     )
@@ -176,6 +179,11 @@ class ShiftRequest(models.Model):
     date = models.DateField()
     start_time = models.TimeField()
     end_time = models.TimeField()
+    end_day_offset = models.PositiveSmallIntegerField(
+        choices=DAY_OFFSET_CHOICES,
+        default=0,
+        help_text="終了時刻が申請日の翌日に属する場合は1",
+    )
     desired_room = models.ForeignKey(Room, null=True, blank=True, on_delete=models.SET_NULL, related_name="shift_requests")
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.REQUESTED)
     memo = models.TextField(blank=True, default="")
@@ -183,6 +191,11 @@ class ShiftRequest(models.Model):
     approved_date = models.DateField(null=True, blank=True)
     approved_start_time = models.TimeField(null=True, blank=True)
     approved_end_time = models.TimeField(null=True, blank=True)
+    approved_end_day_offset = models.PositiveSmallIntegerField(
+        choices=DAY_OFFSET_CHOICES,
+        default=0,
+        help_text="承認終了時刻が承認日の翌日に属する場合は1",
+    )
     approved_room = models.ForeignKey(
         Room, null=True, blank=True,
         on_delete=models.SET_NULL, related_name="approved_shift_requests",
