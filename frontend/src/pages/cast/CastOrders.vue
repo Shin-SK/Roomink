@@ -10,13 +10,9 @@ const orders = ref([])
 const totalOrders = ref(0)
 const unconfirmedCount = ref(0)
 
-function today() {
-  return new Date().toISOString().slice(0, 10)
-}
-
 onMounted(async () => {
   try {
-    const data = await api.getCastToday(today())
+    const data = await api.getCastToday()
     shift.value = data.shift
     orders.value = data.orders
     totalOrders.value = data.total_orders
@@ -45,6 +41,14 @@ function formatTime(dt) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function displayStartTime(order) {
+  return order.start_time_extended || formatTime(order.start)
+}
+
+function displayEndTime(order) {
+  return order.end_time_extended || formatTime(order.end)
+}
+
 function durationMin(order) {
   const s = new Date(order.start)
   const e = new Date(order.end)
@@ -56,7 +60,7 @@ function formatYen(n) {
 }
 
 const startHour = computed(() => shift.value ? parseInt(shift.value.start_time) : 12)
-const endHour = computed(() => shift.value ? parseInt(shift.value.end_time) : 20)
+const endHour = computed(() => shift.value ? parseInt(shift.value.end_time_extended || shift.value.end_time) : 20)
 
 const hours = computed(() => {
   const arr = []
@@ -147,7 +151,7 @@ onMounted(() => {
         <div class="card-body">
           <div class="ca-order__head">
             <div class="ca-order__time">
-              <span class="ca-order__hours">{{ formatTime(order.start) }} – {{ formatTime(order.end) }}</span>
+              <span class="ca-order__hours">{{ displayStartTime(order) }} – {{ displayEndTime(order) }}</span>
               <span class="ca-order__dur">{{ durationMin(order) }}分</span>
             </div>
             <span
@@ -207,10 +211,10 @@ onMounted(() => {
               href="#"
               @click.prevent
               data-col="0"
-              :data-start="formatTime(order.start)"
-              :data-end="formatTime(order.end)"
+              :data-start="displayStartTime(order)"
+              :data-end="displayEndTime(order)"
             >
-              <div class="rk-block__title">{{ formatTime(order.start) }} – {{ formatTime(order.end) }} / {{ durationMin(order) }}分</div>
+              <div class="rk-block__title">{{ displayStartTime(order) }} – {{ displayEndTime(order) }} / {{ durationMin(order) }}分</div>
               <div class="rk-block__meta">{{ order.room_name }} / {{ order.is_unconfirmed ? '未確認' : '確認済' }}</div>
             </a>
           </div>
