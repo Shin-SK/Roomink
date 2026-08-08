@@ -488,6 +488,8 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
     desired_room_name = serializers.CharField(source="desired_room.name", read_only=True, default=None)
     approved_room_name = serializers.CharField(source="approved_room.name", read_only=True, default=None)
     decided_by_name = serializers.SerializerMethodField()
+    end_time_extended = serializers.SerializerMethodField()
+    approved_end_time_extended = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftRequest
@@ -495,7 +497,8 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
         # cast本人は申請内容のみ編集可。承認/却下に関するフィールドは閲覧専用にする。
         read_only_fields = [
             "store", "cast", "status", "admin_memo",
-            "approved_date", "approved_start_time", "approved_end_time", "approved_room",
+            "approved_date", "approved_start_time", "approved_end_time",
+            "approved_end_day_offset", "approved_room",
             "decided_at", "decided_by",
         ]
 
@@ -505,28 +508,68 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
         return obj.decided_by.get_full_name() or obj.decided_by.username
 
     def validate(self, data):
+        request = self.context.get("request")
         start_time = data.get("start_time", getattr(self.instance, "start_time", None))
         end_time = data.get("end_time", getattr(self.instance, "end_time", None))
-
-        if start_time and end_time and end_time <= start_time:
-            raise serializers.ValidationError("end_time は start_time より後にしてください")
+        end_day_offset = data.get(
+            "end_day_offset",
+            getattr(self.instance, "end_day_offset", 0),
+        )
 
         # 同一キャスト・同一時間帯の REQUESTED 重複チェック
-        cast = data.get("cast", getattr(self.instance, "cast", None))
+        cast = (
+            data.get("cast")
+            or getattr(self.instance, "cast", None)
+            or getattr(getattr(request, "user", None), "cast_profile", None)
+        )
         date = data.get("date", getattr(self.instance, "date", None))
+        start_at = end_at = None
         if cast and date and start_time and end_time:
+            try:
+                format_extended_time(end_time, end_day_offset)
+                start_at, end_at = build_business_interval(
+                    date,
+                    start_time,
+                    end_time,
+                    end_day_offset=end_day_offset,
+                    timezone_name=cast.store.timezone,
+                )
+            except BusinessDateTimeError as exc:
+                raise serializers.ValidationError(str(exc)) from exc
+
             qs = ShiftRequest.objects.filter(
-                cast=cast, date=date,
+                cast=cast,
+                date__range=(date - timedelta(days=1), date + timedelta(days=1)),
                 status=ShiftRequest.Status.REQUESTED,
-                start_time__lt=end_time,
-                end_time__gt=start_time,
             )
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
-            if qs.exists():
-                raise serializers.ValidationError("同じ時間帯に申請中のシフトがあります")
+            for existing in qs:
+                try:
+                    existing_start, existing_end = build_business_interval(
+                        existing.date,
+                        existing.start_time,
+                        existing.end_time,
+                        end_day_offset=existing.end_day_offset,
+                        timezone_name=cast.store.timezone,
+                    )
+                except BusinessDateTimeError:
+                    continue
+                if intervals_overlap(start_at, end_at, existing_start, existing_end):
+                    raise serializers.ValidationError("同じ時間帯に申請中のシフトがあります")
 
         return data
+
+    def get_end_time_extended(self, obj) -> str:
+        return format_extended_time(obj.end_time, obj.end_day_offset)
+
+    def get_approved_end_time_extended(self, obj) -> Optional[str]:
+        if obj.approved_end_time is None:
+            return None
+        return format_extended_time(
+            obj.approved_end_time,
+            obj.approved_end_day_offset,
+        )
 
 
 class OpShiftRequestSerializer(serializers.ModelSerializer):
@@ -534,13 +577,16 @@ class OpShiftRequestSerializer(serializers.ModelSerializer):
     desired_room_name = serializers.CharField(source="desired_room.name", read_only=True, default=None)
     approved_room_name = serializers.CharField(source="approved_room.name", read_only=True, default=None)
     decided_by_name = serializers.SerializerMethodField()
+    end_time_extended = serializers.SerializerMethodField()
+    approved_end_time_extended = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftRequest
         fields = "__all__"
         read_only_fields = [
             "store", "cast",
-            "approved_date", "approved_start_time", "approved_end_time", "approved_room",
+            "approved_date", "approved_start_time", "approved_end_time",
+            "approved_end_day_offset", "approved_room",
             "decided_at", "decided_by",
         ]
 
@@ -548,6 +594,17 @@ class OpShiftRequestSerializer(serializers.ModelSerializer):
         if not obj.decided_by:
             return None
         return obj.decided_by.get_full_name() or obj.decided_by.username
+
+    def get_end_time_extended(self, obj) -> str:
+        return format_extended_time(obj.end_time, obj.end_day_offset)
+
+    def get_approved_end_time_extended(self, obj) -> Optional[str]:
+        if obj.approved_end_time is None:
+            return None
+        return format_extended_time(
+            obj.approved_end_time,
+            obj.approved_end_day_offset,
+        )
 
 
 # ──────────────────────────────────────
