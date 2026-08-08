@@ -595,9 +595,10 @@ class ShiftConfirmNotificationSmokeTest(RoomankOpsSmokeTestBase):
 
     def test_alert_and_test_log_creation(self):
         from django.utils import timezone
-        soon = (timezone.now() + timedelta(minutes=30)).time().replace(second=0, microsecond=0)
+        soon_at = timezone.localtime(timezone.now()) + timedelta(minutes=30)
+        soon = soon_at.time().replace(second=0, microsecond=0)
         shift = ShiftAssignment.objects.create(
-            store=self.store_a, date=date.today(), cast=self.cast_a, room=self.room_shinjuku,
+            store=self.store_a, date=soon_at.date(), cast=self.cast_a, room=self.room_shinjuku,
             start_time=soon, end_time=soon,
         )
 
