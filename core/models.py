@@ -137,6 +137,11 @@ class ShiftAssignment(models.Model):
     room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name="shift_assignments")
     start_time = models.TimeField()
     end_time = models.TimeField()
+    end_day_offset = models.PositiveSmallIntegerField(
+        choices=((0, "当日"), (1, "翌日")),
+        default=0,
+        help_text="終了時刻がシフト日の翌日に属する場合は1",
+    )
     clocked_in_at = models.DateTimeField(null=True, blank=True)
     daily_memo = models.TextField(blank=True, default="", help_text="その日だけのメモ")
     is_absent = models.BooleanField(default=False, help_text="当欠フラグ")
