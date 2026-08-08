@@ -80,13 +80,9 @@ function checkoutStatusLabel(s) {
   return { SUBMITTED: '提出済み（未確認）', REVIEWED: '確認済み', RETURNED: '差戻し' }[s] || s
 }
 
-function today() {
-  return new Date().toISOString().slice(0, 10)
-}
-
 onMounted(async () => {
   try {
-    const data = await api.getCastToday(today())
+    const data = await api.getCastToday()
     castName.value = data.cast_name
     avatarUrl.value = data.avatar_url
     shift.value = data.shift
@@ -236,6 +232,14 @@ function formatTime(dt) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function displayStartTime(order) {
+  return order.start_time_extended || formatTime(order.start)
+}
+
+function displayEndTime(order) {
+  return order.end_time_extended || formatTime(order.end)
+}
+
 function copyCode() {
   navigator.clipboard.writeText(lineLinkCode.value)
   codeCopied.value = true
@@ -286,7 +290,7 @@ function durationMin(order) {
             <div class="ca-page-header__title">{{ castName }}様</div>
             <div class="ca-page-header__sub" v-if="shift">
               <span class="time">
-                <i class="ti ti-calendar-event"></i>{{ shift.start_time }}-{{ shift.end_time }}</span>
+                <i class="ti ti-calendar-event"></i>{{ shift.start_time }}-{{ shift.end_time_extended || shift.end_time }}</span>
               <span class="room">
                 <i class="ti ti-door"></i>{{ shift.room_name }}</span>
             </div>
@@ -310,7 +314,7 @@ function durationMin(order) {
                     <span class="small text-muted">{{ shiftConfirm.is_today ? '（本日）' : '（次回シフト）' }}</span>
                   </div>
                   <div class="small text-muted">
-                    <i class="ti ti-clock"></i> {{ shiftConfirm.shift.start_time }}–{{ shiftConfirm.shift.end_time }}
+                    <i class="ti ti-clock"></i> {{ shiftConfirm.shift.start_time }}–{{ shiftConfirm.shift.end_time_extended || shiftConfirm.shift.end_time }}
                     <span v-if="shiftConfirm.shift.room_name"><i class="ti ti-door"></i> {{ shiftConfirm.shift.room_name }}</span>
                   </div>
                 </div>
@@ -641,7 +645,7 @@ function durationMin(order) {
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-start mb-2">
               <div>
-                <div class="fw-bold fs-5">{{ formatTime(order.start) }} – {{ formatTime(order.end) }}</div>
+                <div class="fw-bold fs-5">{{ displayStartTime(order) }} – {{ displayEndTime(order) }}</div>
                 <div class="small text-muted">{{ durationMin(order) }}分</div>
               </div>
               <span

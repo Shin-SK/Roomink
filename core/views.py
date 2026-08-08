@@ -103,7 +103,9 @@ from .services.customer_invitation import (
 from .services.business_datetime import (
     BusinessDateTimeError,
     business_date_for_datetime,
+    business_day_range,
     build_business_interval,
+    format_business_time,
     format_extended_time,
     intervals_overlap,
     parse_extended_time,
@@ -489,7 +491,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
 @document_object_api_view
 class CastTodayView(APIView):
-    """GET /api/cast/today/?date=YYYY-MM-DD — キャスト本人の当日予約一覧"""
+    """GET /api/cast/today/?date=YYYY-MM-DD — キャスト本人の営業日別予約一覧。日付省略時は現在営業日。"""
 
     def get(self, request):
         cast = getattr(request.user, "cast_profile", None)
@@ -500,22 +502,21 @@ class CastTodayView(APIView):
             )
 
         date_str = request.query_params.get("date")
-        if not date_str:
-            return Response(
-                {"detail": "date パラメータは必須です（YYYY-MM-DD）"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            d = date_type.fromisoformat(date_str)
-        except ValueError:
-            return Response(
-                {"detail": "date の形式が不正です（YYYY-MM-DD）"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if date_str:
+            try:
+                d = date_type.fromisoformat(date_str)
+            except ValueError:
+                return Response(
+                    {"detail": "date の形式が不正です（YYYY-MM-DD）"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            d = business_date_for_datetime(timezone.now(), cast.store.timezone)
 
+        range_start, range_end = business_day_range(d, cast.store.timezone)
         orders = (
             Order.objects
-            .filter(cast=cast, start__date=d)
+            .filter(cast=cast, start__gte=range_start, start__lt=range_end)
             .exclude(status__in=[Order.Status.DONE, Order.Status.CANCELLED])
             .select_related("room", "customer", "course")
             .order_by("start")
@@ -541,6 +542,16 @@ class CastTodayView(APIView):
                 "id": o.id,
                 "start": o.start,
                 "end": o.end,
+                "start_time_extended": format_business_time(
+                    o.start,
+                    d,
+                    cast.store.timezone,
+                ),
+                "end_time_extended": format_business_time(
+                    o.end,
+                    d,
+                    cast.store.timezone,
+                ),
                 "status": o.status,
                 "room_id": o.room_id,
                 "room_name": o.room.name,
@@ -560,6 +571,10 @@ class CastTodayView(APIView):
             "shift": {
                 "start_time": str(shift.start_time)[:5] if shift else None,
                 "end_time": str(shift.end_time)[:5] if shift else None,
+                "end_time_extended": (
+                    format_extended_time(shift.end_time, shift.end_day_offset)
+                    if shift else None
+                ),
                 "room_name": shift.room.name if shift else None,
             } if shift else None,
             "total_orders": len(data),
@@ -757,6 +772,10 @@ def _serialize_shift_for_confirm(shift):
         "date": shift.date.isoformat(),
         "start_time": str(shift.start_time)[:5],
         "end_time": str(shift.end_time)[:5],
+        "end_time_extended": format_extended_time(
+            shift.end_time,
+            shift.end_day_offset,
+        ),
         "room_name": shift.room.name if shift.room_id else None,
         "confirmed_at": shift.confirmed_at,
     }
@@ -772,7 +791,7 @@ class CastShiftConfirmView(APIView):
     """
 
     def _find_target_shift(self, cast):
-        today = timezone.localdate()
+        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
         return (
             ShiftAssignment.objects
             .filter(cast=cast, date__gte=today)
@@ -790,7 +809,7 @@ class CastShiftConfirmView(APIView):
             )
 
         shift = self._find_target_shift(cast)
-        today = timezone.localdate()
+        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
         return Response({
             "shift": _serialize_shift_for_confirm(shift),
             "is_today": bool(shift and shift.date == today),
@@ -816,7 +835,7 @@ class CastShiftConfirmView(APIView):
             shift.confirmed_at = timezone.now()
             shift.save(update_fields=["confirmed_at"])
 
-        today = timezone.localdate()
+        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
         return Response({
             "shift": _serialize_shift_for_confirm(shift),
             "is_today": shift.date == today,
@@ -854,10 +873,24 @@ class CastAckView(APIView):
         ack.acked_at = timezone.now()
         ack.save(update_fields=["acked_at"])
 
+        order_business_date = business_date_for_datetime(
+            order.start,
+            cast.store.timezone,
+        )
         return Response({
             "id": order.id,
             "start": order.start,
             "end": order.end,
+            "start_time_extended": format_business_time(
+                order.start,
+                order_business_date,
+                cast.store.timezone,
+            ),
+            "end_time_extended": format_business_time(
+                order.end,
+                order_business_date,
+                cast.store.timezone,
+            ),
             "status": order.status,
             "room_id": order.room_id,
             "room_name": order.room.name,

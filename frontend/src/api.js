@@ -217,7 +217,10 @@ export const api = {
   getOrderSmsLogs: (id) => request('GET', `/op/orders/${id}/sms-logs/`),
 
   // Cast
-  getCastToday: (date) => request('GET', `/cast/today/?date=${date}`),
+  getCastToday: (date = '') => request(
+    'GET',
+    date ? `/cast/today/?date=${date}` : '/cast/today/',
+  ),
   getCastTodaySales: () => request('GET', '/cast/today-sales/'),
   ackOrder: (id) => request('POST', `/cast/orders/${id}/ack/`),
   getCastLineLink: () => request('GET', '/cast/line-link/'),

@@ -904,6 +904,8 @@ class CastTodayOrderSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     start = serializers.DateTimeField()
     end = serializers.DateTimeField()
+    start_time_extended = serializers.CharField()
+    end_time_extended = serializers.CharField()
     status = serializers.CharField()
     room_id = serializers.IntegerField()
     room_name = serializers.CharField()
