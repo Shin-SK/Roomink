@@ -35,6 +35,7 @@ from .models import (
     SmsTemplate, Store, StorePhoneNumber, UserProfile,
     generate_line_link_code,
 )
+from .permissions import PastOrderManagerOnlyPermission
 from .serializers import (
     CallLogSerializer,
     CallNoteSerializer,
@@ -305,6 +306,7 @@ class RoomScheduleView(APIView):
 # ──────────────────────────────────────
 
 class OrderViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, PastOrderManagerOnlyPermission]
     queryset = Order.objects.select_related(
         "cast", "room", "customer", "course",
     ).prefetch_related("options").order_by("start")

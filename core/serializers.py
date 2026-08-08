@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import List, Optional
 
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
 from .utils.phone import normalize_phone
 from django.contrib.auth import get_user_model
@@ -51,6 +52,11 @@ from .services.business_datetime import (
 from .services.order_availability import (
     cast_has_order_conflict,
     find_covering_shift,
+)
+from .services.order_policy import (
+    can_modify_business_datetime,
+    can_modify_order,
+    is_past_business_day_order,
 )
 
 User = get_user_model()
@@ -632,6 +638,8 @@ class OrderSerializer(serializers.ModelSerializer):
     options = serializers.SerializerMethodField()
     option_ids = serializers.SerializerMethodField()
     is_unconfirmed = serializers.SerializerMethodField()
+    is_past_business_day = serializers.SerializerMethodField()
+    can_modify = serializers.SerializerMethodField()
     cast_name = serializers.CharField(source="cast.name", read_only=True)
     room_name = serializers.CharField(source="room.name", read_only=True)
     # course_name is now a snapshot field on Order; no source override needed
@@ -641,7 +649,8 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = [
             "id", "store", "cast", "room", "customer", "course",
             "cast_name", "room_name", "course_name", "customer_label",
-            "start", "end", "status", "options", "option_ids", "is_unconfirmed", "memo",
+            "start", "end", "status", "options", "option_ids", "is_unconfirmed",
+            "is_past_business_day", "can_modify", "memo",
             "course_price", "options_price",
             "extension", "extension_name", "extension_price",
             "nomination_fee", "nomination_fee_name", "nomination_fee_price",
@@ -665,6 +674,13 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def get_is_unconfirmed(self, obj) -> bool:
         return not CastAck.objects.filter(order=obj, acked_at__isnull=False).exists()
+
+    def get_is_past_business_day(self, obj) -> bool:
+        return is_past_business_day_order(obj)
+
+    def get_can_modify(self, obj) -> bool:
+        request = self.context.get("request")
+        return can_modify_order(request.user if request else None, obj)
 
 
 # ──────────────────────────────────────
@@ -697,6 +713,16 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     def validate(self, data):
         store = data["customer"].store
         data["store"] = store
+
+        request = self.context.get("request")
+        if request and not can_modify_business_datetime(
+            request.user,
+            data["start"],
+            store,
+        ):
+            raise PermissionDenied(
+                "過去営業日の予約を作成できるのはマネージャーのみです。"
+            )
 
         # A) BAN check
         customer = data["customer"]
@@ -786,6 +812,16 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
         cast = data.get("cast", instance.cast)
         start = data.get("start", instance.start)
         end = data.get("end", instance.end)
+
+        request = self.context.get("request")
+        if request and not can_modify_business_datetime(
+            request.user,
+            start,
+            instance.store,
+        ):
+            raise PermissionDenied(
+                "過去営業日の予約へ変更できるのはマネージャーのみです。"
+            )
 
         # course changed → recalc end if not explicitly set
         if "course" in data and "end" not in data:
