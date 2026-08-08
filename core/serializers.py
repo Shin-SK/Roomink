@@ -42,7 +42,9 @@ from .models import (
 )
 from .services.business_datetime import (
     BusinessDateTimeError,
+    business_day_range,
     build_business_interval,
+    format_business_time,
     format_extended_time,
     intervals_overlap,
 )
@@ -883,14 +885,19 @@ class CastTodayOrderSerializer(serializers.Serializer):
 class ScheduleShiftSerializer(serializers.ModelSerializer):
     room_name = serializers.CharField(source="room.name", read_only=True)
     room_color = serializers.CharField(source="room.background_color", read_only=True, default="")
+    end_time_extended = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftAssignment
         fields = [
             "id", "room_id", "room_name", "room_color",
-            "start_time", "end_time", "clocked_in_at", "confirmed_at",
+            "start_time", "end_time", "end_day_offset", "end_time_extended",
+            "clocked_in_at", "confirmed_at",
             "daily_memo", "is_absent",
         ]
+
+    def get_end_time_extended(self, obj) -> str:
+        return format_extended_time(obj.end_time, obj.end_day_offset)
 
 
 class ScheduleCastSerializer(serializers.Serializer):
@@ -910,6 +917,8 @@ class ScheduleOrderSerializer(serializers.Serializer):
     course_name = serializers.CharField()
     start = serializers.DateTimeField()
     end = serializers.DateTimeField()
+    start_time_extended = serializers.CharField()
+    end_time_extended = serializers.CharField()
     status = serializers.CharField()
     options = serializers.ListField(child=serializers.CharField())
     is_unconfirmed = serializers.BooleanField()
@@ -967,9 +976,10 @@ def build_schedule_data(store, date):
             "shifts": shifts_by_cast.get(c.id, []),
         })
 
+    range_start, range_end = business_day_range(date, store.timezone)
     orders = (
         Order.objects
-        .filter(store=store, start__date=date)
+        .filter(store=store, start__gte=range_start, start__lt=range_end)
         .select_related("customer", "course")
         .prefetch_related("options")
     )
@@ -991,6 +1001,8 @@ def build_schedule_data(store, date):
             "course_name": o.course_name,
             "start": o.start,
             "end": o.end,
+            "start_time_extended": format_business_time(o.start, date, store.timezone),
+            "end_time_extended": format_business_time(o.end, date, store.timezone),
             "status": o.status,
             "options": [opt.name for opt in o.options.all()],
             "is_unconfirmed": o.id not in acked_order_ids,
@@ -1020,9 +1032,15 @@ def build_schedule_data(store, date):
 def build_room_schedule_data(store, date):
     rooms = Room.objects.filter(store=store).order_by("sort_order")
 
+    range_start, range_end = business_day_range(date, store.timezone)
     orders = (
         Order.objects
-        .filter(store=store, start__date=date, room__isnull=False)
+        .filter(
+            store=store,
+            start__gte=range_start,
+            start__lt=range_end,
+            room__isnull=False,
+        )
         .select_related("customer", "course", "cast")
         .prefetch_related("options")
     )
@@ -1043,6 +1061,8 @@ def build_room_schedule_data(store, date):
             "course_name": o.course_name,
             "start": o.start,
             "end": o.end,
+            "start_time_extended": format_business_time(o.start, date, store.timezone),
+            "end_time_extended": format_business_time(o.end, date, store.timezone),
             "status": o.status,
             "options": [opt.name for opt in o.options.all()],
             "is_unconfirmed": o.id not in acked_order_ids,

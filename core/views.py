@@ -4800,6 +4800,7 @@ class ScheduleCastOrderView(APIView):
                 "room_name": s.room.name if s.room else "",
                 "start_time": s.start_time,
                 "end_time": s.end_time,
+                "end_time_extended": format_extended_time(s.end_time, s.end_day_offset),
                 "display_order": s.display_order,
             }
             for s in shifts

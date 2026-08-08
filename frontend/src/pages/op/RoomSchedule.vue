@@ -42,6 +42,8 @@ const ordersAdapter = computed(() =>
     course_name: o.course_name,
     start: o.start,
     end: o.end,
+    start_time_extended: o.start_time_extended,
+    end_time_extended: o.end_time_extended,
     status: o.status,
     options: o.options,
     is_unconfirmed: o.is_unconfirmed,
