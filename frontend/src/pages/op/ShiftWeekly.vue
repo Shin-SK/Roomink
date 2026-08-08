@@ -115,23 +115,53 @@ function clearAll() {
   days.value.forEach(d => { d.enabled = false })
 }
 
+function normalizeExtendedEndTime(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value || '')
+  if (!match) throw new Error('終了時間はHH:MM形式で入力してください（例: 23:00 / 29:00）')
+
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (minute > 59 || hour > 29 || (hour === 29 && minute !== 0)) {
+    throw new Error('終了時間は00:00〜29:00で入力してください')
+  }
+
+  return {
+    end_time: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+    end_day_offset: hour >= 24 ? 1 : 0,
+  }
+}
+
 async function onSubmit() {
   error.value = ''
   success.value = ''
   rowErrors.value = []
 
-  const items = days.value.map(d => (
-    d.enabled
-      ? {
-          date: d.date,
-          enabled: true,
-          start_time: d.start_time,
-          end_time: d.end_time,
-          room: d.room,
-          daily_memo: d.daily_memo,
-        }
-      : { date: d.date, enabled: false }
-  ))
+  const items = []
+  days.value.forEach(d => {
+    if (!d.enabled) {
+      items.push({ date: d.date, enabled: false })
+      return
+    }
+
+    try {
+      const normalizedEnd = normalizeExtendedEndTime(d.end_time)
+      items.push({
+        date: d.date,
+        enabled: true,
+        start_time: d.start_time,
+        ...normalizedEnd,
+        room: d.room,
+        daily_memo: d.daily_memo,
+      })
+    } catch (e) {
+      rowErrors.value.push({ date: d.date, detail: e.message })
+    }
+  })
+
+  if (rowErrors.value.length) {
+    error.value = '入力内容を確認してください'
+    return
+  }
 
   if (!items.some(i => i.enabled)) {
     error.value = '出勤する日を1日以上選択してください'
@@ -231,7 +261,14 @@ onMounted(async () => {
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">終了</label>
-              <input v-model="bulk.end_time" type="time" step="300" class="form-control form-control-sm" />
+              <input
+                v-model="bulk.end_time"
+                type="text"
+                inputmode="numeric"
+                maxlength="5"
+                placeholder="例: 23:00 / 29:00"
+                class="form-control form-control-sm"
+              />
             </div>
             <div class="col-8 col-md-4">
               <label class="form-label small">部屋</label>
@@ -244,6 +281,7 @@ onMounted(async () => {
             </div>
           </div>
           <div class="mt-2">
+            <div class="text-muted small mb-1">深夜の終了時刻は24:00〜29:00で入力できます。</div>
             <button class="btn btn-sm btn-link text-muted p-0" @click="clearAll">すべて「出勤しない」に戻す</button>
           </div>
         </div>
@@ -281,7 +319,7 @@ onMounted(async () => {
 
             <div v-if="d.existing_shifts.length" class="day-row__existing small text-muted">
               <div v-for="s in d.existing_shifts" :key="s.id">
-                既存: {{ s.start_time?.slice(0, 5) }}〜{{ s.end_time?.slice(0, 5) }} / {{ s.room_name }}
+                既存: {{ s.start_time?.slice(0, 5) }}〜{{ s.end_time_extended || s.end_time?.slice(0, 5) }} / {{ s.room_name }}
               </div>
               <div class="text-muted" style="font-size: 0.72rem;">
                 ※ 既存シフトの変更はシフト管理画面から行ってください
@@ -296,7 +334,15 @@ onMounted(async () => {
                 </div>
                 <div class="col-6 col-md-2">
                   <label class="form-label small mb-1">終了</label>
-                  <input v-model="d.end_time" type="time" step="300" class="form-control form-control-sm" />
+                  <input
+                    v-model="d.end_time"
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="5"
+                    placeholder="例: 29:00"
+                    class="form-control form-control-sm"
+                  />
+                  <div class="form-text">翌朝は24:00〜29:00</div>
                 </div>
                 <div class="col-12 col-md-3">
                   <label class="form-label small mb-1">部屋</label>

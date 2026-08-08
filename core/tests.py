@@ -858,6 +858,58 @@ class WeeklyShiftAndSmsSmokeTest(TestCase):
         self.assertEqual(res.data["created_count"], 2)
         self.assertEqual(ShiftAssignment.objects.filter(store=self.store).count(), 2)
 
+    def test_weekly_create_supports_29_hour_end_time(self):
+        res = self.client.post("/api/op/shifts/weekly/", {
+            "cast": self.cast.id,
+            "week_start": self.week.isoformat(),
+            "items": [
+                {"date": "2026-07-13", "enabled": True, "start_time": "18:00",
+                 "end_time": "05:00", "end_day_offset": 1, "room": self.room.id},
+            ],
+        }, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["created"][0]["end_time_extended"], "29:00")
+
+        shift = ShiftAssignment.objects.get(store=self.store)
+        self.assertEqual(shift.end_time, time(5, 0))
+        self.assertEqual(shift.end_day_offset, 1)
+
+        detail = self.client.get(
+            f"/api/op/shifts/weekly/?cast={self.cast.id}&week_start={self.week}"
+        )
+        self.assertEqual(detail.status_code, 200, detail.data)
+        self.assertEqual(
+            detail.data["days"][0]["existing_shifts"][0]["end_time_extended"],
+            "29:00",
+        )
+
+    def test_weekly_rejects_end_time_after_29(self):
+        res = self.client.post("/api/op/shifts/weekly/", {
+            "cast": self.cast.id,
+            "week_start": self.week.isoformat(),
+            "items": [
+                {"date": "2026-07-13", "enabled": True, "start_time": "18:00",
+                 "end_time": "05:01", "end_day_offset": 1, "room": self.room.id},
+            ],
+        }, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(ShiftAssignment.objects.filter(store=self.store).count(), 0)
+
+    def test_weekly_rejects_cross_date_overlap_in_same_request(self):
+        res = self.client.post("/api/op/shifts/weekly/", {
+            "cast": self.cast.id,
+            "week_start": self.week.isoformat(),
+            "items": [
+                {"date": "2026-07-13", "enabled": True, "start_time": "18:00",
+                 "end_time": "05:00", "end_day_offset": 1, "room": self.room.id},
+                {"date": "2026-07-14", "enabled": True, "start_time": "01:00",
+                 "end_time": "04:00", "room": self.room.id},
+            ],
+        }, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertTrue(res.data["errors"])
+        self.assertEqual(ShiftAssignment.objects.filter(store=self.store).count(), 0)
+
     def test_weekly_conflict_is_all_or_nothing(self):
         ShiftAssignment.objects.create(
             store=self.store, date=date(2026, 7, 13), cast=self.cast,
