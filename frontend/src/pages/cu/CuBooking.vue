@@ -21,6 +21,7 @@ const selectedStoreId = ref(null)
 const slots = ref([])
 const slotsLoading = ref(false)
 const slotsFetched = ref(false)
+const selectedSlotStartAt = ref('')
 
 const storeQ = computed(() => selectedStoreId.value ? '?store=' + selectedStoreId.value : '')
 
@@ -70,6 +71,7 @@ watch(
     slots.value = []
     slotsFetched.value = false
     form.value.time = ''
+    selectedSlotStartAt.value = ''
     // コース選択をリセット（対象外になった場合）
     if (form.value.course && cast) {
       const c = courses.value.find(co => co.id === Number(form.value.course))
@@ -94,6 +96,7 @@ watch(
 
 function selectSlot(slot) {
   form.value.time = slot.start
+  selectedSlotStartAt.value = slot.start_at || ''
 }
 
 function toggleOption(optId) {
@@ -150,7 +153,7 @@ async function submit() {
   submitting.value = true
 
   try {
-    const start = `${form.value.date}T${form.value.time}:00+09:00`
+    const start = selectedSlotStartAt.value || `${form.value.date}T${form.value.time}:00+09:00`
     const body = {
       cast: Number(form.value.cast),
       course: Number(form.value.course),

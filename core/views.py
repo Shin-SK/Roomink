@@ -105,6 +105,7 @@ from .services.business_datetime import (
     intervals_overlap,
     parse_extended_time,
 )
+from .services.order_availability import build_available_order_slots
 
 
 def document_object_api_view(cls):
@@ -1159,8 +1160,6 @@ class CustomerAvailableSlotsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from datetime import time as time_type, datetime, timedelta
-
         customer = resolve_customer(request)
         store = customer.store
 
@@ -1183,37 +1182,7 @@ class CustomerAvailableSlotsView(APIView):
         if cast is None:
             return Response({"date": date_str, "cast_id": int(cast_id), "cast_name": "", "slots": []})
 
-        # シフト取得
-        shifts = ShiftAssignment.objects.filter(store=store, date=d, cast=cast)
-
-        # 30分刻みスロット生成
-        slot_minutes = 30
-        raw_slots = []
-        for sh in shifts:
-            current = datetime.combine(d, sh.start_time)
-            end = datetime.combine(d, sh.end_time)
-            while current + timedelta(minutes=slot_minutes) <= end:
-                raw_slots.append((current.time(), (current + timedelta(minutes=slot_minutes)).time()))
-                current += timedelta(minutes=slot_minutes)
-
-        # 既存予約取得（CANCELLED以外）+ インターバル反映
-        orders = Order.objects.filter(
-            cast=cast,
-            start__date=d,
-            status__in=Order.ACTIVE_STATUSES,
-        )
-        interval = cast.interval_minutes or 0
-        busy = []
-        for o in orders:
-            busy_end = (datetime.combine(d, o.end.time()) + timedelta(minutes=interval)).time()
-            busy.append((o.start.time(), busy_end))
-
-        # 重複除外
-        slots = []
-        for s_start, s_end in raw_slots:
-            conflict = any(b_start < s_end and b_end > s_start for b_start, b_end in busy)
-            if not conflict:
-                slots.append({"start": s_start.strftime("%H:%M"), "end": s_end.strftime("%H:%M")})
+        slots = build_available_order_slots(store, cast, d)
 
         return Response({
             "date": date_str,

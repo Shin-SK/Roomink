@@ -46,6 +46,10 @@ from .services.business_datetime import (
     format_extended_time,
     intervals_overlap,
 )
+from .services.order_availability import (
+    cast_has_order_conflict,
+    find_covering_shift,
+)
 
 User = get_user_model()
 
@@ -707,32 +711,17 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         # C) ShiftAssignment → room
         start = data["start"]
         end = data["end"]
-        assignment = ShiftAssignment.objects.filter(
-            store=store,
-            date=start.date(),
-            cast=data["cast"],
-            is_absent=False,
-            start_time__lte=start.time(),
-            end_time__gte=end.time(),
-        ).first()
+        assignment = find_covering_shift(store, data["cast"], start, end)
         if assignment is None:
             raise serializers.ValidationError("このキャストは指定日時にシフトがありません（または当欠）")
         data["room"] = assignment.room
 
         # D) cast conflict (既存予約の end + interval_minutes をインターバル占有終端とみなす)
         cast_obj = data["cast"]
-        iv = timedelta(minutes=cast_obj.interval_minutes or 0)
-        conflict_qs = Order.objects.filter(
-            cast=cast_obj,
-            status__in=Order.ACTIVE_STATUSES,
-            start__date=start.date(),
-        )
-        for existing in conflict_qs:
-            occupied_end = existing.end + iv
-            if existing.start < end and occupied_end > start:
-                raise serializers.ValidationError(
-                    "このキャストは指定時間に予約が入っています（インターバル含む）"
-                )
+        if cast_has_order_conflict(cast_obj, start, end):
+            raise serializers.ValidationError(
+                "このキャストは指定時間に予約が入っています（インターバル含む）"
+            )
 
         # E) room conflict
         if Order.objects.filter(
@@ -809,31 +798,21 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
             store = instance.store
 
             # ShiftAssignment → room auto-assign
-            assignment = ShiftAssignment.objects.filter(
-                store=store,
-                date=start.date(),
-                cast=cast,
-                is_absent=False,
-                start_time__lte=start.time(),
-                end_time__gte=end.time(),
-            ).first()
+            assignment = find_covering_shift(store, cast, start, end)
             if assignment is None:
                 raise serializers.ValidationError("このキャストは指定日時にシフトがありません（または当欠）")
             data["room"] = assignment.room
 
             # Cast conflict (exclude self, インターバル考慮)
-            iv = timedelta(minutes=cast.interval_minutes or 0)
-            conflict_qs = Order.objects.filter(
-                cast=cast,
-                status__in=Order.ACTIVE_STATUSES,
-                start__date=start.date(),
-            ).exclude(pk=instance.pk)
-            for existing in conflict_qs:
-                occupied_end = existing.end + iv
-                if existing.start < end and occupied_end > start:
-                    raise serializers.ValidationError(
-                        "このキャストは指定時間に予約が入っています（インターバル含む）"
-                    )
+            if cast_has_order_conflict(
+                cast,
+                start,
+                end,
+                exclude_order_id=instance.pk,
+            ):
+                raise serializers.ValidationError(
+                    "このキャストは指定時間に予約が入っています（インターバル含む）"
+                )
 
             # Room conflict (exclude self)
             if Order.objects.filter(
