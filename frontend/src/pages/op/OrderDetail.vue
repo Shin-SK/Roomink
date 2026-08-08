@@ -56,12 +56,13 @@ const displayStatus = computed(() => {
   return statusMap[order.value.status] || { text: order.value.status, cls: 'bg-secondary' }
 })
 
-const canConfirm = computed(() => order.value?.status === 'REQUESTED')
+const canModify = computed(() => order.value?.can_modify !== false)
+const canConfirm = computed(() => canModify.value && order.value?.status === 'REQUESTED')
 const canCancel = computed(() =>
-  order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
+  canModify.value && order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
 )
 const canDone = computed(() =>
-  order.value && ['CONFIRMED', 'IN_PROGRESS', 'PENDING_FINALIZE'].includes(order.value.status)
+  canModify.value && order.value && ['CONFIRMED', 'IN_PROGRESS', 'PENDING_FINALIZE'].includes(order.value.status)
 )
 // 「次へ進める」ボタンのラベル：確定/施術中→施術終了、会計待ち→会計確定
 const doneLabel = computed(() => {
@@ -76,7 +77,7 @@ const cancelLabel = computed(() => {
   return 'キャンセル'
 })
 const canEdit = computed(() =>
-  order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
+  canModify.value && order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
 )
 
 const isCardPayment = computed(() => order.value?.payment_method === 'CARD')
@@ -277,6 +278,11 @@ async function updatePaymentMethod(value) {
         <!-- ========== 確認モード ========== -->
         <template v-if="mode === 'confirm'">
 
+          <div v-if="order.is_past_business_day && !canModify" class="alert alert-warning">
+            <i class="ti ti-lock"></i>
+            過去営業日の予約です。変更できるのはマネージャーのみです。
+          </div>
+
           <!-- ステータスバッジ -->
           <div class="text-center mb-3">
             <span
@@ -337,6 +343,7 @@ async function updatePaymentMethod(value) {
                         :value="order.payment_method || 'UNSET'"
                         class="form-select form-select-sm d-inline-block"
                         style="width: auto;"
+                        :disabled="!canModify"
                         @change="updatePaymentMethod($event.target.value)"
                       >
                         <option value="UNSET">未設定</option>
