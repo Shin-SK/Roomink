@@ -436,6 +436,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
     cast_avatar_url = serializers.CharField(source="cast.avatar_url", read_only=True)
     room_name = serializers.CharField(source="room.name", read_only=True)
     end_time_extended = serializers.SerializerMethodField()
+    assigned_order_count = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftAssignment
@@ -504,10 +505,53 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                         "このキャストの既存シフトと時間が重複しています"
                     )
 
+            room_pending_orders = Order.objects.filter(
+                store=store,
+                cast=cast,
+                room__isnull=True,
+                status__in=Order.ACTIVE_STATUSES,
+                start__lt=end_at,
+                end__gt=start_at,
+            )
+            for order in room_pending_orders:
+                if order.start < start_at or order.end > end_at:
+                    raise serializers.ValidationError(
+                        "ルーム未定の既存予約を完全に含むシフト時間を指定してください"
+                    )
+                if room and Order.objects.filter(
+                    room=room,
+                    status__in=Order.ACTIVE_STATUSES,
+                    start__lt=order.end,
+                    end__gt=order.start,
+                ).exists():
+                    raise serializers.ValidationError(
+                        "ルーム未定予約の割当先ルームが使用中です"
+                    )
+
+            self._room_pending_order_ids = list(
+                room_pending_orders.values_list("id", flat=True)
+            )
+
         return data
+
+    def create(self, validated_data):
+        with transaction.atomic():
+            instance = super().create(validated_data)
+            pending_ids = getattr(self, "_room_pending_order_ids", [])
+            assigned_count = 0
+            if pending_ids:
+                assigned_count = Order.objects.select_for_update().filter(
+                    pk__in=pending_ids,
+                    room__isnull=True,
+                ).update(room=instance.room)
+            instance._assigned_order_count = assigned_count
+            return instance
 
     def get_end_time_extended(self, obj) -> str:
         return format_extended_time(obj.end_time, obj.end_day_offset)
+
+    def get_assigned_order_count(self, obj) -> int:
+        return getattr(obj, "_assigned_order_count", 0)
 
 
 class CastUnavailableTimeSerializer(serializers.ModelSerializer):
@@ -796,7 +840,9 @@ class OrderSerializer(serializers.ModelSerializer):
     is_past_business_day = serializers.SerializerMethodField()
     can_modify = serializers.SerializerMethodField()
     cast_name = serializers.CharField(source="cast.name", read_only=True)
-    room_name = serializers.CharField(source="room.name", read_only=True)
+    room_name = serializers.SerializerMethodField()
+    is_off_shift = serializers.SerializerMethodField()
+    is_room_pending = serializers.SerializerMethodField()
     # course_name is now a snapshot field on Order; no source override needed
 
     class Meta:
@@ -805,7 +851,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "id", "store", "cast", "room", "customer", "course",
             "cast_name", "room_name", "course_name", "customer_label",
             "start", "end", "status", "options", "option_ids", "is_unconfirmed",
-            "is_past_business_day", "can_modify", "memo",
+            "is_past_business_day", "can_modify", "is_off_shift", "is_room_pending", "memo",
             "course_price", "options_price",
             "extension", "extension_name", "extension_duration", "extension_price",
             "nomination_fee", "nomination_fee_name", "nomination_fee_price",
@@ -817,6 +863,15 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def get_customer_label(self, obj) -> str:
         return build_customer_label(obj.customer)
+
+    def get_room_name(self, obj) -> str:
+        return obj.room.name if obj.room_id else ""
+
+    def get_is_off_shift(self, obj) -> bool:
+        return find_covering_shift(obj.store, obj.cast, obj.start, obj.end) is None
+
+    def get_is_room_pending(self, obj) -> bool:
+        return obj.room_id is None
 
     def get_options(self, obj) -> List[str]:
         # prefetch_related 済みの場合 DB クエリを避ける
@@ -940,8 +995,17 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         end = data["end"]
         assignment = find_covering_shift(store, data["cast"], start, end)
         if assignment is None:
-            raise serializers.ValidationError("このキャストは指定日時にシフトがありません（または当欠）")
-        data["room"] = assignment.room
+            profile = getattr(request.user, "profile", None) if request else None
+            if profile is None or profile.role not in (
+                UserProfile.Role.MANAGER,
+                UserProfile.Role.STAFF,
+            ):
+                raise PermissionDenied(
+                    "シフト外予約を作成できるのはマネージャーまたはスタッフのみです。"
+                )
+            data["room"] = None
+        else:
+            data["room"] = assignment.room
 
         if cast_has_unavailable_time_conflict(data["cast"], start, end):
             raise serializers.ValidationError("指定時間はこのキャストの予約不可時間です")
@@ -954,11 +1018,9 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             )
 
         # E) room conflict
-        if Order.objects.filter(
-            room=data["room"],
-            status__in=Order.ACTIVE_STATUSES,
-            start__lt=end,
-            end__gt=start,
+        if data["room"] is not None and Order.objects.filter(
+            room=data["room"], status__in=Order.ACTIVE_STATUSES,
+            start__lt=end, end__gt=start,
         ).exists():
             raise serializers.ValidationError("指定ルームは使用中です")
 
@@ -1061,8 +1123,17 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
             # ShiftAssignment → room auto-assign
             assignment = find_covering_shift(store, cast, start, end)
             if assignment is None:
-                raise serializers.ValidationError("このキャストは指定日時にシフトがありません（または当欠）")
-            data["room"] = assignment.room
+                profile = getattr(request.user, "profile", None) if request else None
+                if profile is None or profile.role not in (
+                    UserProfile.Role.MANAGER,
+                    UserProfile.Role.STAFF,
+                ):
+                    raise PermissionDenied(
+                        "シフト外予約へ変更できるのはマネージャーまたはスタッフのみです。"
+                    )
+                data["room"] = None
+            else:
+                data["room"] = assignment.room
 
             if cast_has_unavailable_time_conflict(cast, start, end):
                 raise serializers.ValidationError("指定時間はこのキャストの予約不可時間です")
@@ -1079,11 +1150,9 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
                 )
 
             # Room conflict (exclude self)
-            if Order.objects.filter(
-                room=data["room"],
-                status__in=Order.ACTIVE_STATUSES,
-                start__lt=end,
-                end__gt=start,
+            if data["room"] is not None and Order.objects.filter(
+                room=data["room"], status__in=Order.ACTIVE_STATUSES,
+                start__lt=end, end__gt=start,
             ).exclude(pk=instance.pk).exists():
                 raise serializers.ValidationError("指定ルームは使用中です")
 
@@ -1133,8 +1202,9 @@ class CastTodayOrderSerializer(serializers.Serializer):
     start_time_extended = serializers.CharField()
     end_time_extended = serializers.CharField()
     status = serializers.CharField()
-    room_id = serializers.IntegerField()
-    room_name = serializers.CharField()
+    room_id = serializers.IntegerField(allow_null=True)
+    room_name = serializers.CharField(allow_blank=True)
+    is_room_pending = serializers.BooleanField()
     customer_label = serializers.CharField()
     course_name = serializers.CharField()
     course_price = serializers.IntegerField()
@@ -1170,13 +1240,14 @@ class ScheduleCastSerializer(serializers.Serializer):
     avatar_url = serializers.CharField()
     interval_minutes = serializers.IntegerField()
     staff_memo = serializers.CharField(allow_blank=True, required=False)
+    is_off_shift = serializers.BooleanField()
     shifts = ScheduleShiftSerializer(many=True)
 
 
 class ScheduleOrderSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     cast_id = serializers.IntegerField()
-    room_id = serializers.IntegerField()
+    room_id = serializers.IntegerField(allow_null=True)
     customer_label = serializers.CharField()
     course_name = serializers.CharField()
     start = serializers.DateTimeField()
@@ -1186,6 +1257,8 @@ class ScheduleOrderSerializer(serializers.Serializer):
     status = serializers.CharField()
     options = serializers.ListField(child=serializers.CharField())
     is_unconfirmed = serializers.BooleanField()
+    is_off_shift = serializers.BooleanField()
+    is_room_pending = serializers.BooleanField()
 
 
 class ScheduleUnavailableTimeSerializer(serializers.Serializer):
@@ -1228,14 +1301,16 @@ def build_schedule_data(store, date):
     for s in shifts:
         shifts_by_cast[s.cast_id].append(s)
 
-    cast_ids_with_shift = set(shifts_by_cast.keys())
-    casts = Cast.objects.filter(store=store, pk__in=cast_ids_with_shift).order_by("name")
+    casts = Cast.objects.filter(store=store).order_by("name")
 
     # タイムライン表示順: display_order（1〜）が設定されたキャストを先頭に、
     # 未設定（0）は従来どおり名前順で後ろに並べる。
     def _cast_sort_key(c):
+        active_shifts = [s for s in shifts_by_cast.get(c.id, []) if not s.is_absent]
+        if not active_shifts:
+            return (2, 0, c.name)
         orders_set = [
-            s.display_order for s in shifts_by_cast.get(c.id, []) if s.display_order
+            s.display_order for s in active_shifts if s.display_order
         ]
         if orders_set:
             return (0, min(orders_set), c.name)
@@ -1251,6 +1326,9 @@ def build_schedule_data(store, date):
             "avatar_url": c.avatar_url,
             "interval_minutes": c.interval_minutes,
             "staff_memo": c.staff_memo or "",
+            "is_off_shift": not any(
+                not shift.is_absent for shift in shifts_by_cast.get(c.id, [])
+            ),
             "shifts": shifts_by_cast.get(c.id, []),
         })
 
@@ -1284,6 +1362,8 @@ def build_schedule_data(store, date):
             "status": o.status,
             "options": [opt.name for opt in o.options.all()],
             "is_unconfirmed": o.id not in acked_order_ids,
+            "is_off_shift": find_covering_shift(store, o.cast, o.start, o.end) is None,
+            "is_room_pending": o.room_id is None,
         })
 
     unavailable_times = CastUnavailableTime.objects.filter(

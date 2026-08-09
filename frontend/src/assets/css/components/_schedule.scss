@@ -122,6 +122,16 @@
     background: rgba(42, 157, 143, 0.06);
   }
 
+  &.is-off-shift {
+    background: #f8fafc;
+    color: #64748b;
+
+    .rk-avatar-img {
+      filter: grayscale(1);
+      opacity: 0.55;
+    }
+  }
+
   &__text {
     flex: 1;
     min-width: 0;
@@ -315,6 +325,7 @@
   &--in { background: #16a34a; color: #fff; }
   &--scheduled { background: #e0e7ff; color: #3730a3; }
   &--absent { background: #fee2e2; color: #991b1b; }
+  &--offshift { background: #e2e8f0; color: #475569; }
 }
 
 .rk-staff-memo {
@@ -495,6 +506,10 @@
     color: #fff;
     font-weight: 800;
     font-size: 11px;
+  }
+
+  &.is-room-pending {
+    border: 2px dashed #f59e0b;
   }
 
   &__title {

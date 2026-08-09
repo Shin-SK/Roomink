@@ -459,7 +459,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         duration = order.course.duration + extension_duration
         new_end = order.start + timedelta(minutes=duration)
         assignment = find_covering_shift(store, order.cast, order.start, new_end)
-        if assignment is None:
+        if assignment is None and order.room_id is not None:
             return Response(
                 {"detail": "延長後の終了時刻がキャストのシフトを超えます"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -479,8 +479,9 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": "延長後の時間はキャストの予約不可時間です"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if Order.objects.filter(
-            room=assignment.room,
+        target_room = assignment.room if assignment else None
+        if target_room is not None and Order.objects.filter(
+            room=target_room,
             status__in=Order.ACTIVE_STATUSES,
             start__lt=new_end,
             end__gt=order.start,
@@ -499,7 +500,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.extension_duration = extension_duration
         order.extension_price = extension_price
         order.end = new_end
-        order.room = assignment.room
+        order.room = target_room
         order.save(update_fields=[
             "extension", "extension_name", "extension_duration", "extension_price",
             "end", "room", "updated_at",
@@ -648,7 +649,8 @@ class CastTodayView(APIView):
                 ),
                 "status": o.status,
                 "room_id": o.room_id,
-                "room_name": o.room.name,
+                "room_name": o.room.name if o.room_id else "",
+                "is_room_pending": o.room_id is None,
                 "customer_label": build_customer_label(o.customer),
                 "course_name": o.course_name,
                 "course_price": o.course_price,
@@ -669,7 +671,7 @@ class CastTodayView(APIView):
                     format_extended_time(shift.end_time, shift.end_day_offset)
                     if shift else None
                 ),
-                "room_name": shift.room.name if shift else None,
+                "room_name": shift.room.name if shift and shift.room_id else None,
             } if shift else None,
             "total_orders": len(data),
             "unconfirmed_count": sum(1 for o in data if o["is_unconfirmed"]),
@@ -987,7 +989,7 @@ class CastAckView(APIView):
             ),
             "status": order.status,
             "room_id": order.room_id,
-            "room_name": order.room.name,
+            "room_name": order.room.name if order.room_id else "",
             "customer_label": build_customer_label(order.customer),
             "course_name": order.course_name,
             "course_price": order.course_price,
@@ -1027,7 +1029,7 @@ class OpOrderCastAckView(APIView):
             "end": order.end,
             "status": order.status,
             "room_id": order.room_id,
-            "room_name": order.room.name,
+            "room_name": order.room.name if order.room_id else "",
             "customer_label": build_customer_label(order.customer),
             "course_name": order.course_name,
             "course_price": order.course_price,
@@ -1453,6 +1455,28 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(store=get_user_store(self.request))
+
+    def destroy(self, request, *args, **kwargs):
+        shift = self.get_object()
+        shift_start, shift_end = build_business_interval(
+            shift.date,
+            shift.start_time,
+            shift.end_time,
+            end_day_offset=shift.end_day_offset,
+            timezone_name=shift.store.timezone,
+        )
+        if Order.objects.filter(
+            store=shift.store,
+            cast=shift.cast,
+            status__in=Order.ACTIVE_STATUSES,
+            start__lt=shift_end,
+            end__gt=shift_start,
+        ).exists():
+            return Response(
+                {"detail": "予約があるシフトは削除できません。先に予約を変更またはキャンセルしてください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="clock-in")
     def clock_in(self, request, pk=None):

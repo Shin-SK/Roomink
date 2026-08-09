@@ -382,7 +382,14 @@ class Order(models.Model):
 
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="orders")
     cast = models.ForeignKey(Cast, on_delete=models.PROTECT, related_name="orders")
-    room = models.ForeignKey(Room, on_delete=models.PROTECT, related_name="orders")
+    room = models.ForeignKey(
+        Room,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="orders",
+        help_text="シフト外予約では未定のまま保存し、シフト登録時に割り当てる",
+    )
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="orders")
     course = models.ForeignKey(Course, on_delete=models.PROTECT, related_name="orders")
     options = models.ManyToManyField("Option", through="OrderOption", blank=True)
