@@ -45,6 +45,8 @@ const form = ref({
   end: '',   // edit用 datetime-local
   options: [],
   extension: '',
+  extension_duration: 0,
+  extension_price: 0,
   medium: '',
   discount: '',
   memo: '',
@@ -135,7 +137,7 @@ const selectedDiscount = computed(() =>
 const subtotalPrice = computed(() => {
   let total = selectedCourse.value ? selectedCourse.value.price : 0
   total += selectedOptions.value.reduce((sum, o) => sum + o.price, 0)
-  total += selectedExtension.value ? selectedExtension.value.price : 0
+  total += Number(form.value.extension_price) || 0
   return total
 })
 
@@ -272,6 +274,28 @@ function toggleOption(optId) {
   }
 }
 
+function selectExtensionTemplate(extensionId) {
+  form.value.extension = extensionId
+  if (!extensionId) {
+    form.value.extension_duration = 0
+    form.value.extension_price = 0
+    return
+  }
+  const template = extensions.value.find(e => e.id === Number(extensionId))
+  if (template) {
+    form.value.extension_duration = template.duration
+    form.value.extension_price = template.price
+  }
+}
+
+function setExtensionDuration(minutes) {
+  form.value.extension_duration = minutes
+  if (minutes === 0) {
+    form.value.extension = ''
+    form.value.extension_price = 0
+  }
+}
+
 async function submit() {
   errorMsg.value = ''
   if (isEdit.value) {
@@ -298,6 +322,8 @@ async function submitCreate() {
   }
   if (form.value.options.length) body.options = form.value.options
   if (form.value.extension) body.extension = Number(form.value.extension)
+  body.extension_duration = Number(form.value.extension_duration) || 0
+  body.extension_price = Number(form.value.extension_price) || 0
   if (form.value.medium) body.medium = Number(form.value.medium)
   if (form.value.discount) body.discount = Number(form.value.discount)
   if (form.value.payment_method) body.payment_method = form.value.payment_method
@@ -578,14 +604,15 @@ function formatYen(n) {
               </div>
             </div>
 
-            <div class="mb-3" v-if="!isEdit && extensions.length">
-              <label class="form-label">延長</label>
+            <div class="mb-3" v-if="!isEdit">
+              <label class="form-label">延長（任意）</label>
+              <div class="form-text mt-0 mb-2">候補を選ぶか、時間と料金を直接入力できます。</div>
               <div class="select-grid">
                 <button
                   type="button"
                   class="btn btn-sm select-btn"
-                  :class="form.extension === '' ? 'active' : ''"
-                  @click="form.extension = ''"
+                  :class="Number(form.extension_duration) === 0 ? 'active' : ''"
+                  @click="selectExtensionTemplate('')"
                 >
                   なし
                 </button>
@@ -595,11 +622,44 @@ function formatYen(n) {
                   type="button"
                   class="btn btn-sm select-btn"
                   :class="form.extension == ext.id ? 'active' : ''"
-                  @click="form.extension = ext.id"
+                  @click="selectExtensionTemplate(ext.id)"
                 >
                   {{ ext.name }}<br>
                   <small>+{{ ext.duration }}分 / +{{ formatYen(ext.price) }}</small>
                 </button>
+              </div>
+              <div class="d-flex flex-wrap gap-2 mt-2 mb-2">
+                <button
+                  v-for="minutes in [15, 30, 60]"
+                  :key="minutes"
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary"
+                  @click="setExtensionDuration(minutes)"
+                >
+                  {{ minutes }}分
+                </button>
+              </div>
+              <div class="row g-2">
+                <div class="col-sm-6">
+                  <label class="form-label small">延長時間（分）</label>
+                  <input
+                    v-model.number="form.extension_duration"
+                    type="number"
+                    min="0"
+                    step="5"
+                    class="form-control"
+                  >
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label small">延長料金（円）</label>
+                  <input
+                    v-model.number="form.extension_price"
+                    type="number"
+                    min="0"
+                    step="100"
+                    class="form-control"
+                  >
+                </div>
               </div>
             </div>
 

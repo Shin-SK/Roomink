@@ -23,6 +23,8 @@ const extensions = ref([])
 const nominationFees = ref([])
 const discounts = ref([])
 const selectedExtension = ref(null)
+const extensionDuration = ref(0)
+const extensionPrice = ref(0)
 const selectedNominationFee = ref(null)
 const selectedDiscount = ref(null)
 
@@ -100,6 +102,8 @@ onMounted(async () => {
     nominationFees.value = Array.isArray(nfs) ? nfs : []
     discounts.value = Array.isArray(dcs) ? dcs : []
     selectedExtension.value = o.extension ?? null
+    extensionDuration.value = o.extension_duration || 0
+    extensionPrice.value = o.extension_price || 0
     selectedNominationFee.value = o.nomination_fee ?? null
     selectedDiscount.value = o.discount ?? null
   } catch (e) {
@@ -221,11 +225,31 @@ async function doApplyExtension() {
   addonError.value = ''
   addonActing.value = true
   try {
-    order.value = await api.applyExtension(props.id, selectedExtension.value)
+    order.value = await api.applyExtension(props.id, {
+      extension_id: selectedExtension.value || null,
+      extension_duration: Number(extensionDuration.value) || 0,
+      extension_price: Number(extensionPrice.value) || 0,
+    })
   } catch (e) {
     addonError.value = e.message
   } finally {
     addonActing.value = false
+  }
+}
+
+function selectExtensionTemplate() {
+  const template = extensions.value.find(e => e.id === Number(selectedExtension.value))
+  if (template) {
+    extensionDuration.value = template.duration
+    extensionPrice.value = template.price
+  }
+}
+
+function setExtensionDuration(minutes) {
+  extensionDuration.value = minutes
+  if (minutes === 0) {
+    selectedExtension.value = null
+    extensionPrice.value = 0
   }
 }
 
@@ -322,7 +346,10 @@ async function updatePaymentMethod(value) {
                   </tr>
                   <tr v-if="order.extension_name">
                     <th>延長</th>
-                    <td>{{ order.extension_name }}</td>
+                    <td>
+                      {{ order.extension_name }}
+                      <span v-if="order.extension_duration">（{{ order.extension_duration }}分）</span>
+                    </td>
                   </tr>
                   <tr v-if="order.nomination_fee_name">
                     <th>指名料</th>
@@ -543,13 +570,35 @@ async function updatePaymentMethod(value) {
               <div class="mb-3">
                 <label class="form-label small fw-bold">延長</label>
                 <div class="d-flex gap-2">
-                  <select v-model="selectedExtension" class="form-select form-select-sm">
+                  <select v-model="selectedExtension" class="form-select form-select-sm" @change="selectExtensionTemplate">
                     <option :value="null">なし</option>
                     <option v-for="e in extensions" :key="e.id" :value="e.id">
                       {{ e.name }}（{{ e.duration }}分 / {{ e.price.toLocaleString() }}円）
                     </option>
                   </select>
                   <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyExtension">適用</button>
+                </div>
+                <div class="form-text">候補を選んだ後でも、時間と料金を変更できます。</div>
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                  <button
+                    v-for="minutes in [0, 15, 30, 60]"
+                    :key="minutes"
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    @click="setExtensionDuration(minutes)"
+                  >
+                    {{ minutes === 0 ? '延長なし' : `${minutes}分` }}
+                  </button>
+                </div>
+                <div class="row g-2 mt-1">
+                  <div class="col-sm-6">
+                    <label class="form-label small">延長時間（分）</label>
+                    <input v-model.number="extensionDuration" type="number" min="0" step="5" class="form-control form-control-sm">
+                  </div>
+                  <div class="col-sm-6">
+                    <label class="form-label small">延長料金（円）</label>
+                    <input v-model.number="extensionPrice" type="number" min="0" step="100" class="form-control form-control-sm">
+                  </div>
                 </div>
               </div>
 

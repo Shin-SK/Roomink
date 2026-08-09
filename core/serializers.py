@@ -652,7 +652,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "start", "end", "status", "options", "option_ids", "is_unconfirmed",
             "is_past_business_day", "can_modify", "memo",
             "course_price", "options_price",
-            "extension", "extension_name", "extension_price",
+            "extension", "extension_name", "extension_duration", "extension_price",
             "nomination_fee", "nomination_fee_name", "nomination_fee_price",
             "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot", "discount_amount",
             "medium", "medium_name",
@@ -700,12 +700,15 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     extension = serializers.PrimaryKeyRelatedField(
         queryset=Extension.objects.all(), required=False, allow_null=True,
     )
+    extension_duration = serializers.IntegerField(required=False, min_value=0)
+    extension_price = serializers.IntegerField(required=False, min_value=0)
 
     class Meta:
         model = Order
         fields = [
             "cast", "customer", "course", "start", "end",
-            "memo", "options", "extension", "medium", "discount", "payment_method",
+            "memo", "options", "extension", "extension_duration", "extension_price",
+            "medium", "discount", "payment_method",
         ]
         extra_kwargs = {
             "end": {"required": False},
@@ -739,11 +742,26 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             if not extension.is_active:
                 raise serializers.ValidationError({"extension": "無効な延長は使用できません"})
 
+        extension_duration = data.get(
+            "extension_duration",
+            extension.duration if extension is not None else 0,
+        )
+        extension_price = data.get(
+            "extension_price",
+            extension.price if extension is not None else 0,
+        )
+        if extension is not None and extension_duration == 0:
+            raise serializers.ValidationError({"extension_duration": "延長時間は1分以上にしてください"})
+        if extension_duration == 0 and extension_price:
+            raise serializers.ValidationError({"extension_price": "延長時間が0分の場合、料金は0円にしてください"})
+        data["extension_duration"] = extension_duration
+        data["extension_price"] = extension_price
+
         # B) end auto-calc（延長選択時は終了時刻へ必ず反映）
         course = data["course"]
-        if extension is not None:
+        if extension_duration:
             data["end"] = data["start"] + timedelta(
-                minutes=course.duration + extension.duration,
+                minutes=course.duration + extension_duration,
             )
         elif not data.get("end"):
             data["end"] = data["start"] + timedelta(minutes=course.duration)
@@ -791,9 +809,13 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             opts_total = sum(o.price for o in option_objs)
             validated_data["options_price"] = opts_total
             extension = validated_data.get("extension")
-            if extension:
-                validated_data["extension_name"] = extension.name
-                validated_data["extension_price"] = extension.price
+            extension_duration = validated_data.get("extension_duration", 0)
+            if extension_duration:
+                validated_data["extension_name"] = (
+                    extension.name
+                    if extension and extension_duration == extension.duration
+                    else f"{extension_duration}分延長"
+                )
             medium = validated_data.get("medium")
             if medium:
                 validated_data["medium_name"] = medium.name
@@ -810,6 +832,12 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         return OrderSerializer(instance, context=self.context).data
+
+
+class ExtensionApplySerializer(serializers.Serializer):
+    extension_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    extension_duration = serializers.IntegerField(required=False, min_value=0)
+    extension_price = serializers.IntegerField(required=False, min_value=0)
 
 
 # ──────────────────────────────────────

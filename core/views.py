@@ -59,6 +59,7 @@ from .serializers import (
     StaffCreateSerializer,
     StaffUpdateSerializer,
     ExtensionSerializer,
+    ExtensionApplySerializer,
     MediumSerializer,
     NominationFeeSerializer,
     OpShiftRequestSerializer,
@@ -393,11 +394,14 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.save(update_fields=["status", "updated_at"])
         return Response(OrderSerializer(order).data)
 
+    @extend_schema(request=ExtensionApplySerializer, responses=OrderSerializer)
     @action(detail=True, methods=["post"])
     def apply_extension(self, request, pk=None):
         order = self.get_object()
         store = get_user_store(request)
-        extension_id = request.data.get("extension_id")
+        input_serializer = ExtensionApplySerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        extension_id = input_serializer.validated_data.get("extension_id")
 
         if extension_id is None:
             extension = None
@@ -414,7 +418,26 @@ class OrderViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        duration = order.course.duration + (extension.duration if extension else 0)
+        extension_duration = input_serializer.validated_data.get(
+            "extension_duration",
+            extension.duration if extension else 0,
+        )
+        extension_price = input_serializer.validated_data.get(
+            "extension_price",
+            extension.price if extension else 0,
+        )
+        if extension is not None and extension_duration == 0:
+            return Response(
+                {"extension_duration": ["延長時間は1分以上にしてください"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if extension_duration == 0 and extension_price:
+            return Response(
+                {"extension_price": ["延長時間が0分の場合、料金は0円にしてください"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        duration = order.course.duration + extension_duration
         new_end = order.start + timedelta(minutes=duration)
         assignment = find_covering_shift(store, order.cast, order.start, new_end)
         if assignment is None:
@@ -444,12 +467,17 @@ class OrderViewSet(viewsets.ModelViewSet):
             )
 
         order.extension = extension
-        order.extension_name = extension.name if extension else ""
-        order.extension_price = extension.price if extension else 0
+        order.extension_name = (
+            extension.name
+            if extension and extension_duration == extension.duration
+            else f"{extension_duration}分延長"
+        ) if extension_duration else ""
+        order.extension_duration = extension_duration
+        order.extension_price = extension_price
         order.end = new_end
         order.room = assignment.room
         order.save(update_fields=[
-            "extension", "extension_name", "extension_price",
+            "extension", "extension_name", "extension_duration", "extension_price",
             "end", "room", "updated_at",
         ])
         recalculate_order_total(order)
@@ -1358,6 +1386,7 @@ class CustomerReservationDetailView(APIView):
             "options": [o.name for o in order.options.all()],
             "options_price": order.options_price,
             "extension_name": order.extension_name,
+            "extension_duration": order.extension_duration,
             "extension_price": order.extension_price,
             "nomination_fee_name": order.nomination_fee_name,
             "nomination_fee_price": order.nomination_fee_price,
