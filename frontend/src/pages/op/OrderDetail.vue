@@ -593,7 +593,7 @@ async function updatePaymentMethod(value) {
                 <div class="row g-2 mt-1">
                   <div class="col-sm-6">
                     <label class="form-label small">延長時間（分）</label>
-                    <input v-model.number="extensionDuration" type="number" min="0" step="5" class="form-control form-control-sm">
+                    <input v-model.number="extensionDuration" type="number" min="0" max="180" step="5" class="form-control form-control-sm">
                   </div>
                   <div class="col-sm-6">
                     <label class="form-label small">延長料金（円）</label>

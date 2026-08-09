@@ -61,6 +61,18 @@ from .services.order_policy import (
 
 User = get_user_model()
 
+MAX_EXTENSION_DURATION_MINUTES = 180
+
+
+def validate_extension_duration_value(value, allow_zero=True):
+    if value == 0 and allow_zero:
+        return value
+    if value < 5 or value % 5 != 0:
+        raise serializers.ValidationError("延長時間は5分単位で入力してください")
+    if value > MAX_EXTENSION_DURATION_MINUTES:
+        raise serializers.ValidationError("延長時間は180分以内で入力してください")
+    return value
+
 
 # ──────────────────────────────────────
 # Basic CRUD serializers
@@ -127,6 +139,9 @@ class ExtensionSerializer(serializers.ModelSerializer):
         model = Extension
         fields = "__all__"
         read_only_fields = ["store"]
+
+    def validate_duration(self, value):
+        return validate_extension_duration_value(value, allow_zero=False)
 
 
 class NominationFeeSerializer(serializers.ModelSerializer):
@@ -700,7 +715,11 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     extension = serializers.PrimaryKeyRelatedField(
         queryset=Extension.objects.all(), required=False, allow_null=True,
     )
-    extension_duration = serializers.IntegerField(required=False, min_value=0)
+    extension_duration = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=MAX_EXTENSION_DURATION_MINUTES,
+    )
     extension_price = serializers.IntegerField(required=False, min_value=0)
 
     class Meta:
@@ -750,6 +769,14 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             "extension_price",
             extension.price if extension is not None else 0,
         )
+        validate_extension_duration_value(extension_duration)
+        request = self.context.get("request")
+        profile = getattr(request.user, "profile", None) if request else None
+        if extension_duration and (
+            profile is None
+            or profile.role not in (UserProfile.Role.MANAGER, UserProfile.Role.STAFF)
+        ):
+            raise PermissionDenied("延長を設定できるのはマネージャーまたはスタッフのみです。")
         if extension is not None and extension_duration == 0:
             raise serializers.ValidationError({"extension_duration": "延長時間は1分以上にしてください"})
         if extension_duration == 0 and extension_price:
@@ -836,8 +863,15 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
 class ExtensionApplySerializer(serializers.Serializer):
     extension_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
-    extension_duration = serializers.IntegerField(required=False, min_value=0)
+    extension_duration = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=MAX_EXTENSION_DURATION_MINUTES,
+    )
     extension_price = serializers.IntegerField(required=False, min_value=0)
+
+    def validate_extension_duration(self, value):
+        return validate_extension_duration_value(value)
 
 
 # ──────────────────────────────────────
