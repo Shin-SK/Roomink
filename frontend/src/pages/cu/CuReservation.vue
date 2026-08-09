@@ -98,7 +98,11 @@ function statusBadge(s) {
               </tr>
               <tr v-if="order.extension_name">
                 <th>延長</th>
-                <td>{{ order.extension_name }} ({{ formatYen(order.extension_price) }})</td>
+                <td>
+                  {{ order.extension_name }}
+                  <span v-if="order.extension_duration">（{{ order.extension_duration }}分）</span>
+                  ({{ formatYen(order.extension_price) }})
+                </td>
               </tr>
               <tr v-if="order.nomination_fee_name">
                 <th>指名料</th>

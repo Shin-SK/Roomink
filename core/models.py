@@ -351,6 +351,7 @@ class Order(models.Model):
     course_price = models.PositiveIntegerField(default=0)
     options_price = models.PositiveIntegerField(default=0)
     extension_name = models.CharField(max_length=50, default="")
+    extension_duration = models.PositiveIntegerField(default=0)
     extension_price = models.PositiveIntegerField(default=0)
     nomination_fee_name = models.CharField(max_length=50, default="")
     nomination_fee_price = models.PositiveIntegerField(default=0)

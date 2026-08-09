@@ -27,8 +27,10 @@ class OrderExtensionDurationTest(TestCase):
         self.store = Store.objects.create(name="延長テスト店舗", timezone="Asia/Tokyo")
         self.cast = Cast.objects.create(store=self.store, name="延長キャスト")
         self.room = Room.objects.create(store=self.store, name="101")
+        self.customer_user = User.objects.create_user("extension_customer")
         self.customer = Customer.objects.create(
             store=self.store,
+            user=self.customer_user,
             phone="09011112222",
             display_name="延長顧客",
         )
@@ -97,6 +99,7 @@ class OrderExtensionDurationTest(TestCase):
         order = Order.objects.get(pk=response.data["id"])
         self.assertEqual(order.extension, self.extension)
         self.assertEqual(order.extension_name, "30分延長")
+        self.assertEqual(order.extension_duration, 30)
         self.assertEqual(order.extension_price, 5000)
         self.assertEqual(order.end.astimezone(TOKYO), start + timedelta(minutes=90))
         self.assertEqual(order.total_price, 15000)
@@ -125,6 +128,7 @@ class OrderExtensionDurationTest(TestCase):
         self.assertEqual(removed.status_code, 200, removed.data)
         order.refresh_from_db()
         self.assertIsNone(order.extension)
+        self.assertEqual(order.extension_duration, 0)
         self.assertEqual(order.end.astimezone(TOKYO).hour, 13)
         self.assertEqual(order.end.astimezone(TOKYO).minute, 0)
         self.assertEqual(order.total_price, 10000)
@@ -142,6 +146,136 @@ class OrderExtensionDurationTest(TestCase):
         self.assertEqual(response.status_code, 400, response.data)
         order.refresh_from_db()
         self.assertIsNone(order.extension)
+        self.assertEqual(order.end, original_end)
+        self.assertEqual(order.total_price, 10000)
+
+    def test_create_with_direct_extension_duration_and_price(self):
+        start = datetime(2026, 8, 9, 12, 0, tzinfo=TOKYO)
+
+        response = self.client.post(
+            "/api/orders/",
+            {
+                "customer": self.customer.id,
+                "cast": self.cast.id,
+                "course": self.course.id,
+                "extension_duration": 15,
+                "extension_price": 3000,
+                "start": start.isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        order = Order.objects.get(pk=response.data["id"])
+        self.assertIsNone(order.extension)
+        self.assertEqual(order.extension_name, "15分延長")
+        self.assertEqual(order.extension_duration, 15)
+        self.assertEqual(order.extension_price, 3000)
+        self.assertEqual(order.end.astimezone(TOKYO), start + timedelta(minutes=75))
+        self.assertEqual(order.total_price, 13000)
+
+    def test_customer_reservation_returns_extension_duration(self):
+        order = self.create_order()
+        order.extension_name = "15分延長"
+        order.extension_duration = 15
+        order.extension_price = 3000
+        order.end += timedelta(minutes=15)
+        order.total_price = 13000
+        order.save(update_fields=[
+            "extension_name", "extension_duration", "extension_price", "end", "total_price",
+        ])
+        customer_client = APIClient()
+        customer_client.force_authenticate(self.customer_user)
+
+        response = customer_client.get(f"/api/cu/reservations/{order.id}/")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["extension_name"], "15分延長")
+        self.assertEqual(response.data["extension_duration"], 15)
+        self.assertEqual(response.data["extension_price"], 3000)
+
+    def test_create_can_override_extension_template_values(self):
+        start = datetime(2026, 8, 9, 12, 0, tzinfo=TOKYO)
+
+        response = self.client.post(
+            "/api/orders/",
+            {
+                "customer": self.customer.id,
+                "cast": self.cast.id,
+                "course": self.course.id,
+                "extension": self.extension.id,
+                "extension_duration": 15,
+                "extension_price": 2500,
+                "start": start.isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        order = Order.objects.get(pk=response.data["id"])
+        self.assertEqual(order.extension, self.extension)
+        self.assertEqual(order.extension_name, "15分延長")
+        self.assertEqual(order.extension_duration, 15)
+        self.assertEqual(order.extension_price, 2500)
+        self.assertEqual(order.end.astimezone(TOKYO), start + timedelta(minutes=75))
+        self.assertEqual(order.total_price, 12500)
+
+    def test_apply_and_remove_direct_extension(self):
+        order = self.create_order()
+
+        applied = self.client.post(
+            f"/api/orders/{order.id}/apply_extension/",
+            {
+                "extension_id": None,
+                "extension_duration": 15,
+                "extension_price": 3000,
+            },
+            format="json",
+        )
+
+        self.assertEqual(applied.status_code, 200, applied.data)
+        order.refresh_from_db()
+        self.assertIsNone(order.extension)
+        self.assertEqual(order.extension_name, "15分延長")
+        self.assertEqual(order.extension_duration, 15)
+        self.assertEqual(order.extension_price, 3000)
+        self.assertEqual(order.end.astimezone(TOKYO).time(), time(13, 15))
+        self.assertEqual(order.total_price, 13000)
+
+        removed = self.client.post(
+            f"/api/orders/{order.id}/apply_extension/",
+            {
+                "extension_id": None,
+                "extension_duration": 0,
+                "extension_price": 0,
+            },
+            format="json",
+        )
+
+        self.assertEqual(removed.status_code, 200, removed.data)
+        order.refresh_from_db()
+        self.assertEqual(order.extension_name, "")
+        self.assertEqual(order.extension_duration, 0)
+        self.assertEqual(order.extension_price, 0)
+        self.assertEqual(order.end.astimezone(TOKYO).time(), time(13, 0))
+        self.assertEqual(order.total_price, 10000)
+
+    def test_extension_price_without_duration_is_rejected_without_changes(self):
+        order = self.create_order()
+        original_end = order.end
+
+        response = self.client.post(
+            f"/api/orders/{order.id}/apply_extension/",
+            {
+                "extension_id": None,
+                "extension_duration": 0,
+                "extension_price": 3000,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.data)
+        order.refresh_from_db()
         self.assertEqual(order.end, original_end)
         self.assertEqual(order.total_price, 10000)
 
