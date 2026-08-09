@@ -29,6 +29,7 @@ const showForm = ref(false)
 const editingId = ref(null)
 const form = ref(emptyForm())
 const formError = ref('')
+const saveNotice = ref('')
 const saving = ref(false)
 
 // キャスト選択用検索
@@ -167,6 +168,7 @@ function openEdit(s) {
 async function onSave() {
   saving.value = true
   formError.value = ''
+  saveNotice.value = ''
   try {
     if (!/^\d{2}:\d{2}$/.test(form.value.end_time)) {
       throw new Error('終了時間はHH:MM形式で入力してください')
@@ -191,10 +193,14 @@ async function onSave() {
       daily_memo: form.value.daily_memo || '',
       is_absent: !!form.value.is_absent,
     }
+    let saved
     if (editingId.value) {
-      await api.updateShift(editingId.value, body)
+      saved = await api.updateShift(editingId.value, body)
     } else {
-      await api.createShift(body)
+      saved = await api.createShift(body)
+    }
+    if (saved?.assigned_order_count) {
+      saveNotice.value = `ルーム未定だった予約 ${saved.assigned_order_count}件へ「${roomName(saved.room)}」を割り当てました。`
     }
     showForm.value = false
     await loadShifts()
@@ -312,6 +318,10 @@ async function onClearClockIn(s) {
 <template>
   <LayoutOperator>
     <template #title>シフト管理</template>
+
+    <div v-if="saveNotice" class="alert alert-success py-2 px-3 mb-3">
+      {{ saveNotice }}
+    </div>
 
     <div class="mb-3">
       <router-link to="/op/shifts/weekly" class="btn btn-primary btn-sm">

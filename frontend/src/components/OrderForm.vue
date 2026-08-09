@@ -105,12 +105,25 @@ function clearCustomer() {
 
 const filteredCasts = computed(() => {
   const q = castSearch.value.trim()
-  let list = casts.value
-  if (!isEdit.value && shiftCastIds.value) {
-    list = list.filter(c => shiftCastIds.value.has(c.id))
-  }
+  let list = [...casts.value]
   if (q) list = list.filter(c => c.name.includes(q))
+  if (!isEdit.value && shiftCastIds.value) {
+    list.sort((a, b) => {
+      const aShift = shiftCastIds.value.has(a.id) ? 0 : 1
+      const bShift = shiftCastIds.value.has(b.id) ? 0 : 1
+      return aShift - bShift || a.name.localeCompare(b.name, 'ja')
+    })
+  }
   return list
+})
+
+function isCastOffShift(cast) {
+  return !isEdit.value && shiftCastIds.value && !shiftCastIds.value.has(cast.id)
+}
+
+const selectedCastIsOffShift = computed(() => {
+  if (!form.value.cast || !shiftCastIds.value) return false
+  return !shiftCastIds.value.has(Number(form.value.cast))
 })
 
 const selectedCastName = computed(() => {
@@ -236,9 +249,6 @@ async function loadShiftCasts(date) {
       .filter(c => Array.isArray(c.shifts) && c.shifts.some(s => !s.is_absent))
       .map(c => c.id)
     shiftCastIds.value = new Set(availableIds)
-    if (form.value.cast && !shiftCastIds.value.has(Number(form.value.cast))) {
-      form.value.cast = ''
-    }
   } catch (e) {
     shiftCastIds.value = null
   }
@@ -307,6 +317,11 @@ async function submit() {
 async function submitCreate() {
   if (!form.value.customer || !form.value.cast || !form.value.course) {
     errorMsg.value = '顧客・キャスト・コースは必須です'
+    return
+  }
+  if (selectedCastIsOffShift.value && !confirm(
+    'このキャストは指定日にシフトがありません。ルーム未定の確定予約として作成しますか？'
+  )) {
     return
   }
   if (form.value.payment_method === 'UNSET' && !confirm('支払い方法が未設定です。このまま予約を作成しますか？')) {
@@ -549,7 +564,7 @@ function formatYen(n) {
                   v-for="c in filteredCasts"
                   :key="c.id"
                   class="cast-chip"
-                  :class="{ active: form.cast === c.id }"
+                  :class="{ active: form.cast === c.id, 'is-off-shift': isCastOffShift(c) }"
                   @click="form.cast = c.id"
                 >
                   <img
@@ -562,6 +577,7 @@ function formatYen(n) {
                     <i class="ti ti-user"></i>
                   </div>
                   <span class="cast-chip__name">{{ c.name }}</span>
+                  <span v-if="isCastOffShift(c)" class="cast-chip__off-shift">シフト外</span>
                 </div>
                 <div v-if="filteredCasts.length === 0" class="text-muted small py-2 px-1">
                   該当なし
@@ -569,6 +585,9 @@ function formatYen(n) {
               </div>
               <div v-if="selectedCastName" class="small text-muted mt-1">
                 選択中: <strong>{{ selectedCastName }}</strong>
+              </div>
+              <div v-if="selectedCastIsOffShift" class="alert alert-warning py-2 px-3 mt-2 mb-0 small">
+                シフト外のため、予約は「ルーム未定」で作成されます。後からシフトとルームを登録してください。
               </div>
             </div>
 
@@ -813,6 +832,11 @@ function formatYen(n) {
     background: rgba(var(--bs-primary-rgb), 0.08);
   }
 
+  &.is-off-shift:not(.active) {
+    opacity: 0.5;
+    filter: grayscale(0.8);
+  }
+
   &__avatar {
     width: 60px;
     height: 60px;
@@ -838,6 +862,12 @@ function formatYen(n) {
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 100%;
+  }
+
+  &__off-shift {
+    font-size: 0.6rem;
+    color: #64748b;
+    line-height: 1;
   }
 }
 

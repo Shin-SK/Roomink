@@ -180,6 +180,7 @@ function statusClass(order) {
   if (order.is_unconfirmed) {
     cls.push('is-unconfirmed')
   }
+  if (order.is_room_pending) cls.push('is-room-pending')
   return cls
 }
 
@@ -199,8 +200,12 @@ function orderEndTime(order) {
 
 function blockMeta(order) {
   const t = `${orderStartTime(order)}–${orderEndTime(order)}`
-  if (order.status === 'REQUESTED') return `申請中 / ${t}`
-  return t
+  const labels = []
+  if (order.status === 'REQUESTED') labels.push('申請中')
+  if (order.is_off_shift) labels.push('シフト外')
+  if (order.is_room_pending) labels.push('ルーム未定')
+  labels.push(t)
+  return labels.join(' / ')
 }
 
 function castRoomLabel(cast) {
@@ -281,7 +286,9 @@ function castConfirmFlag(cast) {
 
 function castStatus(cast) {
   const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
-  if (shifts.length === 0) return null
+  if (shifts.length === 0 || cast.is_off_shift) {
+    return { key: 'offshift', label: 'シフト外', short: '外' }
+  }
   const anyAbsent = shifts.some(s => s.is_absent)
   if (anyAbsent) return { key: 'dayoff', label: '当欠', short: '欠' }
   const anyClockedIn = shifts.some(s => s.clocked_in_at)
@@ -477,7 +484,7 @@ onBeforeUnmount(() => {
             v-for="cast in casts"
             :key="cast.id"
             class="rk-castcell"
-            :class="{ 'is-active': visibleCastId === cast.id }"
+            :class="{ 'is-active': visibleCastId === cast.id, 'is-off-shift': cast.is_off_shift }"
             @mouseenter="onCastEnter(cast.id, $event)"
             @mouseleave="onCastLeave"
             @click="onCastClick(cast.id, $event)"

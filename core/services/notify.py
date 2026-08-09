@@ -274,7 +274,7 @@ def notify_cast_order(order: Order, created_by=None) -> SmsLog:
         f"【Roomink】予約通知\n"
         f"日時: {order.start:%Y-%m-%d %H:%M}〜{order.end:%H:%M}\n"
         f"コース: {order.course.name}\n"
-        f"ルーム: {order.room.name}"
+        f"ルーム: {order.room.name if order.room else '未定'}"
     )
     # キャストに電話番号がないため、仮に空文字で記録
     return send_sms(

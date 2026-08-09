@@ -307,6 +307,11 @@ async function updatePaymentMethod(value) {
             過去営業日の予約です。変更できるのはマネージャーのみです。
           </div>
 
+          <div v-if="order.is_off_shift || order.is_room_pending" class="alert alert-warning">
+            <div v-if="order.is_off_shift"><strong>シフト外予約</strong>です。</div>
+            <div v-if="order.is_room_pending"><strong>ルーム未定</strong>です。シフトとルームを登録してください。</div>
+          </div>
+
           <!-- ステータスバッジ -->
           <div class="text-center mb-3">
             <span
@@ -334,7 +339,7 @@ async function updatePaymentMethod(value) {
                   </tr>
                   <tr>
                     <th>ルーム</th>
-                    <td>{{ order.room_name }}</td>
+                    <td>{{ order.room_name || '未定' }}</td>
                   </tr>
                   <tr>
                     <th>コース</th>

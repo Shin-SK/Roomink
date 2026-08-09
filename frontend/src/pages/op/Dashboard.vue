@@ -13,6 +13,9 @@ const unconfirmedOrders = ref([])
 const confirmedOrders = ref([])
 const pendingFinalizeOrders = ref([])
 const allOrders = ref([])
+const roomPendingOrders = computed(() => allOrders.value.filter(
+  o => o.is_room_pending && o.status !== 'CANCELLED' && o.status !== 'DONE'
+))
 const loading = ref(true)
 // タブ: mikakunin(キャスト未確認) / request(予約リクエスト) / confirmed(本日の確定予約) / finalize(会計待ち)
 const activeTab = ref('mikakunin')
@@ -180,6 +183,21 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
     </div>
 
     <template v-else>
+      <div v-if="roomPendingOrders.length" class="alert alert-warning mb-3 py-2 px-3">
+        <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+          <div class="d-flex align-items-center gap-2">
+            <i class="ti ti-door-off"></i>
+            <strong>本日、ルーム未定の予約が {{ roomPendingOrders.length }}件あります</strong>
+          </div>
+          <router-link to="/op/schedule" class="btn btn-sm btn-outline-warning py-0">
+            予約タイムラインへ
+          </router-link>
+        </div>
+        <div v-for="order in roomPendingOrders" :key="'room-pending-'+order.id" class="small">
+          {{ formatTime(order.start) }} {{ order.cast_name }} / {{ order.customer_label }}
+        </div>
+      </div>
+
       <!-- 未出勤アラート -->
       <div v-if="notClockedIn.length" class="alert alert-danger mb-3 py-2 px-3">
         <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
@@ -498,4 +516,3 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
     </template>
   </LayoutOperator>
 </template>
-
