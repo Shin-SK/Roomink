@@ -34,7 +34,7 @@ class StoreAdmin(admin.ModelAdmin):
 
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "name", "sort_order")
+    list_display = ("id", "store", "name", "address", "sort_order")
     list_filter = ("store",)
 
 

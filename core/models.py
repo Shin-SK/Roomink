@@ -52,6 +52,12 @@ class Store(models.Model):
 class Room(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="rooms")
     name = models.CharField(max_length=50)
+    address = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="予約確定後に顧客マイページへ表示する住所",
+    )
     sort_order = models.PositiveSmallIntegerField(default=0)
     background_color = models.CharField(max_length=7, blank=True, default="", help_text="HEX形式 例: #fde2e4")
     area_name = models.CharField(
