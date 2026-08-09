@@ -697,12 +697,15 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     discount = serializers.PrimaryKeyRelatedField(
         queryset=Discount.objects.all(), required=False, allow_null=True,
     )
+    extension = serializers.PrimaryKeyRelatedField(
+        queryset=Extension.objects.all(), required=False, allow_null=True,
+    )
 
     class Meta:
         model = Order
         fields = [
             "cast", "customer", "course", "start", "end",
-            "memo", "options", "medium", "discount", "payment_method",
+            "memo", "options", "extension", "medium", "discount", "payment_method",
         ]
         extra_kwargs = {
             "end": {"required": False},
@@ -729,9 +732,20 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         if customer.flag == Customer.Flag.BAN:
             raise serializers.ValidationError("このお客様は予約を受け付けられません")
 
-        # B) end auto-calc
+        extension = data.get("extension")
+        if extension is not None:
+            if extension.store_id != store.id:
+                raise serializers.ValidationError({"extension": "他店舗の延長は使用できません"})
+            if not extension.is_active:
+                raise serializers.ValidationError({"extension": "無効な延長は使用できません"})
+
+        # B) end auto-calc（延長選択時は終了時刻へ必ず反映）
         course = data["course"]
-        if not data.get("end"):
+        if extension is not None:
+            data["end"] = data["start"] + timedelta(
+                minutes=course.duration + extension.duration,
+            )
+        elif not data.get("end"):
             data["end"] = data["start"] + timedelta(minutes=course.duration)
         if data["end"] <= data["start"]:
             raise serializers.ValidationError("終了時刻は開始時刻より後にしてください")
@@ -776,6 +790,10 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             validated_data["course_price"] = course.price
             opts_total = sum(o.price for o in option_objs)
             validated_data["options_price"] = opts_total
+            extension = validated_data.get("extension")
+            if extension:
+                validated_data["extension_name"] = extension.name
+                validated_data["extension_price"] = extension.price
             medium = validated_data.get("medium")
             if medium:
                 validated_data["medium_name"] = medium.name
