@@ -76,6 +76,7 @@ from .serializers import (
     build_customer_label,
     build_schedule_data,
     build_room_schedule_data,
+    validate_extension_duration_value,
 )
 from .utils.phone import normalize_phone
 
@@ -399,6 +400,20 @@ class OrderViewSet(viewsets.ModelViewSet):
     def apply_extension(self, request, pk=None):
         order = self.get_object()
         store = get_user_store(request)
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role not in (
+            UserProfile.Role.MANAGER,
+            UserProfile.Role.STAFF,
+        ):
+            return Response(
+                {"detail": "延長を設定できるのはマネージャーまたはスタッフのみです。"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if order.status in (Order.Status.DONE, Order.Status.CANCELLED):
+            return Response(
+                {"detail": "会計完了またはキャンセル済みの予約は延長できません。"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         input_serializer = ExtensionApplySerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
         extension_id = input_serializer.validated_data.get("extension_id")
@@ -426,6 +441,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             "extension_price",
             extension.price if extension else 0,
         )
+        validate_extension_duration_value(extension_duration)
         if extension is not None and extension_duration == 0:
             return Response(
                 {"extension_duration": ["延長時間は1分以上にしてください"]},

@@ -646,6 +646,7 @@ function formatYen(n) {
                     v-model.number="form.extension_duration"
                     type="number"
                     min="0"
+                    max="180"
                     step="5"
                     class="form-control"
                   >

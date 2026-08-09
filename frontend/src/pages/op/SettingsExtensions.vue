@@ -160,7 +160,7 @@ async function onDelete(o) {
             </div>
             <div class="mb-3">
               <label class="form-label">時間（分） <span class="text-danger">*</span></label>
-              <input v-model.number="form.duration" type="number" class="form-control" min="1" />
+              <input v-model.number="form.duration" type="number" class="form-control" min="5" max="180" step="5" />
             </div>
             <div class="mb-3">
               <label class="form-label">料金 <span class="text-danger">*</span></label>

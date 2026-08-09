@@ -61,8 +61,24 @@ class OrderExtensionDurationTest(TestCase):
             store=self.store,
             role=UserProfile.Role.MANAGER,
         )
+        self.staff = User.objects.create_user("extension_staff")
+        UserProfile.objects.create(
+            user=self.staff,
+            store=self.store,
+            role=UserProfile.Role.STAFF,
+        )
+        self.cast_user = User.objects.create_user("extension_cast")
+        UserProfile.objects.create(
+            user=self.cast_user,
+            store=self.store,
+            role=UserProfile.Role.CAST,
+        )
         self.client = APIClient()
         self.client.force_authenticate(self.manager)
+        self.staff_client = APIClient()
+        self.staff_client.force_authenticate(self.staff)
+        self.cast_client = APIClient()
+        self.cast_client.force_authenticate(self.cast_user)
 
     def create_order(self, start_hour=12, end_hour=13):
         start = datetime(2026, 8, 9, start_hour, 0, tzinfo=TOKYO)
@@ -278,6 +294,123 @@ class OrderExtensionDurationTest(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.end, original_end)
         self.assertEqual(order.total_price, 10000)
+
+    def test_create_rejects_non_five_minute_or_over_180_minute_extension(self):
+        start = datetime(2026, 8, 9, 14, 0, tzinfo=TOKYO)
+
+        for duration in (16, 185):
+            with self.subTest(duration=duration):
+                response = self.client.post(
+                    "/api/orders/",
+                    {
+                        "customer": self.customer.id,
+                        "cast": self.cast.id,
+                        "course": self.course.id,
+                        "extension_duration": duration,
+                        "extension_price": 3000,
+                        "start": start.isoformat(),
+                    },
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400, response.data)
+
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_apply_rejects_invalid_duration_without_changes(self):
+        order = self.create_order()
+        original_end = order.end
+
+        for duration in (16, 185):
+            with self.subTest(duration=duration):
+                response = self.client.post(
+                    f"/api/orders/{order.id}/apply_extension/",
+                    {
+                        "extension_id": None,
+                        "extension_duration": duration,
+                        "extension_price": 3000,
+                    },
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400, response.data)
+
+        order.refresh_from_db()
+        self.assertEqual(order.end, original_end)
+        self.assertEqual(order.extension_duration, 0)
+        self.assertEqual(order.total_price, 10000)
+
+    def test_staff_can_apply_extension_during_pending_finalize(self):
+        order = self.create_order()
+        order.status = Order.Status.PENDING_FINALIZE
+        order.save(update_fields=["status"])
+
+        response = self.staff_client.post(
+            f"/api/orders/{order.id}/apply_extension/",
+            {
+                "extension_id": None,
+                "extension_duration": 15,
+                "extension_price": 3000,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.extension_duration, 15)
+
+    def test_cast_cannot_apply_extension(self):
+        order = self.create_order()
+
+        response = self.cast_client.post(
+            f"/api/orders/{order.id}/apply_extension/",
+            {
+                "extension_id": None,
+                "extension_duration": 15,
+                "extension_price": 3000,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403, response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.extension_duration, 0)
+
+    def test_done_order_cannot_be_extended(self):
+        order = self.create_order()
+        order.status = Order.Status.DONE
+        order.save(update_fields=["status"])
+
+        response = self.client.post(
+            f"/api/orders/{order.id}/apply_extension/",
+            {
+                "extension_id": None,
+                "extension_duration": 15,
+                "extension_price": 3000,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403, response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.extension_duration, 0)
+
+    def test_extension_master_rejects_invalid_duration(self):
+        original_count = Extension.objects.count()
+
+        for duration in (16, 185):
+            with self.subTest(duration=duration):
+                response = self.client.post(
+                    "/api/extensions/",
+                    {
+                        "name": f"{duration}分延長",
+                        "duration": duration,
+                        "price": 3000,
+                        "is_active": True,
+                    },
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400, response.data)
+
+        self.assertEqual(Extension.objects.count(), original_count)
 
     def test_apply_extension_rejects_order_conflict_without_changes(self):
         order = self.create_order()
