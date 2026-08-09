@@ -4,6 +4,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 const props = defineProps({
   casts: { type: Array, default: () => [] },
   orders: { type: Array, default: () => [] },
+  unavailableTimes: { type: Array, default: () => [] },
   startHour: { type: Number, default: 12 },
   endHour: { type: Number, default: 20 },
   showRoom: { type: Boolean, default: true },
@@ -105,6 +106,10 @@ const effectiveStartHour = computed(() => {
     const h = parseInt(orderStartTime(order).slice(0, 2), 10)
     if (Number.isFinite(h) && h < earliest) earliest = h
   }
+  for (const item of props.unavailableTimes || []) {
+    const h = parseInt(String(item.start_time_extended || '').slice(0, 2), 10)
+    if (Number.isFinite(h) && h < earliest) earliest = h
+  }
   return Math.max(0, earliest)
 })
 
@@ -123,6 +128,13 @@ const effectiveEndHour = computed(() => {
   }
   for (const order of props.orders || []) {
     const t = orderEndTime(order)
+    const h = parseInt(t.slice(0, 2), 10)
+    const m = parseInt(t.slice(3, 5), 10) || 0
+    const eff = m > 0 ? h + 1 : h
+    if (Number.isFinite(eff) && eff > latest) latest = eff
+  }
+  for (const item of props.unavailableTimes || []) {
+    const t = String(item.end_time_extended || '')
     const h = parseInt(t.slice(0, 2), 10)
     const m = parseInt(t.slice(3, 5), 10) || 0
     const eff = m > 0 ? h + 1 : h
@@ -346,6 +358,12 @@ const intervalBlocks = computed(() => {
   return blocks
 })
 
+const unavailableBlocks = computed(() => (props.unavailableTimes || []).map(item => ({
+  ...item,
+  start: item.start_time_extended,
+  end: item.end_time_extended,
+})))
+
 function readVar(name, fallback) {
   const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name))
   return isFinite(v) && v > 0 ? v : fallback
@@ -362,7 +380,7 @@ function layoutBlocks() {
   grid.style.width = `${hourW * totalCols.value}px`
   grid.style.height = `${rowH * props.casts.length}px`
 
-  grid.querySelectorAll('.rk-block, .rk-interval, .rk-shift-band').forEach(el => {
+  grid.querySelectorAll('.rk-block, .rk-interval, .rk-unavailable, .rk-shift-band').forEach(el => {
     const isBand = el.classList.contains('rk-shift-band')
     const row = Number(el.dataset.row || 0)
     const s = parseTimeToMin(el.dataset.start)
@@ -385,7 +403,7 @@ function onResize() { layoutBlocks() }
 
 function onGridClick(ev) {
   const target = ev.target
-  if (target.closest && (target.closest('.rk-block') || target.closest('.rk-interval'))) return
+  if (target.closest && (target.closest('.rk-block') || target.closest('.rk-interval') || target.closest('.rk-unavailable'))) return
   if (!gridRef.value) return
 
   const hourW = readVar('--rk-col-w', 120)
@@ -425,7 +443,7 @@ onMounted(() => {
   document.addEventListener('keydown', onDocumentKey)
   nowTimer = setInterval(() => { nowMs.value = Date.now() }, 60 * 1000)
 })
-watch(() => [props.casts, props.orders], () => nextTick(layoutBlocks))
+watch(() => [props.casts, props.orders, props.unavailableTimes], () => nextTick(layoutBlocks))
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
   window.removeEventListener('scroll', onScrollClose, true)
@@ -546,6 +564,19 @@ onBeforeUnmount(() => {
             <div class="rk-block__title">{{ order.customer_label }} ({{ order.course_name }})</div>
             <div class="rk-block__meta">{{ blockMeta(order) }}</div>
           </a>
+
+          <div
+            v-for="item in unavailableBlocks"
+            :key="`unavailable-${item.id}`"
+            class="rk-unavailable"
+            :data-row="castIndexMap[item.cast_id] ?? 0"
+            :data-start="item.start"
+            :data-end="item.end"
+            :title="`${item.type_display}${item.memo ? `: ${item.memo}` : ''}`"
+            @click.stop.prevent
+          >
+            <span class="rk-unavailable__label">{{ item.type_display }}</span>
+          </div>
 
           <div
             v-for="iv in intervalBlocks"

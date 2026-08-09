@@ -13,6 +13,7 @@ from .models import (
     CallLog,
     CallNote,
     Cast,
+    CastUnavailableTime,
     CastAck,
     CastAdjustment,
     CastCheckoutExpenseSnapshot,
@@ -43,14 +44,17 @@ from .models import (
 )
 from .services.business_datetime import (
     BusinessDateTimeError,
+    business_date_for_datetime,
     business_day_range,
     build_business_interval,
     format_business_time,
     format_extended_time,
     intervals_overlap,
+    parse_extended_time,
 )
 from .services.order_availability import (
     cast_has_order_conflict,
+    cast_has_unavailable_time_conflict,
     find_covering_shift,
 )
 from .services.order_policy import (
@@ -506,6 +510,142 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         return format_extended_time(obj.end_time, obj.end_day_offset)
 
 
+class CastUnavailableTimeSerializer(serializers.ModelSerializer):
+    cast_name = serializers.CharField(source="cast.name", read_only=True)
+    type_display = serializers.CharField(source="get_type_display", read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+    updated_by_name = serializers.SerializerMethodField()
+    business_date = serializers.DateField(write_only=True, required=False)
+    start_time_extended = serializers.CharField(write_only=True, required=False)
+    end_time_extended = serializers.CharField(write_only=True, required=False)
+
+    class Meta:
+        model = CastUnavailableTime
+        fields = [
+            "id", "cast", "cast_name", "start_at", "end_at", "type", "type_display",
+            "memo", "created_by", "created_by_name", "updated_by", "updated_by_name",
+            "created_at", "updated_at", "business_date", "start_time_extended",
+            "end_time_extended",
+        ]
+        read_only_fields = [
+            "created_by", "updated_by", "created_at", "updated_at",
+        ]
+        extra_kwargs = {
+            "start_at": {"required": False},
+            "end_at": {"required": False},
+        }
+
+    def validate(self, data):
+        store = (
+            getattr(self.instance, "store", None)
+            or self.context.get("store")
+        )
+        business_date = data.get("business_date")
+        start_time_extended = data.get("start_time_extended")
+        end_time_extended = data.get("end_time_extended")
+        extended_fields = (business_date, start_time_extended, end_time_extended)
+        if any(value is not None for value in extended_fields):
+            if not all(value is not None for value in extended_fields):
+                raise serializers.ValidationError(
+                    "営業日・開始時刻・終了時刻をすべて指定してください"
+                )
+            try:
+                start_time, start_day_offset = parse_extended_time(start_time_extended)
+                end_time, end_day_offset = parse_extended_time(end_time_extended)
+                data["start_at"], data["end_at"] = build_business_interval(
+                    business_date,
+                    start_time,
+                    end_time,
+                    start_day_offset=start_day_offset,
+                    end_day_offset=end_day_offset,
+                    timezone_name=store.timezone if store else "Asia/Tokyo",
+                )
+            except BusinessDateTimeError as exc:
+                raise serializers.ValidationError(str(exc)) from exc
+
+        cast = data.get("cast", getattr(self.instance, "cast", None))
+        start_at = data.get("start_at", getattr(self.instance, "start_at", None))
+        end_at = data.get("end_at", getattr(self.instance, "end_at", None))
+
+        if store is None:
+            raise serializers.ValidationError("所属店舗を確認できません")
+        if cast is not None and cast.store_id != store.id:
+            raise serializers.ValidationError({"cast": "他店舗のキャストは指定できません"})
+        if self.instance is None and (start_at is None or end_at is None):
+            raise serializers.ValidationError("開始日時と終了日時を指定してください")
+        if start_at and end_at and end_at <= start_at:
+            raise serializers.ValidationError({"end_at": "終了日時は開始日時より後にしてください"})
+
+        if cast and start_at and end_at:
+            if find_covering_shift(store, cast, start_at, end_at) is None:
+                raise serializers.ValidationError(
+                    "予約不可時間はキャストの出勤シフト内に設定してください"
+                )
+            if Order.objects.filter(
+                cast=cast,
+                status__in=Order.ACTIVE_STATUSES,
+                start__lt=end_at,
+                end__gt=start_at,
+            ).exists():
+                raise serializers.ValidationError(
+                    "既存予約と重なるため予約不可時間を設定できません"
+                )
+            if cast_has_unavailable_time_conflict(
+                cast,
+                start_at,
+                end_at,
+                exclude_unavailable_time_id=getattr(self.instance, "pk", None),
+            ):
+                raise serializers.ValidationError("既存の予約不可時間と重複しています")
+
+        return data
+
+    def create(self, validated_data):
+        self._remove_extended_input(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        self._remove_extended_input(validated_data)
+        return super().update(instance, validated_data)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        business_date = business_date_for_datetime(
+            instance.start_at,
+            instance.store.timezone,
+        )
+        data["business_date"] = business_date.isoformat()
+        data["start_time_extended"] = format_business_time(
+            instance.start_at,
+            business_date,
+            instance.store.timezone,
+        )
+        data["end_time_extended"] = format_business_time(
+            instance.end_at,
+            business_date,
+            instance.store.timezone,
+        )
+        return data
+
+    @staticmethod
+    def _remove_extended_input(validated_data):
+        validated_data.pop("business_date", None)
+        validated_data.pop("start_time_extended", None)
+        validated_data.pop("end_time_extended", None)
+
+    def get_created_by_name(self, obj) -> Optional[str]:
+        return self._user_name(obj.created_by)
+
+    def get_updated_by_name(self, obj) -> Optional[str]:
+        return self._user_name(obj.updated_by)
+
+    @staticmethod
+    def _user_name(user) -> Optional[str]:
+        if user is None:
+            return None
+        return user.get_full_name() or user.username
+
+
 # ──────────────────────────────────────
 # ShiftRequest
 # ──────────────────────────────────────
@@ -803,6 +943,9 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("このキャストは指定日時にシフトがありません（または当欠）")
         data["room"] = assignment.room
 
+        if cast_has_unavailable_time_conflict(data["cast"], start, end):
+            raise serializers.ValidationError("指定時間はこのキャストの予約不可時間です")
+
         # D) cast conflict (既存予約の end + interval_minutes をインターバル占有終端とみなす)
         cast_obj = data["cast"]
         if cast_has_order_conflict(cast_obj, start, end):
@@ -920,6 +1063,9 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
             if assignment is None:
                 raise serializers.ValidationError("このキャストは指定日時にシフトがありません（または当欠）")
             data["room"] = assignment.room
+
+            if cast_has_unavailable_time_conflict(cast, start, end):
+                raise serializers.ValidationError("指定時間はこのキャストの予約不可時間です")
 
             # Cast conflict (exclude self, インターバル考慮)
             if cast_has_order_conflict(
@@ -1042,6 +1188,19 @@ class ScheduleOrderSerializer(serializers.Serializer):
     is_unconfirmed = serializers.BooleanField()
 
 
+class ScheduleUnavailableTimeSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    cast_id = serializers.IntegerField()
+    cast_name = serializers.CharField()
+    start_at = serializers.DateTimeField()
+    end_at = serializers.DateTimeField()
+    start_time_extended = serializers.CharField()
+    end_time_extended = serializers.CharField()
+    type = serializers.CharField()
+    type_display = serializers.CharField()
+    memo = serializers.CharField(allow_blank=True)
+
+
 class ScheduleKpiSerializer(serializers.Serializer):
     total_orders = serializers.IntegerField()
     confirmed = serializers.IntegerField()
@@ -1054,6 +1213,7 @@ class ScheduleResponseSerializer(serializers.Serializer):
     store_id = serializers.IntegerField()
     casts = ScheduleCastSerializer(many=True)
     orders = ScheduleOrderSerializer(many=True)
+    unavailable_times = ScheduleUnavailableTimeSerializer(many=True)
     kpi = ScheduleKpiSerializer()
 
 
@@ -1126,6 +1286,31 @@ def build_schedule_data(store, date):
             "is_unconfirmed": o.id not in acked_order_ids,
         })
 
+    unavailable_times = CastUnavailableTime.objects.filter(
+        store=store,
+        start_at__lt=range_end,
+        end_at__gt=range_start,
+    ).select_related("cast")
+    unavailable_time_data = [
+        {
+            "id": unavailable.id,
+            "cast_id": unavailable.cast_id,
+            "cast_name": unavailable.cast.name,
+            "start_at": unavailable.start_at,
+            "end_at": unavailable.end_at,
+            "start_time_extended": format_business_time(
+                unavailable.start_at, date, store.timezone,
+            ),
+            "end_time_extended": format_business_time(
+                unavailable.end_at, date, store.timezone,
+            ),
+            "type": unavailable.type,
+            "type_display": unavailable.get_type_display(),
+            "memo": unavailable.memo,
+        }
+        for unavailable in unavailable_times
+    ]
+
     # orders は既に評価済み（上の for o in orders で）なので list 化して再利用
     orders_list = list(orders)
     done_orders = [o for o in orders_list if o.status == Order.Status.DONE]
@@ -1143,6 +1328,7 @@ def build_schedule_data(store, date):
         "store_id": store.id,
         "casts": cast_data,
         "orders": order_data,
+        "unavailable_times": unavailable_time_data,
         "kpi": kpi,
     }
 
