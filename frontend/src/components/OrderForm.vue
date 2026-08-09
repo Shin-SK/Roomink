@@ -26,6 +26,7 @@ const customers = ref([])
 const casts = ref([])
 const courses = ref([])
 const options = ref([])
+const extensions = ref([])
 const media = ref([])
 const discounts = ref([])
 const loading = ref(true)
@@ -43,6 +44,7 @@ const form = ref({
   start: '', // edit用 datetime-local
   end: '',   // edit用 datetime-local
   options: [],
+  extension: '',
   medium: '',
   discount: '',
   memo: '',
@@ -122,6 +124,10 @@ const selectedOptions = computed(() =>
   options.value.filter(o => form.value.options.includes(o.id))
 )
 
+const selectedExtension = computed(() =>
+  extensions.value.find(e => e.id === Number(form.value.extension))
+)
+
 const selectedDiscount = computed(() =>
   discounts.value.find(d => d.id === Number(form.value.discount))
 )
@@ -129,6 +135,7 @@ const selectedDiscount = computed(() =>
 const subtotalPrice = computed(() => {
   let total = selectedCourse.value ? selectedCourse.value.price : 0
   total += selectedOptions.value.reduce((sum, o) => sum + o.price, 0)
+  total += selectedExtension.value ? selectedExtension.value.price : 0
   return total
 })
 
@@ -179,11 +186,12 @@ function applyInitialOrder() {
 async function loadMasters() {
   loading.value = true
   try {
-    const [custData, castData, courseData, optData, mdData, dcData] = await Promise.all([
+    const [custData, castData, courseData, optData, extData, mdData, dcData] = await Promise.all([
       api.getCustomers(),
       api.getCasts(),
       api.getCourses(),
       api.getOptions(),
+      api.getExtensions(),
       api.getMedia(),
       api.getDiscounts(),
     ])
@@ -191,6 +199,7 @@ async function loadMasters() {
     casts.value = Array.isArray(castData) ? castData : []
     courses.value = Array.isArray(courseData) ? courseData : []
     options.value = Array.isArray(optData) ? optData : []
+    extensions.value = (Array.isArray(extData) ? extData : []).filter(e => e.is_active)
     const allMedia = Array.isArray(mdData) ? mdData : []
     media.value = allMedia.filter(m => m.is_active)
     const allDiscounts = Array.isArray(dcData) ? dcData : []
@@ -288,6 +297,7 @@ async function submitCreate() {
     memo: form.value.memo,
   }
   if (form.value.options.length) body.options = form.value.options
+  if (form.value.extension) body.extension = Number(form.value.extension)
   if (form.value.medium) body.medium = Number(form.value.medium)
   if (form.value.discount) body.discount = Number(form.value.discount)
   if (form.value.payment_method) body.payment_method = form.value.payment_method
@@ -564,6 +574,31 @@ function formatYen(n) {
                   @click="toggleOption(opt.id)"
                 >
                   {{ opt.name }}<br><small>+{{ formatYen(opt.price) }}</small>
+                </button>
+              </div>
+            </div>
+
+            <div class="mb-3" v-if="!isEdit && extensions.length">
+              <label class="form-label">延長</label>
+              <div class="select-grid">
+                <button
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.extension === '' ? 'active' : ''"
+                  @click="form.extension = ''"
+                >
+                  なし
+                </button>
+                <button
+                  v-for="ext in extensions"
+                  :key="ext.id"
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.extension == ext.id ? 'active' : ''"
+                  @click="form.extension = ext.id"
+                >
+                  {{ ext.name }}<br>
+                  <small>+{{ ext.duration }}分 / +{{ formatYen(ext.price) }}</small>
                 </button>
               </div>
             </div>

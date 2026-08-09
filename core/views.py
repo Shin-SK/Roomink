@@ -110,7 +110,11 @@ from .services.business_datetime import (
     intervals_overlap,
     parse_extended_time,
 )
-from .services.order_availability import build_available_order_slots
+from .services.order_availability import (
+    build_available_order_slots,
+    cast_has_order_conflict,
+    find_covering_shift,
+)
 
 
 def document_object_api_view(cls):
@@ -396,20 +400,58 @@ class OrderViewSet(viewsets.ModelViewSet):
         extension_id = request.data.get("extension_id")
 
         if extension_id is None:
-            # 解除
-            order.extension = None
-            order.extension_name = ""
-            order.extension_price = 0
+            extension = None
         else:
             try:
-                ext = Extension.objects.get(pk=extension_id, store=store)
+                extension = Extension.objects.get(
+                    pk=extension_id,
+                    store=store,
+                    is_active=True,
+                )
             except Extension.DoesNotExist:
-                return Response({"detail": "延長が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
-            order.extension = ext
-            order.extension_name = ext.name
-            order.extension_price = ext.price
+                return Response(
+                    {"detail": "有効な延長が見つかりません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        order.save(update_fields=["extension", "extension_name", "extension_price", "updated_at"])
+        duration = order.course.duration + (extension.duration if extension else 0)
+        new_end = order.start + timedelta(minutes=duration)
+        assignment = find_covering_shift(store, order.cast, order.start, new_end)
+        if assignment is None:
+            return Response(
+                {"detail": "延長後の終了時刻がキャストのシフトを超えます"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if cast_has_order_conflict(
+            order.cast,
+            order.start,
+            new_end,
+            exclude_order_id=order.pk,
+        ):
+            return Response(
+                {"detail": "延長後の時間にキャストの別予約があります"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if Order.objects.filter(
+            room=assignment.room,
+            status__in=Order.ACTIVE_STATUSES,
+            start__lt=new_end,
+            end__gt=order.start,
+        ).exclude(pk=order.pk).exists():
+            return Response(
+                {"detail": "延長後の時間はルームが使用中です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order.extension = extension
+        order.extension_name = extension.name if extension else ""
+        order.extension_price = extension.price if extension else 0
+        order.end = new_end
+        order.room = assignment.room
+        order.save(update_fields=[
+            "extension", "extension_name", "extension_price",
+            "end", "room", "updated_at",
+        ])
         recalculate_order_total(order)
         return Response(OrderSerializer(order).data)
 
