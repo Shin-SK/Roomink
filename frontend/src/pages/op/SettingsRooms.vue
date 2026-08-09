@@ -15,7 +15,7 @@ const formError = ref('')
 const saving = ref(false)
 
 function emptyForm() {
-  return { name: '', sort_order: 0, background_color: '', area_name: '' }
+  return { name: '', address: '', sort_order: 0, background_color: '', area_name: '' }
 }
 
 async function loadRooms() {
@@ -44,6 +44,7 @@ function openEdit(r) {
   editingId.value = r.id
   form.value = {
     name: r.name,
+    address: r.address || '',
     sort_order: r.sort_order ?? 0,
     background_color: r.background_color || '',
     area_name: r.area_name || '',
@@ -58,6 +59,7 @@ async function onSave() {
   try {
     const payload = {
       name: form.value.name,
+      address: form.value.address || '',
       sort_order: form.value.sort_order,
       background_color: form.value.background_color || '',
       area_name: form.value.area_name || '',
@@ -127,7 +129,10 @@ async function onDelete(r) {
           </thead>
           <tbody>
             <tr v-for="r in rooms" :key="r.id">
-              <td>{{ r.name }}</td>
+              <td>
+                <div>{{ r.name }}</div>
+                <div v-if="r.address" class="small text-muted">{{ r.address }}</div>
+              </td>
               <td>
                 <span v-if="r.area_name" class="badge bg-light text-dark border">{{ r.area_name }}</span>
                 <span v-else class="text-muted small">未設定</span>
@@ -162,6 +167,11 @@ async function onDelete(r) {
             <div class="mb-3">
               <label class="form-label">表示順</label>
               <input v-model.number="form.sort_order" type="number" class="form-control" min="0" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">住所（任意）</label>
+              <input v-model="form.address" type="text" class="form-control" placeholder="例: 東京都新宿区○○1-2-3 ○○ビル101" maxlength="255" />
+              <div class="form-text">予約確定後、お客様の予約詳細とマイページに表示されます。</div>
             </div>
             <div class="mb-3">
               <label class="form-label">エリア（任意）</label>

@@ -1100,7 +1100,7 @@ class CustomerMypageView(APIView):
                 status__in=[Order.Status.REQUESTED, Order.Status.CONFIRMED, Order.Status.IN_PROGRESS],
                 start__gt=now,
             )
-            .select_related("cast", "course")
+            .select_related("cast", "course", "room")
             .order_by("start")
             .first()
         )
@@ -1114,6 +1114,8 @@ class CustomerMypageView(APIView):
                 "cast_name": next_order.cast.name,
                 "course_name": next_order.course_name,
                 "total_price": next_order.total_price,
+                "room_name": next_order.room.name if next_order.room else "",
+                "room_address": _customer_visible_room_address(next_order),
             }
 
         # ── 推しセラピスト（直近指名キャスト 1名）──
@@ -1266,6 +1268,21 @@ class CustomerBookingCreateView(APIView):
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
 
+CUSTOMER_ROOM_ADDRESS_STATUSES = {
+    Order.Status.CONFIRMED,
+    Order.Status.IN_PROGRESS,
+    Order.Status.PENDING_FINALIZE,
+    Order.Status.DONE,
+}
+
+
+def _customer_visible_room_address(order):
+    """予約確定後に限り、顧客本人へルーム住所を返す。"""
+    if order.status not in CUSTOMER_ROOM_ADDRESS_STATUSES or not order.room:
+        return ""
+    return order.room.address
+
+
 @document_object_api_view
 class CustomerReservationDetailView(APIView):
     """GET /api/cu/reservations/<id>/ — 顧客向け予約詳細"""
@@ -1293,6 +1310,7 @@ class CustomerReservationDetailView(APIView):
             "cast_name": order.cast.name if order.cast else "",
             "cast_avatar_url": order.cast.avatar_url if order.cast else "",
             "room_name": order.room.name if order.room else "",
+            "room_address": _customer_visible_room_address(order),
             "course_name": order.course_name,
             "course_price": order.course_price,
             "options": [o.name for o in order.options.all()],

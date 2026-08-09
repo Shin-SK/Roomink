@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import LayoutCustomer from '../../components/LayoutCustomer.vue'
 import { api } from '../../api.js'
@@ -8,6 +8,11 @@ const route = useRoute()
 const loading = ref(true)
 const error = ref('')
 const order = ref(null)
+
+const roomMapUrl = computed(() => {
+  if (!order.value?.room_address) return ''
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.value.room_address)}`
+})
 
 onMounted(async () => {
   try {
@@ -110,6 +115,19 @@ function statusBadge(s) {
               <tr>
                 <th>ルーム</th>
                 <td>{{ order.room_name }}</td>
+              </tr>
+              <tr>
+                <th>住所</th>
+                <td>
+                  <template v-if="order.room_address">
+                    <div>{{ order.room_address }}</div>
+                    <a :href="roomMapUrl" target="_blank" rel="noopener noreferrer" class="small">
+                      <i class="ti ti-map-pin"></i> 地図で開く
+                    </a>
+                  </template>
+                  <span v-else-if="order.status === 'REQUESTED'" class="text-muted">予約確定後に表示されます</span>
+                  <span v-else class="text-muted">住所は準備中です。店舗へお問い合わせください</span>
+                </td>
               </tr>
               <tr>
                 <th>ステータス</th>
