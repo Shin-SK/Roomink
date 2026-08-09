@@ -173,6 +173,57 @@ class ShiftAssignment(models.Model):
         return f"{self.cast} {self.date} {self.start_time}-{self.end_time}"
 
 
+class CastUnavailableTime(models.Model):
+    class Type(models.TextChoices):
+        BREAK = "BREAK", "休憩"
+        LATE = "LATE", "遅刻"
+        EARLY_LEAVE = "EARLY_LEAVE", "早退"
+        OUT = "OUT", "中抜け"
+        STORE = "STORE", "店舗都合"
+        OTHER = "OTHER", "その他"
+
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="cast_unavailable_times",
+    )
+    cast = models.ForeignKey(
+        Cast,
+        on_delete=models.CASCADE,
+        related_name="unavailable_times",
+    )
+    start_at = models.DateTimeField()
+    end_at = models.DateTimeField()
+    type = models.CharField(max_length=12, choices=Type.choices)
+    memo = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_cast_unavailable_times",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="updated_cast_unavailable_times",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "cast", "start_at"]),
+            models.Index(fields=["store", "start_at", "end_at"]),
+        ]
+        ordering = ["start_at", "id"]
+
+    def __str__(self):
+        return f"{self.cast} {self.get_type_display()} {self.start_at}-{self.end_at}"
+
+
 class ShiftRequest(models.Model):
     class Status(models.TextChoices):
         REQUESTED = "REQUESTED", "申請中"

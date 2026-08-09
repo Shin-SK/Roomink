@@ -545,6 +545,36 @@
   }
 }
 
+/* 運営が登録した予約不可時間 */
+.rk-unavailable {
+  position: absolute;
+  border-radius: 5px;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(100, 116, 139, 0.34),
+    rgba(100, 116, 139, 0.34) 5px,
+    rgba(226, 232, 240, 0.5) 5px,
+    rgba(226, 232, 240, 0.5) 10px
+  );
+  border: 1px solid rgba(71, 85, 105, 0.65);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: not-allowed;
+
+  &__label {
+    font-size: 0.6875rem;
+    color: #334155;
+    background: rgba(255, 255, 255, 0.82);
+    border-radius: 999px;
+    padding: 1px 7px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+}
+
 /* ===========================
    Room View（ルーム軸）専用
    =========================== */

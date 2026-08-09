@@ -6,6 +6,7 @@ from . import views
 router = DefaultRouter()
 router.register("orders", views.OrderViewSet)
 router.register("shifts", views.ShiftAssignmentViewSet)
+router.register("cast-unavailable-times", views.CastUnavailableTimeViewSet, basename="cast-unavailable-time")
 router.register("customers", views.CustomerViewSet)
 router.register("casts", views.CastViewSet)
 router.register("courses", views.CourseViewSet)

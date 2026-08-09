@@ -1,7 +1,7 @@
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-from core.models import Order, ShiftAssignment
+from core.models import CastUnavailableTime, Order, ShiftAssignment
 from core.services.business_datetime import (
     build_business_interval,
     business_date_for_datetime,
@@ -58,6 +58,23 @@ def cast_has_order_conflict(cast, start_at, end_at, exclude_order_id=None):
     )
 
 
+def cast_has_unavailable_time_conflict(
+    cast,
+    start_at,
+    end_at,
+    exclude_unavailable_time_id=None,
+):
+    """キャストの予約不可時間と半開区間が重なるかを返す。"""
+    unavailable_times = CastUnavailableTime.objects.filter(
+        cast=cast,
+        start_at__lt=end_at,
+        end_at__gt=start_at,
+    )
+    if exclude_unavailable_time_id is not None:
+        unavailable_times = unavailable_times.exclude(pk=exclude_unavailable_time_id)
+    return unavailable_times.exists()
+
+
 def build_available_order_slots(store, cast, business_date, slot_minutes=30):
     """営業日内のシフトから、予約可能な固定幅スロットを作る。"""
     shifts = ShiftAssignment.objects.filter(
@@ -88,6 +105,11 @@ def build_available_order_slots(store, cast, business_date, slot_minutes=30):
         start__lt=window_end,
         end__gt=window_start - interval,
     ))
+    unavailable_times = list(CastUnavailableTime.objects.filter(
+        cast=cast,
+        start_at__lt=window_end,
+        end_at__gt=window_start,
+    ))
     timezone = ZoneInfo(store.timezone)
     step = timedelta(minutes=slot_minutes)
     slots_by_start = {}
@@ -112,6 +134,15 @@ def build_available_order_slots(store, cast, business_date, slot_minutes=30):
                     slot_end,
                 )
                 for existing in orders
+            )
+            conflict = conflict or any(
+                intervals_overlap(
+                    unavailable.start_at,
+                    unavailable.end_at,
+                    slot_start,
+                    slot_end,
+                )
+                for unavailable in unavailable_times
             )
             if not conflict:
                 slots_by_start[slot_start] = {

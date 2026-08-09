@@ -5,6 +5,7 @@ import LayoutOperator from '../../components/LayoutOperator.vue'
 import TimelineGrid from '../../components/TimelineGrid.vue'
 import CustomerInfoCard from '../../components/CustomerInfoCard.vue'
 import OrderForm from '../../components/OrderForm.vue'
+import UnavailableTimeModal from '../../components/UnavailableTimeModal.vue'
 import { api, normalizePhone } from '../../api.js'
 
 const router = useRouter()
@@ -13,6 +14,7 @@ const selectedDate = ref(route.query.date || today())
 const highlightId = ref(route.query.highlight ? Number(route.query.highlight) : null)
 const casts = ref([])
 const orders = ref([])
+const unavailableTimes = ref([])
 const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 0 })
 const loading = ref(true)
 const toolbarOpen = ref(false)
@@ -51,11 +53,13 @@ const roomOrdersAdapter = computed(() =>
 
 const displayCasts = computed(() => viewMode.value === 'room' ? roomCastsAdapter.value : casts.value)
 const displayOrders = computed(() => viewMode.value === 'room' ? roomOrdersAdapter.value : orders.value)
+const displayUnavailableTimes = computed(() => viewMode.value === 'room' ? [] : unavailableTimes.value)
 const showLegend = ref(false)
 const showPhoneSearch = ref(false)
 
 // 予約作成モーダル
 const showCreateModal = ref(false)
+const showUnavailableTimeModal = ref(false)
 const modalCast = ref('')
 const modalStartTime = ref('')
 const modalStartDate = ref('')
@@ -99,6 +103,7 @@ async function fetchSchedule() {
     const data = await api.getSchedule(selectedDate.value)
     casts.value = data.casts
     orders.value = data.orders
+    unavailableTimes.value = data.unavailable_times || []
     kpi.value = data.kpi
 
     if (highlightId.value) {
@@ -249,6 +254,10 @@ function onOrderCreated({ order }) {
 
 function onOrderCancel() {
   showCreateModal.value = false
+}
+
+async function onUnavailableTimeSaved() {
+  await fetchSchedule()
 }
 
 // 電話番号 → 顧客検索（CTI自動入力時もこの関数を呼ぶ）
@@ -446,6 +455,9 @@ onMounted(loadSchedule)
                 <span class="d-flex align-items-center gap-1">
                   <span class="rk-legend-iv"></span> <small class="text-muted">インターバル</small>
                 </span>
+                <span class="d-flex align-items-center gap-1">
+                  <span class="badge text-bg-secondary">休憩</span> <small class="text-muted">予約不可時間</small>
+                </span>
               </div>
             </div>
           </div>
@@ -482,6 +494,14 @@ onMounted(loadSchedule)
         >
           <i class="ti ti-arrows-sort me-1"></i>並び替え
         </button>
+        <button
+          v-if="viewMode === 'cast'"
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          @click="showUnavailableTimeModal = true"
+        >
+          <i class="ti ti-clock-pause me-1"></i>予約不可時間
+        </button>
       </div>
 
       <!-- 検索アコーディオン -->
@@ -514,6 +534,7 @@ onMounted(loadSchedule)
       <TimelineGrid
         :casts="displayCasts"
         :orders="displayOrders"
+        :unavailable-times="displayUnavailableTimes"
         @block-click="onBlockClick"
         @create-order="onCreateOrder"
       />
@@ -521,6 +542,15 @@ onMounted(loadSchedule)
         <span class="text-muted bg-white px-3 py-2 rounded shadow-sm text-center" style="max-width: 240px;">{{ viewMode === 'room' ? '部屋が登録されていません' : 'この日にシフトが登録されたキャストがいません' }}</span>
       </div>
     </div>
+
+    <UnavailableTimeModal
+      v-if="showUnavailableTimeModal"
+      :date="selectedDate"
+      :casts="casts"
+      :items="unavailableTimes"
+      @close="showUnavailableTimeModal = false"
+      @saved="onUnavailableTimeSaved"
+    />
 
     <!-- 予約作成モーダル（OrderForm 雛形を利用） -->
     <div v-if="showCreateModal" class="modal d-block" style="background: rgba(0,0,0,0.3);" @click.self="showCreateModal = false">

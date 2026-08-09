@@ -27,6 +27,7 @@ from twilio.request_validator import RequestValidator
 
 from .models import (
     CallLog, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
+    CastUnavailableTime,
     CastDailyCheckout, CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer,
     CustomerMergeLog, DailySettlement, Discount, Extension, Medium,
@@ -35,7 +36,7 @@ from .models import (
     SmsTemplate, Store, StorePhoneNumber, UserProfile,
     generate_line_link_code,
 )
-from .permissions import PastOrderManagerOnlyPermission
+from .permissions import IsManagerOrStaff, PastOrderManagerOnlyPermission
 from .serializers import (
     CallLogSerializer,
     CallNoteSerializer,
@@ -49,6 +50,7 @@ from .serializers import (
     CastNoteSerializer,
     CastNoteCastSerializer,
     CastSerializer,
+    CastUnavailableTimeSerializer,
     PointLogSerializer,
     CastShiftRequestSerializer,
     CastTodayOrderSerializer,
@@ -115,6 +117,7 @@ from .services.business_datetime import (
 from .services.order_availability import (
     build_available_order_slots,
     cast_has_order_conflict,
+    cast_has_unavailable_time_conflict,
     find_covering_shift,
 )
 
@@ -469,6 +472,11 @@ class OrderViewSet(viewsets.ModelViewSet):
         ):
             return Response(
                 {"detail": "延長後の時間にキャストの別予約があります"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if cast_has_unavailable_time_conflict(order.cast, order.start, new_end):
+            return Response(
+                {"detail": "延長後の時間はキャストの予約不可時間です"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if Order.objects.filter(
@@ -1469,6 +1477,53 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
         shift.clocked_in_at = None
         shift.save(update_fields=["clocked_in_at"])
         return Response(self.get_serializer(shift).data)
+
+
+class CastUnavailableTimeViewSet(viewsets.ModelViewSet):
+    queryset = CastUnavailableTime.objects.none()
+    serializer_class = CastUnavailableTimeSerializer
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+    filterset_fields = {
+        "cast": ["exact"],
+        "type": ["exact"],
+        "start_at": ["gte", "lte"],
+        "end_at": ["gte", "lte"],
+    }
+    ordering_fields = ["start_at", "end_at", "created_at"]
+    ordering = ["start_at", "id"]
+
+    def get_queryset(self):
+        store = get_user_store(self.request)
+        queryset = CastUnavailableTime.objects.filter(store=store).select_related(
+            "cast", "created_by", "updated_by",
+        )
+        date_str = self.request.query_params.get("date")
+        if date_str:
+            try:
+                business_date = date_type.fromisoformat(date_str)
+            except ValueError as exc:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError(
+                    {"date": "date の形式が不正です（YYYY-MM-DD）"}
+                ) from exc
+            range_start, range_end = business_day_range(business_date, store.timezone)
+            queryset = queryset.filter(start_at__lt=range_end, end_at__gt=range_start)
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["store"] = get_user_store(self.request)
+        return context
+
+    def perform_create(self, serializer):
+        serializer.save(
+            store=get_user_store(self.request),
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
 
 
 class CustomerViewSet(viewsets.ModelViewSet):

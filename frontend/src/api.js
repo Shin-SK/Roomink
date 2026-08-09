@@ -203,6 +203,12 @@ export const api = {
   clockInShift: (id) => request('POST', `/shifts/${id}/clock-in/`),
   clearClockInShift: (id) => request('POST', `/shifts/${id}/clear-clock-in/`),
 
+  // Cast unavailable times（休憩・遅刻・早退・中抜け等）
+  getCastUnavailableTimes: (date) => listRequest('GET', `/cast-unavailable-times/?date=${date}&limit=500`),
+  createCastUnavailableTime: (body) => request('POST', '/cast-unavailable-times/', body),
+  updateCastUnavailableTime: (id, body) => request('PATCH', `/cast-unavailable-times/${id}/`, body),
+  deleteCastUnavailableTime: (id) => request('DELETE', `/cast-unavailable-times/${id}/`),
+
   // 週次シフト入力（1キャスト×1週間まとめて登録）
   getWeeklyShifts: (castId, weekStart) => request('GET', `/op/shifts/weekly/?cast=${castId}&week_start=${weekStart}`),
   createWeeklyShifts: (body) => request('POST', '/op/shifts/weekly/', body),
