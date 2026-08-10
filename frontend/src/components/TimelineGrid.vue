@@ -208,6 +208,11 @@ function blockMeta(order) {
   return labels.join(' / ')
 }
 
+function orderPartyLabel(order) {
+  if (!order.service_recipient_name) return order.customer_label
+  return `${order.service_recipient_name}（連絡: ${order.customer_label}）`
+}
+
 function castRoomLabel(cast) {
   if (!props.showRoom) return ''
   const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
@@ -568,7 +573,7 @@ onBeforeUnmount(() => {
             :data-end="orderEndTime(order)"
             @click.prevent.stop="emit('block-click', order)"
           >
-            <div class="rk-block__title">{{ order.customer_label }} ({{ order.course_name }})</div>
+            <div class="rk-block__title">{{ orderPartyLabel(order) }} ({{ order.course_name }})</div>
             <div class="rk-block__meta">{{ blockMeta(order) }}</div>
           </a>
 

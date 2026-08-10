@@ -391,6 +391,12 @@ class Order(models.Model):
         help_text="シフト外予約では未定のまま保存し、シフト登録時に割り当てる",
     )
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="orders")
+    service_recipient_name = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="実際の利用者名。空欄は連絡者本人として扱う",
+    )
     course = models.ForeignKey(Course, on_delete=models.PROTECT, related_name="orders")
     options = models.ManyToManyField("Option", through="OrderOption", blank=True)
     extension = models.ForeignKey(

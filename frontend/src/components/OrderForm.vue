@@ -49,6 +49,7 @@ const form = ref({
   extension_price: 0,
   medium: '',
   discount: '',
+  service_recipient_name: '',
   memo: '',
   payment_method: 'UNSET',
 })
@@ -192,6 +193,7 @@ function applyInitialOrder() {
   form.value.options = Array.isArray(o.option_ids) ? [...o.option_ids] : []
   form.value.medium = o.medium ?? ''
   form.value.discount = o.discount ?? ''
+  form.value.service_recipient_name = o.service_recipient_name || ''
   form.value.memo = o.memo || ''
   form.value.payment_method = o.payment_method || 'UNSET'
   form.value.start = toLocalInput(o.start)
@@ -333,6 +335,7 @@ async function submitCreate() {
     cast: Number(form.value.cast),
     course: Number(form.value.course),
     start: startDt,
+    service_recipient_name: form.value.service_recipient_name,
     memo: form.value.memo,
   }
   if (form.value.options.length) body.options = form.value.options
@@ -373,6 +376,7 @@ async function submitEdit() {
     course: Number(form.value.course),
     start: form.value.start,
     end: form.value.end,
+    service_recipient_name: form.value.service_recipient_name,
     options: form.value.options,
     memo: form.value.memo,
     medium: form.value.medium ? Number(form.value.medium) : null,
@@ -416,7 +420,7 @@ function formatYen(n) {
 
       <div v-if="!isEdit && showFlowHint" class="alert alert-info">
         <strong>予約フロー</strong><br>
-        1. 顧客を選択 → 2. 日時・キャスト・コースを選択 → 3. 予約を作成
+        1. 連絡者を選択 → 2. 日時・利用者・キャスト・コースを選択 → 3. 予約を作成
       </div>
 
       <div v-if="!isEdit && phoneHint && !form.customer" class="alert alert-warning d-flex justify-content-between align-items-center">
@@ -432,9 +436,9 @@ function formatYen(n) {
         </router-link>
       </div>
 
-      <!-- STEP 1: 顧客検索（create時のみ） -->
+      <!-- STEP 1: 連絡者検索（create時のみ） -->
       <div v-if="!isEdit" class="card">
-        <div class="card-header">STEP 1: 顧客検索</div>
+        <div class="card-header">STEP 1: 連絡者検索</div>
         <div class="card-body">
           <div v-if="selectedCustomer" class="selected-customer">
             <div>
@@ -499,9 +503,9 @@ function formatYen(n) {
         </div>
       </div>
 
-      <!-- 顧客（edit時の読み取り専用カード） -->
+      <!-- 連絡者（edit時の読み取り専用カード） -->
       <div v-else class="card">
-        <div class="card-header">顧客</div>
+        <div class="card-header">連絡者</div>
         <div class="card-body">
           <div class="selected-customer">
             <div>
@@ -520,6 +524,19 @@ function formatYen(n) {
         <div class="card-header">{{ isEdit ? '予約内容' : 'STEP 2: 予約内容入力' }}</div>
         <div class="card-body">
           <form @submit.prevent="submit">
+            <div class="mb-3">
+              <label class="form-label">実際に利用する方のお名前（任意）</label>
+              <input
+                v-model="form.service_recipient_name"
+                type="text"
+                maxlength="50"
+                autocomplete="name"
+                class="form-control"
+                placeholder="例: 山田 花子"
+              >
+              <div class="form-text">予約者ご本人の場合は空欄で構いません</div>
+            </div>
+
             <!-- create: 日付＋開始時刻 / edit: 開始日時＋終了日時 -->
             <div v-if="!isEdit" class="row">
               <div class="col-md-6">

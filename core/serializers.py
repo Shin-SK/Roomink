@@ -849,7 +849,7 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "id", "store", "cast", "room", "customer", "course",
-            "cast_name", "room_name", "course_name", "customer_label",
+            "cast_name", "room_name", "course_name", "customer_label", "service_recipient_name",
             "start", "end", "status", "options", "option_ids", "is_unconfirmed",
             "is_past_business_day", "can_modify", "is_off_shift", "is_room_pending", "memo",
             "course_price", "options_price",
@@ -921,7 +921,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "cast", "customer", "course", "start", "end",
-            "memo", "options", "extension", "extension_duration", "extension_price",
+            "service_recipient_name", "memo", "options", "extension", "extension_duration", "extension_price",
             "medium", "discount", "payment_method",
         ]
         extra_kwargs = {
@@ -1031,6 +1031,19 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
         return data
 
+    def validate_service_recipient_name(self, value):
+        request = self.context.get("request")
+        if request:
+            profile = getattr(request.user, "profile", None)
+            if profile is None or profile.role not in (
+                UserProfile.Role.MANAGER,
+                UserProfile.Role.STAFF,
+            ):
+                raise PermissionDenied(
+                    "実利用者名を設定できるのはマネージャーまたはスタッフのみです。"
+                )
+        return value.strip()
+
     def create(self, validated_data):
         from .services.pricing import recalculate_order_total
         with transaction.atomic():
@@ -1090,7 +1103,22 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Order
-        fields = ["cast", "course", "start", "end", "memo", "options", "payment_method"]
+        fields = [
+            "cast", "course", "start", "end", "service_recipient_name",
+            "memo", "options", "payment_method",
+        ]
+
+    def validate_service_recipient_name(self, value):
+        request = self.context.get("request")
+        profile = getattr(request.user, "profile", None) if request else None
+        if profile is None or profile.role not in (
+            UserProfile.Role.MANAGER,
+            UserProfile.Role.STAFF,
+        ):
+            raise PermissionDenied(
+                "実利用者名を変更できるのはマネージャーまたはスタッフのみです。"
+            )
+        return value.strip()
 
     def validate(self, data):
         instance = self.instance
@@ -1206,6 +1234,7 @@ class CastTodayOrderSerializer(serializers.Serializer):
     room_name = serializers.CharField(allow_blank=True)
     is_room_pending = serializers.BooleanField()
     customer_label = serializers.CharField()
+    service_recipient_name = serializers.CharField(allow_blank=True)
     course_name = serializers.CharField()
     course_price = serializers.IntegerField()
     memo = serializers.CharField()
@@ -1249,6 +1278,7 @@ class ScheduleOrderSerializer(serializers.Serializer):
     cast_id = serializers.IntegerField()
     room_id = serializers.IntegerField(allow_null=True)
     customer_label = serializers.CharField()
+    service_recipient_name = serializers.CharField(allow_blank=True)
     course_name = serializers.CharField()
     start = serializers.DateTimeField()
     end = serializers.DateTimeField()
@@ -1354,6 +1384,7 @@ def build_schedule_data(store, date):
             "cast_id": o.cast_id,
             "room_id": o.room_id,
             "customer_label": build_customer_label(o.customer),
+            "service_recipient_name": o.service_recipient_name,
             "course_name": o.course_name,
             "start": o.start,
             "end": o.end,
@@ -1442,6 +1473,7 @@ def build_room_schedule_data(store, date):
             "room_id": o.room_id,
             "cast_name": o.cast.name if o.cast else "",
             "customer_label": build_customer_label(o.customer),
+            "service_recipient_name": o.service_recipient_name,
             "course_name": o.course_name,
             "start": o.start,
             "end": o.end,

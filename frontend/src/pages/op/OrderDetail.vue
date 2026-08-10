@@ -330,8 +330,12 @@ async function updatePaymentMethod(value) {
                     <td>{{ formatDt(order.start) }} – {{ formatTime(order.end) }}</td>
                   </tr>
                   <tr>
-                    <th>顧客</th>
+                    <th>連絡者</th>
                     <td>{{ order.customer_label }}</td>
+                  </tr>
+                  <tr>
+                    <th>ご利用者</th>
+                    <td>{{ order.service_recipient_name || '本人' }}</td>
                   </tr>
                   <tr>
                     <th>キャスト</th>
