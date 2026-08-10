@@ -159,9 +159,9 @@ def get_user_store(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def auth_login(request):
-    raw_username = request.data.get("username", "")
-    # 数字を含む場合のみ電話番号正規化（admin 等の英字ユーザー名はそのまま）
-    username = normalize_phone(raw_username) if any(c.isdigit() for c in raw_username) else raw_username
+    # 運営・キャスト用APIでは、見た目にかかわらずDjango usernameとして扱う。
+    # 顧客の電話番号認証と正規化は customer_login に限定する。
+    username = (request.data.get("username") or "").strip()
     password = request.data.get("password", "")
     user = authenticate(request, username=username, password=password)
     if user is None:
