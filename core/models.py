@@ -1074,6 +1074,49 @@ class ShiftConfirmNotificationLog(models.Model):
         return f"{self.cast} {self.alert_level} {self.channel} {self.status}"
 
 
+class ShiftEndAlert(models.Model):
+    """シフト終了70分前の受付終了確認アラート。外部通知は別機能で扱う。"""
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "対応待ち"
+        RESOLVED = "RESOLVED", "解消済み"
+
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="shift_end_alerts",
+    )
+    shift_assignment = models.OneToOneField(
+        ShiftAssignment,
+        on_delete=models.CASCADE,
+        related_name="shift_end_alert",
+    )
+    cast = models.ForeignKey(
+        Cast,
+        on_delete=models.CASCADE,
+        related_name="shift_end_alerts",
+    )
+    alert_at = models.DateTimeField()
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.OPEN,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "status"], name="core_sea_store_status_idx"),
+            models.Index(fields=["alert_at"], name="core_sea_alert_at_idx"),
+        ]
+        ordering = ["-alert_at", "-id"]
+
+    def __str__(self):
+        return f"{self.cast} {self.alert_at} {self.status}"
+
+
 class UserProfile(models.Model):
     class Role(models.TextChoices):
         CAST = "cast", "キャスト"

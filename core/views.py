@@ -120,6 +120,7 @@ from .services.order_availability import (
     cast_has_unavailable_time_conflict,
     find_covering_shift,
 )
+from .services.shift_end_alerts import evaluate_shift_end_alerts
 
 
 def document_object_api_view(cls):
@@ -4733,6 +4734,17 @@ class LineAlertsView(APIView):
             "failed_notifications": failed_list,
             "not_clocked_in_casts": not_clocked_in_list,
         })
+
+
+@document_object_api_view
+class ShiftEndAlertsView(APIView):
+    """GET /api/op/shift-end-alerts/ — シフト終了70分前の受付終了確認。"""
+
+    permission_classes = [IsManagerOrStaff]
+
+    def get(self, request):
+        store = get_user_store(request)
+        return Response(evaluate_shift_end_alerts(store))
 
 
 # ──────────────────────────────────────

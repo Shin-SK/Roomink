@@ -336,6 +336,7 @@ export const api = {
 
   // LINE Alerts
   getLineAlerts: () => request('GET', '/op/line-alerts/'),
+  getShiftEndAlerts: () => request('GET', '/op/shift-end-alerts/'),
 
   // LINE Settings (store)
   getLineSettings: () => request('GET', '/op/line-settings/'),
