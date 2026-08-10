@@ -330,7 +330,9 @@ class OrderViewSet(viewsets.ModelViewSet):
         "start": ["date", "gte", "lte"],
         "end": ["gte", "lte"],
     }
-    search_fields = ["memo", "customer__display_name", "customer__phone"]
+    search_fields = [
+        "memo", "customer__display_name", "customer__phone", "service_recipient_name",
+    ]
     ordering_fields = ["start", "end", "created_at", "updated_at"]
     ordering = ["start"]
 
@@ -652,6 +654,7 @@ class CastTodayView(APIView):
                 "room_name": o.room.name if o.room_id else "",
                 "is_room_pending": o.room_id is None,
                 "customer_label": build_customer_label(o.customer),
+                "service_recipient_name": o.service_recipient_name,
                 "course_name": o.course_name,
                 "course_price": o.course_price,
                 "memo": o.memo,
@@ -991,6 +994,7 @@ class CastAckView(APIView):
             "room_id": order.room_id,
             "room_name": order.room.name if order.room_id else "",
             "customer_label": build_customer_label(order.customer),
+            "service_recipient_name": order.service_recipient_name,
             "course_name": order.course_name,
             "course_price": order.course_price,
             "memo": order.memo,
@@ -1031,6 +1035,7 @@ class OpOrderCastAckView(APIView):
             "room_id": order.room_id,
             "room_name": order.room.name if order.room_id else "",
             "customer_label": build_customer_label(order.customer),
+            "service_recipient_name": order.service_recipient_name,
             "course_name": order.course_name,
             "course_price": order.course_price,
             "memo": order.memo,
@@ -1212,6 +1217,7 @@ class CustomerMypageView(APIView):
                 "total_price": next_order.total_price,
                 "room_name": next_order.room.name if next_order.room else "",
                 "room_address": _customer_visible_room_address(next_order),
+                "service_recipient_name": next_order.service_recipient_name,
             }
 
         # ── 推しセラピスト（直近指名キャスト 1名）──
@@ -1264,6 +1270,7 @@ class CustomerMypageView(APIView):
                 "course_name": o.course_name,
                 "total_price": o.total_price,
                 "status": o.status,
+                "service_recipient_name": o.service_recipient_name,
             })
 
         # ── 累計 ──
@@ -1357,6 +1364,7 @@ class CustomerBookingCreateView(APIView):
 
         data = request.data.copy()
         data["customer"] = customer.id
+        data["service_recipient_name"] = ""
 
         serializer = OrderCreateSerializer(data=data)
         serializer.is_valid(raise_exception=True)
@@ -1420,6 +1428,7 @@ class CustomerReservationDetailView(APIView):
             "discount_amount": order.discount_amount,
             "total_price": order.total_price,
             "memo": order.memo,
+            "service_recipient_name": order.service_recipient_name,
             "store_name": order.store.name if order.store_id else "",
             "created_at": order.created_at,
         })

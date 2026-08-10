@@ -96,6 +96,7 @@ def get_sales_csv(store, date_from, date_to):
         "注文ID", "施術日", "開始時刻", "終了時刻", "顧客名", "顧客電話番号",
         "キャスト名", "ルーム名", "コース名", "コース料金", "オプション料金",
         "延長料金", "指名料", "割引額", "合計金額", "決済方法", "媒体名",
+        "実利用者名",
     ])
     for o in orders:
         business_date = business_date_for_datetime(o.start, store.timezone)
@@ -123,6 +124,7 @@ def get_sales_csv(store, date_from, date_to):
             o.total_price,
             o.get_payment_method_display(),
             o.medium_name,
+            o.service_recipient_name,
         ])
     return buf.getvalue()
 

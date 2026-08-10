@@ -112,6 +112,11 @@ function formatTime(dt) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function orderPartyLabel(order) {
+  if (!order.service_recipient_name) return order.customer_label
+  return `${order.service_recipient_name}（連絡: ${order.customer_label}）`
+}
+
 function formatYen(n) {
   return `¥${Number(n).toLocaleString()}`
 }
@@ -194,7 +199,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
           </router-link>
         </div>
         <div v-for="order in roomPendingOrders" :key="'room-pending-'+order.id" class="small">
-          {{ formatTime(order.start) }} {{ order.cast_name }} / {{ order.customer_label }}
+          {{ formatTime(order.start) }} {{ order.cast_name }} / {{ orderPartyLabel(order) }}
         </div>
       </div>
 
@@ -397,7 +402,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
               <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <span class="badge badge-attention">キャスト未確認</span>
-                  <strong>{{ order.customer_label }}</strong>
+                  <strong>{{ orderPartyLabel(order) }}</strong>
                   <span class="text-muted small">{{ formatTime(order.start) }}</span>
                 </div>
                 <div class="d-flex align-items-center gap-2">
@@ -436,7 +441,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
               <div class="d-flex justify-content-between align-items-center">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <span class="badge badge-pending">リクエスト</span>
-                  <strong>{{ order.customer_label }}</strong>
+                  <strong>{{ orderPartyLabel(order) }}</strong>
                   <span class="text-muted small">{{ formatTime(order.start) }}–{{ formatTime(order.end) }}</span>
                   <span class="text-muted small">{{ order.course_name }}</span>
                 </div>
@@ -468,7 +473,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <span v-if="isInSession(order)" class="badge badge-approved">施術中</span>
                   <span v-else class="badge badge-approved">確定</span>
-                  <strong>{{ order.customer_label }}</strong>
+                  <strong>{{ orderPartyLabel(order) }}</strong>
                   <span class="text-muted small">{{ formatTime(order.start) }}–{{ formatTime(order.end) }}</span>
                   <span class="text-muted small">{{ order.course_name }}</span>
                 </div>
@@ -499,7 +504,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
               <div class="d-flex justify-content-between align-items-center">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <span class="badge badge-attention">会計待ち</span>
-                  <strong>{{ order.customer_label }}</strong>
+                  <strong>{{ orderPartyLabel(order) }}</strong>
                   <span class="text-muted small">{{ formatTime(order.start) }}–{{ formatTime(order.end) }}</span>
                 </div>
                 <a href="#" class="btn btn-sm btn-primary" @click.prevent="goOrder(order.id)">

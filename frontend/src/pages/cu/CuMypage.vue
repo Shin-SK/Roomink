@@ -98,6 +98,7 @@ function statusBadge(s) {
       >
         <div class="rk-booking-card__label"><i class="ti ti-calendar-event"></i> 次回のご予約</div>
         <div class="rk-booking-card__date">{{ formatDateRange(nextReservation.start, nextReservation.end) }}</div>
+        <div class="rk-booking-card__info"><i class="ti ti-users"></i> ご利用者: {{ nextReservation.service_recipient_name || '本人' }}</div>
         <div class="rk-booking-card__info"><i class="ti ti-user"></i> {{ nextReservation.cast_name }} / {{ nextReservation.course_name }}</div>
         <div v-if="nextReservation.room_name" class="rk-booking-card__info"><i class="ti ti-door"></i> {{ nextReservation.room_name }}</div>
         <div v-if="nextReservation.room_address" class="rk-booking-card__info"><i class="ti ti-map-pin"></i> {{ nextReservation.room_address }}</div>
@@ -177,6 +178,7 @@ function statusBadge(s) {
               <div>
                 <div class="rk-history-date">{{ h.date }}</div>
                 <div class="rk-history-meta">{{ h.cast_name }} / {{ h.course_name }}</div>
+                <div class="rk-history-meta">ご利用者: {{ h.service_recipient_name || '本人' }}</div>
               </div>
               <div class="d-flex align-items-center gap-2">
                 <span class="fw-bold">{{ formatYen(h.total_price) }}</span>

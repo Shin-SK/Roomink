@@ -89,6 +89,10 @@ function statusBadge(s) {
                 <td>{{ order.cast_name }}</td>
               </tr>
               <tr>
+                <th>ご利用者</th>
+                <td>{{ order.service_recipient_name || '本人' }}</td>
+              </tr>
+              <tr>
                 <th>コース</th>
                 <td>{{ order.course_name }} ({{ formatYen(order.course_price) }})</td>
               </tr>

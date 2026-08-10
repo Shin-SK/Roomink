@@ -146,8 +146,14 @@ class ShiftRequestAdmin(admin.ModelAdmin):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "cast", "customer", "course", "start", "end", "status")
+    list_display = (
+        "id", "store", "cast", "customer", "service_recipient_name",
+        "course", "start", "end", "status",
+    )
     list_filter = ("store", "status")
+    search_fields = (
+        "customer__phone", "customer__display_name", "service_recipient_name",
+    )
 
 
 @admin.register(StorePhoneNumber)
