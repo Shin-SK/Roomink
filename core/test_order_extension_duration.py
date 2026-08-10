@@ -1,4 +1,5 @@
 from datetime import date, datetime, time, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -343,15 +344,17 @@ class OrderExtensionDurationTest(TestCase):
         order.status = Order.Status.PENDING_FINALIZE
         order.save(update_fields=["status"])
 
-        response = self.staff_client.post(
-            f"/api/orders/{order.id}/apply_extension/",
-            {
-                "extension_id": None,
-                "extension_duration": 15,
-                "extension_price": 3000,
-            },
-            format="json",
-        )
+        reference_at = datetime(2026, 8, 9, 15, 0, tzinfo=TOKYO)
+        with patch("core.permissions.timezone.now", return_value=reference_at):
+            response = self.staff_client.post(
+                f"/api/orders/{order.id}/apply_extension/",
+                {
+                    "extension_id": None,
+                    "extension_duration": 15,
+                    "extension_price": 3000,
+                },
+                format="json",
+            )
 
         self.assertEqual(response.status_code, 200, response.data)
         order.refresh_from_db()

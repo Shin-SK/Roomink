@@ -10,8 +10,10 @@ import logging
 import os
 from typing import Optional
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
+from django.utils import timezone
 
 from core.models import Order, SmsLog, SmsTemplate
 
@@ -35,6 +37,24 @@ def _format_to_e164(phone: str) -> str:
     if phone.startswith("0"):
         return "+81" + phone[1:]
     return phone
+
+
+def _local_order_datetimes(order: Order):
+    """予約日時を店舗タイムゾーンへ変換する。"""
+    timezone_name = order.store.timezone or settings.TIME_ZONE
+    try:
+        store_timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        logger.warning(
+            "Invalid store timezone; using Django default → store=%s timezone=%s",
+            order.store_id,
+            timezone_name,
+        )
+        store_timezone = timezone.get_default_timezone()
+    return (
+        timezone.localtime(order.start, store_timezone),
+        timezone.localtime(order.end, store_timezone),
+    )
 
 
 def send_sms(
@@ -140,11 +160,12 @@ def _payment_method_note(payment_method: str) -> str:
 
 def build_template_context(order: Order) -> dict:
     """テンプレートの差し込み変数。SmsTemplate.PLACEHOLDERS と対応させること。"""
+    start, end = _local_order_datetimes(order)
     return {
         "customer_name": order.customer.display_name or "",
-        "date": f"{order.start:%Y-%m-%d}",
-        "start_time": f"{order.start:%H:%M}",
-        "end_time": f"{order.end:%H:%M}",
+        "date": f"{start:%Y-%m-%d}",
+        "start_time": f"{start:%H:%M}",
+        "end_time": f"{end:%H:%M}",
         "course_name": order.course_name or order.course.name,
         "cast_name": order.cast.name,
         "room_name": order.room.name if order.room else "",
@@ -180,9 +201,10 @@ def default_confirmation_preview(payment_method: str) -> str:
 
 
 def _default_confirmation_body(order: Order) -> str:
+    start, end = _local_order_datetimes(order)
     return (
         f"【Roomink】ご予約が確定しました。\n"
-        f"日時: {order.start:%Y-%m-%d %H:%M}〜{order.end:%H:%M}\n"
+        f"日時: {start:%Y-%m-%d %H:%M}〜{end:%H:%M}\n"
         f"コース: {order.course.name}\n"
         f"担当: {order.cast.name}\n"
         f"{_payment_method_note(order.payment_method)}\n"
@@ -270,9 +292,10 @@ def notify_customer_account(customer, order=None, created_by=None, force=False) 
 
 def notify_cast_order(order: Order, created_by=None) -> SmsLog:
     """予約確定時にキャストへ通知"""
+    start, end = _local_order_datetimes(order)
     body = (
         f"【Roomink】予約通知\n"
-        f"日時: {order.start:%Y-%m-%d %H:%M}〜{order.end:%H:%M}\n"
+        f"日時: {start:%Y-%m-%d %H:%M}〜{end:%H:%M}\n"
         f"コース: {order.course.name}\n"
         f"ルーム: {order.room.name if order.room else '未定'}"
     )
@@ -290,9 +313,10 @@ def notify_cast_order(order: Order, created_by=None) -> SmsLog:
 
 def notify_order_cancelled(order: Order, created_by=None) -> SmsLog:
     """予約キャンセル時に顧客へ通知"""
+    start, end = _local_order_datetimes(order)
     body = (
         f"【Roomink】ご予約がキャンセルされました。\n"
-        f"日時: {order.start:%Y-%m-%d %H:%M}〜{order.end:%H:%M}\n"
+        f"日時: {start:%Y-%m-%d %H:%M}〜{end:%H:%M}\n"
         f"コース: {order.course.name}\n"
         f"ご不明点がございましたらお問い合わせください。"
     )
