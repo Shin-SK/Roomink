@@ -53,6 +53,7 @@
 ## 検証結果
 
 - 関連テスト: 6件成功
+- 関連テスト（PostgreSQL 17一時DB）: 6件成功
 - Django全テスト（SQLite）: 230件成功
 - `manage.py check`: 成功
 - `makemigrations --check --dry-run`: 変更なし
@@ -61,7 +62,7 @@
 - Vue production build: 成功
 - `git diff --check`: 成功
 
-PostgreSQL 17の全テストはGitHub Actionsで確認する。
+初回CIで、nullableな実利用者顧客を`select_related`した状態の行ロックがPostgreSQLに拒否された。予約行だけをロックしてから顧客を読む最小修正を行い、一時PostgreSQL 17 DBの関連テストで回帰確認した。全テストはGitHub Actionsで再確認する。
 
 ## 本番反映後の手動確認
 

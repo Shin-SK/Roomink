@@ -396,9 +396,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response(OrderSerializer(order, context={"request": request}).data)
 
         with transaction.atomic():
-            locked_order = Order.objects.select_for_update().select_related(
-                "service_recipient_customer",
-            ).get(pk=order.pk)
+            locked_order = Order.objects.select_for_update().get(pk=order.pk)
             previous = locked_order.service_recipient_customer
             locked_order.service_recipient_customer = linked_customer
             update_fields = ["service_recipient_customer", "updated_at"]
