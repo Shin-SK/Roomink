@@ -12,7 +12,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Q
 from django.utils import timezone
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -34,6 +34,7 @@ from .models import (
     CastExpenseTemplateHistory, CastNote, Course, Customer,
     CustomerMergeLog, DailySettlement, Discount, Extension, Medium,
     LineNotificationLog, NominationFee, Option, Order, OrderOption, PointLog,
+    OrderServiceRecipientLinkLog,
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
     SmsTemplate, Store, StorePhoneNumber, UserProfile,
     generate_line_link_code,
@@ -72,6 +73,7 @@ from .serializers import (
     OrderCreateSerializer,
     OrderSerializer,
     OrderUpdateSerializer,
+    ServiceRecipientCustomerLinkSerializer,
     RoomSerializer,
     ScheduleResponseSerializer,
     ShiftAssignmentSerializer,
@@ -330,7 +332,7 @@ class RoomScheduleView(APIView):
 class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, PastOrderManagerOnlyPermission]
     queryset = Order.objects.select_related(
-        "cast", "room", "customer", "course",
+        "cast", "room", "customer", "service_recipient_customer", "course",
     ).prefetch_related("options").order_by("start")
 
     filterset_fields = {
@@ -343,6 +345,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     }
     search_fields = [
         "memo", "customer__display_name", "customer__phone", "service_recipient_name",
+        "service_recipient_customer__display_name", "service_recipient_customer__phone",
     ]
     ordering_fields = ["start", "end", "created_at", "updated_at"]
     ordering = ["start"]
@@ -359,6 +362,61 @@ class OrderViewSet(viewsets.ModelViewSet):
         return OrderSerializer
 
     # --- status actions ---
+
+    @extend_schema(request=ServiceRecipientCustomerLinkSerializer, responses=OrderSerializer)
+    @action(detail=True, methods=["post"], url_path="link-service-recipient")
+    def link_service_recipient(self, request, pk=None):
+        """managerが確認した実利用者顧客を予約へ手動で紐付ける。"""
+        profile = getattr(request.user, "profile", None)
+        if profile is None or profile.role != UserProfile.Role.MANAGER:
+            return Response(
+                {"detail": "実利用者アカウントを紐付けできるのはマネージャーのみです。"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        order = self.get_object()
+        input_serializer = ServiceRecipientCustomerLinkSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        customer_id = input_serializer.validated_data.get("customer_id")
+
+        linked_customer = None
+        if customer_id is not None:
+            linked_customer = Customer.objects.filter(
+                pk=customer_id,
+                store=order.store,
+            ).first()
+            if linked_customer is None:
+                return Response(
+                    {"detail": "指定された顧客が同じ店舗に見つかりません。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        previous = order.service_recipient_customer
+        if previous == linked_customer:
+            return Response(OrderSerializer(order, context={"request": request}).data)
+
+        with transaction.atomic():
+            locked_order = Order.objects.select_for_update().select_related(
+                "service_recipient_customer",
+            ).get(pk=order.pk)
+            previous = locked_order.service_recipient_customer
+            locked_order.service_recipient_customer = linked_customer
+            update_fields = ["service_recipient_customer", "updated_at"]
+            if linked_customer and not locked_order.service_recipient_name:
+                locked_order.service_recipient_name = linked_customer.display_name
+                update_fields.append("service_recipient_name")
+            locked_order.save(update_fields=update_fields)
+            OrderServiceRecipientLinkLog.objects.create(
+                store=locked_order.store,
+                order=locked_order,
+                previous_customer_id=previous.pk if previous else None,
+                previous_customer_name=previous.display_name if previous else "",
+                linked_customer_id=linked_customer.pk if linked_customer else None,
+                linked_customer_name=linked_customer.display_name if linked_customer else "",
+                executed_by=request.user,
+            )
+
+        return Response(OrderSerializer(locked_order, context={"request": request}).data)
 
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
@@ -1330,10 +1388,13 @@ class CustomerMypageView(APIView):
         now = timezone.now()
 
         # ── 次回予約 ──
+        visible_orders = Order.objects.filter(
+            Q(customer=customer) | Q(service_recipient_customer=customer)
+        ).distinct()
+
         next_order = (
-            Order.objects
+            visible_orders
             .filter(
-                customer=customer,
                 status__in=[Order.Status.REQUESTED, Order.Status.CONFIRMED, Order.Status.IN_PROGRESS],
                 start__gt=now,
             )
@@ -1358,8 +1419,8 @@ class CustomerMypageView(APIView):
 
         # ── 推しセラピスト（直近指名キャスト 1名）──
         fav_cast_id = (
-            Order.objects
-            .filter(customer=customer, status__in=[Order.Status.DONE, Order.Status.CONFIRMED])
+            visible_orders
+            .filter(status__in=[Order.Status.DONE, Order.Status.CONFIRMED])
             .values("cast_id")
             .annotate(cnt=Count("id"))
             .order_by("-cnt")
@@ -1370,8 +1431,8 @@ class CustomerMypageView(APIView):
         if fav_cast_id:
             fav_cast = Cast.objects.filter(pk=fav_cast_id).first()
             if fav_cast:
-                fav_agg = Order.objects.filter(
-                    customer=customer, cast=fav_cast, status=Order.Status.DONE,
+                fav_agg = visible_orders.filter(
+                    cast=fav_cast, status=Order.Status.DONE,
                 ).aggregate(visit_count=Count("id"), total_spend=Sum("total_price"))
                 favorites.append({
                     "id": fav_cast.id,
@@ -1390,8 +1451,7 @@ class CustomerMypageView(APIView):
 
         # ── 来店履歴 ──
         history_qs = (
-            Order.objects
-            .filter(customer=customer)
+            visible_orders
             .exclude(status=Order.Status.CANCELLED)
             .select_related("cast", "course")
             .prefetch_related("options")
@@ -1410,8 +1470,8 @@ class CustomerMypageView(APIView):
             })
 
         # ── 累計 ──
-        done_agg = Order.objects.filter(
-            customer=customer, status=Order.Status.DONE,
+        done_agg = visible_orders.filter(
+            status=Order.Status.DONE,
         ).aggregate(total_visits=Count("id"), total_spend=Sum("total_price"))
         total_visits = done_agg["total_visits"]
         total_spend = done_agg["total_spend"] or 0
@@ -1534,7 +1594,10 @@ class CustomerReservationDetailView(APIView):
             order = Order.objects.select_related(
                 "cast", "room", "course", "customer", "extension",
                 "nomination_fee", "discount", "medium",
-            ).prefetch_related("options").get(pk=pk, customer=customer)
+            ).prefetch_related("options").get(
+                Q(customer=customer) | Q(service_recipient_customer=customer),
+                pk=pk,
+            )
         except Order.DoesNotExist:
             return Response(
                 {"detail": "予約が見つかりません"},
@@ -1811,6 +1874,9 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
             # 1) FK 付け替え
             orders_moved = Order.objects.filter(customer=merge_customer).update(customer=keep)
+            recipient_orders_moved = Order.objects.filter(
+                service_recipient_customer=merge_customer,
+            ).update(service_recipient_customer=keep)
             calls_moved = CallLog.objects.filter(customer=merge_customer).update(customer=keep)
 
             # 2) 空欄補完
@@ -1848,6 +1914,10 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 orders_moved=orders_moved,
                 call_logs_moved=calls_moved,
                 executed_by=request.user,
+                note=(
+                    f"実利用者として紐付いた予約 {recipient_orders_moved}件も移行"
+                    if recipient_orders_moved else ""
+                ),
             )
 
         return Response({
