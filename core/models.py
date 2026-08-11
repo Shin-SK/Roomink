@@ -402,6 +402,14 @@ class Order(models.Model):
         default="",
         help_text="実際の利用者名。空欄は連絡者本人として扱う",
     )
+    service_recipient_customer = models.ForeignKey(
+        Customer,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="service_recipient_orders",
+        help_text="管理者が確認して紐付けた実利用者の顧客レコード",
+    )
     course = models.ForeignKey(Course, on_delete=models.PROTECT, related_name="orders")
     options = models.ManyToManyField("Option", through="OrderOption", blank=True)
     extension = models.ForeignKey(
@@ -768,6 +776,31 @@ class CustomerMergeLog(models.Model):
 
     def __str__(self):
         return f"Merge#{self.pk} keep={self.keep_customer_id} merged={self.merged_customer_id}"
+
+
+class OrderServiceRecipientLinkLog(models.Model):
+    """予約と実利用者顧客の手動紐付け監査ログ。"""
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="recipient_link_logs")
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="recipient_link_logs")
+    previous_customer_id = models.PositiveIntegerField(null=True, blank=True)
+    previous_customer_name = models.CharField(max_length=50, blank=True, default="")
+    linked_customer_id = models.PositiveIntegerField(null=True, blank=True)
+    linked_customer_name = models.CharField(max_length=50, blank=True, default="")
+    executed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="executed_recipient_links",
+    )
+    executed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-executed_at", "-id"]
+
+    def __str__(self):
+        return f"Order#{self.order_id} recipient={self.linked_customer_id or '-'}"
 
 
 class DailySettlement(models.Model):
