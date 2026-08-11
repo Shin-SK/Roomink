@@ -101,7 +101,6 @@ async function doApprove() {
   if (!approveDate.value) { approveError.value = '日付を入力してください'; return }
   if (!approveStartTime.value) { approveError.value = '開始時間を入力してください'; return }
   if (!approveEndTime.value) { approveError.value = '終了時間を入力してください'; return }
-  if (!approveRoom.value) { approveError.value = '部屋を選択してください'; return }
   let normalizedEnd
   try {
     normalizedEnd = normalizeExtendedEndTime(approveEndTime.value)
@@ -116,7 +115,7 @@ async function doApprove() {
       date: approveDate.value,
       start_time: approveStartTime.value,
       ...normalizedEnd,
-      room: Number(approveRoom.value),
+      room: approveRoom.value ? Number(approveRoom.value) : null,
       admin_memo: approveAdminMemo.value,
     })
     showApprove.value = false
@@ -516,11 +515,12 @@ async function doApply() {
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">部屋（必須）</label>
+              <label class="form-label">部屋</label>
               <select v-model="approveRoom" class="form-select">
-                <option value="" disabled>選択してください</option>
-                <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+                <option value="">自動選択（希望エリア・空室優先）</option>
+                <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}{{ r.area_name ? `（${r.area_name}）` : '' }}</option>
               </select>
+              <div class="form-text">申請で希望ルームが選ばれている場合は初期表示へ反映されます。</div>
             </div>
             <div class="mb-3">
               <label class="form-label">管理者メモ（任意）</label>

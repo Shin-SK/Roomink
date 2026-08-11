@@ -44,6 +44,11 @@ LOGGING = {
     },
 }
 
+# SENTRY_DSN を明示設定した環境だけで有効になる。未設定時は外部通信しない。
+from config.monitoring import initialize_sentry
+
+SENTRY_ENABLED = initialize_sentry()
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
