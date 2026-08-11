@@ -3115,7 +3115,7 @@ def _apply_shift_request_approval(
     sa_data = {
         "date": date,
         "cast": obj.cast_id,
-        "room": room.id,
+        "room": room.id if room else None,
         "start_time": start_time,
         "end_time": end_time,
         "end_day_offset": end_day_offset,
@@ -3135,7 +3135,7 @@ def _apply_shift_request_approval(
     obj.approved_start_time = shift.start_time
     obj.approved_end_time = shift.end_time
     obj.approved_end_day_offset = shift.end_day_offset
-    obj.approved_room = room
+    obj.approved_room = shift.room
     obj.decided_at = timezone.now()
     obj.decided_by = user
     obj.save(update_fields=[
@@ -3194,19 +3194,15 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
         room_id = request.data.get("room")
-        if not room_id:
-            return Response(
-                {"detail": "room は必須です"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            room = Room.objects.get(pk=room_id, store=store)
-        except Room.DoesNotExist:
-            return Response(
-                {"detail": "指定された部屋が見つかりません"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        room = None
+        if room_id:
+            try:
+                room = Room.objects.get(pk=room_id, store=store)
+            except Room.DoesNotExist:
+                return Response(
+                    {"detail": "指定された部屋が見つかりません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         admin_memo = request.data.get("admin_memo", "")
 

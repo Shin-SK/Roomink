@@ -186,7 +186,7 @@ async function onSave() {
     const body = {
       date: form.value.date,
       cast: Number(form.value.cast),
-      room: Number(form.value.room),
+      room: form.value.room ? Number(form.value.room) : null,
       start_time: form.value.start_time,
       end_time: `${String(extendedEndHour % 24).padStart(2, '0')}:${String(extendedEndMinute).padStart(2, '0')}`,
       end_day_offset: extendedEndHour >= 24 ? 1 : 0,
@@ -612,9 +612,12 @@ async function onClearClockIn(s) {
             <div class="mb-3">
               <label class="form-label">部屋</label>
               <select v-model="form.room" class="form-select">
-                <option value="" disabled>選択してください</option>
-                <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+                <option value="">自動選択（希望エリア・空室優先）</option>
+                <option v-for="r in rooms" :key="r.id" :value="r.id">
+                  {{ r.name }}{{ r.area_name ? `（${r.area_name}）` : '' }}
+                </option>
               </select>
+              <div class="form-text">ルームを指定した場合は、その指定を優先します。</div>
             </div>
             <div class="row">
               <div class="col-6 mb-3">

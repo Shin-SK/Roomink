@@ -58,7 +58,7 @@ function emptyDays() {
       enabled: false,
       start_time: '18:00',
       end_time: '23:00',
-      room: rooms.value.length ? rooms.value[0].id : '',
+      room: '',
       daily_memo: '',
       existing_shifts: [],
     })
@@ -71,7 +71,6 @@ async function loadMasters() {
     const [cs, rs] = await Promise.all([api.getCasts(), api.getRooms()])
     casts.value = Array.isArray(cs) ? cs : []
     rooms.value = Array.isArray(rs) ? rs : []
-    if (rooms.value.length) bulk.value.room = rooms.value[0].id
   } catch (e) {
     error.value = e.message
   }
@@ -150,7 +149,7 @@ async function onSubmit() {
         enabled: true,
         start_time: d.start_time,
         ...normalizedEnd,
-        room: d.room,
+        room: d.room ? Number(d.room) : null,
         daily_memo: d.daily_memo,
       })
     } catch (e) {
@@ -273,7 +272,8 @@ onMounted(async () => {
             <div class="col-8 col-md-4">
               <label class="form-label small">部屋</label>
               <select v-model="bulk.room" class="form-select form-select-sm">
-                <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+                <option value="">自動選択</option>
+                <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}{{ r.area_name ? `（${r.area_name}）` : '' }}</option>
               </select>
             </div>
             <div class="col-4 col-md-2">
@@ -347,7 +347,8 @@ onMounted(async () => {
                 <div class="col-12 col-md-3">
                   <label class="form-label small mb-1">部屋</label>
                   <select v-model="d.room" class="form-select form-select-sm">
-                    <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+                    <option value="">自動選択（希望エリア優先）</option>
+                    <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}{{ r.area_name ? `（${r.area_name}）` : '' }}</option>
                   </select>
                 </div>
                 <div class="col-12 col-md-5">

@@ -57,6 +57,7 @@ from .services.order_availability import (
     cast_has_unavailable_time_conflict,
     find_covering_shift,
 )
+from .services.room_assignment import suggest_room_for_shift
 from .services.order_policy import (
     can_modify_business_datetime,
     can_modify_order,
@@ -471,11 +472,17 @@ class StaffUpdateSerializer(serializers.Serializer):
 # ──────────────────────────────────────
 
 class ShiftAssignmentSerializer(serializers.ModelSerializer):
+    room = serializers.PrimaryKeyRelatedField(
+        queryset=Room.objects.all(),
+        required=False,
+        allow_null=True,
+    )
     cast_name = serializers.CharField(source="cast.name", read_only=True)
     cast_avatar_url = serializers.CharField(source="cast.avatar_url", read_only=True)
     room_name = serializers.CharField(source="room.name", read_only=True)
     end_time_extended = serializers.SerializerMethodField()
     assigned_order_count = serializers.SerializerMethodField()
+    room_auto_assigned = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftAssignment
@@ -514,6 +521,30 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(str(exc)) from exc
 
         room = data.get("room", getattr(self.instance, "room", None))
+        auto_room_requested = (
+            (self.instance is None and room is None)
+            or (
+                self.instance is not None
+                and "room" in self.initial_data
+                and self.initial_data.get("room") in (None, "")
+            )
+        )
+        if auto_room_requested and store and cast and date and start_time and end_time:
+            room = suggest_room_for_shift(
+                store,
+                cast,
+                date,
+                start_time,
+                end_time,
+                end_day_offset=end_day_offset,
+                exclude_shift_id=self.instance.pk if self.instance else None,
+            )
+            if room is None:
+                raise serializers.ValidationError({
+                    "room": "指定時間に利用できるルームがありません",
+                })
+            data["room"] = room
+            self._room_auto_assigned = True
         if store is not None:
             if cast is not None and cast.store_id != store.id:
                 raise serializers.ValidationError("他店舗のキャストは指定できません")
@@ -576,6 +607,9 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         with transaction.atomic():
             instance = super().create(validated_data)
+            instance._room_auto_assigned = bool(
+                getattr(self, "_room_auto_assigned", False)
+            )
             pending_ids = getattr(self, "_room_pending_order_ids", [])
             assigned_count = 0
             if pending_ids:
@@ -586,8 +620,18 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             instance._assigned_order_count = assigned_count
             return instance
 
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        instance._room_auto_assigned = bool(
+            getattr(self, "_room_auto_assigned", False)
+        )
+        return instance
+
     def get_end_time_extended(self, obj) -> str:
         return format_extended_time(obj.end_time, obj.end_day_offset)
+
+    def get_room_auto_assigned(self, obj) -> bool:
+        return bool(getattr(obj, "_room_auto_assigned", False))
 
     def get_assigned_order_count(self, obj) -> int:
         return getattr(obj, "_assigned_order_count", 0)
