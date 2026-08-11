@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { uploadToCloudinary } from '../../cloudinary.js'
@@ -7,6 +7,11 @@ import { uploadToCloudinary } from '../../cloudinary.js'
 const loading = ref(true)
 const error = ref('')
 const casts = ref([])
+const rooms = ref([])
+const areaSuggestions = computed(() =>
+  [...new Set(rooms.value.map(room => (room.area_name || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'ja'))
+)
 
 // Form
 const showForm = ref(false)
@@ -17,7 +22,22 @@ const saving = ref(false)
 const uploading = ref(false)
 
 function emptyForm() {
-  return { name: '', avatar_url: '', age: '', hp_url: '', introduction: '', staff_memo: '', interval_minutes: 15, course_back_rate: 0, option_fullback_enabled: false }
+  return {
+    name: '',
+    avatar_url: '',
+    age: '',
+    hp_url: '',
+    introduction: '',
+    staff_memo: '',
+    preferred_area_1: '',
+    preferred_area_2: '',
+    preferred_area_3: '',
+    preferred_area_4: '',
+    preferred_area_5: '',
+    interval_minutes: 15,
+    course_back_rate: 0,
+    option_fullback_enabled: false,
+  }
 }
 
 async function loadCasts() {
@@ -33,7 +53,18 @@ async function loadCasts() {
   }
 }
 
-onMounted(() => loadCasts())
+async function loadAreaSuggestions() {
+  try {
+    rooms.value = await api.getRooms()
+  } catch {
+    rooms.value = []
+  }
+}
+
+onMounted(() => {
+  loadCasts()
+  loadAreaSuggestions()
+})
 
 function openCreate() {
   editingId.value = null
@@ -55,6 +86,11 @@ function openEdit(c) {
     hp_url: c.hp_url || '',
     introduction: c.introduction || '',
     staff_memo: c.staff_memo || '',
+    preferred_area_1: c.preferred_area_1 || '',
+    preferred_area_2: c.preferred_area_2 || '',
+    preferred_area_3: c.preferred_area_3 || '',
+    preferred_area_4: c.preferred_area_4 || '',
+    preferred_area_5: c.preferred_area_5 || '',
     interval_minutes: c.interval_minutes ?? 15,
     course_back_rate: c.course_back_rate ?? 0,
     option_fullback_enabled: c.option_fullback_enabled ?? false,
@@ -113,6 +149,11 @@ async function onSave() {
       hp_url: form.value.hp_url,
       introduction: form.value.introduction,
       staff_memo: form.value.staff_memo,
+      preferred_area_1: form.value.preferred_area_1,
+      preferred_area_2: form.value.preferred_area_2,
+      preferred_area_3: form.value.preferred_area_3,
+      preferred_area_4: form.value.preferred_area_4,
+      preferred_area_5: form.value.preferred_area_5,
       interval_minutes: Number(form.value.interval_minutes),
       course_back_rate: Number(form.value.course_back_rate),
       option_fullback_enabled: form.value.option_fullback_enabled,
@@ -129,6 +170,12 @@ async function onSave() {
   } finally {
     saving.value = false
   }
+}
+
+function preferredAreas(cast) {
+  return [1, 2, 3, 4, 5]
+    .map(rank => cast[`preferred_area_${rank}`])
+    .filter(Boolean)
 }
 
 async function onDelete(c) {
@@ -278,7 +325,7 @@ async function toggleExpenseHistory() {
         <table v-else class="table table-hover mb-0 cast-table">
           <colgroup>
             <col style="width: 56px">
-            <col style="width: 140px">
+            <col style="width: 180px">
             <col>
             <col style="width: 64px">
             <col style="width: 64px">
@@ -315,7 +362,12 @@ async function toggleExpenseHistory() {
                   <i class="ti ti-user"></i>
                 </div>
               </td>
-              <td class="cast-name-cell">{{ c.name }}</td>
+              <td class="cast-name-cell">
+                <div>{{ c.name }}</div>
+                <div v-if="preferredAreas(c).length" class="small text-muted mt-1">
+                  希望: {{ preferredAreas(c).join(' ＞ ') }}
+                </div>
+              </td>
               <td class="cast-memo-cell">
                 <button
                   v-if="c.staff_memo"
@@ -424,6 +476,24 @@ async function toggleExpenseHistory() {
             <div class="mb-3">
               <label class="form-label">運営専用メモ</label>
               <textarea v-model="form.staff_memo" class="form-control" rows="2" placeholder="運営のみが閲覧可能なメモ"></textarea>
+            </div>
+
+            <hr class="my-3">
+            <h6 class="mb-1">希望エリア</h6>
+            <p class="small text-muted mb-3">第1希望から順に入力してください。ルームへ登録済みのエリア名が候補に表示されます。</p>
+            <datalist id="cast-area-options">
+              <option v-for="area in areaSuggestions" :key="area" :value="area"></option>
+            </datalist>
+            <div v-for="rank in 5" :key="rank" class="mb-2">
+              <label class="form-label small">第{{ rank }}希望</label>
+              <input
+                v-model="form[`preferred_area_${rank}`]"
+                type="text"
+                class="form-control"
+                list="cast-area-options"
+                :placeholder="rank === 1 ? '例: 新宿' : '未設定'"
+                maxlength="50"
+              />
             </div>
 
             <hr class="my-3">

@@ -40,9 +40,18 @@ class RoomAdmin(admin.ModelAdmin):
 
 @admin.register(Cast)
 class CastAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "name", "age", "interval_minutes", "course_back_rate", "user", "line_link_code", "line_linked_at")
+    list_display = ("id", "store", "name", "preferred_areas_display", "age", "interval_minutes", "course_back_rate", "user", "line_link_code", "line_linked_at")
     list_filter = ("store",)
     readonly_fields = ("line_user_id", "line_linked_at", "line_unlink_button")
+
+    @admin.display(description="希望エリア")
+    def preferred_areas_display(self, obj):
+        values = [
+            getattr(obj, f"preferred_area_{rank}")
+            for rank in range(1, 6)
+            if getattr(obj, f"preferred_area_{rank}")
+        ]
+        return " ＞ ".join(values) or "-"
 
     def line_unlink_button(self, obj):
         if not obj.pk or not obj.line_user_id:

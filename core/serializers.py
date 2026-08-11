@@ -98,6 +98,8 @@ class RoomSerializer(serializers.ModelSerializer):
 class CastSerializer(serializers.ModelSerializer):
     line_linked = serializers.SerializerMethodField()
 
+    preferred_area_fields = tuple(f"preferred_area_{rank}" for rank in range(1, 6))
+
     class Meta:
         model = Cast
         fields = "__all__"
@@ -105,6 +107,43 @@ class CastSerializer(serializers.ModelSerializer):
 
     def get_line_linked(self, obj) -> bool:
         return obj.line_user_id is not None
+
+    def validate(self, attrs):
+        submitted_fields = [
+            field for field in self.preferred_area_fields
+            if field in self.initial_data
+        ]
+        if submitted_fields:
+            request = self.context.get("request")
+            profile = getattr(getattr(request, "user", None), "profile", None)
+            if profile is None or profile.role != UserProfile.Role.MANAGER:
+                raise PermissionDenied("希望エリアを変更できるのはマネージャーのみです。")
+
+        blank_rank_found = False
+        normalized_seen = set()
+        for rank, field in enumerate(self.preferred_area_fields, start=1):
+            current_value = getattr(self.instance, field, "") if self.instance else ""
+            value = attrs.get(field, current_value)
+            value = (value or "").strip()
+            if field in attrs:
+                attrs[field] = value
+
+            if not value:
+                blank_rank_found = True
+                continue
+            if blank_rank_found:
+                raise serializers.ValidationError({
+                    field: f"第{rank}希望の前に空いている順位があります。第1希望から順に入力してください。",
+                })
+
+            normalized = value.casefold()
+            if normalized in normalized_seen:
+                raise serializers.ValidationError({
+                    field: "同じエリアを複数の順位へ登録することはできません。",
+                })
+            normalized_seen.add(normalized)
+
+        return attrs
 
 
 class CustomerSerializer(serializers.ModelSerializer):
