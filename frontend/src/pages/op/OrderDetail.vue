@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import OrderForm from '../../components/OrderForm.vue'
 import { api } from '../../api.js'
+import { getAuthRole } from '../../router.js'
 
 const props = defineProps({
   id: { type: [String, Number], required: true },
@@ -15,6 +16,24 @@ const loading = ref(true)
 const error = ref('')
 const acting = ref(false)
 const mode = ref('confirm') // 'confirm' | 'edit'
+const isManager = computed(() => getAuthRole() === 'manager')
+
+// 実利用者アカウントの手動紐付け（managerのみ）
+const recipientCustomers = ref([])
+const recipientSearch = ref('')
+const selectedRecipientCustomer = ref('')
+const recipientLinking = ref(false)
+const recipientLinkError = ref('')
+
+const recipientCandidates = computed(() => {
+  const query = recipientSearch.value.trim().toLowerCase()
+  const items = query
+    ? recipientCustomers.value.filter((customer) => (
+      `${customer.display_name || ''} ${customer.phone || ''}`.toLowerCase().includes(query)
+    ))
+    : recipientCustomers.value
+  return items.slice(0, 100)
+})
 
 // Addon
 const addonError = ref('')
@@ -106,6 +125,15 @@ onMounted(async () => {
     extensionPrice.value = o.extension_price || 0
     selectedNominationFee.value = o.nomination_fee ?? null
     selectedDiscount.value = o.discount ?? null
+    selectedRecipientCustomer.value = o.service_recipient_customer || ''
+    if (isManager.value) {
+      try {
+        const customers = await api.getCustomers()
+        recipientCustomers.value = Array.isArray(customers) ? customers : []
+      } catch (e) {
+        recipientLinkError.value = e.message || '顧客一覧を取得できませんでした'
+      }
+    }
   } catch (e) {
     error.value = e.message
   } finally {
@@ -284,6 +312,27 @@ async function updatePaymentMethod(value) {
     alert(e.message)
   }
 }
+
+async function saveRecipientCustomerLink() {
+  const customerId = selectedRecipientCustomer.value
+    ? Number(selectedRecipientCustomer.value)
+    : null
+  const message = customerId
+    ? 'この予約を選択した実利用者アカウントへ紐付けますか？'
+    : '実利用者アカウントとの紐付けを解除しますか？'
+  if (!confirm(message)) return
+
+  recipientLinkError.value = ''
+  recipientLinking.value = true
+  try {
+    order.value = await api.linkOrderServiceRecipient(props.id, customerId)
+    selectedRecipientCustomer.value = order.value.service_recipient_customer || ''
+  } catch (e) {
+    recipientLinkError.value = e.message || '実利用者アカウントを更新できませんでした'
+  } finally {
+    recipientLinking.value = false
+  }
+}
 </script>
 
 <template>
@@ -395,6 +444,47 @@ async function updatePaymentMethod(value) {
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <div v-if="isManager" class="card mb-4 border-primary-subtle">
+            <div class="card-header">
+              <i class="ti ti-user-check"></i> 実利用者アカウントの紐付け
+            </div>
+            <div class="card-body">
+              <div class="small text-muted mb-3">
+                過去の予約を実際に利用したお客様の履歴へ追加できます。
+                元の連絡者・電話番号・SMS送信先・売上情報は変更されません。
+              </div>
+              <div v-if="order.service_recipient_customer_label" class="alert alert-success py-2 px-3 small">
+                現在の紐付け先: {{ order.service_recipient_customer_label }}
+              </div>
+              <div v-if="recipientLinkError" class="alert alert-danger py-2 px-3 small">
+                {{ recipientLinkError }}
+              </div>
+              <label class="form-label small fw-bold">名前・電話番号で候補を絞り込み</label>
+              <input
+                v-model="recipientSearch"
+                type="search"
+                class="form-control form-control-sm mb-2"
+                placeholder="例: 山田 / 0901234"
+              >
+              <div class="d-flex flex-column flex-sm-row gap-2">
+                <select v-model="selectedRecipientCustomer" class="form-select form-select-sm">
+                  <option value="">紐付けなし</option>
+                  <option v-for="customer in recipientCandidates" :key="customer.id" :value="customer.id">
+                    {{ customer.display_name || '名称未設定' }}（{{ customer.phone }}）
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm text-nowrap"
+                  :disabled="recipientLinking"
+                  @click="saveRecipientCustomerLink"
+                >
+                  {{ recipientLinking ? '保存中...' : '紐付けを保存' }}
+                </button>
+              </div>
             </div>
           </div>
 
