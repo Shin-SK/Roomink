@@ -9,7 +9,7 @@ from .models import (
     CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerAccountInvitation, CustomerMergeLog,
     DailySettlement, LineNotificationLog, Option, Order, PointLog, Room,
-    ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog, SmsTemplate, Store,
+    ShiftAssignment, ShiftConfirmNotificationLog, ShiftEndAlert, ShiftRequest, SmsLog, SmsTemplate, Store,
     StorePhoneNumber, UserProfile,
     generate_line_link_code,
 )
@@ -273,6 +273,17 @@ class ShiftConfirmNotificationLogAdmin(admin.ModelAdmin):
     list_filter = ("store", "alert_level", "target_type", "channel", "status")
     search_fields = ("cast__name",)
     readonly_fields = ("store", "shift_assignment", "cast", "alert_level", "target_type", "channel", "status", "message", "error_message", "sent_at", "created_by", "created_at")
+
+
+@admin.register(ShiftEndAlert)
+class ShiftEndAlertAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "cast", "shift_assignment", "alert_at", "status", "resolved_at")
+    list_filter = ("store", "status")
+    search_fields = ("cast__name",)
+    readonly_fields = (
+        "store", "shift_assignment", "cast", "alert_at", "status",
+        "resolved_at", "created_at", "updated_at",
+    )
 
 
 @admin.register(UserProfile)

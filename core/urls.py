@@ -88,6 +88,7 @@ path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
     path("op/sales-dashboard-export.csv", views.SalesDashboardExportView.as_view(), name="sales-dashboard-export"),
     path("op/customers-export.csv", views.CustomerExportView.as_view(), name="customers-export"),
     path("op/line-alerts/", views.LineAlertsView.as_view(), name="line-alerts"),
+    path("op/shift-end-alerts/", views.ShiftEndAlertsView.as_view(), name="shift-end-alerts"),
     path("op/shift-confirm-alerts/", views.ShiftConfirmAlertsView.as_view(), name="shift-confirm-alerts"),
     path(
         "op/shift-confirm-alerts/<int:shift_id>/mark_notification_test/",

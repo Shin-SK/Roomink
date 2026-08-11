@@ -38,7 +38,9 @@ const proxyAckError = ref('')
 const lineUnlinked = ref([])
 const lineFailed = ref([])
 const notClockedIn = ref([])
+const shiftEndAlerts = ref([])
 let lineAlertTimer = null
+let shiftEndAlertTimer = null
 
 function today() {
   const d = new Date()
@@ -67,6 +69,8 @@ onMounted(async () => {
   // LINE alerts (30 sec)
   await fetchLineAlerts()
   lineAlertTimer = setInterval(fetchLineAlerts, 30000)
+  await fetchShiftEndAlerts()
+  shiftEndAlertTimer = setInterval(fetchShiftEndAlerts, 30000)
 
   // 「施術中」表示判定用に1分ごとに現在時刻を更新
   nowTickTimer = setInterval(() => { nowTick.value = Date.now() }, 60000)
@@ -74,6 +78,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (lineAlertTimer) clearInterval(lineAlertTimer)
+  if (shiftEndAlertTimer) clearInterval(shiftEndAlertTimer)
   if (nowTickTimer) clearInterval(nowTickTimer)
 })
 
@@ -83,6 +88,15 @@ async function fetchLineAlerts() {
     lineUnlinked.value = data.unlinked_casts || []
     lineFailed.value = data.failed_notifications || []
     notClockedIn.value = data.not_clocked_in_casts || []
+  } catch (e) {
+    // non-fatal
+  }
+}
+
+async function fetchShiftEndAlerts() {
+  try {
+    const data = await api.getShiftEndAlerts()
+    shiftEndAlerts.value = data.open_alerts || []
   } catch (e) {
     // non-fatal
   }
@@ -201,6 +215,22 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
         <div v-for="order in roomPendingOrders" :key="'room-pending-'+order.id" class="small">
           {{ formatTime(order.start) }} {{ order.cast_name }} / {{ orderPartyLabel(order) }}
         </div>
+      </div>
+
+      <div v-if="shiftEndAlerts.length" class="alert alert-warning mb-3 py-2 px-3">
+        <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+          <div class="d-flex align-items-center gap-2">
+            <i class="ti ti-clock-exclamation"></i>
+            <strong>受付終了の確認が必要なキャストがいます</strong>
+          </div>
+          <router-link to="/op/schedule" class="btn btn-sm btn-outline-warning py-0">
+            予約タイムラインへ
+          </router-link>
+        </div>
+        <div v-for="alert in shiftEndAlerts" :key="'shift-end-'+alert.id" class="small">
+          {{ alert.cast_name }} — 終了 {{ alert.shift_end_time_extended }} / 本日 {{ alert.valid_order_count }}件 / 売上 {{ formatYen(alert.done_sales) }}
+        </div>
+        <div class="small mt-1">終了70分前以降の時間帯に有効な予約がありません。</div>
       </div>
 
       <!-- 未出勤アラート -->
