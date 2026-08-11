@@ -911,6 +911,7 @@ class OrderSerializer(serializers.ModelSerializer):
     room_name = serializers.SerializerMethodField()
     is_off_shift = serializers.SerializerMethodField()
     is_room_pending = serializers.SerializerMethodField()
+    service_recipient_customer_label = serializers.SerializerMethodField()
     # course_name is now a snapshot field on Order; no source override needed
 
     class Meta:
@@ -918,6 +919,7 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = [
             "id", "store", "cast", "room", "customer", "course",
             "cast_name", "room_name", "course_name", "customer_label", "service_recipient_name",
+            "service_recipient_customer", "service_recipient_customer_label",
             "start", "end", "status", "options", "option_ids", "is_unconfirmed",
             "is_past_business_day", "can_modify", "is_off_shift", "is_room_pending", "memo",
             "course_price", "options_price",
@@ -941,6 +943,11 @@ class OrderSerializer(serializers.ModelSerializer):
     def get_is_room_pending(self, obj) -> bool:
         return obj.room_id is None
 
+    def get_service_recipient_customer_label(self, obj) -> str:
+        if not obj.service_recipient_customer_id:
+            return ""
+        return build_customer_label(obj.service_recipient_customer)
+
     def get_options(self, obj) -> List[str]:
         # prefetch_related 済みの場合 DB クエリを避ける
         if hasattr(obj, '_prefetched_objects_cache') and 'options' in obj._prefetched_objects_cache:
@@ -959,6 +966,10 @@ class OrderSerializer(serializers.ModelSerializer):
     def get_can_modify(self, obj) -> bool:
         request = self.context.get("request")
         return can_modify_order(request.user if request else None, obj)
+
+
+class ServiceRecipientCustomerLinkSerializer(serializers.Serializer):
+    customer_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
 
 # ──────────────────────────────────────

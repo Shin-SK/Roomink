@@ -8,7 +8,7 @@ from .models import (
     CallLog, CallNote, Cast, CastCheckoutExpenseSnapshot, CastDailyCheckout,
     CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerAccountInvitation, CustomerMergeLog,
-    DailySettlement, LineNotificationLog, Option, Order, PointLog, PublicBookingVerification, Room,
+    DailySettlement, LineNotificationLog, Option, Order, OrderServiceRecipientLinkLog, PointLog, PublicBookingVerification, Room,
     ShiftAssignment, ShiftConfirmNotificationLog, ShiftEndAlert, ShiftRequest, SmsLog, SmsTemplate, Store,
     StorePhoneNumber, UserProfile,
     generate_line_link_code,
@@ -173,12 +173,26 @@ class ShiftRequestAdmin(admin.ModelAdmin):
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
-        "id", "store", "cast", "customer", "service_recipient_name",
+        "id", "store", "cast", "customer", "service_recipient_name", "service_recipient_customer",
         "course", "start", "end", "status",
     )
     list_filter = ("store", "status")
     search_fields = (
         "customer__phone", "customer__display_name", "service_recipient_name",
+        "service_recipient_customer__phone", "service_recipient_customer__display_name",
+    )
+
+
+@admin.register(OrderServiceRecipientLinkLog)
+class OrderServiceRecipientLinkLogAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "store", "order", "previous_customer_id", "previous_customer_name",
+        "linked_customer_id", "linked_customer_name", "executed_by", "executed_at",
+    )
+    list_filter = ("store",)
+    readonly_fields = (
+        "store", "order", "previous_customer_id", "previous_customer_name",
+        "linked_customer_id", "linked_customer_name", "executed_by", "executed_at",
     )
 
 
