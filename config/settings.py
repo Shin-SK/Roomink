@@ -125,6 +125,10 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "PAGE_SIZE": 200,
+    "DEFAULT_THROTTLE_RATES": {
+        "public_booking_verification": "10/hour",
+        "public_booking_confirm": "30/hour",
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -230,6 +234,7 @@ TWILIO_WEBHOOK_ALLOW_UNSIGNED = os.getenv("TWILIO_WEBHOOK_ALLOW_UNSIGNED", "0") 
 # --- Customer account invitation / SMS delivery ---
 FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 SMS_DUMMY_MODE = os.getenv("SMS_DUMMY_MODE", "0") == "1"
+PUBLIC_BOOKING_ENABLED = os.getenv("PUBLIC_BOOKING_ENABLED", "0") == "1"
 
 # --- LINE Messaging API ---
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")

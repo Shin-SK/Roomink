@@ -21,6 +21,7 @@ from rest_framework.decorators import action, api_view, authentication_classes, 
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
@@ -123,6 +124,13 @@ from .services.order_availability import (
     find_covering_shift,
 )
 from .services.shift_end_alerts import evaluate_shift_end_alerts
+from .services.public_booking import (
+    PublicBookingError,
+    confirm_public_booking,
+    get_public_booking_slots,
+    request_public_booking_verification,
+    serialize_public_booking_options,
+)
 
 
 def document_object_api_view(cls):
@@ -1064,6 +1072,131 @@ class StoreListPublicView(APIView):
                 for s in stores
             ]
         })
+
+
+@document_object_api_view
+class PublicBookingOptionsView(APIView):
+    """GET /api/public/booking/options/?store={id} — 公開予約の選択肢。"""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        if not settings.PUBLIC_BOOKING_ENABLED:
+            return Response(
+                {"detail": "Web予約は現在準備中です。"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        try:
+            store_id = int(request.query_params.get("store"))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "店舗を選択してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        store = Store.objects.filter(pk=store_id).first()
+        if store is None:
+            return Response(
+                {"detail": "店舗を選択してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        business_date = None
+        if request.query_params.get("date"):
+            try:
+                business_date = date_type.fromisoformat(request.query_params["date"])
+            except ValueError:
+                return Response(
+                    {"detail": "予約日を確認してください。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        return Response(serialize_public_booking_options(store, business_date))
+
+
+@document_object_api_view
+class PublicBookingSlotsView(APIView):
+    """GET /api/public/booking/slots/ — コース時間全体を確保できる公開枠。"""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        if not settings.PUBLIC_BOOKING_ENABLED:
+            return Response(
+                {"detail": "Web予約は現在準備中です。"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        try:
+            store_id = int(request.query_params.get("store"))
+            cast_id = int(request.query_params.get("cast"))
+            course_id = int(request.query_params.get("course"))
+            business_date = date_type.fromisoformat(request.query_params.get("date", ""))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "店舗、キャスト、コース、予約日を選択してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        store = Store.objects.filter(pk=store_id).first()
+        if store is None:
+            return Response(
+                {"detail": "店舗を選択してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({
+            "date": business_date.isoformat(),
+            "slots": get_public_booking_slots(
+                store,
+                cast_id,
+                course_id,
+                business_date,
+            ),
+        })
+
+
+@document_object_api_view
+class PublicBookingVerificationRequestView(APIView):
+    """POST /api/public/booking/request-verification/ — SMS認証を開始。"""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_booking_verification"
+
+    def post(self, request):
+        if not settings.PUBLIC_BOOKING_ENABLED:
+            return Response(
+                {"detail": "Web予約は現在準備中です。"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        try:
+            result = request_public_booking_verification(request.data)
+        except PublicBookingError as exc:
+            return Response({"detail": exc.message}, status=exc.status_code)
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
+@document_object_api_view
+class PublicBookingConfirmView(APIView):
+    """POST /api/public/booking/confirm/ — SMS確認後に空き枠を再確認して即時確定。"""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_booking_confirm"
+
+    def post(self, request):
+        if not settings.PUBLIC_BOOKING_ENABLED:
+            return Response(
+                {"detail": "Web予約は現在準備中です。"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        try:
+            result = confirm_public_booking(
+                request.data.get("verification_id"),
+                request.data.get("code"),
+            )
+        except PublicBookingError as exc:
+            return Response({"detail": exc.message}, status=exc.status_code)
+        return Response(result, status=status.HTTP_201_CREATED)
 
 
 @document_object_api_view
