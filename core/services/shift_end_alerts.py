@@ -128,5 +128,8 @@ def evaluate_shift_end_alerts(store, reference_at=None):
         "resolved_alerts": [
             item for item in serialized if item["status"] == ShiftEndAlert.Status.RESOLVED
         ],
-        "external_send_supported": False,
+        "external_send_supported": bool(
+            store.line_shift_end_alert_enabled
+            and store.line_operations_recipient_id
+        ),
     }

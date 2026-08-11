@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from core.models import LineNotificationLog, ShiftAssignment, Store
 from core.services.line_notify import send_line_push
+from core.services.shift_end_line_notifications import send_shift_end_line_alerts
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         stores = Store.objects.all()
         total_sent = 0
+        total_shift_end_sent = 0
 
         for store in stores:
             try:
@@ -75,7 +77,15 @@ class Command(BaseCommand):
                             send_line_push(shift.cast, msg, shift, LineNotificationLog.NotificationType.FIFTEEN_MIN_BEFORE)
                             total_sent += 1
 
-        self.stdout.write(f"送信完了: {total_sent}件")
+            shift_end_result = send_shift_end_line_alerts(
+                store,
+                reference_at=timezone.now(),
+            )
+            total_shift_end_sent += shift_end_result["sent"]
+
+        self.stdout.write(
+            f"送信完了: 出勤リマインド{total_sent}件 / 受付終了{total_shift_end_sent}件"
+        )
 
     def _should_send(self, shift, notification_type):
         """既に送信済み（SENT/SKIPPED）なら False"""

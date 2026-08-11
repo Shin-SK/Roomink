@@ -38,6 +38,7 @@ from .models import (
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
     SmsTemplate, Store, StorePhoneNumber, UserProfile,
     generate_line_link_code,
+    generate_line_operations_link_code,
 )
 from .permissions import IsManagerOrStaff, PastOrderManagerOnlyPermission
 from .serializers import (
@@ -4804,6 +4805,38 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
                 continue
             code = msg.get("text", "").strip().upper()
 
+            # 運営通知先の使い切りコード。store別webhookでのみ受け付ける。
+            if store and code == store.line_operations_link_code:
+                source_type = source.get("type", "")
+                recipient_id = {
+                    Store.LineOperationsRecipientType.USER: source.get("userId", ""),
+                    Store.LineOperationsRecipientType.GROUP: source.get("groupId", ""),
+                    Store.LineOperationsRecipientType.ROOM: source.get("roomId", ""),
+                }.get(source_type, "")
+                if not recipient_id:
+                    _line_reply(
+                        channel_token,
+                        reply_token,
+                        "このトークは運営通知先として登録できませんでした。",
+                    )
+                    continue
+                store.line_operations_recipient_id = recipient_id
+                store.line_operations_recipient_type = source_type
+                store.line_operations_linked_at = timezone.now()
+                store.line_operations_link_code = generate_line_operations_link_code()
+                store.save(update_fields=[
+                    "line_operations_recipient_id",
+                    "line_operations_recipient_type",
+                    "line_operations_linked_at",
+                    "line_operations_link_code",
+                ])
+                _line_reply(
+                    channel_token,
+                    reply_token,
+                    "このトークをRoominkの運営通知先として登録しました。",
+                )
+                continue
+
             # 既に別 Cast に連携済みの LINE userId か
             existing = Cast.objects.filter(line_user_id=line_user_id).first()
             if existing:
@@ -5010,20 +5043,34 @@ class StoreLineSettingsView(APIView):
         origin = request.build_absolute_uri("/").rstrip("/")
         return f"{origin}/api/webhook/line/{store.line_webhook_token}/"
 
-    def get(self, request):
-        _require_manager(request)
-        store = get_user_store(request)
-        return Response({
+    @classmethod
+    def _response_data(cls, request, store):
+        morning_time = store.line_morning_time
+        if hasattr(morning_time, "strftime"):
+            morning_time = morning_time.strftime("%H:%M")
+        else:
+            morning_time = str(morning_time or "09:00")[:5]
+        return {
             "line_is_enabled": store.line_is_enabled,
             "line_add_friend_url": store.line_add_friend_url,
             "line_channel_secret": store.line_channel_secret,
             "line_channel_access_token": store.line_channel_access_token,
-            "line_webhook_url": self._webhook_url(request, store),
+            "line_webhook_url": cls._webhook_url(request, store),
             "line_morning_enabled": store.line_morning_enabled,
-            "line_morning_time": store.line_morning_time.strftime("%H:%M") if store.line_morning_time else "09:00",
+            "line_morning_time": morning_time,
             "line_two_hours_enabled": store.line_two_hours_enabled,
             "line_fifteen_minutes_enabled": store.line_fifteen_minutes_enabled,
-        })
+            "line_shift_end_alert_enabled": store.line_shift_end_alert_enabled,
+            "line_operations_linked": bool(store.line_operations_recipient_id),
+            "line_operations_recipient_type": store.line_operations_recipient_type,
+            "line_operations_link_code": store.line_operations_link_code,
+            "line_operations_linked_at": store.line_operations_linked_at,
+        }
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        return Response(self._response_data(request, store))
 
     def patch(self, request):
         _require_manager(request)
@@ -5032,7 +5079,8 @@ class StoreLineSettingsView(APIView):
         for key in ("line_is_enabled", "line_add_friend_url",
                      "line_channel_secret", "line_channel_access_token",
                      "line_morning_enabled", "line_two_hours_enabled",
-                     "line_fifteen_minutes_enabled"):
+                     "line_fifteen_minutes_enabled",
+                     "line_shift_end_alert_enabled"):
             if key in request.data:
                 setattr(store, key, request.data[key])
                 fields.append(key)
@@ -5044,19 +5092,25 @@ class StoreLineSettingsView(APIView):
                 val = dt_time(int(parts[0]), int(parts[1]))
             store.line_morning_time = val
             fields.append("line_morning_time")
+        if request.data.get("line_operations_unlink") is True:
+            store.line_operations_recipient_id = ""
+            store.line_operations_recipient_type = ""
+            store.line_operations_linked_at = None
+            store.line_operations_link_code = generate_line_operations_link_code()
+            store.line_shift_end_alert_enabled = False
+            fields.extend([
+                "line_operations_recipient_id",
+                "line_operations_recipient_type",
+                "line_operations_linked_at",
+                "line_operations_link_code",
+                "line_shift_end_alert_enabled",
+            ])
+        elif request.data.get("line_operations_regenerate_code") is True:
+            store.line_operations_link_code = generate_line_operations_link_code()
+            fields.append("line_operations_link_code")
         if fields:
-            store.save(update_fields=fields)
-        return Response({
-            "line_is_enabled": store.line_is_enabled,
-            "line_add_friend_url": store.line_add_friend_url,
-            "line_channel_secret": store.line_channel_secret,
-            "line_channel_access_token": store.line_channel_access_token,
-            "line_webhook_url": self._webhook_url(request, store),
-            "line_morning_enabled": store.line_morning_enabled,
-            "line_morning_time": store.line_morning_time.strftime("%H:%M") if store.line_morning_time else "09:00",
-            "line_two_hours_enabled": store.line_two_hours_enabled,
-            "line_fifteen_minutes_enabled": store.line_fifteen_minutes_enabled,
-        })
+            store.save(update_fields=list(dict.fromkeys(fields)))
+        return Response(self._response_data(request, store))
 
 
 @document_object_api_view

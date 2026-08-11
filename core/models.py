@@ -20,7 +20,18 @@ def generate_line_webhook_token():
     return secrets.token_hex(16)
 
 
+def generate_line_operations_link_code():
+    """運営通知先をLINEから登録するための使い切りコードを生成。"""
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(8))
+
+
 class Store(models.Model):
+    class LineOperationsRecipientType(models.TextChoices):
+        USER = "user", "個人トーク"
+        GROUP = "group", "グループ"
+        ROOM = "room", "複数人トーク"
+
     name = models.CharField(max_length=100)
     timezone = models.CharField(max_length=40, default="Asia/Tokyo")
     line_add_friend_url = models.URLField(blank=True, default="")
@@ -31,6 +42,20 @@ class Store(models.Model):
     line_morning_time = models.TimeField(default="09:00")
     line_two_hours_enabled = models.BooleanField(default=True)
     line_fifteen_minutes_enabled = models.BooleanField(default=True)
+    line_shift_end_alert_enabled = models.BooleanField(default=False)
+    line_operations_recipient_id = models.CharField(max_length=64, blank=True, default="")
+    line_operations_recipient_type = models.CharField(
+        max_length=10,
+        choices=LineOperationsRecipientType.choices,
+        blank=True,
+        default="",
+    )
+    line_operations_link_code = models.CharField(
+        max_length=8,
+        blank=True,
+        default=generate_line_operations_link_code,
+    )
+    line_operations_linked_at = models.DateTimeField(null=True, blank=True)
     line_webhook_token = models.CharField(
         max_length=64, blank=True, default="", unique=True,
         help_text="webhook URL に埋め込む store 識別トークン",
@@ -730,6 +755,7 @@ class LineNotificationLog(models.Model):
         MORNING = "MORNING", "朝通知"
         TWO_HOURS_BEFORE = "TWO_HOURS_BEFORE", "2時間前"
         FIFTEEN_MIN_BEFORE = "FIFTEEN_MIN_BEFORE", "15分前"
+        SHIFT_END_70 = "SHIFT_END_70", "終了70分前"
 
     class Status(models.TextChoices):
         SENT = "SENT", "送信済"
@@ -1154,7 +1180,7 @@ class ShiftConfirmNotificationLog(models.Model):
 
 
 class ShiftEndAlert(models.Model):
-    """シフト終了70分前の受付終了確認アラート。外部通知は別機能で扱う。"""
+    """シフト終了70分前の受付終了確認アラート。"""
 
     class Status(models.TextChoices):
         OPEN = "OPEN", "対応待ち"
