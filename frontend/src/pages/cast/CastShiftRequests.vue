@@ -14,7 +14,7 @@ const formError = ref('')
 const saving = ref(false)
 
 function emptyForm() {
-  return { date: new Date().toISOString().slice(0, 10), start_time: '', end_time: '', desired_room: '', memo: '' }
+  return { dates: [new Date().toISOString().slice(0, 10)], start_time: '', end_time: '', desired_room: '', memo: '' }
 }
 
 async function load() {
@@ -62,19 +62,38 @@ function normalizeExtendedEndTime(value) {
   }
 }
 
+function addDate() {
+  form.value.dates.push('')
+}
+
+function removeDate(index) {
+  if (form.value.dates.length === 1) return
+  form.value.dates.splice(index, 1)
+}
+
 async function onSave() {
   saving.value = true
   formError.value = ''
   try {
+    const dates = form.value.dates.filter(Boolean)
+    if (!dates.length || dates.length !== form.value.dates.length) {
+      throw new Error('申請する日付をすべて入力してください')
+    }
+    if (new Set(dates).size !== dates.length) {
+      throw new Error('同じ日付が重複しています')
+    }
     const normalizedEnd = normalizeExtendedEndTime(form.value.end_time)
     const body = {
-      date: form.value.date,
       start_time: form.value.start_time,
       ...normalizedEnd,
       memo: form.value.memo,
     }
     if (form.value.desired_room) body.desired_room = Number(form.value.desired_room)
-    await api.createCastShiftRequest(body)
+    if (dates.length === 1) {
+      await api.createCastShiftRequest({ ...body, date: dates[0] })
+    } else {
+      await api.createCastShiftRequestsBulk({ ...body, dates })
+    }
     showForm.value = false
     await load()
   } catch (e) {
@@ -171,8 +190,25 @@ function formatDateTime(s) {
             <div class="modal-body">
               <div v-if="formError" class="alert alert-danger">{{ formError }}</div>
               <div class="mb-3">
-                <label class="form-label">日付</label>
-                <input v-model="form.date" type="date" class="form-control" />
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <label class="form-label mb-0">日付</label>
+                  <button type="button" class="btn btn-outline-primary btn-sm" @click="addDate">
+                    <i class="ti ti-plus"></i> 日付を追加
+                  </button>
+                </div>
+                <div v-for="(_, index) in form.dates" :key="index" class="input-group mb-2">
+                  <input v-model="form.dates[index]" type="date" class="form-control" />
+                  <button
+                    type="button"
+                    class="btn btn-outline-danger"
+                    :disabled="form.dates.length === 1"
+                    aria-label="日付を削除"
+                    @click="removeDate(index)"
+                  >
+                    <i class="ti ti-trash"></i>
+                  </button>
+                </div>
+                <div class="form-text">複数日を追加すると、同じ時間・希望部屋・メモでまとめて申請できます。</div>
               </div>
               <div class="row">
                 <div class="col-6 mb-3">

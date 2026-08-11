@@ -733,6 +733,13 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
             or getattr(self.instance, "cast", None)
             or getattr(getattr(request, "user", None), "cast_profile", None)
         )
+        desired_room = data.get(
+            "desired_room",
+            getattr(self.instance, "desired_room", None),
+        )
+        if cast and desired_room and desired_room.store_id != cast.store_id:
+            raise serializers.ValidationError({"desired_room": "所属店舗の部屋を選択してください"})
+
         date = data.get("date", getattr(self.instance, "date", None))
         start_at = end_at = None
         if cast and date and start_time and end_time:
@@ -781,6 +788,28 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
             obj.approved_end_time,
             obj.approved_end_day_offset,
         )
+
+
+class CastShiftRequestBulkCreateSerializer(serializers.Serializer):
+    dates = serializers.ListField(
+        child=serializers.DateField(),
+        allow_empty=False,
+        max_length=31,
+    )
+    start_time = serializers.TimeField()
+    end_time = serializers.TimeField()
+    end_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
+    desired_room = serializers.PrimaryKeyRelatedField(
+        queryset=Room.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    memo = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_dates(self, dates):
+        if len(dates) != len(set(dates)):
+            raise serializers.ValidationError("同じ日付が重複しています")
+        return sorted(dates)
 
 
 class OpShiftRequestSerializer(serializers.ModelSerializer):
