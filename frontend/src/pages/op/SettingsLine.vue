@@ -19,8 +19,12 @@ const form = ref({
   line_morning_time: '09:00',
   line_two_hours_enabled: true,
   line_fifteen_minutes_enabled: true,
+  line_shift_end_alert_enabled: false,
 })
 const webhookUrl = ref('')
+const operationsLinked = ref(false)
+const operationsRecipientType = ref('')
+const operationsLinkCode = ref('')
 
 const isManager = computed(() => getAuthRole() === 'manager')
 
@@ -37,13 +41,55 @@ async function load() {
     form.value.line_morning_time = data.line_morning_time
     form.value.line_two_hours_enabled = data.line_two_hours_enabled
     form.value.line_fifteen_minutes_enabled = data.line_fifteen_minutes_enabled
+    form.value.line_shift_end_alert_enabled = data.line_shift_end_alert_enabled
     webhookUrl.value = data.line_webhook_url
+    operationsLinked.value = data.line_operations_linked
+    operationsRecipientType.value = data.line_operations_recipient_type
+    operationsLinkCode.value = data.line_operations_link_code
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
 }
+
+async function unlinkOperations() {
+  if (!window.confirm('現在の運営通知先を解除しますか？')) return
+  saving.value = true
+  error.value = ''
+  try {
+    const data = await api.updateLineSettings({ line_operations_unlink: true })
+    operationsLinked.value = data.line_operations_linked
+    operationsRecipientType.value = data.line_operations_recipient_type
+    operationsLinkCode.value = data.line_operations_link_code
+    form.value.line_shift_end_alert_enabled = data.line_shift_end_alert_enabled
+    success.value = '運営通知先を解除しました'
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    saving.value = false
+  }
+}
+
+async function regenerateOperationsCode() {
+  saving.value = true
+  error.value = ''
+  try {
+    const data = await api.updateLineSettings({ line_operations_regenerate_code: true })
+    operationsLinkCode.value = data.line_operations_link_code
+    success.value = '連携コードを再発行しました'
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    saving.value = false
+  }
+}
+
+const operationsRecipientLabel = computed(() => ({
+  user: '個人トーク',
+  group: 'グループ',
+  room: '複数人トーク',
+}[operationsRecipientType.value] || '登録済みトーク'))
 
 async function onSave() {
   saving.value = true
@@ -142,6 +188,59 @@ onMounted(load)
               <label class="form-check-label" for="fifteenMinEnabled">出勤15分前通知を送信する</label>
             </div>
           </div>
+
+          <hr>
+
+          <div class="form-check form-switch">
+            <input
+              class="form-check-input"
+              type="checkbox"
+              id="shiftEndAlertEnabled"
+              v-model="form.line_shift_end_alert_enabled"
+              :disabled="!operationsLinked"
+            >
+            <label class="form-check-label" for="shiftEndAlertEnabled">シフト終了70分前の受付終了確認を運営へ送信する</label>
+          </div>
+          <div class="form-text">
+            その先に有効な予約がない場合だけ、登録済みの運営トークへ送信します。
+          </div>
+        </div>
+      </div>
+
+      <!-- 運営通知先 -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <h6 class="card-title mb-3"><i class="ti ti-users"></i> 運営通知先</h6>
+
+          <div v-if="operationsLinked" class="alert alert-success py-2">
+            <i class="ti ti-circle-check"></i>
+            {{ operationsRecipientLabel }}を通知先として登録済みです。
+          </div>
+          <div v-else class="alert alert-warning py-2">
+            運営通知先はまだ登録されていません。
+          </div>
+
+          <template v-if="!operationsLinked">
+            <p class="small mb-2">通知を受け取りたい個人トークまたはグループで、LINE公式アカウントへ次のコードを送ってください。</p>
+            <div class="input-group mb-2" style="max-width: 360px">
+              <input type="text" class="form-control fw-bold" :value="operationsLinkCode" readonly>
+              <button class="btn btn-outline-secondary" type="button" @click="copyToClipboard(operationsLinkCode, 'operations')">
+                <i class="ti" :class="copied === 'operations' ? 'ti-check' : 'ti-copy'"></i>
+                {{ copied === 'operations' ? 'コピー済' : 'コピー' }}
+              </button>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <button class="btn btn-sm btn-outline-primary" type="button" :disabled="loading" @click="load">
+                連携状況を更新
+              </button>
+              <button class="btn btn-sm btn-outline-secondary" type="button" :disabled="saving" @click="regenerateOperationsCode">
+                コードを再発行
+              </button>
+            </div>
+          </template>
+          <button v-else class="btn btn-sm btn-outline-danger" type="button" :disabled="saving" @click="unlinkOperations">
+            運営通知先を解除
+          </button>
         </div>
       </div>
 

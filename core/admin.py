@@ -27,9 +27,14 @@ class StoreAdmin(admin.ModelAdmin):
             "line_channel_access_token",
             "line_add_friend_url",
             "line_webhook_token",
+            "line_shift_end_alert_enabled",
+            "line_operations_recipient_id",
+            "line_operations_recipient_type",
+            "line_operations_link_code",
+            "line_operations_linked_at",
         )}),
     )
-    readonly_fields = ("line_webhook_token",)
+    readonly_fields = ("line_webhook_token", "line_operations_linked_at")
 
 
 @admin.register(Room)
