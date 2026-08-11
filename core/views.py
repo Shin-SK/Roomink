@@ -18,6 +18,7 @@ from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import parsers, viewsets, status
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -52,6 +53,7 @@ from .serializers import (
     CastSerializer,
     CastUnavailableTimeSerializer,
     PointLogSerializer,
+    CastShiftRequestBulkCreateSerializer,
     CastShiftRequestSerializer,
     CastTodayOrderSerializer,
     CourseSerializer,
@@ -2828,6 +2830,53 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import ValidationError
             raise ValidationError("申請中のもののみ編集できます")
         serializer.save()
+
+    @extend_schema(
+        request=CastShiftRequestBulkCreateSerializer,
+        responses=CastShiftRequestSerializer(many=True),
+    )
+    @action(detail=False, methods=["post"], url_path="bulk-create")
+    def bulk_create(self, request):
+        bulk_serializer = CastShiftRequestBulkCreateSerializer(
+            data=request.data,
+            context=self.get_serializer_context(),
+        )
+        bulk_serializer.is_valid(raise_exception=True)
+        data = bulk_serializer.validated_data
+        cast = request.user.cast_profile
+        common_data = {
+            "start_time": data["start_time"],
+            "end_time": data["end_time"],
+            "end_day_offset": data["end_day_offset"],
+            "memo": data["memo"],
+        }
+        if data.get("desired_room") is not None:
+            common_data["desired_room"] = data["desired_room"].pk
+
+        created = []
+        with transaction.atomic():
+            for request_date in data["dates"]:
+                serializer = CastShiftRequestSerializer(
+                    data={"date": request_date, **common_data},
+                    context=self.get_serializer_context(),
+                )
+                try:
+                    serializer.is_valid(raise_exception=True)
+                except ValidationError as exc:
+                    raise ValidationError({request_date.isoformat(): exc.detail}) from exc
+                created.append(serializer.save(cast=cast, store=cast.store))
+
+        return Response(
+            {
+                "created_count": len(created),
+                "created": CastShiftRequestSerializer(
+                    created,
+                    many=True,
+                    context=self.get_serializer_context(),
+                ).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

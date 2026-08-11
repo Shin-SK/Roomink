@@ -284,6 +284,7 @@ export const api = {
 
   getCastShiftRequests: (params = '') => listRequest('GET', `/cast/shift-requests/${params ? '?' + params : '?limit=200'}`),
   createCastShiftRequest: (body) => request('POST', '/cast/shift-requests/', body),
+  createCastShiftRequestsBulk: (body) => request('POST', '/cast/shift-requests/bulk-create/', body),
   updateCastShiftRequest: (id, body) => request('PATCH', `/cast/shift-requests/${id}/`, body),
   cancelCastShiftRequest: (id) => request('POST', `/cast/shift-requests/${id}/cancel/`),
 
