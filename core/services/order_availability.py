@@ -75,8 +75,18 @@ def cast_has_unavailable_time_conflict(
     return unavailable_times.exists()
 
 
-def build_available_order_slots(store, cast, business_date, slot_minutes=30):
-    """営業日内のシフトから、予約可能な固定幅スロットを作る。"""
+def build_available_order_slots(
+    store,
+    cast,
+    business_date,
+    slot_minutes=30,
+    duration_minutes=None,
+    not_before=None,
+):
+    """営業日内のシフトから、予約可能な開始時刻を作る。
+
+    duration_minutesを指定した場合は、その施術時間全体が空いている開始時刻だけを返す。
+    """
     shifts = ShiftAssignment.objects.filter(
         store=store,
         cast=cast,
@@ -112,6 +122,7 @@ def build_available_order_slots(store, cast, business_date, slot_minutes=30):
     ))
     timezone = ZoneInfo(store.timezone)
     step = timedelta(minutes=slot_minutes)
+    duration = timedelta(minutes=duration_minutes or slot_minutes)
     slots_by_start = {}
 
     def display_time(value):
@@ -124,8 +135,8 @@ def build_available_order_slots(store, cast, business_date, slot_minutes=30):
 
     for shift_start, shift_end in shift_intervals:
         slot_start = shift_start
-        while slot_start + step <= shift_end:
-            slot_end = slot_start + step
+        while slot_start + duration <= shift_end:
+            slot_end = slot_start + duration
             conflict = any(
                 intervals_overlap(
                     existing.start,
@@ -144,13 +155,13 @@ def build_available_order_slots(store, cast, business_date, slot_minutes=30):
                 )
                 for unavailable in unavailable_times
             )
-            if not conflict:
+            if not conflict and (not_before is None or slot_start > not_before):
                 slots_by_start[slot_start] = {
                     "start": display_time(slot_start),
                     "end": display_time(slot_end),
                     "start_at": slot_start.isoformat(),
                     "end_at": slot_end.isoformat(),
                 }
-            slot_start = slot_end
+            slot_start += step
 
     return [slots_by_start[key] for key in sorted(slots_by_start)]

@@ -307,6 +307,20 @@ export const api = {
   getCustomerActivation: (token) => request('POST', '/cu/activate/preview/', { token }),
   activateCustomer: (token, password, passwordConfirm) => request('POST', '/cu/activate/', { token, password, password_confirm: passwordConfirm }),
   getStoreListPublic: () => request('GET', '/cu/store-list/'),
+  getPublicBookingOptions: (storeId, date) => request(
+    'GET',
+    `/public/booking/options/?store=${storeId}${date ? `&date=${date}` : ''}`,
+  ),
+  getPublicBookingSlots: (storeId, castId, courseId, date) => request(
+    'GET',
+    `/public/booking/slots/?store=${storeId}&cast=${castId}&course=${courseId}&date=${date}`,
+  ),
+  requestPublicBookingVerification: (body) => request('POST', '/public/booking/request-verification/', body),
+  confirmPublicBooking: (verificationId, code) => request(
+    'POST',
+    '/public/booking/confirm/',
+    { verification_id: verificationId, code },
+  ),
   getCustomerStores: () => request('GET', '/cu/stores/'),
   getCustomerMypage: (storeId) => request('GET', `/cu/mypage/${storeId ? '?store=' + storeId : ''}`),
   getBookingOptions: (storeId) => request('GET', `/cu/booking/options/${storeId ? '?store=' + storeId : ''}`),

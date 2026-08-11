@@ -57,6 +57,14 @@ urlpatterns = [
 
     # customer
     path("cu/store-list/", views.StoreListPublicView.as_view(), name="cu-store-list"),
+    path("public/booking/options/", views.PublicBookingOptionsView.as_view(), name="public-booking-options"),
+    path("public/booking/slots/", views.PublicBookingSlotsView.as_view(), name="public-booking-slots"),
+    path(
+        "public/booking/request-verification/",
+        views.PublicBookingVerificationRequestView.as_view(),
+        name="public-booking-request-verification",
+    ),
+    path("public/booking/confirm/", views.PublicBookingConfirmView.as_view(), name="public-booking-confirm"),
     path("cu/stores/", views.CustomerStoresView.as_view(), name="cu-stores"),
     path("cu/login/", views.customer_login, name="cu-login"),
     path("cu/signup/", views.customer_signup, name="cu-signup"),

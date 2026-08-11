@@ -58,12 +58,26 @@ const CuProfile = () => import('./pages/cu/CuProfile.vue')
 const CuContact = () => import('./pages/cu/CuContact.vue')
 const CuHelp = () => import('./pages/cu/CuHelp.vue')
 const CuHelpArticle = () => import('./pages/cu/CuHelpArticle.vue')
+const PublicBooking = () => import('./pages/public/PublicBooking.vue')
+const PublicBookingComplete = () => import('./pages/public/PublicBookingComplete.vue')
 const PasswordReset = () => import('./pages/PasswordReset.vue')
 
 const routes = [
   { path: '/', redirect: '/op/dashboard' },
   { path: '/login', name: 'login', component: Login, meta: { public: true } },
   { path: '/password-reset', name: 'password-reset', component: PasswordReset, meta: { public: true } },
+  { path: '/booking', name: 'public-booking', component: PublicBooking, meta: { public: true } },
+  {
+    path: '/public/booking',
+    redirect: to => ({ name: 'public-booking', query: to.query }),
+    meta: { public: true },
+  },
+  {
+    path: '/booking/complete',
+    name: 'public-booking-complete',
+    component: PublicBookingComplete,
+    meta: { public: true },
+  },
   { path: '/op/login', redirect: '/login' },
   { path: '/op/dashboard', name: 'dashboard', component: Dashboard },
   { path: '/op/schedule', name: 'schedule', component: Schedule },

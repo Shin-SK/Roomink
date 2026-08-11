@@ -8,7 +8,7 @@ from .models import (
     CallLog, CallNote, Cast, CastCheckoutExpenseSnapshot, CastDailyCheckout,
     CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerAccountInvitation, CustomerMergeLog,
-    DailySettlement, LineNotificationLog, Option, Order, PointLog, Room,
+    DailySettlement, LineNotificationLog, Option, Order, PointLog, PublicBookingVerification, Room,
     ShiftAssignment, ShiftConfirmNotificationLog, ShiftEndAlert, ShiftRequest, SmsLog, SmsTemplate, Store,
     StorePhoneNumber, UserProfile,
     generate_line_link_code,
@@ -114,6 +114,23 @@ class CustomerAccountInvitationAdmin(admin.ModelAdmin):
         "invalidated_at", "created_by", "sms_log", "created_at",
     )
     search_fields = ("customer__phone", "customer__display_name")
+
+
+@admin.register(PublicBookingVerification)
+class PublicBookingVerificationAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "store", "masked_phone", "expires_at", "consumed_at",
+        "failed_attempts", "created_at",
+    )
+    list_filter = ("store", "consumed_at")
+    readonly_fields = (
+        "id", "store", "phone", "display_name", "booking_payload", "code_hash",
+        "failed_attempts", "expires_at", "consumed_at", "sms_log", "created_at",
+    )
+
+    @admin.display(description="電話番号")
+    def masked_phone(self, obj):
+        return f"***{obj.phone[-4:]}" if obj.phone else "***"
 
 
 @admin.register(Course)

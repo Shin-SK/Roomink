@@ -489,6 +489,47 @@ class CustomerAccountInvitation(models.Model):
         return f"CustomerAccountInvitation#{self.pk} customer={self.customer_id}"
 
 
+class PublicBookingVerification(models.Model):
+    """公開Web予約のSMS本人確認。予約・顧客は確認完了後にだけ作成する。"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="public_booking_verifications",
+    )
+    phone = models.CharField(max_length=20)
+    display_name = models.CharField(max_length=50)
+    booking_payload = models.JSONField()
+    code_hash = models.CharField(max_length=255)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    sms_log = models.ForeignKey(
+        "SmsLog",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="public_booking_verifications",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["phone", "-created_at"],
+                name="core_publi_phone_eb42af_idx",
+            ),
+            models.Index(
+                fields=["expires_at"],
+                name="core_publi_expires_c8e502_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"PublicBookingVerification#{self.pk} store={self.store_id}"
+
+
 class OrderOption(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     option = models.ForeignKey(Option, on_delete=models.PROTECT)
