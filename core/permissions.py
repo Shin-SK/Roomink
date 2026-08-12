@@ -23,6 +23,47 @@ class IsManagerOrStaff(BasePermission):
         )
 
 
+class IsManager(BasePermission):
+    """マネージャーだけに操作を許可する。"""
+
+    message = "この操作を行えるのはマネージャーのみです。"
+
+    def has_permission(self, request, view):
+        profile = getattr(request.user, "profile", None)
+        return profile is not None and profile.role == UserProfile.Role.MANAGER
+
+
+class IsManagerOrStaffReadOnlyManagerWrite(BasePermission):
+    """マスター参照は運営に許可し、変更はマネージャーだけに許可する。"""
+
+    message = "このマスターを変更できるのはマネージャーのみです。"
+
+    def has_permission(self, request, view):
+        profile = getattr(request.user, "profile", None)
+        if profile is None:
+            return False
+        if profile.role == UserProfile.Role.MANAGER:
+            return True
+        return profile.role == UserProfile.Role.STAFF and request.method in SAFE_METHODS
+
+
+class IsOperatorOrCastReadOnlyManagerWrite(BasePermission):
+    """ルーム参照はキャストにも許可し、変更はマネージャーだけに許可する。"""
+
+    message = "ルームを変更できるのはマネージャーのみです。"
+
+    def has_permission(self, request, view):
+        profile = getattr(request.user, "profile", None)
+        if profile is None:
+            return False
+        if profile.role == UserProfile.Role.MANAGER:
+            return True
+        return (
+            profile.role in (UserProfile.Role.STAFF, UserProfile.Role.CAST)
+            and request.method in SAFE_METHODS
+        )
+
+
 class PastOrderManagerOnlyPermission(BasePermission):
     """過去営業日の予約変更をmanagerだけに許可する。"""
 
