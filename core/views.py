@@ -40,7 +40,13 @@ from .models import (
     generate_line_link_code,
     generate_line_operations_link_code,
 )
-from .permissions import IsManagerOrStaff, PastOrderManagerOnlyPermission
+from .permissions import (
+    IsManager,
+    IsManagerOrStaff,
+    IsManagerOrStaffReadOnlyManagerWrite,
+    IsOperatorOrCastReadOnlyManagerWrite,
+    PastOrderManagerOnlyPermission,
+)
 from .serializers import (
     CallLogSerializer,
     CallNoteSerializer,
@@ -283,6 +289,8 @@ def csrf_token_view(request):
 
 @document_object_api_view
 class ScheduleView(APIView):
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def get(self, request):
         date_str = request.query_params.get("date")
         if not date_str:
@@ -306,6 +314,8 @@ class ScheduleView(APIView):
 
 @document_object_api_view
 class RoomScheduleView(APIView):
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def get(self, request):
         date_str = request.query_params.get("date")
         if not date_str:
@@ -331,7 +341,11 @@ class RoomScheduleView(APIView):
 # ──────────────────────────────────────
 
 class OrderViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, PastOrderManagerOnlyPermission]
+    permission_classes = [
+        IsAuthenticated,
+        IsManagerOrStaff,
+        PastOrderManagerOnlyPermission,
+    ]
     queryset = Order.objects.select_related(
         "cast", "room", "customer", "service_recipient_customer", "course",
     ).prefetch_related("options").order_by("start")
@@ -1074,6 +1088,8 @@ class CastAckView(APIView):
 class OpOrderCastAckView(APIView):
     """POST /api/op/orders/{id}/cast-ack/ — 運営が代理でキャスト確認済みにする"""
 
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def post(self, request, pk):
         store = get_user_store(request)
         try:
@@ -1637,6 +1653,7 @@ class CustomerReservationDetailView(APIView):
 # ──────────────────────────────────────
 
 class ShiftAssignmentViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
     queryset = ShiftAssignment.objects.select_related("cast", "room").order_by(
         "date", "start_time",
     )
@@ -1758,6 +1775,7 @@ class CastUnavailableTimeViewSet(viewsets.ModelViewSet):
 
 
 class CustomerViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
     queryset = Customer.objects.order_by("id")
     serializer_class = CustomerSerializer
     filterset_fields = {
@@ -1971,6 +1989,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
 
 class CastViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = Cast.objects.order_by("name")
     serializer_class = CastSerializer
 
@@ -1998,6 +2017,7 @@ class CastViewSet(viewsets.ModelViewSet):
 class StaffViewSet(viewsets.ViewSet):
     """スタッフ (role=staff/manager) の CRUD"""
 
+    permission_classes = [IsAuthenticated, IsManager]
     queryset = UserProfile.objects.none()
     serializer_class = StaffSerializer
 
@@ -2049,6 +2069,7 @@ class StaffViewSet(viewsets.ViewSet):
 
 
 class CourseViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = Course.objects.order_by("id")
     serializer_class = CourseSerializer
 
@@ -2072,6 +2093,7 @@ class CourseViewSet(viewsets.ModelViewSet):
 
 
 class StorePhoneNumberViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManager]
     queryset = StorePhoneNumber.objects.order_by("id")
     serializer_class = StorePhoneNumberSerializer
 
@@ -2091,6 +2113,7 @@ class StorePhoneNumberViewSet(viewsets.ModelViewSet):
 
 
 class OptionViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = Option.objects.order_by("id")
     serializer_class = OptionSerializer
 
@@ -2114,6 +2137,7 @@ class OptionViewSet(viewsets.ModelViewSet):
 
 
 class RoomViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsOperatorOrCastReadOnlyManagerWrite]
     queryset = Room.objects.order_by("sort_order")
     serializer_class = RoomSerializer
 
@@ -2137,6 +2161,7 @@ class RoomViewSet(viewsets.ModelViewSet):
 
 
 class ExtensionViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = Extension.objects.order_by("sort_order", "id")
     serializer_class = ExtensionSerializer
 
@@ -2160,6 +2185,7 @@ class ExtensionViewSet(viewsets.ModelViewSet):
 
 
 class NominationFeeViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = NominationFee.objects.order_by("sort_order", "id")
     serializer_class = NominationFeeSerializer
 
@@ -2183,6 +2209,7 @@ class NominationFeeViewSet(viewsets.ModelViewSet):
 
 
 class DiscountViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = Discount.objects.order_by("sort_order", "id")
     serializer_class = DiscountSerializer
 
@@ -2206,6 +2233,7 @@ class DiscountViewSet(viewsets.ModelViewSet):
 
 
 class MediumViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = Medium.objects.order_by("sort_order", "id")
     serializer_class = MediumSerializer
 
@@ -2234,6 +2262,7 @@ class MediumViewSet(viewsets.ModelViewSet):
 
 class CastExpenseViewSet(viewsets.ModelViewSet):
     """雑費（キャスト控除）の CRUD — manager のみ"""
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = CastExpense.objects.select_related("cast").order_by("-date", "cast", "id")
     serializer_class = CastExpenseSerializer
     filterset_fields = {
@@ -2279,6 +2308,7 @@ class CastExpenseViewSet(viewsets.ModelViewSet):
 
 class CastExpenseTemplateViewSet(viewsets.ModelViewSet):
     """キャスト別固定雑費テンプレの CRUD — manager のみ。削除は不可（is_activeで無効化）"""
+    permission_classes = [IsAuthenticated, IsManager]
     http_method_names = ["get", "post", "patch", "head", "options"]
     queryset = CastExpenseTemplate.objects.select_related("cast").order_by("cast", "-is_active", "id")
     serializer_class = CastExpenseTemplateSerializer
@@ -2341,6 +2371,7 @@ class CastExpenseTemplateViewSet(viewsets.ModelViewSet):
 
 class CastExpenseTemplateHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     """固定雑費テンプレ履歴の閲覧 — manager のみ"""
+    permission_classes = [IsAuthenticated, IsManager]
     serializer_class = CastExpenseTemplateHistorySerializer
     queryset = CastExpenseTemplateHistory.objects.select_related("cast", "edited_by").order_by("-edited_at")
     filterset_fields = {
@@ -2374,6 +2405,7 @@ class CastExpenseTemplateHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 class CastCheckoutViewSet(viewsets.ModelViewSet):
     """退勤提出一覧/詳細の閲覧 + manager_memo編集 + 確認/差戻し/未確認に戻す — manager のみ。
     提出自体はキャスト側 CastCheckoutView からのみ行う（create/delete はここでは提供しない）。"""
+    permission_classes = [IsAuthenticated, IsManager]
     http_method_names = ["get", "patch", "head", "options"]
     queryset = (
         CastDailyCheckout.objects
@@ -2486,6 +2518,7 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
 
 class CastAdjustmentViewSet(viewsets.ModelViewSet):
     """調整金台帳の CRUD — manager のみ。削除は不可（無効化=VOIDで対応）。"""
+    permission_classes = [IsAuthenticated, IsManager]
     http_method_names = ["get", "post", "patch", "head", "options"]
     queryset = (
         CastAdjustment.objects
@@ -2642,6 +2675,7 @@ class CastAdjustmentListView(APIView):
 
 class CastNoteViewSet(viewsets.ModelViewSet):
     """ノート/施術マニュアルの CRUD — manager のみ。"""
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = CastNote.objects.all().order_by("-is_pinned", "-published_at", "-created_at")
     serializer_class = CastNoteSerializer
     filterset_fields = {
@@ -2793,6 +2827,8 @@ class ShiftConfirmAlertsView(APIView):
     manager/staff共通（ShiftList.vueと同じ店舗スコープ）。LINE/SMS/メール等の外部送信は一切行わない。
     Phase 4: 各アラートに通知ログの有無/最終状態を付与する（土台のみ。実送信は行わない）。"""
 
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def get(self, request):
         store = get_user_store(request)
         now = timezone.now()
@@ -2852,6 +2888,8 @@ class ShiftConfirmNotificationTestView(APIView):
     「送信予定/送った扱い」のテストログ（ShiftConfirmNotificationLog）を1件作成するだけ。
     LINE/SMS/メール等の外部API呼び出しは一切行わない。manager のみ実行可能。"""
 
+    permission_classes = [IsAuthenticated, IsManager]
+
     def post(self, request, shift_id):
         _require_manager(request)
         store = get_user_store(request)
@@ -2896,6 +2934,7 @@ class ShiftConfirmNotificationTestView(APIView):
 class ShiftConfirmNotificationLogViewSet(viewsets.ReadOnlyModelViewSet):
     """GET /api/shift-confirm-notification-logs/ — 出勤確認外部通知ログの閲覧（manager/staff共通、自店舗のみ）。
     実送信は行わない土台のため、作成はShiftConfirmNotificationTestView経由のテストログ作成のみ。"""
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
     serializer_class = ShiftConfirmNotificationLogSerializer
     queryset = ShiftConfirmNotificationLog.objects.select_related("cast", "shift_assignment", "created_by").order_by("-created_at")
     filterset_fields = {
@@ -2916,6 +2955,7 @@ class ShiftConfirmNotificationLogViewSet(viewsets.ReadOnlyModelViewSet):
 
 class PointLogViewSet(viewsets.ModelViewSet):
     """ポイント記録の CRUD — manager のみ"""
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = PointLog.objects.select_related("cast", "created_by").order_by("-date", "-created_at")
     serializer_class = PointLogSerializer
     filterset_fields = {
@@ -3163,6 +3203,7 @@ SHIFT_REQUEST_IMPORT_REQUIRED_COLUMNS = [
 
 
 class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
     serializer_class = OpShiftRequestSerializer
     queryset = ShiftRequest.objects.select_related("cast", "desired_room", "approved_room").order_by("-created_at")
     filterset_fields = {
@@ -3658,6 +3699,7 @@ class CsvImportView(APIView):
       - query: model = room|cast|course|option|customer
       - query: preview = 1  → プレビューのみ（先頭10行）
     """
+    permission_classes = [IsAuthenticated, IsManager]
     parser_classes = [parsers.MultiPartParser]
 
     def post(self, request):
@@ -3803,6 +3845,8 @@ class CtiInboundView(APIView):
 class CtiQueueView(APIView):
     """GET /api/op/cti/queue/ — 未対応 / 対応中コール一覧"""
 
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def get(self, request):
         store = get_user_store(request)
         calls = (
@@ -3835,9 +3879,12 @@ class CtiQueueView(APIView):
 class CtiCallStartView(APIView):
     """POST /api/op/cti/calls/{id}/start/ — 対応開始"""
 
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def post(self, request, pk):
+        store = get_user_store(request)
         try:
-            call = CallLog.objects.get(pk=pk)
+            call = CallLog.objects.get(pk=pk, store=store)
         except CallLog.DoesNotExist:
             return Response({"detail": "コールが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -3857,9 +3904,12 @@ class CtiCallStartView(APIView):
 class CtiCallDoneView(APIView):
     """POST /api/op/cti/calls/{id}/done/ — 対応完了"""
 
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def post(self, request, pk):
+        store = get_user_store(request)
         try:
-            call = CallLog.objects.get(pk=pk)
+            call = CallLog.objects.get(pk=pk, store=store)
         except CallLog.DoesNotExist:
             return Response({"detail": "コールが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -3878,9 +3928,12 @@ class CtiCallDoneView(APIView):
 class CtiCallNoteView(APIView):
     """POST /api/op/cti/calls/{id}/notes/ — メモ追加"""
 
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def post(self, request, pk):
+        store = get_user_store(request)
         try:
-            call = CallLog.objects.get(pk=pk)
+            call = CallLog.objects.get(pk=pk, store=store)
         except CallLog.DoesNotExist:
             return Response({"detail": "コールが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -3913,7 +3966,7 @@ class CallLogViewSet(viewsets.ModelViewSet):
     """
     queryset = CallLog.objects.all()
     serializer_class = CallLogSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
     http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
@@ -4277,6 +4330,7 @@ def _require_manager(request):
 @document_object_api_view
 class SalesSummaryView(APIView):
     """GET /api/op/sales-summary/?range=today|week|month or date_from&date_to"""
+    permission_classes = [IsAuthenticated, IsManager]
 
     def get(self, request):
         _require_manager(request)
@@ -4293,6 +4347,7 @@ class SalesSummaryView(APIView):
 @document_object_api_view
 class SalesExportView(APIView):
     """GET /api/op/sales-export.csv?range=..."""
+    permission_classes = [IsAuthenticated, IsManager]
 
     def get(self, request):
         _require_manager(request)
@@ -4335,6 +4390,7 @@ class SalesDashboardView(APIView):
     Phase 3-D: manager向け売上集計ダッシュボード。既存 SalesSummaryView（/op/sales-summary/、Sales.vue用）
     とは独立した別APIで、決済方法別/キャスト別（給与見込み込み）/部屋別の内訳を追加で返す。
     """
+    permission_classes = [IsAuthenticated, IsManager]
 
     def get(self, request):
         _require_manager(request)
@@ -4355,6 +4411,7 @@ class SalesDashboardExportView(APIView):
 
     集計値（サマリー/決済方法別/キャスト別/部屋別/日別）をセクション区切りのCSVで出力する。
     """
+    permission_classes = [IsAuthenticated, IsManager]
 
     def get(self, request):
         _require_manager(request)
@@ -4377,6 +4434,7 @@ class SalesDashboardExportView(APIView):
 @document_object_api_view
 class CustomerExportView(APIView):
     """GET /api/op/customers-export.csv — 現在の店舗の顧客一覧をCSV出力（manager限定）"""
+    permission_classes = [IsAuthenticated, IsManager]
 
     def get(self, request):
         _require_manager(request)
@@ -4410,6 +4468,7 @@ class CustomerExportView(APIView):
 @document_object_api_view
 class DailySettlementView(APIView):
     """GET /api/op/daily-settlement/?date=YYYY-MM-DD"""
+    permission_classes = [IsAuthenticated, IsManager]
 
     def _parse_date(self, request):
         date_str = request.query_params.get("date") or request.data.get("date")
@@ -4586,6 +4645,7 @@ class DailySettlementLockView(APIView):
     body: { date, rows, totals }
     フロントが表示中のスナップショットをそのまま送る。
     """
+    permission_classes = [IsAuthenticated, IsManager]
 
     def post(self, request):
         _require_manager(request)
@@ -4625,6 +4685,7 @@ class DailySettlementLockView(APIView):
 @document_object_api_view
 class DailySettlementUnlockView(APIView):
     """POST /api/op/daily-settlement/unlock/ — 清算ロック解除"""
+    permission_classes = [IsAuthenticated, IsManager]
 
     def post(self, request):
         _require_manager(request)
@@ -4654,6 +4715,7 @@ class DailySettlementUnlockView(APIView):
 @document_object_api_view
 class DailySettlementExportView(APIView):
     """GET /api/op/daily-settlement/export/?date=YYYY-MM-DD — CSV出力"""
+    permission_classes = [IsAuthenticated, IsManager]
 
     def get(self, request):
         _require_manager(request)
@@ -4933,6 +4995,8 @@ class CastLineLinkView(APIView):
 class LineAlertsView(APIView):
     """GET /api/op/line-alerts/ — 当日の LINE 未連携 cast + 送信失敗を返す"""
 
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def get(self, request):
         store = get_user_store(request)
         today = date_type.today()
@@ -5034,6 +5098,8 @@ class ShiftEndAlertsView(APIView):
 class StoreLineSettingsView(APIView):
     """GET / PATCH /api/op/line-settings/"""
 
+    permission_classes = [IsAuthenticated, IsManager]
+
     @staticmethod
     def _webhook_url(request, store):
         origin = request.build_absolute_uri("/").rstrip("/")
@@ -5115,6 +5181,8 @@ class StorePaymentFeeSettingsView(APIView):
     ここで設定した値は売上集計(/op/sales-dashboard/)・退勤提出の手数料見込み計算にのみ使用し、
     確定精算・給与確定・DailySettlementViewには一切接続しない。"""
 
+    permission_classes = [IsAuthenticated, IsManager]
+
     def get(self, request):
         _require_manager(request)
         store = get_user_store(request)
@@ -5184,6 +5252,8 @@ class WeeklyShiftView(APIView):
     """GET/POST /api/op/shifts/weekly/
     1キャスト×1週間分のシフトをまとめて新規登録する。staff/manager のみ。
     既存シフトの上書き・削除はしない（新規追加のみ）。"""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
 
     def get(self, request):
         _require_staff_or_manager(request)
@@ -5322,6 +5392,8 @@ class ScheduleCastOrderView(APIView):
     タイムライン（キャスト別表示）の出勤セラピスト表示順。
     display_order のみ更新し、シフト時間・部屋には影響しない。staff/manager のみ。"""
 
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def get(self, request):
         _require_staff_or_manager(request)
         store = get_user_store(request)
@@ -5402,6 +5474,8 @@ class ScheduleCastOrderView(APIView):
 class OrderSmsLogsView(APIView):
     """GET /api/op/orders/<pk>/sms-logs/ — 予約ごとのSMS送信履歴。staff/manager のみ・自店舗のみ。"""
 
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
     def get(self, request, pk):
         _require_staff_or_manager(request)
         store = get_user_store(request)
@@ -5422,6 +5496,8 @@ class OrderSmsLogsView(APIView):
 @document_object_api_view
 class CustomerInvitationStatusView(APIView):
     """顧客アカウント招待の状態確認と、運営による安全な再発行。"""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
 
     def _customer(self, request, pk):
         _require_staff_or_manager(request)
@@ -5461,6 +5537,8 @@ class CustomerInvitationStatusView(APIView):
 class SmsTemplateSettingsView(APIView):
     """GET/PUT /api/op/sms-templates/
     支払方法別の予約確認SMS文面設定。閲覧は staff/manager、編集は manager のみ。"""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
 
     TEMPLATE_TYPE = SmsTemplate.TemplateType.RESERVATION_CONFIRMATION
 
