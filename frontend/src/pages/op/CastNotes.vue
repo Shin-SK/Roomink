@@ -2,10 +2,12 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
+import { getAuthRole } from '../../router.js'
 
 const loading = ref(true)
 const error = ref('')
 const notes = ref([])
+const isManager = computed(() => getAuthRole() === 'manager')
 
 const filterStatus = ref('')
 const filterCategory = ref('')
@@ -139,7 +141,7 @@ function formatDateTime(s) {
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
         <span><i class="ti ti-notebook"></i> ノート一覧（施術マニュアル・接客メモ・お知らせ）</span>
-        <button class="btn btn-primary btn-sm" @click="openCreate">
+        <button v-if="isManager" class="btn btn-primary btn-sm" @click="openCreate">
           <i class="ti ti-plus text-white"></i> 新規作成
         </button>
       </div>
@@ -179,7 +181,7 @@ function formatDateTime(s) {
               <th>公開範囲</th>
               <th>ステータス</th>
               <th>更新日時</th>
-              <th style="width: 220px;">操作</th>
+              <th v-if="isManager" style="width: 220px;">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -190,7 +192,7 @@ function formatDateTime(s) {
               <td class="small">{{ visibilityLabel[n.visibility] }}</td>
               <td><span class="badge" :class="statusClass[n.status]">{{ statusLabel[n.status] }}</span></td>
               <td class="small text-muted">{{ formatDateTime(n.updated_at) }}</td>
-              <td>
+              <td v-if="isManager">
                 <div class="d-flex flex-wrap gap-1">
                   <button class="btn btn-outline-secondary btn-sm" @click="openEdit(n)"><i class="ti ti-edit"></i></button>
                   <button

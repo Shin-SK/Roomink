@@ -2674,7 +2674,7 @@ class CastAdjustmentListView(APIView):
 # ──────────────────────────────────────
 
 class CastNoteViewSet(viewsets.ModelViewSet):
-    """ノート/施術マニュアルの CRUD — manager のみ。"""
+    """ノート/施術マニュアル — staffは閲覧のみ、managerはCRUD可能。"""
     permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = CastNote.objects.all().order_by("-is_pinned", "-published_at", "-created_at")
     serializer_class = CastNoteSerializer
@@ -2688,7 +2688,6 @@ class CastNoteViewSet(viewsets.ModelViewSet):
     ordering = ["-is_pinned", "-published_at", "-created_at"]
 
     def get_queryset(self):
-        self.check_manager(self.request)
         store = get_user_store(self.request)
         return super().get_queryset().filter(store=store)
 
