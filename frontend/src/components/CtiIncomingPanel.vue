@@ -3,8 +3,9 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
 
-const POLL_INTERVAL_MS = 2000
-const POLL_INTERVAL_HIDDEN_MS = 10000
+// 操作中の着信確認速度を保ちつつ、複数画面からの常時アクセスを抑える。
+const POLL_INTERVAL_MS = 5000
+const POLL_INTERVAL_HIDDEN_MS = 30000
 
 const router = useRouter()
 const calls = ref([])
