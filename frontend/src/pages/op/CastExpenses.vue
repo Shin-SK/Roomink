@@ -2,11 +2,13 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
+import { getAuthRole } from '../../router.js'
 
 const loading = ref(true)
 const error = ref('')
 const expenses = ref([])
 const casts = ref([])
+const isManager = computed(() => getAuthRole() === 'manager')
 
 // Filters
 const filterDate = ref(new Date().toISOString().slice(0, 10))
@@ -125,7 +127,7 @@ function castName(id) {
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="ti ti-receipt"></i> 雑費一覧</span>
-        <button class="btn btn-primary btn-sm" @click="openCreate">
+        <button v-if="isManager" class="btn btn-primary btn-sm" @click="openCreate">
           <i class="ti ti-plus"></i> 雑費追加
         </button>
       </div>
@@ -159,7 +161,7 @@ function castName(id) {
               <th style="width: 100px;">金額</th>
               <th style="width: 80px;">種別</th>
               <th>メモ</th>
-              <th style="width: 100px;">操作</th>
+              <th v-if="isManager" style="width: 100px;">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -172,7 +174,7 @@ function castName(id) {
                 <span v-else class="badge bg-secondary">日額</span>
               </td>
               <td class="text-muted" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ exp.memo || '—' }}</td>
-              <td>
+              <td v-if="isManager">
                 <button class="btn btn-outline-primary btn-sm me-1" @click="openEdit(exp)">
                   <i class="ti ti-edit"></i>
                 </button>

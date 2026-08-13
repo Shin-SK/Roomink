@@ -1,12 +1,14 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
+import { getAuthRole } from '../../router.js'
 
 const loading = ref(true)
 const error = ref('')
 const logs = ref([])
 const casts = ref([])
+const isManager = computed(() => getAuthRole() === 'manager')
 
 const filterCast = ref('')
 
@@ -110,7 +112,7 @@ function castName(id) {
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="ti ti-star"></i> ポイント履歴</span>
-        <button class="btn btn-primary btn-sm" @click="openCreate">
+        <button v-if="isManager" class="btn btn-primary btn-sm" @click="openCreate">
           <i class="ti ti-plus"></i> ポイント追加
         </button>
       </div>
@@ -140,7 +142,7 @@ function castName(id) {
               <th class="text-end">ポイント</th>
               <th>理由</th>
               <th>メモ</th>
-              <th style="width: 100px;">操作</th>
+              <th v-if="isManager" style="width: 100px;">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -152,7 +154,7 @@ function castName(id) {
               </td>
               <td>{{ log.reason || '—' }}</td>
               <td class="text-muted" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ log.memo || '—' }}</td>
-              <td>
+              <td v-if="isManager">
                 <button class="btn btn-outline-primary btn-sm me-1" @click="openEdit(log)">
                   <i class="ti ti-edit"></i>
                 </button>

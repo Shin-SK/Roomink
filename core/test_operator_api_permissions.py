@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from core.models import CallLog, Cast, Customer, Store, UserProfile
+from core.models import CallLog, Cast, CastNote, Customer, Store, UserProfile
 
 
 User = get_user_model()
@@ -162,6 +162,33 @@ class OperatorApiPermissionTest(TestCase):
         self.assertEqual(self.manager_client.get("/api/staffs/").status_code, 200)
         self.assertEqual(self.cast_client.get("/api/rooms/").status_code, 200)
         self.assertEqual(self.cast_client.get("/api/cast/today/").status_code, 200)
+
+    def test_staff_can_read_notes_but_cannot_change_them(self):
+        note = CastNote.objects.create(
+            store=self.store,
+            title="スタッフ閲覧用ノート",
+            status=CastNote.Status.PUBLISHED,
+            visibility=CastNote.Visibility.STAFF,
+        )
+
+        response = self.staff_client.get("/api/cast-notes/")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual([item["id"] for item in response.data["results"]], [note.id])
+
+        self.assert_forbidden(
+            self.staff_client,
+            "post",
+            "/api/cast-notes/",
+            {"title": "不正作成"},
+        )
+        self.assert_forbidden(
+            self.staff_client,
+            "patch",
+            f"/api/cast-notes/{note.id}/",
+            {"title": "不正変更"},
+        )
+        note.refresh_from_db()
+        self.assertEqual(note.title, "スタッフ閲覧用ノート")
 
     def test_cti_mutations_are_limited_to_the_operator_store(self):
         own_call = CallLog.objects.create(
