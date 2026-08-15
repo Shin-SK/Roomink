@@ -22,6 +22,10 @@ const placeholderHelp = {
   course_name: 'コース名',
   cast_name: '担当キャスト名',
   room_name: 'ルーム名',
+  room_address: 'ルーム住所',
+  room_map_url: 'ルームの地図URL',
+  room_notice: 'ルーム固有の注意事項',
+  room_guidance: 'ルーム名・住所・地図・注意事項をまとめた案内',
   payment_method: '支払方法（現金／カード／PayPay／未設定）',
   total_price: '合計金額（カンマ区切り）',
 }

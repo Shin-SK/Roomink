@@ -158,6 +158,22 @@ def _payment_method_note(payment_method: str) -> str:
     return "支払い方法については当日スタッフよりご案内いたします。"
 
 
+def _room_guidance(order: Order) -> str:
+    """予約に確定したルームの顧客向け案内。未定時は住所等を出さない。"""
+    if not order.room:
+        return "ルーム: 調整中"
+
+    room = order.room
+    lines = [f"ルーム: {room.name}"]
+    if room.address:
+        lines.append(f"住所: {room.address}")
+    if room.map_url:
+        lines.append(f"地図: {room.map_url}")
+    if room.sms_notice:
+        lines.append(f"※{room.sms_notice}")
+    return "\n".join(lines)
+
+
 def build_template_context(order: Order) -> dict:
     """テンプレートの差し込み変数。SmsTemplate.PLACEHOLDERS と対応させること。"""
     start, end = _local_order_datetimes(order)
@@ -169,6 +185,10 @@ def build_template_context(order: Order) -> dict:
         "course_name": order.course_name or order.course.name,
         "cast_name": order.cast.name,
         "room_name": order.room.name if order.room else "",
+        "room_address": order.room.address if order.room else "",
+        "room_map_url": order.room.map_url if order.room else "",
+        "room_notice": order.room.sms_notice if order.room else "",
+        "room_guidance": _room_guidance(order),
         "payment_method": order.get_payment_method_display(),
         "total_price": f"{order.total_price:,}",
     }
@@ -195,6 +215,7 @@ def default_confirmation_preview(payment_method: str) -> str:
         "日時: {date} {start_time}〜{end_time}\n"
         "コース: {course_name}\n"
         "担当: {cast_name}\n"
+        "{room_guidance}\n"
         f"{_payment_method_note(payment_method)}\n"
         "ありがとうございます。"
     )
@@ -207,6 +228,7 @@ def _default_confirmation_body(order: Order) -> str:
         f"日時: {start:%Y-%m-%d %H:%M}〜{end:%H:%M}\n"
         f"コース: {order.course.name}\n"
         f"担当: {order.cast.name}\n"
+        f"{_room_guidance(order)}\n"
         f"{_payment_method_note(order.payment_method)}\n"
         f"ありがとうございます。"
     )
