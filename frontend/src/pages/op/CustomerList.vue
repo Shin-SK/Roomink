@@ -33,7 +33,8 @@ const filtered = computed(() => {
     const q = search.value.trim().toLowerCase()
     list = list.filter(c =>
       (c.phone || '').includes(q) ||
-      (c.display_name || '').toLowerCase().includes(q)
+      (c.display_name || '').toLowerCase().includes(q) ||
+      (c.email || '').toLowerCase().includes(q)
     )
   }
   return list
@@ -86,7 +87,7 @@ function exportCsv() {
               v-model="search"
               type="text"
               class="form-control"
-              placeholder="電話番号 or 名前で検索..."
+              placeholder="電話番号・名前・メールで検索..."
             >
           </div>
           <!-- フィルタpill -->

@@ -114,9 +114,9 @@ class CastAdmin(admin.ModelAdmin):
 
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "phone", "display_name", "flag", "ban_type", "user")
+    list_display = ("id", "store", "phone", "display_name", "email", "flag", "ban_type", "user")
     list_filter = ("store", "flag", "ban_type")
-    search_fields = ("phone", "display_name")
+    search_fields = ("phone", "display_name", "email", "legacy_usage_history")
 
 
 @admin.register(CustomerAccountInvitation)
