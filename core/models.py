@@ -83,6 +83,17 @@ class Room(models.Model):
         default="",
         help_text="予約確定後に顧客マイページへ表示する住所",
     )
+    map_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="予約確認SMSへ掲載する地図URL",
+    )
+    sms_notice = models.TextField(
+        blank=True,
+        default="",
+        help_text="予約確認SMSへ掲載するルーム固有の注意事項",
+    )
     sort_order = models.PositiveSmallIntegerField(default=0)
     background_color = models.CharField(max_length=7, blank=True, default="", help_text="HEX形式 例: #fde2e4")
     area_name = models.CharField(
@@ -662,7 +673,9 @@ class SmsTemplate(models.Model):
     # 差し込み可能な変数（画面の「使用可能な差し込み項目」と対応）
     PLACEHOLDERS = (
         "customer_name", "date", "start_time", "end_time",
-        "course_name", "cast_name", "room_name", "payment_method", "total_price",
+        "course_name", "cast_name", "room_name", "room_address",
+        "room_map_url", "room_notice", "room_guidance",
+        "payment_method", "total_price",
     )
 
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="sms_templates")
