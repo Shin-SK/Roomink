@@ -388,4 +388,5 @@ export const api = {
     fd.append('file', file)
     return upload(`/op/csv-import/?model=${model}`, fd)
   },
+  getCsvTemplateUrl: (model) => `${BASE}/op/csv-import/template/?model=${model}`,
 }

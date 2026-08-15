@@ -10,6 +10,7 @@ from datetime import date as date_type, datetime, timedelta
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
 from django.db.models import ProtectedError, Q
@@ -1782,7 +1783,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
         "flag": ["exact"],
         "phone": ["exact"],
     }
-    search_fields = ["display_name", "phone"]
+    search_fields = ["display_name", "phone", "email"]
     ordering_fields = ["id", "display_name"]
     ordering = ["id"]
 
@@ -3617,15 +3618,114 @@ OPTIONAL_HEADERS = {
     "cast": ["avatar_url"],
     "course": [],
     "option": [],
-    "customer": ["display_name", "flag", "memo"],
+    "customer": [
+        "display_name", "email", "flag", "ban_type", "memo", "staff_memo",
+        "legacy_usage_history",
+    ],
+}
+
+CUSTOMER_HEADER_ALIASES = {
+    "phone": "phone",
+    "電話番号": "phone",
+    "電話番号1": "phone",
+    "tel": "phone",
+    "display_name": "display_name",
+    "名前": "display_name",
+    "氏名": "display_name",
+    "顧客名": "display_name",
+    "email": "email",
+    "メール": "email",
+    "メールアドレス": "email",
+    "flag": "flag",
+    "フラグ": "flag",
+    "顧客区分": "flag",
+    "ban_type": "ban_type",
+    "出禁種別": "ban_type",
+    "memo": "memo",
+    "顧客メモ": "memo",
+    "お客様備考": "memo",
+    "staff_memo": "staff_memo",
+    "運営メモ": "staff_memo",
+    "運営専用メモ": "staff_memo",
+    "備考": "staff_memo",
+    "legacy_usage_history": "legacy_usage_history",
+    "利用履歴": "legacy_usage_history",
+    "旧システム利用履歴": "legacy_usage_history",
+}
+
+CUSTOMER_FLAG_ALIASES = {
+    "": Customer.Flag.NONE,
+    "NONE": Customer.Flag.NONE,
+    "なし": Customer.Flag.NONE,
+    "ATTENTION": Customer.Flag.ATTENTION,
+    "注意": Customer.Flag.ATTENTION,
+    "要注意": Customer.Flag.ATTENTION,
+    "BAN": Customer.Flag.BAN,
+    "NG": Customer.Flag.BAN,
+    "出禁": Customer.Flag.BAN,
+}
+
+CUSTOMER_BAN_TYPE_ALIASES = {
+    "": Customer.BanType.NONE,
+    "NONE": Customer.BanType.NONE,
+    "なし": Customer.BanType.NONE,
+    "STORE_BAN": Customer.BanType.STORE_BAN,
+    "店出禁": Customer.BanType.STORE_BAN,
+    "店舗出禁": Customer.BanType.STORE_BAN,
+    "CAST_NG": Customer.BanType.CAST_NG,
+    "個別NG": Customer.BanType.CAST_NG,
+    "個別セラピNG": Customer.BanType.CAST_NG,
+}
+
+CSV_TEMPLATE_HEADERS = {
+    "room": ["name", "sort_order"],
+    "cast": ["name", "avatar_url"],
+    "course": ["name", "duration", "price"],
+    "option": ["name", "price"],
+    "customer": [
+        "名前", "電話番号", "メールアドレス", "利用履歴", "顧客メモ", "運営メモ",
+        "フラグ", "出禁種別",
+    ],
 }
 
 
 def _parse_csv(file_obj):
-    """UTF-8 (BOM対応) で CSV を読み、行リストを返す"""
-    text = file_obj.read().decode("utf-8-sig")
+    """UTF-8 (BOM対応) または CP932 で CSV を読み、行リストを返す。"""
+    raw = file_obj.read()
+    try:
+        text = raw.decode("utf-8-sig")
+        encoding = "utf-8"
+    except UnicodeDecodeError:
+        try:
+            text = raw.decode("cp932")
+            encoding = "cp932"
+        except UnicodeDecodeError as exc:
+            raise ValueError("文字コードは UTF-8 または Shift-JIS で保存してください") from exc
     reader = csv.DictReader(io.StringIO(text))
-    return list(reader), reader.fieldnames or []
+    return list(reader), reader.fieldnames or [], encoding
+
+
+def _canonicalize_rows(model_key, rows, fieldnames):
+    """日本語ヘッダを内部項目名へ揃える。顧客以外は空白除去だけ行う。"""
+    aliases = CUSTOMER_HEADER_ALIASES if model_key == "customer" else {}
+    canonical_headers = []
+    header_map = {}
+    for raw_header in fieldnames:
+        header = (raw_header or "").strip()
+        canonical = aliases.get(header, aliases.get(header.lower(), header))
+        if canonical in canonical_headers:
+            raise ValueError(f"同じ項目として扱われるヘッダが重複しています: {header}")
+        canonical_headers.append(canonical)
+        header_map[raw_header] = canonical
+
+    canonical_rows = []
+    for row in rows:
+        canonical_rows.append({
+            header_map[raw_header]: (value or "").strip()
+            for raw_header, value in row.items()
+            if raw_header is not None
+        })
+    return canonical_rows, canonical_headers
 
 
 def _validate_headers(model_key, fieldnames):
@@ -3634,6 +3734,86 @@ def _validate_headers(model_key, fieldnames):
     if missing:
         return f"必須ヘッダが不足: {', '.join(missing)}"
     return None
+
+
+def _normalize_customer_choice(value, aliases, label):
+    normalized = (value or "").strip()
+    result = aliases.get(normalized, aliases.get(normalized.upper()))
+    if result is None:
+        allowed = "、".join(sorted({key for key in aliases if key and key.isascii() is False}))
+        raise ValueError(f"{label}は {allowed} のいずれかで入力してください")
+    return result
+
+
+def _validate_customer_rows(store, rows):
+    normalized_rows = []
+    errors = []
+    warnings = []
+    seen_phones = {}
+    row_numbers = []
+
+    for index, row in enumerate(rows, start=2):
+        if not any(row.values()):
+            continue
+
+        item = dict(row)
+        phone = normalize_phone(item.get("phone", ""))
+        if not phone:
+            errors.append({"row": index, "message": "電話番号は必須です"})
+            continue
+        if len(phone) not in (10, 11) or not phone.startswith("0"):
+            errors.append({"row": index, "message": "電話番号は0から始まる10桁または11桁で入力してください"})
+            continue
+        item["phone"] = phone
+
+        display_name = item.get("display_name", "")
+        if len(display_name) > 50:
+            errors.append({"row": index, "message": "名前は50文字以内で入力してください"})
+
+        email = item.get("email", "")
+        if email:
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                errors.append({"row": index, "message": "メールアドレスの形式が正しくありません"})
+
+        item["_flag_supplied"] = bool(item.get("flag", ""))
+        item["_ban_type_supplied"] = bool(item.get("ban_type", ""))
+        try:
+            item["flag"] = _normalize_customer_choice(
+                item.get("flag", ""), CUSTOMER_FLAG_ALIASES, "フラグ",
+            )
+            item["ban_type"] = _normalize_customer_choice(
+                item.get("ban_type", ""), CUSTOMER_BAN_TYPE_ALIASES, "出禁種別",
+            )
+        except ValueError as exc:
+            errors.append({"row": index, "message": str(exc)})
+
+        if item.get("ban_type") not in ("", Customer.BanType.NONE):
+            item["flag"] = Customer.Flag.BAN
+        if item.get("flag") != Customer.Flag.BAN:
+            item["ban_type"] = Customer.BanType.NONE
+
+        if phone in seen_phones:
+            errors.append({
+                "row": index,
+                "message": f"同じCSV内で電話番号が重複しています（{seen_phones[phone]}行目）",
+            })
+        else:
+            seen_phones[phone] = index
+
+        normalized_rows.append(item)
+        row_numbers.append(index)
+
+    existing = set(Customer.objects.filter(
+        store=store,
+        phone__in=[row["phone"] for row in normalized_rows],
+    ).values_list("phone", flat=True))
+    for index, item in zip(row_numbers, normalized_rows):
+        if item["phone"] in existing:
+            warnings.append({"row": index, "message": "既存顧客を電話番号一致で更新します"})
+
+    return normalized_rows, errors, warnings
 
 
 def _upsert_rows(store, model_key, rows):
@@ -3671,14 +3851,14 @@ def _upsert_rows(store, model_key, rows):
             )
         elif model_key == "customer":
             defaults = {}
-            if row.get("display_name"):
-                defaults["display_name"] = row["display_name"]
-            if row.get("flag"):
-                defaults["flag"] = row["flag"]
-            if row.get("memo"):
-                defaults["memo"] = row["memo"]
+            for field in ("display_name", "email", "legacy_usage_history", "memo", "staff_memo"):
+                if row.get(field):
+                    defaults[field] = row[field]
+            if row.get("_flag_supplied") or row.get("_ban_type_supplied"):
+                defaults["flag"] = row.get("flag", Customer.Flag.NONE)
+                defaults["ban_type"] = row.get("ban_type", Customer.BanType.NONE)
             obj, is_new = Customer.objects.update_or_create(
-                store=store, phone=normalize_phone(row["phone"]),
+                store=store, phone=row["phone"],
                 defaults=defaults,
             )
 
@@ -3716,30 +3896,53 @@ class CsvImportView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        rows, fieldnames = _parse_csv(file_obj)
+        try:
+            rows, fieldnames, encoding = _parse_csv(file_obj)
+            rows, fieldnames = _canonicalize_rows(model_key, rows, fieldnames)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         header_err = _validate_headers(model_key, fieldnames)
         if header_err:
             return Response({"detail": header_err}, status=status.HTTP_400_BAD_REQUEST)
 
+        store = get_user_store(request)
+        errors = []
+        warnings = []
+        if model_key == "customer":
+            rows, errors, warnings = _validate_customer_rows(store, rows)
+
         is_preview = request.query_params.get("preview") == "1"
 
         if is_preview:
+            preview_rows = [
+                {key: value for key, value in row.items() if not key.startswith("_")}
+                for row in rows[:10]
+            ]
             return Response({
                 "model": model_key,
                 "total_rows": len(rows),
                 "headers": fieldnames,
-                "preview": rows[:10],
+                "preview": preview_rows,
+                "encoding": encoding,
+                "errors": errors,
+                "warnings": warnings,
+                "can_import": not errors,
             })
 
-        store = get_user_store(request)
+        if errors:
+            return Response(
+                {"detail": "入力内容にエラーがあります。プレビューで確認してください", "errors": errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             with transaction.atomic():
                 created, updated = _upsert_rows(store, model_key, rows)
-        except Exception as e:
+        except Exception:
+            logger.exception("CSV import failed: model=%s store=%s", model_key, store.pk)
             return Response(
-                {"detail": f"インポートエラー: {e}"},
+                {"detail": "インポートできませんでした。入力内容を確認してください"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -3749,6 +3952,27 @@ class CsvImportView(APIView):
             "created": created,
             "updated": updated,
         })
+
+
+@document_object_api_view
+class CsvImportTemplateView(APIView):
+    """GET /api/op/csv-import/template/?model=customer — CSV雛形を返す。"""
+    permission_classes = [IsAuthenticated, IsManager]
+
+    def get(self, request):
+        model_key = request.query_params.get("model", "").lower()
+        if model_key not in CSV_TEMPLATE_HEADERS:
+            return Response(
+                {"detail": f"model は {', '.join(CSV_TEMPLATE_HEADERS.keys())} のいずれかを指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        output = io.StringIO()
+        output.write("\ufeff")
+        csv.writer(output).writerow(CSV_TEMPLATE_HEADERS[model_key])
+        response = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{model_key}_import_template.csv"'
+        return response
 
 
 # ──────────────────────────────────────
@@ -4442,12 +4666,17 @@ class CustomerExportView(APIView):
         output = io.StringIO()
         output.write("\ufeff")  # BOM
         writer = csv.writer(output)
-        writer.writerow(["ID", "名前", "電話番号", "フラグ", "出禁種別", "顧客メモ", "運営メモ"])
+        writer.writerow([
+            "ID", "名前", "電話番号", "メールアドレス", "利用履歴", "フラグ",
+            "出禁種別", "顧客メモ", "運営メモ",
+        ])
         for c in Customer.objects.filter(store=store).order_by("id"):
             writer.writerow([
                 c.id,
                 c.display_name,
                 c.phone,
+                c.email,
+                c.legacy_usage_history,
                 c.get_flag_display(),
                 c.get_ban_type_display(),
                 c.memo,

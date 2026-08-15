@@ -21,7 +21,7 @@ const isNew = computed(() => props.id === 'new')
 const editing = ref(false)
 const saving = ref(false)
 const editError = ref('')
-const form = ref({ phone: '', display_name: '', flag: 'NONE', ban_type: 'NONE', memo: '', staff_memo: '' })
+const form = ref({ phone: '', display_name: '', email: '', legacy_usage_history: '', flag: 'NONE', ban_type: 'NONE', memo: '', staff_memo: '' })
 const duplicates = ref([])
 const createWarnings = ref([])
 const isManager = computed(() => getAuthRole() === 'manager')
@@ -141,6 +141,8 @@ function startEdit() {
   form.value = {
     phone: customer.value.phone,
     display_name: customer.value.display_name || '',
+    email: customer.value.email || '',
+    legacy_usage_history: customer.value.legacy_usage_history || '',
     flag: customer.value.flag || 'NONE',
     ban_type: customer.value.ban_type || 'NONE',
     memo: customer.value.memo || '',
@@ -166,6 +168,8 @@ async function save() {
       const body = {
         phone: form.value.phone,
         display_name: form.value.display_name,
+        email: form.value.email,
+        legacy_usage_history: form.value.legacy_usage_history,
         flag: form.value.flag,
         ban_type: form.value.ban_type,
         memo: form.value.memo,
@@ -181,6 +185,8 @@ async function save() {
     } else {
       const body = {
         display_name: form.value.display_name,
+        email: form.value.email,
+        legacy_usage_history: form.value.legacy_usage_history,
         flag: form.value.flag,
         ban_type: form.value.ban_type,
         memo: form.value.memo,
@@ -268,6 +274,14 @@ function formatInvitationDate(value) {
                 <td>{{ customer.display_name || '—' }}</td>
               </tr>
               <tr>
+                <th>メールアドレス</th>
+                <td>{{ customer.email || '—' }}</td>
+              </tr>
+              <tr>
+                <th>旧システム利用履歴</th>
+                <td style="white-space: pre-wrap;">{{ customer.legacy_usage_history || '—' }}</td>
+              </tr>
+              <tr>
                 <th>フラグ</th>
                 <td>
                   <span
@@ -322,6 +336,15 @@ function formatInvitationDate(value) {
             <div class="mb-3">
               <label class="form-label">名前</label>
               <input v-model="form.display_name" type="text" class="form-control" placeholder="表示名">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">メールアドレス</label>
+              <input v-model="form.email" type="email" class="form-control" placeholder="customer@example.com">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">旧システム利用履歴</label>
+              <textarea v-model="form.legacy_usage_history" class="form-control" rows="5" placeholder="旧システムの履歴を原文のまま保存します"></textarea>
+              <small class="text-muted">参照専用の移行情報です。Roominkの予約・売上集計には含まれません。</small>
             </div>
 
             <!-- 新規作成時の重複警告 -->

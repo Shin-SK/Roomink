@@ -165,6 +165,7 @@ class Customer(models.Model):
     )
     phone = models.CharField(max_length=20)
     display_name = models.CharField(max_length=50, blank=True, default="")
+    email = models.EmailField(blank=True, default="")
     flag = models.CharField(max_length=12, choices=Flag.choices, default=Flag.NONE)
     ban_type = models.CharField(
         max_length=12, choices=BanType.choices, default=BanType.NONE,
@@ -172,6 +173,11 @@ class Customer(models.Model):
     )
     memo = models.TextField(blank=True, default="")
     staff_memo = models.TextField(blank=True, default="", help_text="運営専用メモ（manager/staffのみ閲覧可）")
+    legacy_usage_history = models.TextField(
+        blank=True,
+        default="",
+        help_text="旧システムから移行した利用履歴（参照用・売上集計対象外）",
+    )
 
     class Meta:
         unique_together = ("store", "phone")
