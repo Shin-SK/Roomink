@@ -507,7 +507,7 @@ async function confirmBooking() {
         </section>
       </form>
 
-      <section v-else class="booking-card verification-card">
+      <section v-else-if="step === 'verification'" class="booking-card verification-card">
         <div class="verification-icon"><i class="ti ti-message-code"></i></div>
         <h2 class="text-center">認証コードを入力</h2>
         <p class="text-center text-muted">
