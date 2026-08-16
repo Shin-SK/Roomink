@@ -30,6 +30,7 @@ const notes = ref({ categories: [], pinned: [], recent: [] })
 const notesLoading = ref(true)
 const showAllNotes = ref(false)
 const selectedNote = ref(null)
+const selectedNoteImage = ref('')
 
 // 出勤確認（Phase 3-B-1）
 const shiftConfirm = ref(null)
@@ -158,6 +159,7 @@ async function loadNotes() {
 
 function openNote(n) {
   selectedNote.value = n
+  selectedNoteImage.value = ''
 }
 
 async function onConfirmShift() {
@@ -517,6 +519,17 @@ function durationMin(order) {
                   公開日: {{ formatTime(selectedNote.published_at) === '' ? '' : selectedNote.published_at.slice(0, 10) }}
                 </div>
                 <div style="white-space: pre-wrap;">{{ selectedNote.body }}</div>
+                <div v-if="selectedNote.image_urls?.length" class="note-images mt-3">
+                  <button
+                    v-for="(url, index) in selectedNote.image_urls"
+                    :key="url"
+                    type="button"
+                    class="note-image-button"
+                    @click="selectedNoteImage = url"
+                  >
+                    <img :src="url" :alt="`添付画像 ${index + 1}`" />
+                  </button>
+                </div>
                 <div v-if="selectedNote.video_url" class="mt-3 small">
                   <a :href="selectedNote.video_url" target="_blank" rel="noopener"><i class="ti ti-video"></i> 関連動画リンク</a>
                 </div>
@@ -525,6 +538,15 @@ function durationMin(order) {
                 <button class="btn btn-outline-secondary w-100" @click="selectedNote = null">閉じる</button>
               </div>
             </div>
+          </div>
+        </Teleport>
+
+        <Teleport to="body">
+          <div v-if="selectedNoteImage" class="line-modal-overlay note-image-overlay" @click="selectedNoteImage = ''">
+            <button class="note-image-close" type="button" aria-label="閉じる" @click="selectedNoteImage = ''">
+              <i class="ti ti-x"></i>
+            </button>
+            <img :src="selectedNoteImage" alt="ノート添付画像の拡大表示" @click.stop />
           </div>
         </Teleport>
 
@@ -957,5 +979,44 @@ function durationMin(order) {
 }
 .line-code-copy.copied {
   color: #06C755;
+}
+.note-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.note-image-button {
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  overflow: hidden;
+}
+.note-image-button img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+.note-image-overlay {
+  align-items: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, .9);
+}
+.note-image-overlay > img {
+  max-width: 100%;
+  max-height: 88vh;
+  object-fit: contain;
+}
+.note-image-close {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .92);
+  font-size: 1.3rem;
 }
 </style>

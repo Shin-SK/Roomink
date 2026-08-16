@@ -348,12 +348,20 @@ class CastNoteSerializer(serializers.ModelSerializer):
     visibility_display = serializers.CharField(source="get_visibility_display", read_only=True)
     created_by_name = serializers.SerializerMethodField()
     updated_by_name = serializers.SerializerMethodField()
+    target_cast_ids = serializers.PrimaryKeyRelatedField(
+        source="target_casts",
+        many=True,
+        queryset=Cast.objects.all(),
+        required=False,
+    )
+    target_cast_names = serializers.SerializerMethodField()
 
     class Meta:
         model = CastNote
         fields = [
             "id", "store", "title", "category", "body", "status", "status_display",
             "is_pinned", "visibility", "visibility_display", "video_url",
+            "target_cast_ids", "target_cast_names", "image_urls",
             "created_by", "created_by_name", "updated_by", "updated_by_name",
             "published_at", "created_at", "updated_at",
         ]
@@ -365,6 +373,24 @@ class CastNoteSerializer(serializers.ModelSerializer):
     def get_updated_by_name(self, obj) -> Optional[str]:
         return obj.updated_by.username if obj.updated_by else None
 
+    def get_target_cast_names(self, obj) -> List[str]:
+        return [cast.name for cast in obj.target_casts.all()]
+
+    def validate_target_cast_ids(self, casts):
+        request = self.context.get("request")
+        profile = getattr(getattr(request, "user", None), "profile", None)
+        if profile is None or any(cast.store_id != profile.store_id for cast in casts):
+            raise serializers.ValidationError("同じ店舗のキャストだけを指定してください。")
+        return casts
+
+    def validate_image_urls(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("画像URLは一覧で指定してください。")
+        if len(value) > 10:
+            raise serializers.ValidationError("画像は10枚まで添付できます。")
+        url_field = serializers.URLField(max_length=1000)
+        return [url_field.run_validation(url) for url in value]
+
 
 class CastNoteCastSerializer(serializers.ModelSerializer):
     """ノート/施術マニュアル cast本人閲覧用。読み取り専用。"""
@@ -374,7 +400,7 @@ class CastNoteCastSerializer(serializers.ModelSerializer):
         model = CastNote
         fields = [
             "id", "title", "category", "category_label", "body",
-            "is_pinned", "video_url", "published_at",
+            "is_pinned", "video_url", "image_urls", "published_at",
         ]
         read_only_fields = fields
 

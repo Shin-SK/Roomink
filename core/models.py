@@ -64,6 +64,11 @@ class Store(models.Model):
     cash_fee_rate = models.PositiveSmallIntegerField(default=0, help_text="現金決済手数料率（%・参考値）")
     paypay_fee_rate = models.PositiveSmallIntegerField(default=5, help_text="PayPay決済手数料率（%・参考値）")
     card_fee_rate = models.PositiveSmallIntegerField(default=10, help_text="カード決済手数料率（%・参考値）")
+    public_booking_notice = models.TextField(
+        blank=True,
+        default="",
+        help_text="店舗別のWeb予約画面へ表示する注意事項",
+    )
 
     def __str__(self):
         return self.name
@@ -681,7 +686,8 @@ class SmsTemplate(models.Model):
         "customer_name", "date", "start_time", "end_time",
         "course_name", "cast_name", "room_name", "room_address",
         "room_map_url", "room_notice", "room_guidance",
-        "payment_method", "total_price",
+        "payment_method", "discount_name", "discount_amount",
+        "subtotal_price", "total_price",
     )
 
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="sms_templates")
@@ -1121,6 +1127,17 @@ class CastNote(models.Model):
     video_url = models.URLField(
         blank=True, default="",
         help_text="将来の動画掲載用URL（今回はアップロード等は未実装。任意入力欄のみ）",
+    )
+    target_casts = models.ManyToManyField(
+        Cast,
+        blank=True,
+        related_name="targeted_notes",
+        help_text="指定なしの場合は全キャストへ公開",
+    )
+    image_urls = models.JSONField(
+        blank=True,
+        default=list,
+        help_text="ノートへ添付する画像URL（表示順）",
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,

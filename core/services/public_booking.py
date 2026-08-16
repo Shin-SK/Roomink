@@ -91,7 +91,11 @@ def serialize_public_booking_options(store, business_date=None):
         for option in Option.objects.filter(store=store).order_by("id")
     ]
     return {
-        "store": {"id": store.id, "name": store.name},
+        "store": {
+            "id": store.id,
+            "name": store.name,
+            "public_booking_notice": store.public_booking_notice,
+        },
         "casts": casts,
         "courses": courses,
         "options": options,

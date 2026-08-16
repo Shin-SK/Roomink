@@ -27,7 +27,42 @@ const placeholderHelp = {
   room_notice: 'ルーム固有の注意事項',
   room_guidance: 'ルーム名・住所・地図・注意事項をまとめた案内',
   payment_method: '支払方法（現金／カード／PayPay／未設定）',
+  discount_name: '割引名（割引なしの場合は空欄）',
+  discount_amount: '割引額（カンマ区切り）',
+  subtotal_price: '割引前金額（カンマ区切り）',
   total_price: '合計金額（カンマ区切り）',
+}
+
+const previewOpen = ref(false)
+const previewLoading = ref(false)
+const previewError = ref('')
+const previewResult = ref(null)
+const previewScenario = ref('discount')
+const previewItem = ref(null)
+
+async function loadPreview() {
+  if (!previewItem.value) return
+  previewLoading.value = true
+  previewError.value = ''
+  try {
+    previewResult.value = await api.previewSmsTemplate({
+      payment_method: previewItem.value.payment_method,
+      body: previewItem.value.body,
+      scenario: previewScenario.value,
+    })
+  } catch (e) {
+    previewError.value = e.message
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function openPreview(item) {
+  previewItem.value = item
+  previewScenario.value = 'discount'
+  previewResult.value = null
+  previewOpen.value = true
+  await loadPreview()
 }
 
 async function load() {
@@ -156,16 +191,21 @@ onMounted(load)
             >{{ '{' + p + '}' }}</button>
           </div>
 
-          <div class="d-flex align-items-center justify-content-between mt-2">
+          <div class="d-flex align-items-center justify-content-between gap-2 mt-2">
             <small class="text-muted">
               <template v-if="item.updated_by_name">最終更新: {{ item.updated_by_name }}</template>
               <template v-else>未設定（既定文言で送信されます）</template>
             </small>
-            <button
-              v-if="isManager"
-              class="btn btn-link btn-sm p-0"
-              @click="useDefault(item)"
-            >既定文言を読み込む</button>
+            <div class="d-flex gap-2 flex-shrink-0">
+              <button class="btn btn-outline-primary btn-sm" @click="openPreview(item)">
+                <i class="ti ti-eye"></i> プレビュー
+              </button>
+              <button
+                v-if="isManager"
+                class="btn btn-link btn-sm p-0"
+                @click="useDefault(item)"
+              >既定文言を読み込む</button>
+            </div>
           </div>
 
           <details class="mt-2">
@@ -184,6 +224,44 @@ onMounted(load)
         <i class="ti ti-device-floppy"></i> {{ saving ? '保存中...' : '保存' }}
       </button>
     </template>
+
+    <div v-if="previewOpen" class="modal d-block" style="background: rgba(0,0,0,.38);" @click.self="previewOpen = false">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <div>
+              <h5 class="modal-title">SMS完成文面プレビュー</h5>
+              <div class="small text-muted">実際のSMSは送信されません</div>
+            </div>
+            <button type="button" class="btn-close" @click="previewOpen = false"></button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label small fw-bold">確認する条件</label>
+            <select v-model="previewScenario" class="form-select mb-3" @change="loadPreview">
+              <option value="discount">割引あり・ルーム確定</option>
+              <option value="standard">割引なし・ルーム確定</option>
+              <option value="room_pending">割引なし・ルーム未定</option>
+            </select>
+            <div v-if="previewError" class="alert alert-danger small">{{ previewError }}</div>
+            <div v-if="previewLoading" class="text-center py-4"><span class="spinner-border text-primary"></span></div>
+            <template v-else-if="previewResult">
+              <pre class="preview-body">{{ previewResult.rendered_body }}</pre>
+              <div class="d-flex justify-content-between small text-muted">
+                <span>{{ previewResult.character_count }}文字</span>
+                <span>送信・保存はしていません</span>
+              </div>
+              <div v-if="previewResult.unresolved_placeholders?.length" class="alert alert-warning small mt-3 mb-0">
+                未対応の差し込み項目があります：
+                {{ previewResult.unresolved_placeholders.map(p => '{' + p + '}').join('、') }}
+              </div>
+            </template>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="previewOpen = false">閉じる</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </LayoutOperator>
 </template>
 
@@ -194,5 +272,17 @@ onMounted(load)
   border-radius: 4px;
   white-space: pre-wrap;
   color: #555;
+}
+.preview-body {
+  min-height: 180px;
+  margin: 0 0 8px;
+  padding: 16px;
+  border-radius: 10px;
+  background: #f7f7f7;
+  border: 1px solid #e3e3e3;
+  white-space: pre-wrap;
+  color: #222;
+  font-family: inherit;
+  font-size: .95rem;
 }
 </style>

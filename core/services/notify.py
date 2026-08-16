@@ -177,6 +177,7 @@ def _room_guidance(order: Order) -> str:
 def build_template_context(order: Order) -> dict:
     """テンプレートの差し込み変数。SmsTemplate.PLACEHOLDERS と対応させること。"""
     start, end = _local_order_datetimes(order)
+    subtotal_price = order.total_price + order.discount_amount
     return {
         "customer_name": order.customer.display_name or "",
         "date": f"{start:%Y-%m-%d}",
@@ -190,6 +191,9 @@ def build_template_context(order: Order) -> dict:
         "room_notice": order.room.sms_notice if order.room else "",
         "room_guidance": _room_guidance(order),
         "payment_method": order.get_payment_method_display(),
+        "discount_name": order.discount_name or "",
+        "discount_amount": f"{order.discount_amount:,}",
+        "subtotal_price": f"{subtotal_price:,}",
         "total_price": f"{order.total_price:,}",
     }
 

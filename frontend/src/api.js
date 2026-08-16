@@ -224,7 +224,10 @@ export const api = {
 
   // SMS文面設定 / SMS送信履歴
   getSmsTemplates: () => request('GET', '/op/sms-templates/'),
+  previewSmsTemplate: (body) => request('POST', '/op/sms-templates/', body),
   updateSmsTemplates: (items) => request('PUT', '/op/sms-templates/', { items }),
+  getPublicBookingSettings: () => request('GET', '/op/public-booking-settings/'),
+  updatePublicBookingSettings: (body) => request('PATCH', '/op/public-booking-settings/', body),
   getOrderSmsLogs: (id) => request('GET', `/op/orders/${id}/sms-logs/`),
 
   // Cast

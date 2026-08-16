@@ -83,6 +83,11 @@ urlpatterns = [
     path("op/shifts/weekly/", views.WeeklyShiftView.as_view(), name="op-shifts-weekly"),
     path("op/schedule-cast-order/", views.ScheduleCastOrderView.as_view(), name="op-schedule-cast-order"),
     path("op/sms-templates/", views.SmsTemplateSettingsView.as_view(), name="op-sms-templates"),
+    path(
+        "op/public-booking-settings/",
+        views.StorePublicBookingSettingsView.as_view(),
+        name="op-public-booking-settings",
+    ),
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),
     path("op/room-schedule/", views.RoomScheduleView.as_view(), name="op-room-schedule"),
     path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
