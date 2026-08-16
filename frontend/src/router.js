@@ -14,6 +14,7 @@ const CustomerDetail = () => import('./pages/op/CustomerDetail.vue')
 const ShiftList = () => import('./pages/op/ShiftList.vue')
 const ShiftWeekly = () => import('./pages/op/ShiftWeekly.vue')
 const SettingsSmsTemplates = () => import('./pages/op/SettingsSmsTemplates.vue')
+const SettingsPublicBooking = () => import('./pages/op/SettingsPublicBooking.vue')
 const OpShiftRequests = () => import('./pages/op/OpShiftRequests.vue')
 const Settings = () => import('./pages/op/Settings.vue')
 const SettingsCasts = () => import('./pages/op/SettingsCasts.vue')
@@ -111,6 +112,7 @@ const routes = [
   { path: '/op/settings/csv-import', name: 'settings-csv-import', component: SettingsCsvImport, meta: { managerOnly: true } },
   { path: '/op/settings/line', name: 'settings-line', component: SettingsLine, meta: { managerOnly: true } },
   { path: '/op/settings/sms-templates', name: 'settings-sms-templates', component: SettingsSmsTemplates },
+  { path: '/op/settings/public-booking', name: 'settings-public-booking', component: SettingsPublicBooking, meta: { managerOnly: true } },
   { path: '/op/settings/phones', name: 'settings-phones', component: SettingsPhones, meta: { managerOnly: true } },
   { path: '/op/settings/manual', name: 'settings-manual', component: SettingsManual },
   { path: '/op/settings/manual/:slug', name: 'manual-article', component: ManualArticle, props: true },

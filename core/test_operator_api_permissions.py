@@ -84,9 +84,11 @@ class OperatorApiPermissionTest(TestCase):
             ("get", "/api/op/line-alerts/"),
             ("get", "/api/op/shift-end-alerts/"),
             ("get", "/api/op/sms-templates/"),
+            ("get", "/api/op/public-booking-settings/"),
             ("get", "/api/op/cti/queue/"),
             ("post", "/api/op/orders/1/cast-ack/"),
             ("post", "/api/op/csv-import/"),
+            ("post", "/api/op/sms-templates/"),
         ]
 
         for client in (self.cast_client, self.customer_client):

@@ -312,3 +312,37 @@ class PublicWebBookingTest(TestCase):
         log = SmsLog.objects.get()
         self.assertEqual(log.status, SmsLog.Status.CONFIG_MISSING)
         self.assertNotEqual(log.status, SmsLog.Status.SENT)
+
+    @override_settings(SMS_DUMMY_MODE=False)
+    def test_configured_twilio_sender_requests_real_delivery_without_creating_booking(self):
+        with patch("core.services.notify.TWILIO_ACCOUNT_SID", "AC_TEST"), \
+             patch("core.services.notify.TWILIO_AUTH_TOKEN", "AUTH_TEST"), \
+             patch("core.services.notify.TWILIO_FROM_PHONE", "+815000000000"), \
+             patch("twilio.rest.Client") as client_class, \
+             patch(
+                 "core.services.public_booking.generate_public_booking_code",
+                 return_value="123456",
+             ):
+            client_class.return_value.messages.create.return_value.sid = "SM_TEST"
+            response = self.client.post(
+                "/api/public/booking/request-verification/",
+                self.payload(),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        client_class.assert_called_once_with("AC_TEST", "AUTH_TEST")
+        client_class.return_value.messages.create.assert_called_once_with(
+            body=(
+                "【Roomink】Web予約の認証コードは 123456 です。\n"
+                "10分以内に予約画面へ入力してください。"
+            ),
+            from_="+815000000000",
+            to="+819012345678",
+        )
+        log = SmsLog.objects.get()
+        self.assertEqual(log.status, SmsLog.Status.SENT)
+        self.assertEqual(log.provider, SmsLog.Provider.TWILIO)
+        self.assertEqual(log.provider_message_id, "SM_TEST")
+        self.assertEqual(Customer.objects.count(), 0)
+        self.assertEqual(Order.objects.count(), 0)

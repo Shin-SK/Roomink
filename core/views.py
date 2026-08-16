@@ -2,6 +2,7 @@ import csv
 import io
 import logging
 import os
+import re
 import secrets
 import uuid
 from collections import defaultdict
@@ -106,6 +107,7 @@ from .services.sales import (
 )
 from .services.notify import (
     default_confirmation_preview as _default_sms_preview,
+    render_template as _render_sms_template,
     notify_cast_order,
     notify_order_cancelled,
     notify_order_confirmed,
@@ -2677,7 +2679,9 @@ class CastAdjustmentListView(APIView):
 class CastNoteViewSet(viewsets.ModelViewSet):
     """ノート/施術マニュアル — staffは閲覧のみ、managerはCRUD可能。"""
     permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
-    queryset = CastNote.objects.all().order_by("-is_pinned", "-published_at", "-created_at")
+    queryset = CastNote.objects.prefetch_related("target_casts").order_by(
+        "-is_pinned", "-published_at", "-created_at",
+    )
     serializer_class = CastNoteSerializer
     filterset_fields = {
         "status": ["exact"],
@@ -2798,7 +2802,9 @@ class CastNoteListView(APIView):
             store=cast.store,
             status=CastNote.Status.PUBLISHED,
             visibility__in=[CastNote.Visibility.CAST, CastNote.Visibility.ALL],
-        ).order_by("-is_pinned", "-published_at", "-created_at")
+        ).filter(
+            Q(target_casts__isnull=True) | Q(target_casts=cast),
+        ).distinct().order_by("-is_pinned", "-published_at", "-created_at")
 
         category = request.query_params.get("category")
         if category:
@@ -5449,6 +5455,44 @@ class StorePaymentFeeSettingsView(APIView):
         })
 
 
+@document_object_api_view
+class StorePublicBookingSettingsView(APIView):
+    """GET/PATCH /api/op/public-booking-settings/ — 店舗固定URLと公開注意事項。"""
+
+    permission_classes = [IsAuthenticated, IsManager]
+
+    def _payload(self, store):
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        return {
+            "store_name": store.name,
+            "public_booking_notice": store.public_booking_notice,
+            "public_booking_url": f"{frontend_url}/booking?store={store.pk}",
+        }
+
+    def get(self, request):
+        _require_manager(request)
+        return Response(self._payload(get_user_store(request)))
+
+    def patch(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        notice = request.data.get("public_booking_notice", "")
+        if not isinstance(notice, str):
+            return Response(
+                {"detail": "注意事項を文字列で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        notice = notice.strip()
+        if len(notice) > 3000:
+            return Response(
+                {"detail": "注意事項は3000文字以内で入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        store.public_booking_notice = notice
+        store.save(update_fields=["public_booking_notice"])
+        return Response(self._payload(store))
+
+
 # ──────────────────────────────────────
 # 週次シフト入力 / タイムライン並び替え / SMS設定・履歴
 # ──────────────────────────────────────
@@ -5763,7 +5807,7 @@ class CustomerInvitationStatusView(APIView):
 
 @document_object_api_view
 class SmsTemplateSettingsView(APIView):
-    """GET/PUT /api/op/sms-templates/
+    """GET/POST/PUT /api/op/sms-templates/
     支払方法別の予約確認SMS文面設定。閲覧は staff/manager、編集は manager のみ。"""
 
     permission_classes = [IsAuthenticated, IsManagerOrStaff]
@@ -5800,6 +5844,63 @@ class SmsTemplateSettingsView(APIView):
         _require_staff_or_manager(request)
         store = get_user_store(request)
         return Response(self._payload(store))
+
+    def post(self, request):
+        """サンプルデータで完成文面を返す。DB更新・Twilio送信は行わない。"""
+        _require_staff_or_manager(request)
+        payment_method = request.data.get("payment_method", Order.PaymentMethod.UNSET)
+        if payment_method not in Order.PaymentMethod.values:
+            return Response(
+                {"detail": "支払方法が不正です。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        scenario = request.data.get("scenario", "discount")
+        if scenario not in {"standard", "discount", "room_pending"}:
+            return Response(
+                {"detail": "プレビュー条件が不正です。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        body = request.data.get("body") or _default_sms_preview(payment_method)
+        if not isinstance(body, str) or len(body) > 5000:
+            return Response(
+                {"detail": "SMS本文は5000文字以内で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payment_labels = dict(Order.PaymentMethod.choices)
+        has_discount = scenario == "discount"
+        room_pending = scenario == "room_pending"
+        room_guidance = "ルーム: 調整中" if room_pending else (
+            "ルーム: 新宿サンプルルーム\n"
+            "住所: 東京都新宿区○○1-2-3 サンプルマンション101\n"
+            "地図: https://maps.example/room\n"
+            "※建物名を確認してお越しください。"
+        )
+        context = {
+            "customer_name": "山田太郎",
+            "date": "2026-08-20",
+            "start_time": "19:00",
+            "end_time": "21:00",
+            "course_name": "スタンダードコース120分",
+            "cast_name": "サンプルキャスト",
+            "room_name": "" if room_pending else "新宿サンプルルーム",
+            "room_address": "" if room_pending else "東京都新宿区○○1-2-3 サンプルマンション101",
+            "room_map_url": "" if room_pending else "https://maps.example/room",
+            "room_notice": "" if room_pending else "建物名を確認してお越しください。",
+            "room_guidance": room_guidance,
+            "payment_method": payment_labels[payment_method],
+            "discount_name": "初回割引" if has_discount else "",
+            "discount_amount": "2,000" if has_discount else "0",
+            "subtotal_price": "20,000",
+            "total_price": "18,000" if has_discount else "20,000",
+        }
+        rendered = _render_sms_template(body, context)
+        return Response({
+            "rendered_body": rendered,
+            "character_count": len(rendered),
+            "unresolved_placeholders": sorted(set(re.findall(r"\{([^{}]+)\}", rendered))),
+            "sent": False,
+        })
 
     def put(self, request):
         _require_manager(request)

@@ -3,11 +3,15 @@ import { ref, computed, onMounted, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { getAuthRole } from '../../router.js'
+import { uploadToCloudinary } from '../../cloudinary.js'
 
 const loading = ref(true)
 const error = ref('')
 const notes = ref([])
 const isManager = computed(() => getAuthRole() === 'manager')
+const casts = ref([])
+const targetCastSearch = ref('')
+const imageUploading = ref(false)
 
 const filterStatus = ref('')
 const filterCategory = ref('')
@@ -45,6 +49,13 @@ async function load() {
 }
 
 onMounted(load)
+onMounted(async () => {
+  try {
+    casts.value = await api.getCasts()
+  } catch (e) {
+    error.value = e.message
+  }
+})
 watch([filterStatus, filterCategory], load)
 
 let searchTimer = null
@@ -61,13 +72,54 @@ const formError = ref('')
 const saving = ref(false)
 
 function emptyForm() {
-  return { title: '', category: '', body: '', visibility: 'CAST', video_url: '', status: 'DRAFT' }
+  return {
+    title: '', category: '', body: '', visibility: 'CAST', video_url: '', status: 'DRAFT',
+    target_cast_ids: [], image_urls: [],
+  }
+}
+
+const filteredTargetCasts = computed(() => {
+  const keyword = targetCastSearch.value.trim().toLowerCase()
+  return casts.value.filter(cast => !keyword || cast.name.toLowerCase().includes(keyword))
+})
+
+function toggleTargetCast(id) {
+  const index = form.value.target_cast_ids.indexOf(id)
+  if (index >= 0) form.value.target_cast_ids.splice(index, 1)
+  else form.value.target_cast_ids.push(id)
+}
+
+async function onImageFiles(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (!files.length) return
+  if (form.value.image_urls.length + files.length > 10) {
+    formError.value = '画像は1つのノートにつき10枚までです'
+    return
+  }
+  imageUploading.value = true
+  formError.value = ''
+  try {
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) throw new Error('画像ファイルを選択してください')
+      form.value.image_urls.push(await uploadToCloudinary(file))
+    }
+  } catch (e) {
+    formError.value = e.message
+  } finally {
+    imageUploading.value = false
+  }
+}
+
+function removeImage(index) {
+  form.value.image_urls.splice(index, 1)
 }
 
 function openCreate() {
   editingId.value = null
   form.value = emptyForm()
   formError.value = ''
+  targetCastSearch.value = ''
   showForm.value = true
 }
 
@@ -80,8 +132,11 @@ function openEdit(n) {
     visibility: n.visibility,
     video_url: n.video_url || '',
     status: n.status,
+    target_cast_ids: [...(n.target_cast_ids || [])],
+    image_urls: [...(n.image_urls || [])],
   }
   formError.value = ''
+  targetCastSearch.value = ''
   showForm.value = true
 }
 
@@ -189,7 +244,13 @@ function formatDateTime(s) {
               <td><i v-if="n.is_pinned" class="ti ti-pin text-warning" title="ピン留め"></i></td>
               <td>{{ n.title }}</td>
               <td><span v-if="n.category" class="badge bg-light text-dark border">{{ n.category }}</span><span v-else class="text-muted small">-</span></td>
-              <td class="small">{{ visibilityLabel[n.visibility] }}</td>
+              <td class="small">
+                <div>{{ visibilityLabel[n.visibility] }}</div>
+                <div v-if="n.target_cast_names?.length" class="text-muted mt-1">
+                  対象: {{ n.target_cast_names.join('、') }}
+                </div>
+                <div v-else-if="n.visibility !== 'STAFF'" class="text-muted mt-1">対象: 全キャスト</div>
+              </td>
               <td><span class="badge" :class="statusClass[n.status]">{{ statusLabel[n.status] }}</span></td>
               <td class="small text-muted">{{ formatDateTime(n.updated_at) }}</td>
               <td v-if="isManager">
@@ -267,6 +328,43 @@ function formatDateTime(s) {
               <label class="form-label">本文（プレーンテキスト/簡易Markdown）</label>
               <textarea v-model="form.body" class="form-control" rows="8"></textarea>
             </div>
+            <div v-if="form.visibility !== 'STAFF'" class="mb-3">
+              <label class="form-label">閲覧できるキャスト（任意）</label>
+              <div class="form-text mb-2">指定しない場合は、所属する全キャストへ表示します。</div>
+              <input v-model="targetCastSearch" type="search" class="form-control form-control-sm mb-2" placeholder="キャスト名で検索" />
+              <div class="target-cast-list">
+                <label v-for="cast in filteredTargetCasts" :key="cast.id" class="target-cast-item">
+                  <input
+                    type="checkbox"
+                    class="form-check-input"
+                    :checked="form.target_cast_ids.includes(cast.id)"
+                    @change="toggleTargetCast(cast.id)"
+                  />
+                  <span>{{ cast.name }}</span>
+                </label>
+              </div>
+              <div class="small text-muted mt-1">{{ form.target_cast_ids.length ? `${form.target_cast_ids.length}名を指定中` : '全キャストへ表示' }}</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">画像（任意・最大10枚）</label>
+              <input
+                type="file"
+                class="form-control"
+                accept="image/*"
+                multiple
+                :disabled="imageUploading || form.image_urls.length >= 10"
+                @change="onImageFiles"
+              />
+              <div v-if="imageUploading" class="small text-primary mt-1">画像をアップロードしています...</div>
+              <div v-if="form.image_urls.length" class="note-image-grid mt-2">
+                <div v-for="(url, index) in form.image_urls" :key="url" class="note-image-item">
+                  <img :src="url" alt="ノート添付画像" />
+                  <button type="button" class="btn btn-danger btn-sm" title="画像を外す" @click="removeImage(index)">
+                    <i class="ti ti-x"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
             <div class="mb-3">
               <label class="form-label">動画URL（任意・将来用。今回はアップロード機能なし）</label>
               <input v-model="form.video_url" type="url" class="form-control" placeholder="https://..." />
@@ -291,3 +389,42 @@ function formatDateTime(s) {
     </div>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.target-cast-list {
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 6px;
+}
+.target-cast-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.target-cast-item:hover { background: #f6f8f8; }
+.note-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+.note-image-item { position: relative; }
+.note-image-item img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+}
+.note-image-item button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 5px;
+}
+</style>

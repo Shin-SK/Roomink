@@ -28,6 +28,7 @@ const selectedArea = ref('all')
 const selectedDuration = ref('all')
 const castVisibleLimit = ref(12)
 const courseVisibleLimit = ref(12)
+const publicBookingNotice = ref('')
 
 function dateString(daysFromToday = 0) {
   const value = new Date()
@@ -131,6 +132,10 @@ async function loadOptions() {
   error.value = ''
   try {
     const data = await api.getPublicBookingOptions(form.value.store, form.value.date)
+    if (data.store) {
+      stores.value = [{ store_id: data.store.id, store_name: data.store.name }]
+      publicBookingNotice.value = data.store.public_booking_notice || ''
+    }
     casts.value = data.casts || []
     courses.value = data.courses || []
     options.value = data.options || []
@@ -184,21 +189,14 @@ watch(
 watch([castSearch, selectedArea], () => { castVisibleLimit.value = 12 })
 watch([courseSearch, selectedDuration], () => { courseVisibleLimit.value = 12 })
 
-onMounted(async () => {
-  try {
-    const data = await api.getStoreListPublic()
-    stores.value = data.stores || []
-    const requestedStore = Number(route.query.store)
-    if (requestedStore && stores.value.some(item => item.store_id === requestedStore)) {
-      form.value.store = requestedStore
-    } else if (stores.value.length === 1) {
-      form.value.store = stores.value[0].store_id
-    }
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    loading.value = false
+onMounted(() => {
+  const requestedStore = Number(route.query.store)
+  if (!Number.isInteger(requestedStore) || requestedStore <= 0) {
+    error.value = '店舗専用のWeb予約URLからアクセスしてください。'
+  } else {
+    form.value.store = requestedStore
   }
+  loading.value = false
 })
 
 function validateBookingForm() {
@@ -275,26 +273,26 @@ async function confirmBooking() {
         <p>空き時間を選んで、スマホですぐに予約できます。</p>
       </div>
 
+      <div v-if="publicBookingNotice" class="public-booking-notice" role="note">
+        <i class="ti ti-alert-circle"></i>
+        <div>{{ publicBookingNotice }}</div>
+      </div>
+
       <div v-if="error" class="alert alert-danger" role="alert">{{ error }}</div>
       <div v-if="loading" class="text-center py-5">
         <span class="spinner-border text-primary"></span>
       </div>
 
-      <form v-else-if="step === 'booking'" @submit.prevent="requestVerification">
+      <form v-else-if="step === 'booking' && form.store" @submit.prevent="requestVerification">
         <section class="booking-card">
           <div class="section-heading">
             <span>1</span>
             <div><h2>予約日を選ぶ</h2><p>ご希望の日付を選択してください</p></div>
           </div>
 
-          <div v-if="stores.length > 1" class="mb-3">
-            <label class="form-label">店舗 <span class="required">必須</span></label>
-            <select v-model="form.store" class="form-select form-select-lg" required>
-              <option value="">選択してください</option>
-              <option v-for="store in stores" :key="store.store_id" :value="store.store_id">
-                {{ store.store_name }}
-              </option>
-            </select>
+          <div v-if="selectedStore" class="fixed-store mb-3">
+            <small>ご予約店舗</small>
+            <strong>{{ selectedStore.store_name }}</strong>
           </div>
 
           <div class="date-scroller" aria-label="予約日">
@@ -567,8 +565,14 @@ async function confirmBooking() {
 .reservation-kicker { color: var(--booking-primary); font-size: .78rem; font-weight: 900; letter-spacing: .16em; margin: 0 0 6px; }
 .reservation-hero h1 { font-size: clamp(1.65rem, 5vw, 2rem); font-weight: 900; margin: 0 0 8px; }
 .reservation-hero > p:last-child { color: #64748b; margin: 0; font-size: .95rem; }
+.public-booking-notice { display: flex; gap: 10px; margin: 0 0 18px; padding: 16px; border: 1px solid #f1cf91; border-radius: 14px; background: #fff8e8; color: #594515; font-size: .9rem; line-height: 1.7; }
+.public-booking-notice > i { flex: 0 0 auto; margin-top: 3px; color: #c48316; font-size: 1.15rem; }
+.public-booking-notice > div { white-space: pre-wrap; }
 .booking-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 22px; margin-bottom: 18px; box-shadow: 0 8px 28px rgba(15, 23, 42, .055); }
 .booking-card.muted { background: #fbfdfd; }
+.fixed-store { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 11px; background: var(--booking-primary-soft); color: var(--booking-primary-dark); }
+.fixed-store small { font-weight: 700; }
+.fixed-store strong { text-align: right; }
 .section-heading { display: flex; align-items: flex-start; gap: 11px; margin-bottom: 18px; }
 .section-heading > span { width: 29px; height: 29px; flex: 0 0 29px; display: grid; place-items: center; border-radius: 50%; background: var(--booking-primary); color: #fff; font-size: .85rem; font-weight: 900; }
 .section-heading h2 { font-size: 1.05rem; font-weight: 900; margin: 3px 0 3px; }
