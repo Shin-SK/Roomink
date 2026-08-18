@@ -1,6 +1,10 @@
 <script setup>
 import LayoutCustomer from '../../components/LayoutCustomer.vue'
 import { articlesForRole, MANUAL_CATEGORIES } from '../op/manualData.js'
+import { useRoute } from 'vue-router'
+import { customerPath } from '../../customerStore.js'
+
+const route = useRoute()
 
 // お客様本人向け（roles に customer を含む）記事だけ表示
 const articles = articlesForRole('customer')
@@ -30,7 +34,7 @@ if (others.length) groups.push({ category: 'その他', items: others })
         <router-link
           v-for="(a, i) in g.items"
           :key="a.slug"
-          :to="`/cu/help/${a.slug}`"
+          :to="`${customerPath(route, 'help')}/${a.slug}`"
           class="manual-item"
         >
           <span

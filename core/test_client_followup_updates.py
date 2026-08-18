@@ -17,9 +17,10 @@ class ClientFollowupUpdatesTest(TestCase):
     def setUp(self):
         self.store = Store.objects.create(
             name="アールズスパ",
+            slug="followup-rs-spa",
             public_booking_notice="●割引名は備考欄へご入力ください。",
         )
-        self.other_store = Store.objects.create(name="東京メンズエステ")
+        self.other_store = Store.objects.create(name="東京メンズエステ", slug="followup-tokyo-mens-esthe")
         self.manager = self._user("followup_manager", self.store, UserProfile.Role.MANAGER)
         self.staff = self._user("followup_staff", self.store, UserProfile.Role.STAFF)
         self.cast_user = self._user("followup_cast", self.store, UserProfile.Role.CAST)
@@ -129,7 +130,7 @@ class ClientFollowupUpdatesTest(TestCase):
         self.assertEqual(get_response.status_code, 200, get_response.data)
         self.assertEqual(
             get_response.data["public_booking_url"],
-            f"https://roomink.example/booking?store={self.store.pk}",
+            "https://roomink.example/s/followup-rs-spa/booking",
         )
         self.assertEqual(patch_response.status_code, 200, patch_response.data)
         self.assertEqual(forbidden_response.status_code, 403, forbidden_response.data)

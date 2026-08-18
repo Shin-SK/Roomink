@@ -11,7 +11,7 @@ from datetime import date as date_type, datetime, timedelta
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.validators import validate_email
+from django.core.validators import validate_email, validate_slug
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
 from django.db.models import ProtectedError, Q
@@ -38,7 +38,7 @@ from .models import (
     LineNotificationLog, NominationFee, Option, Order, OrderOption, PointLog,
     OrderServiceRecipientLinkLog,
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
-    SmsTemplate, Store, StorePhoneNumber, UserProfile,
+    SmsTemplate, Store, StorePhoneNumber, StoreSlugAlias, UserProfile,
     generate_line_link_code,
     generate_line_operations_link_code,
 )
@@ -1144,7 +1144,7 @@ class StoreListPublicView(APIView):
         stores = Store.objects.order_by("id")
         return Response({
             "stores": [
-                {"store_id": s.id, "store_name": s.name}
+                {"store_id": s.id, "store_name": s.name, "store_slug": s.slug}
                 for s in stores
             ]
         })
@@ -1163,14 +1163,14 @@ class PublicBookingOptionsView(APIView):
                 {"detail": "Web予約は現在準備中です。"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        try:
-            store_id = int(request.query_params.get("store"))
-        except (TypeError, ValueError):
-            return Response(
-                {"detail": "店舗を選択してください。"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        store = Store.objects.filter(pk=store_id).first()
+        store_slug = request.query_params.get("store_slug")
+        store = Store.resolve_slug(store_slug) if store_slug else None
+        if store is None:
+            try:
+                store_id = int(request.query_params.get("store"))
+            except (TypeError, ValueError):
+                store_id = None
+            store = Store.objects.filter(pk=store_id).first() if store_id else None
         if store is None:
             return Response(
                 {"detail": "店舗を選択してください。"},
@@ -1202,7 +1202,6 @@ class PublicBookingSlotsView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         try:
-            store_id = int(request.query_params.get("store"))
             cast_id = int(request.query_params.get("cast"))
             course_id = int(request.query_params.get("course"))
             business_date = date_type.fromisoformat(request.query_params.get("date", ""))
@@ -1211,7 +1210,14 @@ class PublicBookingSlotsView(APIView):
                 {"detail": "店舗、キャスト、コース、予約日を選択してください。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        store = Store.objects.filter(pk=store_id).first()
+        store_slug = request.query_params.get("store_slug")
+        store = Store.resolve_slug(store_slug) if store_slug else None
+        if store is None:
+            try:
+                store_id = int(request.query_params.get("store"))
+            except (TypeError, ValueError):
+                store_id = None
+            store = Store.objects.filter(pk=store_id).first() if store_id else None
         if store is None:
             return Response(
                 {"detail": "店舗を選択してください。"},
@@ -1290,7 +1296,12 @@ class CustomerStoresView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         stores = [
-            {"store_id": c.store_id, "store_name": c.store.name, "logo_url": ""}
+            {
+                "store_id": c.store_id,
+                "store_name": c.store.name,
+                "store_slug": c.store.slug,
+                "logo_url": "",
+            }
             for c in customers
         ]
         return Response({"stores": stores})
@@ -1323,6 +1334,12 @@ def customer_login(request):
         user__isnull=False,
         phone__endswith=phone[-4:],
     ).select_related("user")
+    store_slug = (request.data.get("store_slug") or "").strip().lower()
+    store = Store.resolve_slug(store_slug) if store_slug else None
+    if store_slug and store is None:
+        candidates = candidates.none()
+    elif store is not None:
+        candidates = candidates.filter(store=store)
     users = {
         customer.user_id: customer.user
         for customer in candidates
@@ -1342,7 +1359,10 @@ def customer_login(request):
     if user is None:
         return Response(failure, status=status.HTTP_401_UNAUTHORIZED)
     login(request, user)
-    return Response({"ok": True})
+    return Response({
+        "ok": True,
+        "store_slug": store.slug if store is not None else "",
+    })
 
 
 @extend_schema(
@@ -1360,10 +1380,20 @@ def customer_activation_preview(request):
             {"detail": INVALID_INVITATION_MESSAGE},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    requested_store_slug = (request.data.get("store_slug") or "").strip().lower()
+    if requested_store_slug:
+        requested_store = Store.resolve_slug(requested_store_slug)
+        if requested_store is None or requested_store.pk != invitation.customer.store_id:
+            return Response(
+                {"detail": INVALID_INVITATION_MESSAGE},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
     digits = normalize_phone(invitation.customer.phone)
     return Response({
         "masked_phone": f"***{digits[-4:]}" if digits else "***",
         "expires_at": invitation.expires_at,
+        "store_name": invitation.customer.store.name,
+        "store_slug": invitation.customer.store.slug,
     })
 
 
@@ -5465,8 +5495,9 @@ class StorePublicBookingSettingsView(APIView):
         frontend_url = settings.FRONTEND_URL.rstrip("/")
         return {
             "store_name": store.name,
+            "store_slug": store.slug,
             "public_booking_notice": store.public_booking_notice,
-            "public_booking_url": f"{frontend_url}/booking?store={store.pk}",
+            "public_booking_url": f"{frontend_url}/s/{store.slug}/booking",
         }
 
     def get(self, request):
@@ -5476,7 +5507,7 @@ class StorePublicBookingSettingsView(APIView):
     def patch(self, request):
         _require_manager(request)
         store = get_user_store(request)
-        notice = request.data.get("public_booking_notice", "")
+        notice = request.data.get("public_booking_notice", store.public_booking_notice)
         if not isinstance(notice, str):
             return Response(
                 {"detail": "注意事項を文字列で指定してください。"},
@@ -5488,8 +5519,32 @@ class StorePublicBookingSettingsView(APIView):
                 {"detail": "注意事項は3000文字以内で入力してください。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        update_fields = ["public_booking_notice"]
+        new_slug = request.data.get("store_slug")
+        if new_slug is not None:
+            new_slug = str(new_slug).strip().lower()
+            try:
+                validate_slug(new_slug)
+            except DjangoValidationError:
+                new_slug = ""
+            if not new_slug or re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", new_slug) is None:
+                return Response(
+                    {"detail": "URL識別子は半角英小文字・数字・ハイフンで入力してください。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            conflict = Store.objects.exclude(pk=store.pk).filter(slug=new_slug).exists()
+            alias_conflict = StoreSlugAlias.objects.exclude(store=store).filter(slug=new_slug).exists()
+            if conflict or alias_conflict:
+                return Response(
+                    {"detail": "このURL識別子はすでに使用されています。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if new_slug != store.slug:
+                StoreSlugAlias.objects.get_or_create(store=store, slug=store.slug)
+                store.slug = new_slug
+                update_fields.append("slug")
         store.public_booking_notice = notice
-        store.save(update_fields=["public_booking_notice"])
+        store.save(update_fields=update_fields)
         return Response(self._payload(store))
 
 

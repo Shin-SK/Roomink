@@ -26,6 +26,11 @@ def generate_line_operations_link_code():
     return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
+def generate_store_slug():
+    """設定前でも衝突しない店舗URL識別子を生成する。"""
+    return f"store-{uuid.uuid4().hex[:12]}"
+
+
 class Store(models.Model):
     class LineOperationsRecipientType(models.TextChoices):
         USER = "user", "個人トーク"
@@ -33,6 +38,12 @@ class Store(models.Model):
         ROOM = "room", "複数人トーク"
 
     name = models.CharField(max_length=100)
+    slug = models.SlugField(
+        max_length=80,
+        unique=True,
+        default=generate_store_slug,
+        help_text="顧客向けURLに使用する店舗識別子（例: rs-spa）",
+    )
     timezone = models.CharField(max_length=40, default="Asia/Tokyo")
     line_add_friend_url = models.URLField(blank=True, default="")
     line_channel_secret = models.TextField(blank=True, default="")
@@ -77,6 +88,30 @@ class Store(models.Model):
         if not self.line_webhook_token:
             self.line_webhook_token = generate_line_webhook_token()
         super().save(*args, **kwargs)
+
+    @classmethod
+    def resolve_slug(cls, slug):
+        """現在または過去のslugから店舗を解決する。"""
+        value = (slug or "").strip().lower()
+        if not value:
+            return None
+        return (
+            cls.objects.filter(slug=value).first()
+            or cls.objects.filter(slug_aliases__slug=value).first()
+        )
+
+
+class StoreSlugAlias(models.Model):
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="slug_aliases",
+    )
+    slug = models.SlugField(max_length=80, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.slug} -> {self.store.slug}"
 
 
 class Room(models.Model):

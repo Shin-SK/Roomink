@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import LayoutCustomer from '../../components/LayoutCustomer.vue'
 import { api } from '../../api.js'
+import { customerPath, routeStoreSlug } from '../../customerStore.js'
 
 const route = useRoute()
 
@@ -16,21 +17,25 @@ const history = ref([])
 const activeTab = ref('fav')
 
 const selectedStoreId = ref(null)
+const storeSlug = routeStoreSlug(route)
 
-const storeQ = computed(() => selectedStoreId.value ? '?store=' + selectedStoreId.value : '')
+const storeQ = computed(() => !storeSlug && selectedStoreId.value ? '?store=' + selectedStoreId.value : '')
+const bookingPath = computed(() => customerPath(route, 'booking'))
 
 onMounted(async () => {
   try {
     const storeData = await api.getCustomerStores()
     const stores = storeData.stores
 
-    if (route.query.store) {
+    if (storeSlug) {
+      selectedStoreId.value = stores.find(s => s.store_slug === storeSlug)?.store_id || null
+    } else if (route.query.store) {
       selectedStoreId.value = Number(route.query.store)
     } else if (stores.length === 1) {
       selectedStoreId.value = stores[0].store_id
     }
 
-    const data = await api.getCustomerMypage(selectedStoreId.value)
+    const data = await api.getCustomerMypage(selectedStoreId.value, storeSlug)
     customer.value = data.customer
     nextReservation.value = data.next_reservation
     favorites.value = data.favorites
@@ -93,7 +98,7 @@ function statusBadge(s) {
       <!-- 予約カード -->
       <router-link
         v-if="nextReservation"
-        :to="'/cu/reservations/' + nextReservation.id + storeQ"
+        :to="customerPath(route, 'reservation', nextReservation.id) + storeQ"
         class="rk-booking-card mb-4 d-block text-decoration-none text-reset"
       >
         <div class="rk-booking-card__label"><i class="ti ti-calendar-event"></i> 次回のご予約</div>
@@ -110,7 +115,7 @@ function statusBadge(s) {
       <div v-else class="rk-booking-card rk-booking-card--empty mb-4">
         <div class="rk-booking-card__label"><i class="ti ti-calendar-off"></i> 次回のご予約</div>
         <p class="mb-2" style="font-size:1.125rem; font-weight:600;">次回予約はありません</p>
-        <router-link :to="'/cu/booking' + storeQ" class="rk-booking-card__cta">予約する</router-link>
+        <router-link :to="bookingPath + storeQ" class="rk-booking-card__cta">予約する</router-link>
       </div>
 
       <!-- タブUI -->
@@ -134,7 +139,7 @@ function statusBadge(s) {
                 <span class="badge badge-approved">推しセラピスト</span>
               </div>
               <p class="text-muted mb-3">指名回数: {{ fav.visit_count }}回 / 累計: {{ formatYen(fav.total_spend) }}</p>
-              <router-link :to="`/cu/booking?cast=${fav.id}${selectedStoreId ? '&store=' + selectedStoreId : ''}`" class="btn btn-primary btn-block">
+              <router-link :to="`${bookingPath}?cast=${fav.id}${!storeSlug && selectedStoreId ? '&store=' + selectedStoreId : ''}`" class="btn btn-primary btn-block">
                 <i class="ti ti-calendar-plus"></i> {{ fav.name }}を指名予約
               </router-link>
             </div>
@@ -153,7 +158,7 @@ function statusBadge(s) {
               </div>
               <div class="rk-hscroll__body">
                 <div class="rk-hscroll__name">{{ r.name }}</div>
-                <router-link :to="`/cu/booking?cast=${r.id}${selectedStoreId ? '&store=' + selectedStoreId : ''}`" class="btn btn-sm btn-primary w-100">予約する</router-link>
+                <router-link :to="`${bookingPath}?cast=${r.id}${!storeSlug && selectedStoreId ? '&store=' + selectedStoreId : ''}`" class="btn btn-sm btn-primary w-100">予約する</router-link>
               </div>
             </div>
           </div>

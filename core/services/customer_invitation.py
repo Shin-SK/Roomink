@@ -140,10 +140,11 @@ def activate_customer_invitation(request, raw_token, password, password_confirm)
         invitation.used_at = timezone.now()
         invitation.save(update_fields=["used_at"])
         order_id = invitation.order_id
-        store_id = customer.store_id
+        store_slug = customer.store.slug
 
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-    next_path = f"/cu/reservations/{order_id}?store={store_id}" if order_id else f"/cu/mypage?store={store_id}"
+    base_path = f"/s/{store_slug}/mypage"
+    next_path = f"{base_path}/reservations/{order_id}" if order_id else base_path
     return user, next_path
 
 

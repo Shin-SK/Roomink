@@ -6,7 +6,7 @@ from core.models import Customer
 def resolve_customer(request):
     """
     Multi-store 顧客解決（ログイン済み前提）。
-    request.user に紐づく Customer を ?store=<ID> で特定して返す。
+    request.user に紐づく Customer を ?store_slug=<slug> または旧 ?store=<ID> で特定して返す。
     未ログインの判定は DRF の IsAuthenticated に任せる。
 
     - Customer 0 件     → PermissionDenied (403)
@@ -14,11 +14,20 @@ def resolve_customer(request):
     - store 未指定 & 1件 → 自動選択
     - store 未指定 & 複数 → ValidationError (400)
     """
-    qs = Customer.objects.filter(user=request.user).select_related("store")
+    qs = Customer.objects.filter(user=request.user).select_related("store").prefetch_related("store__slug_aliases")
     customers = list(qs)
 
     if len(customers) == 0:
         raise PermissionDenied("顧客プロフィールが紐づいていません")
+
+    store_slug = (request.query_params.get("store_slug") or request.GET.get("store_slug") or "").strip().lower()
+    if store_slug:
+        for c in customers:
+            if c.store.slug == store_slug:
+                return c
+            if c.store.slug_aliases.filter(slug=store_slug).exists():
+                return c
+        raise PermissionDenied("指定された店舗に所属していません")
 
     store_id = request.query_params.get("store") or request.GET.get("store")
     if store_id:

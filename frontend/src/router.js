@@ -139,6 +139,22 @@ const routes = [
   { path: '/cu/contact', name: 'cu-contact', component: CuContact },
   { path: '/cu/help', name: 'cu-help', component: CuHelp },
   { path: '/cu/help/:slug', name: 'cu-help-article', component: CuHelpArticle, props: true },
+
+  // Store-scoped customer/public routes. Existing /booking and /cu/* remain for old links.
+  { path: '/s/:storeSlug', redirect: to => ({ name: 'store-public-booking', params: to.params }) },
+  { path: '/s/:storeSlug/booking', name: 'store-public-booking', component: PublicBooking, meta: { public: true } },
+  { path: '/s/:storeSlug/booking/complete', name: 'store-public-booking-complete', component: PublicBookingComplete, meta: { public: true } },
+  { path: '/s/:storeSlug/login', name: 'store-cu-login', component: CuLogin, meta: { public: true } },
+  { path: '/s/:storeSlug/signup', name: 'store-cu-signup', component: CuSignup, meta: { public: true } },
+  { path: '/s/:storeSlug/activate', name: 'store-cu-activate', component: CuActivate, meta: { public: true } },
+  { path: '/s/:storeSlug/mypage', name: 'store-cu-mypage', component: CuMypage, meta: { customer: true } },
+  { path: '/s/:storeSlug/mypage/booking', name: 'store-cu-booking', component: CuBooking, meta: { customer: true } },
+  { path: '/s/:storeSlug/mypage/submitted', name: 'store-cu-submitted', component: CuSubmitted, meta: { customer: true } },
+  { path: '/s/:storeSlug/mypage/reservations/:id', name: 'store-cu-reservation', component: CuReservation, props: true, meta: { customer: true } },
+  { path: '/s/:storeSlug/mypage/profile', name: 'store-cu-profile', component: CuProfile, meta: { customer: true } },
+  { path: '/s/:storeSlug/mypage/contact', name: 'store-cu-contact', component: CuContact, meta: { customer: true } },
+  { path: '/s/:storeSlug/mypage/help', name: 'store-cu-help', component: CuHelp, meta: { customer: true } },
+  { path: '/s/:storeSlug/mypage/help/:slug', name: 'store-cu-help-article', component: CuHelpArticle, props: true, meta: { customer: true } },
 ]
 
 const router = createRouter({
@@ -172,7 +188,7 @@ function homeForRole(role) {
 router.beforeEach(async (to) => {
   const isOp = to.path.startsWith('/op/')
   const isCast = to.path.startsWith('/cast/')
-  const isCu = to.path.startsWith('/cu/')
+  const isCu = to.path.startsWith('/cu/') || to.meta.customer
 
   // public ページはガード不要
   if (to.meta.public) return
@@ -180,7 +196,12 @@ router.beforeEach(async (to) => {
   // /cu/* のガード（op/cast とは別系統）
   if (isCu) {
     const auth = await ensureAuth()
-    if (!auth.authed) return { name: 'cu-login', query: { next: to.fullPath } }
+    if (!auth.authed) {
+      if (to.params.storeSlug) {
+        return { name: 'store-cu-login', params: { storeSlug: to.params.storeSlug }, query: { next: to.fullPath } }
+      }
+      return { name: 'cu-login', query: { next: to.fullPath } }
+    }
     if (!auth.roles.includes('customer')) return { path: homeForRole(auth.role) }
     return
   }

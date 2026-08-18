@@ -311,17 +311,17 @@ export const api = {
   applyShiftRequestsImport: (rows) => request('POST', '/op/shift-requests/import_apply/', { rows }),
 
   // Customer
-  customerLogin: (phone, password) => request('POST', '/cu/login/', { phone, password }),
-  getCustomerActivation: (token) => request('POST', '/cu/activate/preview/', { token }),
+  customerLogin: (phone, password, storeSlug = '') => request('POST', '/cu/login/', { phone, password, store_slug: storeSlug }),
+  getCustomerActivation: (token, storeSlug = '') => request('POST', '/cu/activate/preview/', { token, store_slug: storeSlug }),
   activateCustomer: (token, password, passwordConfirm) => request('POST', '/cu/activate/', { token, password, password_confirm: passwordConfirm }),
   getStoreListPublic: () => request('GET', '/cu/store-list/'),
-  getPublicBookingOptions: (storeId, date) => request(
+  getPublicBookingOptions: (storeId, date, storeSlug = '') => request(
     'GET',
-    `/public/booking/options/?store=${storeId}${date ? `&date=${date}` : ''}`,
+    `/public/booking/options/?${storeSlug ? `store_slug=${encodeURIComponent(storeSlug)}` : `store=${storeId}`}${date ? `&date=${date}` : ''}`,
   ),
-  getPublicBookingSlots: (storeId, castId, courseId, date) => request(
+  getPublicBookingSlots: (storeId, castId, courseId, date, storeSlug = '') => request(
     'GET',
-    `/public/booking/slots/?store=${storeId}&cast=${castId}&course=${courseId}&date=${date}`,
+    `/public/booking/slots/?${storeSlug ? `store_slug=${encodeURIComponent(storeSlug)}` : `store=${storeId}`}&cast=${castId}&course=${courseId}&date=${date}`,
   ),
   requestPublicBookingVerification: (body) => request('POST', '/public/booking/request-verification/', body),
   confirmPublicBooking: (verificationId, code) => request(
@@ -330,11 +330,11 @@ export const api = {
     { verification_id: verificationId, code },
   ),
   getCustomerStores: () => request('GET', '/cu/stores/'),
-  getCustomerMypage: (storeId) => request('GET', `/cu/mypage/${storeId ? '?store=' + storeId : ''}`),
-  getBookingOptions: (storeId) => request('GET', `/cu/booking/options/${storeId ? '?store=' + storeId : ''}`),
-  getAvailableSlots: (castId, date, storeId) => request('GET', `/cu/available-slots/?cast=${castId}&date=${date}${storeId ? '&store=' + storeId : ''}`),
-  createCustomerBooking: (body, storeId) => request('POST', `/cu/bookings/${storeId ? '?store=' + storeId : ''}`, body),
-  getCustomerReservation: (id, storeId) => request('GET', `/cu/reservations/${id}/${storeId ? '?store=' + storeId : ''}`),
+  getCustomerMypage: (storeId, storeSlug = '') => request('GET', `/cu/mypage/${storeSlug ? '?store_slug=' + encodeURIComponent(storeSlug) : (storeId ? '?store=' + storeId : '')}`),
+  getBookingOptions: (storeId, storeSlug = '') => request('GET', `/cu/booking/options/${storeSlug ? '?store_slug=' + encodeURIComponent(storeSlug) : (storeId ? '?store=' + storeId : '')}`),
+  getAvailableSlots: (castId, date, storeId, storeSlug = '') => request('GET', `/cu/available-slots/?cast=${castId}&date=${date}${storeSlug ? '&store_slug=' + encodeURIComponent(storeSlug) : (storeId ? '&store=' + storeId : '')}`),
+  createCustomerBooking: (body, storeId, storeSlug = '') => request('POST', `/cu/bookings/${storeSlug ? '?store_slug=' + encodeURIComponent(storeSlug) : (storeId ? '?store=' + storeId : '')}`, body),
+  getCustomerReservation: (id, storeId, storeSlug = '') => request('GET', `/cu/reservations/${id}/${storeSlug ? '?store_slug=' + encodeURIComponent(storeSlug) : (storeId ? '?store=' + storeId : '')}`),
 
   // CTI
   getCtiQueue: () => request('GET', '/op/cti/queue/'),

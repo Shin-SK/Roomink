@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import LayoutCustomer from '../../components/LayoutCustomer.vue'
 import ManualArticleBody from '../../components/manual/ManualArticleBody.vue'
 import { findArticle, canReadArticle } from '../op/manualData.js'
+import { customerPath } from '../../customerStore.js'
 
 const route = useRoute()
 // お客様画面なので customer 権限で閲覧可否を判定（customer向け記事のみ表示）
@@ -15,7 +16,7 @@ const noPermission = computed(() => !!found.value && !canReadArticle(found.value
 <template>
   <LayoutCustomer>
     <div class="mb-3">
-      <router-link to="/cu/help" class="btn btn-outline-secondary btn-sm">
+      <router-link :to="customerPath(route, 'help')" class="btn btn-outline-secondary btn-sm">
         <i class="ti ti-arrow-left"></i> ヘルプ一覧に戻る
       </router-link>
     </div>

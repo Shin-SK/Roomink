@@ -3,11 +3,13 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import LayoutCustomer from '../../components/LayoutCustomer.vue'
 import { api } from '../../api.js'
+import { customerPath, routeStoreSlug } from '../../customerStore.js'
 
 const route = useRoute()
 const loading = ref(true)
 const error = ref('')
 const order = ref(null)
+const storeSlug = routeStoreSlug(route)
 
 const roomMapUrl = computed(() => {
   if (!order.value?.room_address) return ''
@@ -16,7 +18,7 @@ const roomMapUrl = computed(() => {
 
 onMounted(async () => {
   try {
-    order.value = await api.getCustomerReservation(route.params.id, route.query.store)
+    order.value = await api.getCustomerReservation(route.params.id, route.query.store, storeSlug)
   } catch (e) {
     error.value = e.message
   } finally {
@@ -208,7 +210,7 @@ function statusBadge(s) {
 
       <!-- アクション -->
       <div class="text-center mb-5">
-        <router-link to="/cu/mypage" class="btn btn-primary btn-lg">
+        <router-link :to="customerPath(route, 'mypage')" class="btn btn-primary btn-lg">
           <i class="ti ti-arrow-left"></i> マイページに戻る
         </router-link>
       </div>

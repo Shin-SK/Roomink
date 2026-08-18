@@ -1,5 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { routeStoreSlug } from '../../customerStore.js'
+
+const route = useRoute()
+const storeSlug = routeStoreSlug(route)
 
 const stored = sessionStorage.getItem('roomink-public-booking-result')
 let parsedResult = null
@@ -53,7 +58,7 @@ function formatYen(value) {
         初めてのお客様には、SMSでパスワード設定用URLをご案内しています。
       </p>
 
-      <router-link to="/booking" class="btn btn-outline-primary mt-3">別の予約をする</router-link>
+      <router-link :to="storeSlug ? `/s/${storeSlug}/booking` : '/booking'" class="btn btn-outline-primary mt-3">別の予約をする</router-link>
     </main>
   </div>
 </template>
