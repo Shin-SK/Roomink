@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { resetAuthCache } from '../router.js'
 import UserAvatar from './UserAvatar.vue'
+import { customerPath, routeStoreSlug } from '../customerStore.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,19 +14,22 @@ const selectedStoreId = ref(null)
 const drawerOpen = ref(false)
 const sidebarOpen = ref(false)
 const currentUser = ref(null)
+const storeSlug = routeStoreSlug(route)
 
 const currentStoreName = computed(() => {
   const s = stores.value.find(s => s.store_id === selectedStoreId.value)
   return s ? s.store_name : ''
 })
 
-const storeQ = computed(() => selectedStoreId.value ? '?store=' + selectedStoreId.value : '')
+const storeQ = computed(() => !storeSlug && selectedStoreId.value ? '?store=' + selectedStoreId.value : '')
 
 onMounted(async () => {
   try {
     const storeData = await api.getCustomerStores()
     stores.value = storeData.stores
-    if (route.query.store) {
+    if (storeSlug) {
+      selectedStoreId.value = stores.value.find(s => s.store_slug === storeSlug)?.store_id || null
+    } else if (route.query.store) {
       selectedStoreId.value = Number(route.query.store)
     } else if (stores.value.length === 1) {
       selectedStoreId.value = stores.value[0].store_id
@@ -34,12 +38,12 @@ onMounted(async () => {
   try { currentUser.value = await api.me() } catch { /* ignore */ }
 })
 
-const sidebarItems = [
-  { to: '/cu/mypage', icon: 'ti-home', label: 'マイページ' },
-  { to: '/cu/booking', icon: 'ti-calendar-plus', label: '予約' },
-  { to: '/cu/contact', icon: 'ti-help', label: 'お問い合わせ' },
-  { to: '/cu/help', icon: 'ti-book', label: 'ヘルプ' },
-]
+const sidebarItems = computed(() => [
+  { to: customerPath(route, 'mypage'), icon: 'ti-home', label: 'マイページ' },
+  { to: customerPath(route, 'booking'), icon: 'ti-calendar-plus', label: '予約' },
+  { to: customerPath(route, 'contact'), icon: 'ti-help', label: 'お問い合わせ' },
+  { to: customerPath(route, 'help'), icon: 'ti-book', label: 'ヘルプ' },
+])
 
 function toggleSidebar() {
   sidebarOpen.value = !sidebarOpen.value
@@ -57,7 +61,7 @@ function switchStore(storeId) {
 async function onLogout() {
   try { await api.logout() } catch { /* ignore */ }
   resetAuthCache()
-  router.push('/cu/login')
+  router.push(customerPath(route, 'login'))
 }
 
 function onDocClick(e) {
@@ -79,8 +83,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 <template>
   <div class="customer-layout has-bottomnav">
     <!-- Store Drawer (多店舗切替) -->
-    <div v-if="stores.length > 1" class="rk-store-overlay" :class="{ show: drawerOpen }" @click="drawerOpen = false"></div>
-    <aside v-if="stores.length > 1" class="rk-store-drawer" :class="{ show: drawerOpen }">
+    <div v-if="!storeSlug && stores.length > 1" class="rk-store-overlay" :class="{ show: drawerOpen }" @click="drawerOpen = false"></div>
+    <aside v-if="!storeSlug && stores.length > 1" class="rk-store-drawer" :class="{ show: drawerOpen }">
       <div class="rk-store-drawer__header">
         <span>店舗を選択</span>
         <button class="btn-close" @click="drawerOpen = false"></button>
@@ -102,7 +106,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
     <!-- Sidebar -->
     <aside class="sidebar cu-sidebar" :class="{ show: sidebarOpen }">
       <div class="sidebar-header">
-        <router-link to="/cu/mypage" class="sidebar-brand" @click="closeSidebar">
+        <router-link :to="customerPath(route, 'mypage')" class="sidebar-brand" @click="closeSidebar">
           <img style="height: 40px;" src="/logo.svg" alt="Roomink Logo">
         </router-link>
       </div>
@@ -118,7 +122,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
               <i class="ti" :class="item.icon"></i>{{ item.label }}
             </router-link>
           </li>
-          <li v-if="stores.length > 1">
+          <li v-if="!storeSlug && stores.length > 1">
             <a class="nav-link" href="#" @click.prevent="drawerOpen = true; closeSidebar()">
               <i class="ti ti-building-store"></i>店舗切替
             </a>
@@ -146,14 +150,14 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         <div class="header-actions">
           <slot name="actions"></slot>
         </div>
-        <router-link to="/cu/profile" class="header-avator">
+        <router-link :to="customerPath(route, 'profile')" class="header-avator">
           <UserAvatar :name="currentUser?.display_name" :avatar-url="currentUser?.avatar_url" :size="32" />
         </router-link>
       </header>
 
       <main class="container">
         <div style="max-width: 640px; margin: 0 auto;">
-          <slot :store-id="selectedStoreId" :store-q="storeQ" :stores="stores" :drawer-open="drawerOpen"></slot>
+          <slot :store-id="selectedStoreId" :store-slug="storeSlug" :store-q="storeQ" :stores="stores" :drawer-open="drawerOpen"></slot>
         </div>
       </main>
 
@@ -161,19 +165,19 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
       <footer class="footer position-fixed bottom-0 w-100 p-3 bg-white border-top">
         <div class="container d-flex align-items-center justify-content-around">
           <button class="btn border-0 p-0">
-            <router-link :to="'/cu/mypage' + storeQ" class="nav-link" :class="{ active: route.path === '/cu/mypage' }">
+            <router-link :to="customerPath(route, 'mypage') + storeQ" class="nav-link" :class="{ active: route.path === customerPath(route, 'mypage') }">
               <i class="ti ti-home"></i>
               <small>ホーム</small>
             </router-link>
           </button>
           <button class="btn border-0 p-0">
-            <router-link :to="'/cu/booking' + storeQ" class="nav-link" :class="{ active: route.path === '/cu/booking' }">
+            <router-link :to="customerPath(route, 'booking') + storeQ" class="nav-link" :class="{ active: route.path === customerPath(route, 'booking') }">
               <i class="ti ti-plus"></i>
               <small>予約</small>
             </router-link>
           </button>
           <button class="btn border-0 p-0">
-            <a :href="'/cu/mypage' + storeQ + '#fav'" class="nav-link">
+            <a :href="customerPath(route, 'mypage') + storeQ + '#fav'" class="nav-link">
               <i class="ti ti-heart"></i>
               <small>推し</small>
             </a>

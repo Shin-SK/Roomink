@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutCustomer from '../../components/LayoutCustomer.vue'
 import { api } from '../../api.js'
+import { customerPath, routeStoreSlug } from '../../customerStore.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -17,13 +18,14 @@ const options = ref([])
 
 const stores = ref([])
 const selectedStoreId = ref(null)
+const storeSlug = routeStoreSlug(route)
 
 const slots = ref([])
 const slotsLoading = ref(false)
 const slotsFetched = ref(false)
 const selectedSlotStartAt = ref('')
 
-const storeQ = computed(() => selectedStoreId.value ? '?store=' + selectedStoreId.value : '')
+const storeQ = computed(() => !storeSlug && selectedStoreId.value ? '?store=' + selectedStoreId.value : '')
 
 const form = ref({
   cast: '',
@@ -39,13 +41,15 @@ onMounted(async () => {
     const storeData = await api.getCustomerStores()
     stores.value = storeData.stores
 
-    if (route.query.store) {
+    if (storeSlug) {
+      selectedStoreId.value = stores.value.find(s => s.store_slug === storeSlug)?.store_id || null
+    } else if (route.query.store) {
       selectedStoreId.value = Number(route.query.store)
     } else if (stores.value.length === 1) {
       selectedStoreId.value = stores.value[0].store_id
     }
 
-    const data = await api.getBookingOptions(selectedStoreId.value)
+    const data = await api.getBookingOptions(selectedStoreId.value, storeSlug)
     casts.value = data.casts
     courses.value = data.courses
     options.value = data.options
@@ -82,7 +86,7 @@ watch(
     if (!cast || !date) return
     slotsLoading.value = true
     try {
-      const data = await api.getAvailableSlots(cast, date, selectedStoreId.value)
+      const data = await api.getAvailableSlots(cast, date, selectedStoreId.value, storeSlug)
       slots.value = data.slots
       slotsFetched.value = true
     } catch (e) {
@@ -161,9 +165,10 @@ async function submit() {
       options: form.value.options,
       memo: form.value.memo,
     }
-    const order = await api.createCustomerBooking(body, selectedStoreId.value)
+    const order = await api.createCustomerBooking(body, selectedStoreId.value, storeSlug)
     router.push({
-      name: 'cu-submitted',
+      name: storeSlug ? 'store-cu-submitted' : 'cu-submitted',
+      params: storeSlug ? { storeSlug } : {},
       query: {
         store: selectedStoreId.value || undefined,
         id: order.id,
@@ -325,7 +330,7 @@ async function submit() {
             </div>
 
             <div class="d-flex gap-2">
-              <router-link :to="'/cu/mypage' + storeQ" class="btn btn-outline-secondary flex-fill">戻る</router-link>
+              <router-link :to="customerPath(route, 'mypage') + storeQ" class="btn btn-outline-secondary flex-fill">戻る</router-link>
               <button type="submit" class="btn btn-primary flex-fill" :disabled="submitting">
                 <span v-if="submitting" class="spinner-border spinner-border-sm me-1"></span>
                 <i v-else class="ti ti-send"></i> 予約を申請

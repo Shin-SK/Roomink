@@ -11,6 +11,7 @@ const success = ref('')
 const storeName = ref('')
 const bookingUrl = ref('')
 const notice = ref('')
+const storeSlug = ref('')
 
 async function load() {
   loading.value = true
@@ -20,6 +21,7 @@ async function load() {
     storeName.value = data.store_name || ''
     bookingUrl.value = data.public_booking_url || ''
     notice.value = data.public_booking_notice || ''
+    storeSlug.value = data.store_slug || ''
   } catch (e) {
     error.value = e.message
   } finally {
@@ -32,8 +34,13 @@ async function save() {
   error.value = ''
   success.value = ''
   try {
-    const data = await api.updatePublicBookingSettings({ public_booking_notice: notice.value })
+    const data = await api.updatePublicBookingSettings({
+      public_booking_notice: notice.value,
+      store_slug: storeSlug.value,
+    })
     notice.value = data.public_booking_notice || ''
+    storeSlug.value = data.store_slug || ''
+    bookingUrl.value = data.public_booking_url || ''
     success.value = '保存しました'
   } catch (e) {
     error.value = e.message
@@ -76,6 +83,20 @@ onMounted(load)
             </button>
           </div>
           <div class="form-text">このURLでは店舗選択を表示せず、この店舗の予約情報だけを表示します。</div>
+          <label class="form-label mt-3">URL識別子</label>
+          <div class="input-group">
+            <span class="input-group-text">/s/</span>
+            <input
+              v-model.trim="storeSlug"
+              class="form-control"
+              maxlength="80"
+              pattern="[a-z0-9-]+"
+              placeholder="rs-spa"
+            />
+          </div>
+          <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small">
+            変更すると今後発行するURLが変わります。配布済みの古いURLは新しいURLへ引き継がれますが、通常は変更しないでください。
+          </div>
         </div>
       </div>
 

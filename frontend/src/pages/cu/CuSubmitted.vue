@@ -1,6 +1,7 @@
 <script setup>
 import { useRoute } from 'vue-router'
 import LayoutCustomer from '../../components/LayoutCustomer.vue'
+import { customerPath, routeStoreSlug } from '../../customerStore.js'
 
 const route = useRoute()
 
@@ -9,7 +10,8 @@ const courseName = route.query.course_name || ''
 const date = route.query.date || ''
 const time = route.query.time || ''
 const total = route.query.total || 0
-const storeQ = route.query.store ? '?store=' + route.query.store : ''
+const storeSlug = routeStoreSlug(route)
+const storeQ = !storeSlug && route.query.store ? '?store=' + route.query.store : ''
 
 function formatYen(n) {
   return `¥${Number(n).toLocaleString()}`
@@ -92,10 +94,10 @@ function formatYen(n) {
 
       <!-- アクション -->
       <div class="d-flex gap-3 justify-content-center mt-4 mb-5">
-        <a :href="'/cu/mypage' + storeQ" class="btn btn-primary">
+        <a :href="customerPath(route, 'mypage') + storeQ" class="btn btn-primary">
           <i class="ti ti-home"></i> マイページへ
         </a>
-        <a :href="'/cu/booking' + storeQ" class="btn btn-outline-primary">
+        <a :href="customerPath(route, 'booking') + storeQ" class="btn btn-outline-primary">
           <i class="ti ti-plus"></i> 別の予約を申請
         </a>
       </div>

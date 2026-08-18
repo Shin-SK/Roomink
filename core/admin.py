@@ -9,7 +9,7 @@ from .models import (
     CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerAccountInvitation, CustomerMergeLog,
     DailySettlement, LineNotificationLog, Option, Order, OrderServiceRecipientLinkLog, PointLog, PublicBookingVerification, Room,
-    ShiftAssignment, ShiftConfirmNotificationLog, ShiftEndAlert, ShiftRequest, SmsLog, SmsTemplate, Store,
+    ShiftAssignment, ShiftConfirmNotificationLog, ShiftEndAlert, ShiftRequest, SmsLog, SmsTemplate, Store, StoreSlugAlias,
     StorePhoneNumber, UserProfile,
     generate_line_link_code,
 )
@@ -18,9 +18,9 @@ from .services.cast_user import ensure_user_profile, create_staff_with_user
 
 @admin.register(Store)
 class StoreAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "timezone", "line_is_enabled", "line_add_friend_url")
+    list_display = ("id", "name", "slug", "timezone", "line_is_enabled", "line_add_friend_url")
     fieldsets = (
-        (None, {"fields": ("name", "timezone")}),
+        (None, {"fields": ("name", "slug", "timezone")}),
         ("LINE設定", {"fields": (
             "line_is_enabled",
             "line_channel_secret",
@@ -35,6 +35,13 @@ class StoreAdmin(admin.ModelAdmin):
         )}),
     )
     readonly_fields = ("line_webhook_token", "line_operations_linked_at")
+
+
+@admin.register(StoreSlugAlias)
+class StoreSlugAliasAdmin(admin.ModelAdmin):
+    list_display = ("slug", "store", "created_at")
+    list_filter = ("store",)
+    readonly_fields = ("created_at",)
 
 
 @admin.register(Room)

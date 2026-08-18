@@ -2,9 +2,11 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, normalizePhone } from '../../api.js'
+import { routeStoreSlug } from '../../customerStore.js'
 
 const route = useRoute()
 const router = useRouter()
+const storeSlug = routeStoreSlug(route)
 
 const loading = ref(true)
 const loadingOptions = ref(false)
@@ -127,13 +129,14 @@ function selectCourse(courseId) {
 }
 
 async function loadOptions() {
-  if (!form.value.store || !form.value.date) return
+  if ((!form.value.store && !storeSlug) || !form.value.date) return
   loadingOptions.value = true
   error.value = ''
   try {
-    const data = await api.getPublicBookingOptions(form.value.store, form.value.date)
+    const data = await api.getPublicBookingOptions(form.value.store, form.value.date, storeSlug)
     if (data.store) {
       stores.value = [{ store_id: data.store.id, store_name: data.store.name }]
+      form.value.store = data.store.id
       publicBookingNotice.value = data.store.public_booking_notice || ''
     }
     casts.value = data.casts || []
@@ -167,6 +170,7 @@ async function loadSlots() {
       form.value.cast,
       form.value.course,
       form.value.date,
+      storeSlug,
     )
     slots.value = data.slots || []
   } catch (e) {
@@ -189,9 +193,11 @@ watch(
 watch([castSearch, selectedArea], () => { castVisibleLimit.value = 12 })
 watch([courseSearch, selectedDuration], () => { courseVisibleLimit.value = 12 })
 
-onMounted(() => {
+onMounted(async () => {
   const requestedStore = Number(route.query.store)
-  if (!Number.isInteger(requestedStore) || requestedStore <= 0) {
+  if (storeSlug) {
+    await loadOptions()
+  } else if (!Number.isInteger(requestedStore) || requestedStore <= 0) {
     error.value = '店舗専用のWeb予約URLからアクセスしてください。'
   } else {
     form.value.store = requestedStore
@@ -222,6 +228,7 @@ async function requestVerification() {
     const result = await api.requestPublicBookingVerification({
       ...form.value,
       store: Number(form.value.store),
+      store_slug: storeSlug,
       cast: Number(form.value.cast),
       course: Number(form.value.course),
       phone: normalizePhone(form.value.phone),
@@ -249,7 +256,9 @@ async function confirmBooking() {
   try {
     const result = await api.confirmPublicBooking(verificationId.value, code.value)
     sessionStorage.setItem('roomink-public-booking-result', JSON.stringify(result))
-    router.replace({ name: 'public-booking-complete' })
+    router.replace(storeSlug
+      ? { name: 'store-public-booking-complete', params: { storeSlug } }
+      : { name: 'public-booking-complete' })
   } catch (e) {
     error.value = e.message
     if (e.status === 409) step.value = 'booking'
@@ -263,7 +272,7 @@ async function confirmBooking() {
   <div class="public-booking-page">
     <header class="public-header">
       <img src="/logo.svg" alt="Roomink" class="public-header__logo">
-      <router-link to="/cu/login" class="member-link">会員ログイン</router-link>
+      <router-link :to="storeSlug ? `/s/${storeSlug}/login` : '/cu/login'" class="member-link">会員ログイン</router-link>
     </header>
 
     <main class="public-booking-container">

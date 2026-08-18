@@ -1,6 +1,10 @@
 <script setup>
 import { onMounted } from 'vue'
 import { api } from '../../api.js'
+import { useRoute } from 'vue-router'
+import { customerPath } from '../../customerStore.js'
+
+const route = useRoute()
 
 onMounted(async () => {
   try { await api.csrf() } catch { /* 案内表示は継続する */ }
@@ -19,7 +23,7 @@ onMounted(async () => {
         <p class="text-muted small mb-4">
           SMSが届かない場合や有効期限が切れた場合は、予約した店舗へお問い合わせください。
         </p>
-        <router-link to="/cu/login" class="btn btn-primary">ログイン画面へ</router-link>
+        <router-link :to="customerPath(route, 'login')" class="btn btn-primary">ログイン画面へ</router-link>
       </div>
     </div>
   </div>

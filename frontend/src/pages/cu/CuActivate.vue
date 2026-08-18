@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../../api.js'
 import { resetAuthCache } from '../../router.js'
+import { customerPath, routeStoreSlug } from '../../customerStore.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,13 +14,14 @@ const maskedPhone = ref('')
 const password = ref('')
 const passwordConfirm = ref('')
 const token = ref('')
+const storeSlug = routeStoreSlug(route)
 
 onMounted(async () => {
   try {
     token.value = typeof route.query.token === 'string' ? route.query.token : ''
-    if (token.value) window.history.replaceState({}, '', '/cu/activate')
+    if (token.value) window.history.replaceState({}, '', customerPath(route, 'activate'))
     await api.csrf()
-    const data = await api.getCustomerActivation(token.value)
+    const data = await api.getCustomerActivation(token.value, storeSlug)
     maskedPhone.value = data.masked_phone
   } catch (e) {
     error.value = e.message || 'この案内は利用できません。店舗へお問い合わせください。'
@@ -38,7 +40,7 @@ async function activate() {
   try {
     const data = await api.activateCustomer(token.value, password.value, passwordConfirm.value)
     resetAuthCache()
-    router.replace(data.next || '/cu/mypage')
+    router.replace(data.next || customerPath(route, 'mypage'))
   } catch (e) {
     error.value = Array.isArray(e.data?.detail) ? e.data.detail.join('\n') : (e.message || '設定できませんでした。')
   } finally {
@@ -80,7 +82,7 @@ async function activate() {
             </button>
           </form>
           <div v-else class="text-center mt-3">
-            <router-link to="/cu/signup" class="btn btn-outline-primary">案内を見る</router-link>
+            <router-link :to="customerPath(route, 'signup')" class="btn btn-outline-primary">案内を見る</router-link>
           </div>
         </template>
       </div>

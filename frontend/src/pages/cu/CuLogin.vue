@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '../../api.js'
 import { resetAuthCache } from '../../router.js'
+import { customerPath, routeStoreSlug } from '../../customerStore.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -10,13 +11,15 @@ const phone = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
+const storeSlug = routeStoreSlug(route)
+const mypagePath = customerPath(route, 'mypage')
 
 onMounted(async () => {
   try { await api.csrf() } catch { /* ignore */ }
   try {
     const me = await api.me()
     const roles = me.roles || [me.role]
-    if (roles.includes('customer')) router.replace(route.query.next || '/cu/mypage')
+    if (roles.includes('customer')) router.replace(route.query.next || mypagePath)
   } catch {
     // 未ログイン
   }
@@ -26,9 +29,9 @@ async function onSubmit() {
   error.value = ''
   loading.value = true
   try {
-    await api.customerLogin(phone.value, password.value)
+    await api.customerLogin(phone.value, password.value, storeSlug)
     resetAuthCache()
-    router.push(route.query.next || '/cu/mypage')
+    router.push(route.query.next || mypagePath)
   } catch (e) {
     error.value = e.message || 'ログインに失敗しました'
   } finally {
@@ -78,7 +81,7 @@ async function onSubmit() {
         </form>
 
         <div class="text-center mt-3">
-          <router-link to="/cu/signup" class="small">アカウントをお持ちでない方はこちら</router-link>
+          <router-link :to="customerPath(route, 'signup')" class="small">アカウントをお持ちでない方はこちら</router-link>
         </div>
       </div>
     </div>

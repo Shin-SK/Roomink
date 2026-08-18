@@ -32,8 +32,8 @@ User = get_user_model()
 )
 class CustomerInvitationFlowTest(TestCase):
     def setUp(self):
-        self.store = Store.objects.create(name="招待テスト店舗")
-        self.other_store = Store.objects.create(name="他店舗")
+        self.store = Store.objects.create(name="招待テスト店舗", slug="invitation-store")
+        self.other_store = Store.objects.create(name="他店舗", slug="other-store")
         self.manager = User.objects.create_user("invite_manager", password="manager-pass-123")
         UserProfile.objects.create(
             user=self.manager,
@@ -92,8 +92,8 @@ class CustomerInvitationFlowTest(TestCase):
             response = self.manager_client.post(f"/api/orders/{self.order.id}/confirm/")
 
         self.assertEqual(response.status_code, 200, response.data)
-        activation_body = next(body for body in bodies if "/cu/activate?token=" in body)
-        match = re.search(r"/cu/activate\?token=([^\s]+)", activation_body)
+        activation_body = next(body for body in bodies if "/s/invitation-store/activate?token=" in body)
+        match = re.search(r"/s/invitation-store/activate\?token=([^\s]+)", activation_body)
         self.assertIsNotNone(match)
         return match.group(1), activation_body
 
@@ -134,7 +134,7 @@ class CustomerInvitationFlowTest(TestCase):
         self.assertNotIn(token, invitation.token_hash)
         self.assertGreater(invitation.expires_at, timezone.now() + timedelta(hours=71))
         self.assertLessEqual(invitation.expires_at, timezone.now() + timedelta(hours=73))
-        self.assertIn("https://roomink.example/cu/activate?token=", sent_body)
+        self.assertIn("https://roomink.example/s/invitation-store/activate?token=", sent_body)
 
         log = SmsLog.objects.get(
             order=self.order,
@@ -177,7 +177,10 @@ class CustomerInvitationFlowTest(TestCase):
         self.assertEqual(me.status_code, 200, me.data)
         self.assertEqual(me.data["role"], "customer")
         self.assertEqual(me.data["roles"], ["customer"])
-        self.assertIn(f"/cu/reservations/{self.order.id}", activated.data["next"])
+        self.assertEqual(
+            activated.data["next"],
+            f"/s/invitation-store/mypage/reservations/{self.order.id}",
+        )
 
     def test_invalid_expired_and_used_tokens_share_generic_response_and_do_not_mutate(self):
         token, _ = self._confirm_and_get_token()
@@ -393,8 +396,8 @@ class CustomerInvitationFlowTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(CustomerAccountInvitation.objects.filter(customer=self.customer).count(), 0)
         customer_body = next(body for body in token_bodies if body.startswith("【Roomink】ご予約"))
-        self.assertIn("/cu/login?", customer_body)
-        self.assertNotIn("/cu/activate?", customer_body)
+        self.assertIn("/s/invitation-store/login?", customer_body)
+        self.assertNotIn("/s/invitation-store/activate?", customer_body)
 
     @override_settings(FRONTEND_URL="")
     def test_missing_frontend_url_fails_closed_without_creating_invitation(self):

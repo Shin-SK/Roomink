@@ -282,9 +282,10 @@ def notify_customer_account(customer, order=None, created_by=None, force=False) 
         )
 
     invitation = None
+    customer_base_url = f"{frontend_url}/s/{customer.store.slug}"
     if customer.user_id:
-        next_path = f"/cu/reservations/{order.id}?store={customer.store_id}" if order else f"/cu/mypage?store={customer.store_id}"
-        customer_url = f"{frontend_url}/cu/login?{urlencode({'next': next_path})}"
+        next_path = f"/s/{customer.store.slug}/mypage/reservations/{order.id}" if order else f"/s/{customer.store.slug}/mypage"
+        customer_url = f"{customer_base_url}/login?{urlencode({'next': next_path})}"
         guidance = "予約内容は次のURLから確認できます。"
     else:
         invitation, raw_token = issue_customer_invitation(
@@ -294,10 +295,10 @@ def notify_customer_account(customer, order=None, created_by=None, force=False) 
             force=force,
         )
         if raw_token:
-            customer_url = f"{frontend_url}/cu/activate?{urlencode({'token': raw_token})}"
+            customer_url = f"{customer_base_url}/activate?{urlencode({'token': raw_token})}"
             guidance = "次のURLから72時間以内にパスワードを設定してください。"
         else:
-            customer_url = f"{frontend_url}/cu/signup"
+            customer_url = f"{customer_base_url}/signup"
             guidance = "すでに初回設定のご案内を送信済みです。案内が見つからない場合は店舗へお問い合わせください。"
 
     body = f"{base_body}\n{guidance}\n{customer_url}"

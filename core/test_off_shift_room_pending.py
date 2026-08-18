@@ -1,8 +1,9 @@
-from datetime import date, datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from core.models import (
@@ -23,7 +24,7 @@ TOKYO = ZoneInfo("Asia/Tokyo")
 
 class OffShiftRoomPendingOrderTest(TestCase):
     def setUp(self):
-        self.business_date = date(2026, 8, 16)
+        self.business_date = timezone.localdate() + timedelta(days=2)
         self.store = Store.objects.create(name="シフト外予約テスト店")
         self.room = Room.objects.create(store=self.store, name="101")
         self.other_room = Room.objects.create(store=self.store, name="102")
@@ -70,7 +71,11 @@ class OffShiftRoomPendingOrderTest(TestCase):
         return client
 
     def at(self, hour, minute=0):
-        return datetime(2026, 8, 16, hour, minute, tzinfo=TOKYO)
+        return datetime.combine(
+            self.business_date,
+            time(hour, minute),
+            tzinfo=TOKYO,
+        )
 
     def order_payload(self, cast=None, hour=12):
         return {

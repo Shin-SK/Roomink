@@ -94,6 +94,7 @@ def serialize_public_booking_options(store, business_date=None):
         "store": {
             "id": store.id,
             "name": store.name,
+            "slug": store.slug,
             "public_booking_notice": store.public_booking_notice,
         },
         "casts": casts,
@@ -118,7 +119,12 @@ def get_public_booking_slots(store, cast_id, course_id, business_date, now=None)
     )
 
 
-def _required_store(store_id):
+def _required_store(store_id=None, store_slug=None):
+    if store_slug:
+        store = Store.resolve_slug(store_slug)
+        if store is not None:
+            return store
+        raise PublicBookingError("店舗を選択してください。")
     try:
         store_id = int(store_id)
     except (TypeError, ValueError):
@@ -212,7 +218,7 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False):
 
 
 def request_public_booking_verification(data):
-    store = _required_store(data.get("store"))
+    store = _required_store(data.get("store"), data.get("store_slug"))
     phone = _normalize_booking_phone(data.get("phone"))
     display_name = _clean_display_name(data.get("display_name"))
     selection = _clean_booking_selection(data, store)
