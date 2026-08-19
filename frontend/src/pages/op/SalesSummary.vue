@@ -256,7 +256,7 @@ onMounted(async () => {
                     <td class="text-end">{{ formatYen(c.sales) }}</td>
                     <td class="text-end">{{ formatYen(c.course_sales) }}</td>
                     <td class="text-end">{{ formatYen(c.options_sales) }}</td>
-                    <td class="text-end">{{ c.course_back_rate }}%<span v-if="c.option_fullback_enabled">・OP全額</span></td>
+                    <td class="text-end">コース {{ c.course_back_rate }}%・OP {{ c.option_back_rate ?? (c.option_fullback_enabled ? 100 : 0) }}%</td>
                     <td class="text-end fw-bold text-primary">{{ formatYen(c.estimated_pay) }}</td>
                   </tr>
                 </tbody>

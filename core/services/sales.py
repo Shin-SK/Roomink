@@ -203,7 +203,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
         course_sales = row["course_sales"] or 0
         options_sales = row["options_sales"] or 0
         course_back = math.floor(course_sales * cast.course_back_rate / 100)
-        option_back = options_sales if cast.option_fullback_enabled else 0
+        option_back = math.floor(options_sales * cast.option_back_rate / 100)
         by_cast.append({
             "cast_id": cast.id,
             "cast_name": cast.name,
@@ -212,6 +212,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
             "course_sales": course_sales,
             "options_sales": options_sales,
             "course_back_rate": cast.course_back_rate,
+            "option_back_rate": cast.option_back_rate,
             "option_fullback_enabled": cast.option_fullback_enabled,
             "estimated_pay": course_back + option_back,
         })
@@ -338,11 +339,11 @@ def get_sales_dashboard_csv(store, date_from, date_to, cast_id=None, room_id=Non
     writer.writerow([])
 
     writer.writerow(["キャスト別"])
-    writer.writerow(["キャスト名", "件数", "売上", "コース売上", "オプション売上", "バック率(%)", "OP全額バック", "給与見込み"])
+    writer.writerow(["キャスト名", "件数", "売上", "コース売上", "オプション売上", "コースバック率(%)", "OPバック率(%)", "給与見込み"])
     for r in data["by_cast"]:
         writer.writerow([
             r["cast_name"], r["orders"], r["sales"], r["course_sales"], r["options_sales"],
-            r["course_back_rate"], "○" if r["option_fullback_enabled"] else "", r["estimated_pay"],
+            r["course_back_rate"], r["option_back_rate"], r["estimated_pay"],
         ])
     writer.writerow([])
 

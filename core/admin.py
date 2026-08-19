@@ -52,8 +52,9 @@ class RoomAdmin(admin.ModelAdmin):
 
 @admin.register(Cast)
 class CastAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "name", "preferred_areas_display", "age", "interval_minutes", "course_back_rate", "user", "line_link_code", "line_linked_at")
+    list_display = ("id", "store", "name", "preferred_areas_display", "age", "interval_minutes", "course_back_rate", "option_back_rate", "user", "line_link_code", "line_linked_at")
     list_filter = ("store",)
+    exclude = ("option_fullback_enabled",)
     readonly_fields = ("line_user_id", "line_linked_at", "line_unlink_button")
 
     @admin.display(description="希望エリア")

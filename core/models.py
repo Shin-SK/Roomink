@@ -3,6 +3,7 @@ import string
 import uuid
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -166,6 +167,11 @@ class Cast(models.Model):
     interval_minutes = models.PositiveSmallIntegerField(default=15, help_text="イ��ターバル時間（分）")
     course_back_rate = models.PositiveSmallIntegerField(default=0, help_text="コースバック率（%）")
     option_fullback_enabled = models.BooleanField(default=False, help_text="オプション全額バック")
+    option_back_rate = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="オプションバック率（%）",
+    )
     preferred_area_1 = models.CharField(max_length=50, blank=True, default="", help_text="希望エリア 第1希望")
     preferred_area_2 = models.CharField(max_length=50, blank=True, default="", help_text="希望エリア 第2希望")
     preferred_area_3 = models.CharField(max_length=50, blank=True, default="", help_text="希望エリア 第3希望")
