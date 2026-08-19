@@ -782,7 +782,7 @@ def _compute_cast_done_sales(cast, d):
     options_sales = sum(o.options_price for o in done_orders)
 
     course_back = math.floor(course_sales * cast.course_back_rate / 100)
-    option_back = options_sales if cast.option_fullback_enabled else 0
+    option_back = math.floor(options_sales * cast.option_back_rate / 100)
     estimated_pay = course_back + option_back
 
     return {
@@ -4840,7 +4840,7 @@ class DailySettlementView(APIView):
             options_sales = sum(o.options_price for o in cast_orders)
 
             course_back = math.floor(course_sales * cast.course_back_rate / 100)
-            option_back = options_sales if cast.option_fullback_enabled else 0
+            option_back = math.floor(options_sales * cast.option_back_rate / 100)
             back_amount = course_back + option_back
 
             # 雑費控除
@@ -4871,6 +4871,7 @@ class DailySettlementView(APIView):
                 "course_sales": course_sales,
                 "options_sales": options_sales,
                 "course_back_rate": cast.course_back_rate,
+                "option_back_rate": cast.option_back_rate,
                 "option_fullback_enabled": cast.option_fullback_enabled,
                 "back_amount": back_amount,
                 "expense_total": expense_total,
@@ -5021,7 +5022,7 @@ class DailySettlementExportView(APIView):
         writer.writerow([
             "キャスト名", "出勤", "予約件数",
             "コース売上", "オプション売上",
-            "バック率(%)", "OP全額バック",
+            "コースバック率(%)", "OPバック率(%)",
             "バック額", "雑費", "ポイント",
             "現金件数", "現金預り", "振込額",
         ])
@@ -5034,7 +5035,7 @@ class DailySettlementExportView(APIView):
                 r.get("course_sales", 0),
                 r.get("options_sales", 0),
                 r.get("course_back_rate", 0),
-                "○" if r.get("option_fullback_enabled") else "",
+                r.get("option_back_rate", 100 if r.get("option_fullback_enabled") else 0),
                 r.get("back_amount", 0),
                 r.get("expense_total", 0),
                 r.get("point_total", 0),

@@ -36,7 +36,7 @@ function emptyForm() {
     preferred_area_5: '',
     interval_minutes: 15,
     course_back_rate: 0,
-    option_fullback_enabled: false,
+    option_back_rate: 0,
   }
 }
 
@@ -93,7 +93,7 @@ function openEdit(c) {
     preferred_area_5: c.preferred_area_5 || '',
     interval_minutes: c.interval_minutes ?? 15,
     course_back_rate: c.course_back_rate ?? 0,
-    option_fullback_enabled: c.option_fullback_enabled ?? false,
+    option_back_rate: c.option_back_rate ?? (c.option_fullback_enabled ? 100 : 0),
   }
   formError.value = ''
   showForm.value = true
@@ -156,7 +156,7 @@ async function onSave() {
       preferred_area_5: form.value.preferred_area_5,
       interval_minutes: Number(form.value.interval_minutes),
       course_back_rate: Number(form.value.course_back_rate),
-      option_fullback_enabled: form.value.option_fullback_enabled,
+      option_back_rate: Number(form.value.option_back_rate),
     }
     if (editingId.value) {
       await api.updateCast(editingId.value, payload)
@@ -366,6 +366,7 @@ async function toggleExpenseHistory() {
             <col style="width: 64px">
             <col style="width: 64px">
             <col style="width: 72px">
+            <col style="width: 72px">
             <col style="width: 80px">
             <col style="width: 48px">
           </colgroup>
@@ -376,7 +377,8 @@ async function toggleExpenseHistory() {
               <th>常時メモ</th>
               <th class="text-end">年齢</th>
               <th class="text-end">IV</th>
-              <th class="text-end">バック</th>
+              <th class="text-end">コース</th>
+              <th class="text-end">OP</th>
               <th class="text-center">LINE</th>
               <th></th>
             </tr>
@@ -422,6 +424,7 @@ async function toggleExpenseHistory() {
               <td class="text-end">{{ c.age || '—' }}</td>
               <td class="text-end">{{ c.interval_minutes }}分</td>
               <td class="text-end">{{ c.course_back_rate }}%</td>
+              <td class="text-end">{{ c.option_back_rate ?? (c.option_fullback_enabled ? 100 : 0) }}%</td>
               <td class="text-center">
                 <span v-if="c.line_linked" class="badge bg-success">連携済</span>
                 <span v-else class="badge bg-secondary">未連携</span>
@@ -543,9 +546,10 @@ async function toggleExpenseHistory() {
               <label class="form-label">コースバック率（%）</label>
               <input v-model.number="form.course_back_rate" type="number" class="form-control" min="0" max="100" />
             </div>
-            <div class="mb-3 form-check">
-              <input v-model="form.option_fullback_enabled" type="checkbox" class="form-check-input" id="optionFullback" />
-              <label class="form-check-label" for="optionFullback">オプション全額バック</label>
+            <div class="mb-3">
+              <label class="form-label">オプションバック率（%）</label>
+              <input v-model.number="form.option_back_rate" type="number" class="form-control" min="0" max="100" />
+              <small class="text-muted">100%にすると全額バックになります</small>
             </div>
 
             <hr class="my-3">

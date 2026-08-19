@@ -168,8 +168,8 @@ function formatDt(iso) {
                 <td class="text-end">{{ yen(r.course_sales) }}</td>
                 <td class="text-end">{{ yen(r.options_sales) }}</td>
                 <td class="text-end text-muted" style="font-size: 0.8rem;">
-                  {{ r.course_back_rate }}%
-                  <span v-if="r.option_fullback_enabled" class="badge bg-info ms-1" style="font-size: 0.6rem;">OP全額</span>
+                  コース {{ r.course_back_rate }}%
+                  <span class="badge bg-info ms-1" style="font-size: 0.6rem;">OP {{ r.option_back_rate ?? (r.option_fullback_enabled ? 100 : 0) }}%</span>
                 </td>
                 <td class="text-end">{{ yen(r.back_amount) }}</td>
                 <td class="text-end text-danger">{{ r.expense_total ? '-' + yen(r.expense_total) : '—' }}</td>

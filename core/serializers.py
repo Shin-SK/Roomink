@@ -147,6 +147,11 @@ class CastSerializer(serializers.ModelSerializer):
         return cast
 
     def validate(self, attrs):
+        if "option_back_rate" in attrs:
+            attrs["option_fullback_enabled"] = attrs["option_back_rate"] == 100
+        elif "option_fullback_enabled" in attrs:
+            attrs["option_back_rate"] = 100 if attrs["option_fullback_enabled"] else 0
+
         submitted_fields = [
             field for field in self.preferred_area_fields
             if field in self.initial_data
