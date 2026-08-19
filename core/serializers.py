@@ -478,7 +478,7 @@ class StaffSerializer(serializers.ModelSerializer):
 class StaffCreateSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     password = serializers.CharField(max_length=128, write_only=True)
-    email = serializers.EmailField(required=False, default="")
+    email = serializers.EmailField(required=False, allow_blank=True, default="")
     role = serializers.ChoiceField(
         choices=[("staff", "スタッフ"), ("manager", "マネージャー")],
         default="staff",
@@ -505,7 +505,7 @@ class StaffCreateSerializer(serializers.Serializer):
 
 
 class StaffUpdateSerializer(serializers.Serializer):
-    email = serializers.EmailField(required=False)
+    email = serializers.EmailField(required=False, allow_blank=True)
     role = serializers.ChoiceField(
         choices=[("staff", "スタッフ"), ("manager", "マネージャー")],
         required=False,
