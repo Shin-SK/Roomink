@@ -161,7 +161,14 @@ async function onSave() {
     if (editingId.value) {
       await api.updateCast(editingId.value, payload)
     } else {
-      await api.createCast(payload)
+      await api.createCast({
+        ...payload,
+        expense_templates: expenseTemplates.value.map(t => ({
+          name: t.name,
+          amount: Number(t.amount),
+          memo: t.memo || '',
+        })),
+      })
     }
     showForm.value = false
     await loadCasts()
@@ -195,6 +202,7 @@ const expenseTemplatesLoading = ref(false)
 const expenseTemplatesError = ref('')
 const showExpenseForm = ref(false)
 const editingExpenseTemplateId = ref(null)
+const nextPendingExpenseId = ref(1)
 const expenseForm = ref(emptyExpenseForm())
 const expenseSaving = ref(false)
 
@@ -236,17 +244,45 @@ async function onExpenseSave() {
       amount: Number(expenseForm.value.amount),
       memo: expenseForm.value.memo,
     }
-    if (editingExpenseTemplateId.value) {
+    if (!editingId.value) {
+      if (editingExpenseTemplateId.value) {
+        const index = expenseTemplates.value.findIndex(
+          t => t.id === editingExpenseTemplateId.value,
+        )
+        if (index !== -1) {
+          expenseTemplates.value.splice(index, 1, {
+            ...expenseTemplates.value[index],
+            ...body,
+          })
+        }
+      } else {
+        expenseTemplates.value.push({
+          id: `pending-${nextPendingExpenseId.value++}`,
+          ...body,
+          is_active: true,
+        })
+      }
+    } else if (editingExpenseTemplateId.value) {
       await api.updateCastExpenseTemplate(editingExpenseTemplateId.value, body)
     } else {
       await api.createCastExpenseTemplate({ ...body, cast: editingId.value })
     }
     showExpenseForm.value = false
-    await loadExpenseTemplates(editingId.value)
+    if (editingId.value) {
+      await loadExpenseTemplates(editingId.value)
+    }
   } catch (e) {
     expenseTemplatesError.value = e.message
   } finally {
     expenseSaving.value = false
+  }
+}
+
+function removePendingExpense(t) {
+  expenseTemplates.value = expenseTemplates.value.filter(item => item.id !== t.id)
+  if (editingExpenseTemplateId.value === t.id) {
+    editingExpenseTemplateId.value = null
+    showExpenseForm.value = false
   }
 }
 
@@ -512,21 +548,23 @@ async function toggleExpenseHistory() {
               <label class="form-check-label" for="optionFullback">オプション全額バック</label>
             </div>
 
-            <template v-if="editingId">
-              <hr class="my-3">
-              <div class="d-flex align-items-center justify-content-between mb-2">
+            <hr class="my-3">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <div>
                 <h6 class="mb-0">固定雑費</h6>
-                <div class="d-flex gap-2">
-                  <button class="btn btn-outline-secondary btn-sm" @click="toggleExpenseHistory">
+                <small v-if="!editingId" class="text-muted">キャスト登録と同時に保存されます</small>
+              </div>
+              <div class="d-flex gap-2">
+                  <button v-if="editingId" class="btn btn-outline-secondary btn-sm" @click="toggleExpenseHistory">
                     {{ showExpenseHistory ? '履歴を閉じる' : '履歴を見る' }}
                   </button>
                   <button class="btn btn-outline-primary btn-sm" @click="openExpenseCreate">
                     <i class="ti ti-plus"></i> 追加
                   </button>
-                </div>
               </div>
+            </div>
 
-              <div v-if="showExpenseHistory" class="border rounded p-2 mb-2 bg-light">
+              <div v-if="editingId && showExpenseHistory" class="border rounded p-2 mb-2 bg-light">
                 <div v-if="expenseHistoryError" class="alert alert-danger py-1 px-2 small mb-2">{{ expenseHistoryError }}</div>
                 <div v-if="expenseHistoryLoading" class="text-center py-2">
                   <div class="spinner-border spinner-border-sm text-primary"></div>
@@ -589,11 +627,19 @@ async function toggleExpenseHistory() {
                       <i class="ti ti-edit"></i>
                     </button>
                     <button
+                      v-if="editingId"
                       class="btn btn-link btn-sm p-1"
                       :class="t.is_active ? 'text-danger' : 'text-success'"
                       @click="onExpenseToggleActive(t)"
                     >
                       {{ t.is_active ? '無効化' : '有効化' }}
+                    </button>
+                    <button
+                      v-else
+                      class="btn btn-link btn-sm p-1 text-danger"
+                      @click="removePendingExpense(t)"
+                    >
+                      削除
                     </button>
                   </div>
                 </li>
@@ -624,7 +670,6 @@ async function toggleExpenseHistory() {
                   </button>
                 </div>
               </div>
-            </template>
           </div>
           <div class="modal-footer d-flex">
             <button v-if="editingId" class="btn btn-outline-danger me-auto" @click="onDelete({ id: editingId, name: form.name })">
