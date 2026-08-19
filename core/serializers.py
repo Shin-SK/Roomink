@@ -96,8 +96,19 @@ class RoomSerializer(serializers.ModelSerializer):
         read_only_fields = ["store"]
 
 
+class CastExpenseTemplateInputSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=50)
+    amount = serializers.IntegerField(min_value=0)
+    memo = serializers.CharField(required=False, allow_blank=True, default="")
+
+
 class CastSerializer(serializers.ModelSerializer):
     line_linked = serializers.SerializerMethodField()
+    expense_templates = CastExpenseTemplateInputSerializer(
+        many=True,
+        required=False,
+        write_only=True,
+    )
 
     preferred_area_fields = tuple(f"preferred_area_{rank}" for rank in range(1, 6))
 
@@ -108,6 +119,32 @@ class CastSerializer(serializers.ModelSerializer):
 
     def get_line_linked(self, obj) -> bool:
         return obj.line_user_id is not None
+
+    @transaction.atomic
+    def create(self, validated_data):
+        expense_templates = validated_data.pop("expense_templates", [])
+        cast = super().create(validated_data)
+        request = self.context.get("request")
+        edited_by = getattr(request, "user", None)
+
+        for expense_data in expense_templates:
+            template = CastExpenseTemplate.objects.create(
+                store=cast.store,
+                cast=cast,
+                **expense_data,
+            )
+            CastExpenseTemplateHistory.objects.create(
+                template=template,
+                cast=cast,
+                name=template.name,
+                amount=template.amount,
+                memo=template.memo,
+                is_active=template.is_active,
+                action=CastExpenseTemplateHistory.Action.CREATE,
+                edited_by=edited_by,
+            )
+
+        return cast
 
     def validate(self, attrs):
         submitted_fields = [
