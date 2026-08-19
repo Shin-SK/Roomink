@@ -483,7 +483,7 @@ class StaffCreateSerializer(serializers.Serializer):
         choices=[("staff", "スタッフ"), ("manager", "マネージャー")],
         default="staff",
     )
-    avatar_url = serializers.URLField(required=False, default="")
+    avatar_url = serializers.URLField(required=False, allow_blank=True, default="")
 
     def validate_username(self, value):
         if User.objects.filter(username=value).exists():

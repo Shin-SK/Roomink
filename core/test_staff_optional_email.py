@@ -27,6 +27,7 @@ class StaffOptionalEmailTest(TestCase):
                 "username": "blank_email_staff",
                 "password": "test-pass-123",
                 "email": "",
+                "avatar_url": "",
                 "role": UserProfile.Role.STAFF,
             },
             format="json",
