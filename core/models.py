@@ -178,9 +178,6 @@ class Cast(models.Model):
     )
     line_linked_at = models.DateTimeField(null=True, blank=True)
 
-    class Meta:
-        unique_together = ("store", "name")
-
     def __str__(self):
         return self.name
 

@@ -70,19 +70,28 @@ def create_cast_with_user(store, name, avatar_url="", user=None, username=None):
 def update_or_create_cast_with_user(store, name, defaults=None):
     """CSV 一括登録などで使う update_or_create 版.
 
-    Cast が既に存在すれば update、なければ User/UserProfile 込みで作成。
+    同名 Cast が1件なら update、なければ User/UserProfile 込みで作成。
+    同名 Cast が複数ある場合は更新対象を安全に特定できないため停止する。
     """
     defaults = defaults or {}
-    try:
-        cast = Cast.objects.get(store=store, name=name)
+    matches = list(
+        Cast.objects.filter(store=store, name=name).order_by("pk")[:2]
+    )
+    if len(matches) == 1:
+        cast = matches[0]
         for k, v in defaults.items():
             setattr(cast, k, v)
         cast.save()
         return cast, False
-    except Cast.DoesNotExist:
-        avatar_url = defaults.get("avatar_url", "")
-        cast = create_cast_with_user(store=store, name=name, avatar_url=avatar_url)
-        return cast, True
+    if len(matches) > 1:
+        raise ValueError(
+            f"同名キャスト「{name}」が複数いるためCSVでは更新対象を特定できません。"
+            "管理画面から個別に編集してください"
+        )
+
+    avatar_url = defaults.get("avatar_url", "")
+    cast = create_cast_with_user(store=store, name=name, avatar_url=avatar_url)
+    return cast, True
 
 
 # ── Staff ────────────────────────────────────────────

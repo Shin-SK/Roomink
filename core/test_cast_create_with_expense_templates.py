@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -87,3 +88,42 @@ class CastCreateWithExpenseTemplatesTest(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         cast = Cast.objects.get(name="雑費なしキャスト")
         self.assertFalse(CastExpenseTemplate.objects.filter(cast=cast).exists())
+
+    def test_manager_can_create_two_casts_with_the_same_display_name(self):
+        first = self.client.post(
+            "/api/casts/",
+            {"name": "同名キャスト"},
+            format="json",
+        )
+        second = self.client.post(
+            "/api/casts/",
+            {"name": "同名キャスト"},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertNotEqual(first.data["id"], second.data["id"])
+        self.assertEqual(
+            Cast.objects.filter(store=self.store, name="同名キャスト").count(),
+            2,
+        )
+
+    def test_csv_import_rejects_ambiguous_same_name_update(self):
+        Cast.objects.create(store=self.store, name="CSV同名キャスト")
+        Cast.objects.create(store=self.store, name="CSV同名キャスト")
+        csv_file = SimpleUploadedFile(
+            "casts.csv",
+            "name,avatar_url\nCSV同名キャスト,https://example.com/avatar.jpg\n".encode(),
+            content_type="text/csv",
+        )
+
+        response = self.client.post(
+            "/api/op/csv-import/?model=cast",
+            {"file": csv_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("同名キャスト", response.data["detail"])
+        self.assertIn("管理画面から個別に編集", response.data["detail"])

@@ -3975,6 +3975,11 @@ class CsvImportView(APIView):
         try:
             with transaction.atomic():
                 created, updated = _upsert_rows(store, model_key, rows)
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception:
             logger.exception("CSV import failed: model=%s store=%s", model_key, store.pk)
             return Response(
