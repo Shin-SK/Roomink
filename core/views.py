@@ -490,7 +490,6 @@ class OrderViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             locked_order = (
                 Order.objects.select_for_update()
-                .select_related("store", "customer", "cast", "course", "room")
                 .get(pk=order.pk)
             )
             already_sent = locked_order.sms_logs.filter(
