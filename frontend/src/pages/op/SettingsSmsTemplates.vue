@@ -11,6 +11,7 @@ const success = ref('')
 
 const items = ref([])
 const placeholders = ref([])
+const cardPaymentUrl = ref('')
 
 const isManager = computed(() => getAuthRole() === 'manager')
 
@@ -31,6 +32,7 @@ const placeholderHelp = {
   discount_amount: '割引額（カンマ区切り）',
   subtotal_price: '割引前金額（カンマ区切り）',
   total_price: '合計金額（カンマ区切り）',
+  payment_url: '店舗別のカード決済URL',
 }
 
 const previewOpen = ref(false)
@@ -46,6 +48,7 @@ async function loadPreview() {
   previewError.value = ''
   try {
     previewResult.value = await api.previewSmsTemplate({
+      template_type: previewItem.value.template_type,
       payment_method: previewItem.value.payment_method,
       body: previewItem.value.body,
       scenario: previewScenario.value,
@@ -72,6 +75,7 @@ async function load() {
     const data = await api.getSmsTemplates()
     items.value = data.items
     placeholders.value = data.placeholders
+    cardPaymentUrl.value = data.card_payment_url || ''
   } catch (e) {
     error.value = e.message
   } finally {
@@ -86,12 +90,15 @@ async function onSave() {
   try {
     const data = await api.updateSmsTemplates(
       items.value.map(i => ({
+        template_type: i.template_type,
         payment_method: i.payment_method,
         body: i.body,
         is_active: i.is_active,
-      }))
+      })),
+      cardPaymentUrl.value,
     )
     items.value = data.items
+    cardPaymentUrl.value = data.card_payment_url || ''
     success.value = '保存しました'
     setTimeout(() => { success.value = '' }, 3000)
   } catch (e) {
@@ -124,7 +131,7 @@ onMounted(load)
 
     <div class="alert alert-info small">
       <i class="ti ti-info-circle"></i>
-      予約確定時にお客様へ送るSMSの文面を、<strong>会計（支払）方法ごと</strong>に設定できます。
+      予約確定時に送るSMSと、カード決済完了後に送るルーム案内を設定できます。
       「この文面を使う」がOFF、または本文が空の場合は、従来どおりの既定文言で送信されます。
     </div>
 
@@ -140,6 +147,20 @@ onMounted(load)
     </div>
 
     <template v-else>
+      <div class="card mb-3">
+        <div class="card-header"><i class="ti ti-credit-card"></i> カード決済URL</div>
+        <div class="card-body">
+          <input
+            v-model.trim="cardPaymentUrl"
+            type="url"
+            class="form-control"
+            placeholder="https://..."
+            :disabled="!isManager"
+          />
+          <div class="form-text">カード予約の1通目に差し込む店舗共通URLです。店舗ごとに別々に保存されます。</div>
+        </div>
+      </div>
+
       <!-- 差し込み項目 -->
       <div class="card mb-3">
         <div class="card-header"><i class="ti ti-braces"></i> 使用可能な差し込み項目</div>
@@ -156,18 +177,18 @@ onMounted(load)
       </div>
 
       <!-- 支払方法ごとの文面 -->
-      <div v-for="item in items" :key="item.payment_method" class="card mb-3">
+      <div v-for="item in items" :key="`${item.template_type}-${item.payment_method}`" class="card mb-3">
         <div class="card-header d-flex align-items-center justify-content-between">
-          <span><i class="ti ti-message"></i> 予約確認SMS ／ {{ item.payment_method_label }}</span>
+          <span><i class="ti ti-message"></i> {{ item.label }}</span>
           <div class="form-check form-switch mb-0">
             <input
-              :id="`active-${item.payment_method}`"
+              :id="`active-${item.template_type}-${item.payment_method}`"
               v-model="item.is_active"
               class="form-check-input"
               type="checkbox"
               :disabled="!isManager"
             />
-            <label class="form-check-label small" :for="`active-${item.payment_method}`">
+            <label class="form-check-label small" :for="`active-${item.template_type}-${item.payment_method}`">
               この文面を使う
             </label>
           </div>

@@ -92,6 +92,8 @@ export const api = {
   updateOrder: (id, body) => request('PATCH', `/orders/${id}/`, body),
   createOrder: (body) => request('POST', '/orders/', body),
   confirmOrder: (id) => request('POST', `/orders/${id}/confirm/`),
+  sendCardPaymentRequest: (id) => request('POST', `/orders/${id}/send-card-payment-request/`),
+  confirmCardPayment: (id) => request('POST', `/orders/${id}/confirm-card-payment/`),
   cancelOrder: (id) => request('POST', `/orders/${id}/cancel/`),
   doneOrder: (id) => request('POST', `/orders/${id}/done/`),
   applyExtension: (id, body) => request('POST', `/orders/${id}/apply_extension/`, body),
@@ -225,7 +227,10 @@ export const api = {
   // SMS文面設定 / SMS送信履歴
   getSmsTemplates: () => request('GET', '/op/sms-templates/'),
   previewSmsTemplate: (body) => request('POST', '/op/sms-templates/', body),
-  updateSmsTemplates: (items) => request('PUT', '/op/sms-templates/', { items }),
+  updateSmsTemplates: (items, cardPaymentUrl) => request('PUT', '/op/sms-templates/', {
+    items,
+    card_payment_url: cardPaymentUrl,
+  }),
   getPublicBookingSettings: () => request('GET', '/op/public-booking-settings/'),
   updatePublicBookingSettings: (body) => request('PATCH', '/op/public-booking-settings/', body),
   getOrderSmsLogs: (id) => request('GET', `/op/orders/${id}/sms-logs/`),

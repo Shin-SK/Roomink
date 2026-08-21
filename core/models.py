@@ -76,6 +76,12 @@ class Store(models.Model):
     cash_fee_rate = models.PositiveSmallIntegerField(default=0, help_text="現金決済手数料率（%・参考値）")
     paypay_fee_rate = models.PositiveSmallIntegerField(default=5, help_text="PayPay決済手数料率（%・参考値）")
     card_fee_rate = models.PositiveSmallIntegerField(default=10, help_text="カード決済手数料率（%・参考値）")
+    card_payment_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="カード予約時に送る店舗別の共通決済URL",
+    )
     public_booking_notice = models.TextField(
         blank=True,
         default="",
@@ -269,6 +275,7 @@ class CastUnavailableTime(models.Model):
         LATE = "LATE", "遅刻"
         EARLY_LEAVE = "EARLY_LEAVE", "早退"
         OUT = "OUT", "中抜け"
+        CHANGEOVER = "CHANGEOVER", "入れ替え"
         STORE = "STORE", "店舗都合"
         OTHER = "OTHER", "その他"
 
@@ -531,6 +538,14 @@ class Order(models.Model):
     payment_method = models.CharField(
         max_length=10, choices=PaymentMethod.choices, default=PaymentMethod.UNSET,
     )
+    card_payment_confirmed_at = models.DateTimeField(null=True, blank=True)
+    card_payment_confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="confirmed_card_payment_orders",
+    )
     memo = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -718,6 +733,8 @@ class SmsTemplate(models.Model):
 
     class TemplateType(models.TextChoices):
         RESERVATION_CONFIRMATION = "RESERVATION_CONFIRMATION", "予約確認"
+        CARD_PAYMENT_REQUEST = "CARD_PAYMENT_REQUEST", "カード決済前"
+        CARD_PAYMENT_CONFIRMED = "CARD_PAYMENT_CONFIRMED", "カード決済完了後"
 
     # 差し込み可能な変数（画面の「使用可能な差し込み項目」と対応）
     PLACEHOLDERS = (
@@ -725,7 +742,7 @@ class SmsTemplate(models.Model):
         "course_name", "cast_name", "room_name", "room_address",
         "room_map_url", "room_notice", "room_guidance",
         "payment_method", "discount_name", "discount_amount",
-        "subtotal_price", "total_price",
+        "subtotal_price", "total_price", "payment_url",
     )
 
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="sms_templates")
@@ -764,6 +781,8 @@ class SmsLog(models.Model):
 
     class TemplateType(models.TextChoices):
         RESERVATION_CONFIRMATION = "RESERVATION_CONFIRMATION", "予約確認"
+        CARD_PAYMENT_REQUEST = "CARD_PAYMENT_REQUEST", "カード決済前"
+        CARD_PAYMENT_CONFIRMED = "CARD_PAYMENT_CONFIRMED", "カード決済完了後"
         RESERVATION_CANCELLED = "RESERVATION_CANCELLED", "予約キャンセル"
         CAST_NOTICE = "CAST_NOTICE", "キャスト通知"
         REMINDER = "REMINDER", "リマインド"

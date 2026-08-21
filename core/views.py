@@ -109,6 +109,8 @@ from .services.notify import (
     default_confirmation_preview as _default_sms_preview,
     render_template as _render_sms_template,
     notify_cast_order,
+    notify_card_payment_confirmed,
+    notify_card_payment_requested,
     notify_order_cancelled,
     notify_order_confirmed,
     notify_customer_account,
@@ -447,6 +449,71 @@ class OrderViewSet(viewsets.ModelViewSet):
         notify_order_confirmed(order, created_by=request.user)
         notify_cast_order(order, created_by=request.user)
         return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=["post"], url_path="send-card-payment-request")
+    def send_card_payment_request(self, request, pk=None):
+        """カード決済リンクSMSを安全に再送する。"""
+        order = self.get_object()
+        if order.payment_method != Order.PaymentMethod.CARD:
+            return Response(
+                {"detail": "カード決済の予約だけが対象です。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED):
+            return Response(
+                {"detail": "確定済みの有効な予約だけが対象です。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        notify_card_payment_requested(order, created_by=request.user)
+        return Response(OrderSerializer(order, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], url_path="confirm-card-payment")
+    def confirm_card_payment(self, request, pk=None):
+        """決済確認を記録し、ルーム案内を含む2通目のSMSを送る。"""
+        order = self.get_object()
+        if order.payment_method != Order.PaymentMethod.CARD:
+            return Response(
+                {"detail": "カード決済の予約だけが対象です。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED):
+            return Response(
+                {"detail": "確定済みの有効な予約だけが対象です。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if order.room_id is None:
+            return Response(
+                {"detail": "ルームを確定してから住所SMSを送信してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            locked_order = (
+                Order.objects.select_for_update()
+                .get(pk=order.pk)
+            )
+            already_sent = locked_order.sms_logs.filter(
+                template_type=SmsLog.TemplateType.CARD_PAYMENT_CONFIRMED,
+                status__in=(SmsLog.Status.SENT, SmsLog.Status.DUMMY),
+            ).exists()
+            if already_sent:
+                return Response(
+                    {"detail": "決済完了後の住所SMSは送信済みです。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if locked_order.card_payment_confirmed_at is None:
+                locked_order.card_payment_confirmed_at = timezone.now()
+                locked_order.card_payment_confirmed_by = request.user
+                locked_order.save(update_fields=[
+                    "card_payment_confirmed_at",
+                    "card_payment_confirmed_by",
+                    "updated_at",
+                ])
+            notify_card_payment_confirmed(locked_order, created_by=request.user)
+
+        return Response(
+            OrderSerializer(locked_order, context={"request": request}).data,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -5869,23 +5936,32 @@ class CustomerInvitationStatusView(APIView):
 @document_object_api_view
 class SmsTemplateSettingsView(APIView):
     """GET/POST/PUT /api/op/sms-templates/
-    支払方法別の予約確認SMS文面設定。閲覧は staff/manager、編集は manager のみ。"""
+    支払方法・カード決済段階別のSMS文面設定。閲覧は staff/manager、編集は manager のみ。"""
 
     permission_classes = [IsAuthenticated, IsManagerOrStaff]
 
-    TEMPLATE_TYPE = SmsTemplate.TemplateType.RESERVATION_CONFIRMATION
+    TEMPLATE_SPECS = (
+        (SmsTemplate.TemplateType.RESERVATION_CONFIRMATION, Order.PaymentMethod.UNSET, "予約確認SMS ／ 未設定"),
+        (SmsTemplate.TemplateType.CARD_PAYMENT_REQUEST, Order.PaymentMethod.CARD, "カード決済前（決済リンク）"),
+        (SmsTemplate.TemplateType.CARD_PAYMENT_CONFIRMED, Order.PaymentMethod.CARD, "カード決済完了後（ルーム案内）"),
+        (SmsTemplate.TemplateType.RESERVATION_CONFIRMATION, Order.PaymentMethod.CASH, "予約確認SMS ／ 現金"),
+        (SmsTemplate.TemplateType.RESERVATION_CONFIRMATION, Order.PaymentMethod.PAYPAY, "予約確認SMS ／ PayPay"),
+    )
 
     def _payload(self, store):
         existing = {
-            t.payment_method: t
-            for t in SmsTemplate.objects.filter(store=store, template_type=self.TEMPLATE_TYPE)
+            (t.template_type, t.payment_method): t
+            for t in SmsTemplate.objects.filter(store=store)
         }
         items = []
-        for value, label in Order.PaymentMethod.choices:
-            tpl = existing.get(value)
+        payment_labels = dict(Order.PaymentMethod.choices)
+        for template_type, payment_method, label in self.TEMPLATE_SPECS:
+            tpl = existing.get((template_type, payment_method))
             items.append({
-                "payment_method": value,
-                "payment_method_label": label,
+                "template_type": template_type,
+                "label": label,
+                "payment_method": payment_method,
+                "payment_method_label": payment_labels[payment_method],
                 "body": tpl.body if tpl else "",
                 "is_active": tpl.is_active if tpl else False,
                 "updated_by_name": (
@@ -5893,11 +5969,11 @@ class SmsTemplateSettingsView(APIView):
                     if tpl and tpl.updated_by else ""
                 ),
                 "updated_at": tpl.updated_at if tpl else None,
-                "default_body": _default_sms_preview(value),
+                "default_body": _default_sms_preview(payment_method, template_type),
             })
         return {
-            "template_type": self.TEMPLATE_TYPE,
             "placeholders": list(SmsTemplate.PLACEHOLDERS),
+            "card_payment_url": store.card_payment_url,
             "items": items,
         }
 
@@ -5909,10 +5985,16 @@ class SmsTemplateSettingsView(APIView):
     def post(self, request):
         """サンプルデータで完成文面を返す。DB更新・Twilio送信は行わない。"""
         _require_staff_or_manager(request)
+        store = get_user_store(request)
         payment_method = request.data.get("payment_method", Order.PaymentMethod.UNSET)
-        if payment_method not in Order.PaymentMethod.values:
+        template_type = request.data.get(
+            "template_type",
+            SmsTemplate.TemplateType.RESERVATION_CONFIRMATION,
+        )
+        valid_specs = {(spec[0], spec[1]) for spec in self.TEMPLATE_SPECS}
+        if (template_type, payment_method) not in valid_specs:
             return Response(
-                {"detail": "支払方法が不正です。"},
+                {"detail": "SMS文面の種別または支払方法が不正です。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         scenario = request.data.get("scenario", "discount")
@@ -5921,7 +6003,7 @@ class SmsTemplateSettingsView(APIView):
                 {"detail": "プレビュー条件が不正です。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        body = request.data.get("body") or _default_sms_preview(payment_method)
+        body = request.data.get("body") or _default_sms_preview(payment_method, template_type)
         if not isinstance(body, str) or len(body) > 5000:
             return Response(
                 {"detail": "SMS本文は5000文字以内で指定してください。"},
@@ -5954,6 +6036,7 @@ class SmsTemplateSettingsView(APIView):
             "discount_amount": "2,000" if has_discount else "0",
             "subtotal_price": "20,000",
             "total_price": "18,000" if has_discount else "20,000",
+            "payment_url": store.card_payment_url or "https://payment.example/store",
         }
         rendered = _render_sms_template(body, context)
         return Response({
@@ -5971,27 +6054,55 @@ class SmsTemplateSettingsView(APIView):
         if not isinstance(items, list):
             return Response({"detail": "items を指定してください"}, status=status.HTTP_400_BAD_REQUEST)
 
-        valid_methods = set(Order.PaymentMethod.values)
+        card_payment_url = (request.data.get("card_payment_url") or "").strip()
+        if card_payment_url and not card_payment_url.startswith("https://"):
+            return Response(
+                {"detail": "カード決済URLは https:// から始まる正しいURLを入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        valid_specs = {(spec[0], spec[1]) for spec in self.TEMPLATE_SPECS}
+        store.card_payment_url = card_payment_url
+        try:
+            store.full_clean(exclude=[
+                field.name
+                for field in Store._meta.fields
+                if field.name != "card_payment_url"
+            ])
+        except DjangoValidationError:
+            return Response(
+                {"detail": "カード決済URLは https:// から始まる正しいURLを入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        validated_items = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            pm = item.get("payment_method")
+            template_type = item.get(
+                "template_type",
+                SmsTemplate.TemplateType.RESERVATION_CONFIRMATION,
+            )
+            if (template_type, pm) not in valid_specs:
+                return Response(
+                    {"detail": "SMS文面の種別または支払方法が不正です。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            body = item.get("body") or ""
+            is_active = bool(item.get("is_active"))
+            if is_active and not body.strip():
+                return Response(
+                    {"detail": "有効にする場合は本文を入力してください"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            validated_items.append((template_type, pm, body, is_active))
+
         with transaction.atomic():
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                pm = item.get("payment_method")
-                if pm not in valid_methods:
-                    return Response(
-                        {"detail": f"支払方法が不正です: {pm}"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                body = item.get("body") or ""
-                is_active = bool(item.get("is_active"))
-                if is_active and not body.strip():
-                    return Response(
-                        {"detail": "有効にする場合は本文を入力してください"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+            store.save(update_fields=["card_payment_url"])
+            for template_type, pm, body, is_active in validated_items:
                 SmsTemplate.objects.update_or_create(
                     store=store,
-                    template_type=self.TEMPLATE_TYPE,
+                    template_type=template_type,
                     payment_method=pm,
                     defaults={
                         "body": body,
