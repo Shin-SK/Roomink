@@ -19,6 +19,7 @@
 - `core/test_card_payment_sms_flow.py`
 - `core/test_cast_unavailable_time.py`
 - `core/tests.py`
+- `requirements.txt`
 - `frontend/src/api.js`
 - `frontend/src/components/UnavailableTimeModal.vue`
 - `frontend/src/pages/op/OrderDetail.vue`
@@ -66,6 +67,7 @@
 - `python3 manage.py makemigrations --check --dry-run`: 追加変更なし
 - `git diff --check`: 問題なし
 - Vue production build: 成功（480 modules）
+- CI依存監査で検出されたDjango 5.2.16の既知脆弱性に対応し、公式修正版5.2.17へ更新した。
 - 実電話番号・実顧客・実SMS送信: 未使用
 
 テストでは次を確認した。
