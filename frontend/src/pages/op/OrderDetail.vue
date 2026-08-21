@@ -52,12 +52,15 @@ const smsLogs = ref([])
 const smsLogsLoading = ref(true)
 const smsLogsError = ref('')
 const expandedSmsIds = ref([])
+const cardSmsActing = ref(false)
 
 const smsStatusCls = {
   SENT: 'bg-success',
   FAILED: 'bg-danger',
   SKIPPED: 'bg-secondary',
   PENDING: 'bg-warning text-dark',
+  DUMMY: 'bg-info text-dark',
+  CONFIG_MISSING: 'bg-warning text-dark',
 }
 
 const statusMap = {
@@ -107,6 +110,15 @@ const cardFee = computed(() => {
   return Math.round((order.value.total_price || 0) * 0.1)
 })
 const cardTotal = computed(() => (order.value?.total_price || 0) + cardFee.value)
+const cardPaymentCompletedSmsSent = computed(() => smsLogs.value.some(log => (
+  log.template_type === 'CARD_PAYMENT_CONFIRMED' && ['SENT', 'DUMMY'].includes(log.status)
+)))
+const canOperateCardPayment = computed(() => (
+  canModify.value
+  && isCardPayment.value
+  && order.value
+  && !['REQUESTED', 'CANCELLED'].includes(order.value.status)
+))
 
 onMounted(async () => {
   try {
@@ -234,6 +246,32 @@ async function doDone() {
     alert(e.message)
   } finally {
     acting.value = false
+  }
+}
+
+async function sendCardPaymentRequest() {
+  if (!confirm('カード決済リンクのSMSを送信しますか？')) return
+  cardSmsActing.value = true
+  try {
+    order.value = await api.sendCardPaymentRequest(props.id)
+    await fetchSmsLogs()
+  } catch (e) {
+    alert(e.message)
+  } finally {
+    cardSmsActing.value = false
+  }
+}
+
+async function confirmCardPayment() {
+  if (!confirm('カード決済の入金を確認しましたか？\n確認後、ルーム住所のSMSを送信します。')) return
+  cardSmsActing.value = true
+  try {
+    order.value = await api.confirmCardPayment(props.id)
+    await fetchSmsLogs()
+  } catch (e) {
+    alert(e.message)
+  } finally {
+    cardSmsActing.value = false
   }
 }
 
@@ -533,6 +571,37 @@ async function saveRecipientCustomerLink() {
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <div v-if="canOperateCardPayment" class="card mb-4 border-primary">
+            <div class="card-header fw-bold">
+              <i class="ti ti-credit-card me-1"></i>カード決済SMS
+            </div>
+            <div class="card-body">
+              <div v-if="order.card_payment_confirmed_at" class="alert alert-success py-2 small">
+                決済確認済み：{{ formatDt(order.card_payment_confirmed_at) }}
+              </div>
+              <div v-if="!order.room" class="alert alert-warning py-2 small">
+                2通目を送る前にルームを確定してください。
+              </div>
+              <div class="d-grid gap-2">
+                <button
+                  class="btn btn-outline-primary"
+                  :disabled="cardSmsActing"
+                  @click="sendCardPaymentRequest"
+                >
+                  <i class="ti ti-link me-1"></i>決済リンクSMSを送信・再送
+                </button>
+                <button
+                  class="btn btn-primary"
+                  :disabled="cardSmsActing || !order.room || cardPaymentCompletedSmsSent"
+                  @click="confirmCardPayment"
+                >
+                  <i class="ti ti-check me-1"></i>
+                  {{ cardPaymentCompletedSmsSent ? '決済完了・住所SMS送信済み' : '決済確認・住所SMSを送信' }}
+                </button>
+              </div>
             </div>
           </div>
 

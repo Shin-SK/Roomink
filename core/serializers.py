@@ -1040,6 +1040,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot", "discount_amount",
             "medium", "medium_name",
             "total_price", "payment_method",
+            "card_payment_confirmed_at", "card_payment_confirmed_by",
             "created_at", "updated_at",
         ]
 

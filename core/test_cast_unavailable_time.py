@@ -132,6 +132,17 @@ class CastUnavailableTimeTest(TestCase):
         self.assertEqual(manager_block.updated_by, self.staff)
         self.assertEqual(updated.data["start_time_extended"], "14:00")
 
+    def test_changeover_type_can_be_registered_and_displayed(self):
+        response = self.manager_client.post(
+            "/api/cast-unavailable-times/",
+            self.payload(16, 17, "CHANGEOVER"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["type"], "CHANGEOVER")
+        self.assertEqual(response.data["type_display"], "入れ替え")
+
     def test_cast_cannot_create_or_update(self):
         block = CastUnavailableTime.objects.create(
             store=self.store,

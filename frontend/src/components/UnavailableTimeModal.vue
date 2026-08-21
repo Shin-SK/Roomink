@@ -14,6 +14,7 @@ const types = [
   { value: 'LATE', label: '遅刻' },
   { value: 'EARLY_LEAVE', label: '早退' },
   { value: 'OUT', label: '中抜け' },
+  { value: 'CHANGEOVER', label: '入れ替え' },
   { value: 'STORE', label: '店舗都合' },
   { value: 'OTHER', label: 'その他' },
 ]

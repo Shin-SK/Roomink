@@ -1062,8 +1062,8 @@ class WeeklyShiftAndSmsSmokeTest(TestCase):
         logs = self.client.get(f"/api/op/orders/{order.id}/sms-logs/")
         self.assertEqual(logs.status_code, 200)
         kinds = {l["template_type"]: l for l in logs.data}
-        self.assertIn("RESERVATION_CONFIRMATION", kinds)
-        confirm_log = kinds["RESERVATION_CONFIRMATION"]
+        self.assertIn("CARD_PAYMENT_REQUEST", kinds)
+        confirm_log = kinds["CARD_PAYMENT_REQUEST"]
         self.assertEqual(confirm_log["status"], "CONFIG_MISSING")
         self.assertEqual(confirm_log["to_phone"], "09012345678")
         self.assertEqual(confirm_log["payment_method"], "CARD")
@@ -1084,7 +1084,7 @@ class WeeklyShiftAndSmsSmokeTest(TestCase):
             "items": [{"payment_method": "CASH", "body": "現金文面", "is_active": True}],
         }, format="json")
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(len(res.data["items"]), 4)
+        self.assertEqual(len(res.data["items"]), 5)
 
         staff = User.objects.create_user("st", password="x")
         UserProfile.objects.create(user=staff, store=self.store, role="staff")
