@@ -742,6 +742,8 @@ class SmsTemplate(models.Model):
         "course_name", "cast_name", "room_name", "room_address",
         "room_map_url", "room_notice", "room_guidance",
         "payment_method", "discount_name", "discount_amount",
+        "nomination_type", "nomination_price", "course_price",
+        "option_names", "option_price",
         "subtotal_price", "total_price", "payment_url",
     )
 

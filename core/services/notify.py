@@ -178,6 +178,7 @@ def build_template_context(order: Order) -> dict:
     """テンプレートの差し込み変数。SmsTemplate.PLACEHOLDERS と対応させること。"""
     start, end = _local_order_datetimes(order)
     subtotal_price = order.total_price + order.discount_amount
+    option_names = "、".join(order.options.values_list("name", flat=True))
     return {
         "customer_name": order.customer.display_name or "",
         "date": f"{start:%Y-%m-%d}",
@@ -193,6 +194,11 @@ def build_template_context(order: Order) -> dict:
         "payment_method": order.get_payment_method_display(),
         "discount_name": order.discount_name or "",
         "discount_amount": f"{order.discount_amount:,}",
+        "nomination_type": order.nomination_fee_name or "",
+        "nomination_price": f"{order.nomination_fee_price:,}",
+        "course_price": f"{order.course_price:,}",
+        "option_names": option_names,
+        "option_price": f"{order.options_price:,}",
         "subtotal_price": f"{subtotal_price:,}",
         "total_price": f"{order.total_price:,}",
         "payment_url": order.store.card_payment_url,
