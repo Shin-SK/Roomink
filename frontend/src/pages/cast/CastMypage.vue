@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
+import { parseNoteContent, trailingNoteImages } from '../../noteContent.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -31,6 +32,14 @@ const notesLoading = ref(true)
 const showAllNotes = ref(false)
 const selectedNote = ref(null)
 const selectedNoteImage = ref('')
+
+function noteContentBlocks(note) {
+  return parseNoteContent(note?.body || '', note?.image_urls || [])
+}
+
+function noteTrailingImages(note) {
+  return trailingNoteImages(note?.body || '', note?.image_urls || [])
+}
 
 // 出勤確認（Phase 3-B-1）
 const shiftConfirm = ref(null)
@@ -518,16 +527,28 @@ function durationMin(order) {
                 <div class="small text-muted mb-3" v-if="selectedNote.published_at">
                   公開日: {{ formatTime(selectedNote.published_at) === '' ? '' : selectedNote.published_at.slice(0, 10) }}
                 </div>
-                <div style="white-space: pre-wrap;">{{ selectedNote.body }}</div>
-                <div v-if="selectedNote.image_urls?.length" class="note-images mt-3">
+                <div class="note-content">
+                  <template v-for="(block, index) in noteContentBlocks(selectedNote)" :key="`${block.type}-${index}`">
+                    <div v-if="block.type === 'text'" class="note-content-text">{{ block.text }}</div>
+                    <button
+                      v-else
+                      type="button"
+                      class="note-inline-image-button"
+                      @click="selectedNoteImage = block.url"
+                    >
+                      <img :src="block.url" :alt="`本文内の画像 ${block.imageIndex + 1}`" />
+                    </button>
+                  </template>
+                </div>
+                <div v-if="noteTrailingImages(selectedNote).length" class="note-images mt-3">
                   <button
-                    v-for="(url, index) in selectedNote.image_urls"
-                    :key="url"
+                    v-for="image in noteTrailingImages(selectedNote)"
+                    :key="image.url"
                     type="button"
                     class="note-image-button"
-                    @click="selectedNoteImage = url"
+                    @click="selectedNoteImage = image.url"
                   >
-                    <img :src="url" :alt="`添付画像 ${index + 1}`" />
+                    <img :src="image.url" :alt="`添付画像 ${image.imageIndex + 1}`" />
                   </button>
                 </div>
                 <div v-if="selectedNote.video_url" class="mt-3 small">
@@ -984,6 +1005,25 @@ function durationMin(order) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+.note-content-text { white-space: pre-wrap; }
+.note-inline-image-button {
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  overflow: hidden;
+}
+.note-inline-image-button img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto;
+  object-fit: contain;
 }
 .note-image-button {
   padding: 0;

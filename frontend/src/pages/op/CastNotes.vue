@@ -1,9 +1,15 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { getAuthRole } from '../../router.js'
 import { uploadToCloudinary } from '../../cloudinary.js'
+import {
+  inlineImageMarker,
+  parseNoteContent,
+  removeInlineImage,
+  trailingNoteImages,
+} from '../../noteContent.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -12,6 +18,7 @@ const isManager = computed(() => getAuthRole() === 'manager')
 const casts = ref([])
 const targetCastSearch = ref('')
 const imageUploading = ref(false)
+const bodyTextarea = ref(null)
 
 const filterStatus = ref('')
 const filterCategory = ref('')
@@ -83,6 +90,9 @@ const filteredTargetCasts = computed(() => {
   return casts.value.filter(cast => !keyword || cast.name.toLowerCase().includes(keyword))
 })
 
+const notePreviewBlocks = computed(() => parseNoteContent(form.value.body, form.value.image_urls))
+const notePreviewTrailingImages = computed(() => trailingNoteImages(form.value.body, form.value.image_urls))
+
 function toggleTargetCast(id) {
   const index = form.value.target_cast_ids.indexOf(id)
   if (index >= 0) form.value.target_cast_ids.splice(index, 1)
@@ -111,7 +121,24 @@ async function onImageFiles(event) {
   }
 }
 
+async function insertImageAtCursor(index) {
+  const textarea = bodyTextarea.value
+  const marker = inlineImageMarker(index)
+  const start = textarea?.selectionStart ?? form.value.body.length
+  const end = textarea?.selectionEnd ?? start
+  const before = form.value.body.slice(0, start)
+  const after = form.value.body.slice(end)
+  const prefix = before && !before.endsWith('\n') ? '\n' : ''
+  const suffix = after && !after.startsWith('\n') ? '\n' : ''
+  const inserted = `${prefix}${marker}${suffix}`
+  form.value.body = before + inserted + after
+  await nextTick()
+  textarea?.focus()
+  textarea?.setSelectionRange(start + inserted.length, start + inserted.length)
+}
+
 function removeImage(index) {
+  form.value.body = removeInlineImage(form.value.body, index)
   form.value.image_urls.splice(index, 1)
 }
 
@@ -326,7 +353,8 @@ function formatDateTime(s) {
             </div>
             <div class="mb-3">
               <label class="form-label">本文（プレーンテキスト/簡易Markdown）</label>
-              <textarea v-model="form.body" class="form-control" rows="8"></textarea>
+              <textarea ref="bodyTextarea" v-model="form.body" class="form-control" rows="8"></textarea>
+              <div class="form-text">画像を入れたい文章位置へカーソルを置き、下の「本文に挿入」を押してください。</div>
             </div>
             <div v-if="form.visibility !== 'STAFF'" class="mb-3">
               <label class="form-label">閲覧できるキャスト（任意）</label>
@@ -359,10 +387,31 @@ function formatDateTime(s) {
               <div v-if="form.image_urls.length" class="note-image-grid mt-2">
                 <div v-for="(url, index) in form.image_urls" :key="url" class="note-image-item">
                   <img :src="url" alt="ノート添付画像" />
-                  <button type="button" class="btn btn-danger btn-sm" title="画像を外す" @click="removeImage(index)">
-                    <i class="ti ti-x"></i>
-                  </button>
+                  <div class="note-image-actions">
+                    <button type="button" class="btn btn-outline-primary btn-sm" @click="insertImageAtCursor(index)">
+                      本文に挿入
+                    </button>
+                    <button type="button" class="btn btn-outline-danger btn-sm" title="画像を外す" @click="removeImage(index)">
+                      外す
+                    </button>
+                  </div>
                 </div>
+              </div>
+            </div>
+            <div v-if="form.body || form.image_urls.length" class="mb-3">
+              <label class="form-label">表示プレビュー</label>
+              <div class="note-preview">
+                <template v-for="(block, index) in notePreviewBlocks" :key="`${block.type}-${index}`">
+                  <div v-if="block.type === 'text'" class="note-preview-text">{{ block.text }}</div>
+                  <img v-else :src="block.url" alt="本文内の画像" class="note-preview-image" />
+                </template>
+                <img
+                  v-for="image in notePreviewTrailingImages"
+                  :key="`trailing-${image.imageIndex}`"
+                  :src="image.url"
+                  alt="ノート添付画像"
+                  class="note-preview-image"
+                />
               </div>
             </div>
             <div class="mb-3">
@@ -413,7 +462,7 @@ function formatDateTime(s) {
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 8px;
 }
-.note-image-item { position: relative; }
+.note-image-item { min-width: 0; }
 .note-image-item img {
   width: 100%;
   aspect-ratio: 1;
@@ -421,10 +470,27 @@ function formatDateTime(s) {
   border-radius: 8px;
   border: 1px solid #dee2e6;
 }
-.note-image-item button {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  padding: 2px 5px;
+.note-image-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px;
+  margin-top: 5px;
+}
+.note-image-actions .btn { font-size: .72rem; padding: 3px 6px; }
+.note-preview {
+  padding: 14px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background: #fff;
+}
+.note-preview-text { white-space: pre-wrap; }
+.note-preview-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 520px;
+  margin: 10px auto;
+  border-radius: 8px;
+  object-fit: contain;
 }
 </style>
