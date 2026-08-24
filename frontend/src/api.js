@@ -281,6 +281,7 @@ export const api = {
   unpublishCastNote: (id) => request('POST', `/cast-notes/${id}/unpublish/`),
   archiveCastNote: (id) => request('POST', `/cast-notes/${id}/archive/`),
   moveCastNote: (id, direction) => request('POST', `/cast-notes/${id}/move/`, { direction }),
+  placeCastNote: (id, targetId, position) => request('POST', `/cast-notes/${id}/place/`, { target_id: targetId, position }),
   pinCastNote: (id) => request('POST', `/cast-notes/${id}/pin/`),
   unpinCastNote: (id) => request('POST', `/cast-notes/${id}/unpin/`),
 

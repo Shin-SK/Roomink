@@ -333,9 +333,99 @@ class ClientFollowupUpdatesTest(TestCase):
             {"direction": "up"},
             format="json",
         )
+        staff_place_response = self._client(self.staff).post(
+            f"/api/cast-notes/{second.pk}/place/",
+            {"target_id": first.pk, "position": "before"},
+            format="json",
+        )
+        foreign_place_response = self._client(other_manager).post(
+            f"/api/cast-notes/{second.pk}/place/",
+            {"target_id": first.pk, "position": "before"},
+            format="json",
+        )
 
         self.assertEqual(staff_response.status_code, 403, staff_response.data)
         self.assertEqual(foreign_response.status_code, 404, foreign_response.data)
+        self.assertEqual(staff_place_response.status_code, 403, staff_place_response.data)
+        self.assertEqual(foreign_place_response.status_code, 404, foreign_place_response.data)
         first.refresh_from_db()
         second.refresh_from_db()
         self.assertEqual((first.sort_order, second.sort_order), (10, 20))
+
+    def test_manager_can_drag_note_before_or_after_another_note(self):
+        first = CastNote.objects.create(
+            store=self.store,
+            title="ドラッグ一番目",
+            status=CastNote.Status.PUBLISHED,
+            sort_order=10,
+        )
+        second = CastNote.objects.create(
+            store=self.store,
+            title="ドラッグ二番目",
+            status=CastNote.Status.PUBLISHED,
+            sort_order=20,
+        )
+        third = CastNote.objects.create(
+            store=self.store,
+            title="ドラッグ三番目",
+            status=CastNote.Status.PUBLISHED,
+            sort_order=30,
+        )
+
+        response = self._client(self.manager).post(
+            f"/api/cast-notes/{first.pk}/place/",
+            {"target_id": third.pk, "position": "after"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["moved"])
+        self.assertEqual(
+            list(
+                CastNote.objects.filter(store=self.store, is_pinned=False)
+                .order_by("sort_order", "pk")
+                .values_list("id", flat=True)
+            ),
+            [second.pk, third.pk, first.pk],
+        )
+
+        response = self._client(self.manager).post(
+            f"/api/cast-notes/{first.pk}/place/",
+            {"target_id": second.pk, "position": "before"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            list(
+                CastNote.objects.filter(store=self.store, is_pinned=False)
+                .order_by("sort_order", "pk")
+                .values_list("id", flat=True)
+            ),
+            [first.pk, second.pk, third.pk],
+        )
+
+    def test_manager_cannot_drag_note_across_pin_groups(self):
+        normal = CastNote.objects.create(
+            store=self.store,
+            title="通常記事",
+            status=CastNote.Status.PUBLISHED,
+            sort_order=10,
+        )
+        pinned = CastNote.objects.create(
+            store=self.store,
+            title="ピン留め記事",
+            status=CastNote.Status.PUBLISHED,
+            is_pinned=True,
+            sort_order=10,
+        )
+
+        response = self._client(self.manager).post(
+            f"/api/cast-notes/{normal.pk}/place/",
+            {"target_id": pinned.pk, "position": "before"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.data)
+        normal.refresh_from_db()
+        pinned.refresh_from_db()
+        self.assertEqual((normal.sort_order, pinned.sort_order), (10, 10))

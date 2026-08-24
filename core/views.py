@@ -2878,6 +2878,61 @@ class CastNoteViewSet(viewsets.ModelViewSet):
         })
 
     @action(detail=True, methods=["post"])
+    def place(self, request, pk=None):
+        """ドラッグ操作で、同じピン留め区分内の指定記事の前後へ移動する。"""
+        self.check_manager(request)
+        position = request.data.get("position")
+        if position not in ("before", "after"):
+            return Response(
+                {"detail": "position は before または after を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            target_id = int(request.data.get("target_id"))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "target_id を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        instance = self.get_object()
+        if target_id == instance.pk:
+            return Response({"moved": False})
+
+        with transaction.atomic():
+            notes = list(
+                CastNote.objects.select_for_update()
+                .filter(store=instance.store, is_pinned=instance.is_pinned)
+                .order_by("sort_order", "pk")
+            )
+            original_ids = [note.pk for note in notes]
+            moving_note = next(note for note in notes if note.pk == instance.pk)
+            target_note = next((note for note in notes if note.pk == target_id), None)
+            if target_note is None:
+                return Response(
+                    {"detail": "ピン留め記事と通常記事の間では移動できません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            notes.remove(moving_note)
+            target_index = notes.index(target_note)
+            if position == "after":
+                target_index += 1
+            notes.insert(target_index, moving_note)
+            if [note.pk for note in notes] == original_ids:
+                return Response({"moved": False})
+
+            for index, note in enumerate(notes, start=1):
+                note.sort_order = index * 10
+            CastNote.objects.bulk_update(notes, ["sort_order"])
+
+        instance.refresh_from_db()
+        return Response({
+            "moved": True,
+            "note": CastNoteSerializer(instance, context={"request": request}).data,
+        })
+
+    @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         """下書き/アーカイブ → 公開"""
         self.check_manager(request)

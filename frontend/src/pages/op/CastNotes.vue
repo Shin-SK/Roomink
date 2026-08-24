@@ -24,6 +24,9 @@ const filterStatus = ref('')
 const filterCategory = ref('')
 const searchQuery = ref('')
 const movingId = ref(null)
+const draggingId = ref(null)
+const dropTargetId = ref(null)
+const dropPosition = ref('before')
 
 const statusLabel = { DRAFT: '下書き', PUBLISHED: '公開', ARCHIVED: 'アーカイブ' }
 const statusClass = { DRAFT: 'bg-secondary', PUBLISHED: 'bg-success', ARCHIVED: 'bg-dark' }
@@ -237,6 +240,57 @@ async function moveNote(note, direction) {
   }
 }
 
+function clearDragState() {
+  draggingId.value = null
+  dropTargetId.value = null
+  dropPosition.value = 'before'
+}
+
+function startNoteDrag(event, note) {
+  if (!reorderEnabled.value || movingId.value) return
+  if (event.pointerType === 'mouse' && event.button !== 0) return
+  event.preventDefault()
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+  draggingId.value = note.id
+  dropTargetId.value = note.id
+  dropPosition.value = 'before'
+}
+
+function updateNoteDrag(event) {
+  if (!draggingId.value) return
+  event.preventDefault()
+  const row = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-note-id]')
+  if (!row) return
+  const targetId = Number(row.dataset.noteId)
+  const movingNote = notes.value.find(note => note.id === draggingId.value)
+  const targetNote = notes.value.find(note => note.id === targetId)
+  if (!movingNote || !targetNote || movingNote.is_pinned !== targetNote.is_pinned) return
+  const rect = row.getBoundingClientRect()
+  dropTargetId.value = targetId
+  dropPosition.value = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+async function finishNoteDrag(event) {
+  if (!draggingId.value) return
+  event.currentTarget.releasePointerCapture?.(event.pointerId)
+  const movingNoteId = draggingId.value
+  const targetId = dropTargetId.value
+  const position = dropPosition.value
+  clearDragState()
+  if (!targetId || movingNoteId === targetId || movingId.value) return
+
+  error.value = ''
+  movingId.value = movingNoteId
+  try {
+    await api.placeCastNote(movingNoteId, targetId, position)
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    movingId.value = null
+  }
+}
+
 function formatDateTime(s) {
   if (!s) return '-'
   return s.slice(0, 16).replace('T', ' ')
@@ -278,7 +332,7 @@ function formatDateTime(s) {
         </div>
         <div v-if="isManager" class="small text-muted mb-3">
           <template v-if="reorderEnabled">
-            <i class="ti ti-arrows-sort"></i> 矢印ボタンで、キャストに表示する記事の順番を変更できます。
+            <i class="ti ti-arrows-sort"></i> ≡をドラッグ、または矢印ボタンで、キャストに表示する記事の順番を変更できます。
           </template>
           <template v-else>
             並び替える場合は、ステータス・カテゴリ・検索の絞り込みを解除してください。
@@ -295,7 +349,7 @@ function formatDateTime(s) {
           <thead>
             <tr>
               <th style="width: 40px;"></th>
-              <th v-if="isManager" style="width: 84px;">並び順</th>
+              <th v-if="isManager" style="width: 130px;">並び順</th>
               <th>タイトル</th>
               <th>カテゴリ</th>
               <th>公開範囲</th>
@@ -305,10 +359,32 @@ function formatDateTime(s) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="n in notes" :key="n.id">
+            <tr
+              v-for="n in notes"
+              :key="n.id"
+              :data-note-id="n.id"
+              :class="{
+                'note-row-dragging': draggingId === n.id,
+                'note-drop-before': draggingId && dropTargetId === n.id && dropPosition === 'before',
+                'note-drop-after': draggingId && dropTargetId === n.id && dropPosition === 'after',
+              }"
+            >
               <td><i v-if="n.is_pinned" class="ti ti-pin text-warning" title="ピン留め"></i></td>
               <td v-if="isManager">
-                <div class="btn-group btn-group-sm" role="group" aria-label="記事の並び替え">
+                <div class="d-flex align-items-center gap-1">
+                  <button
+                    type="button"
+                    class="btn btn-light border btn-sm note-drag-handle"
+                    title="ドラッグして移動"
+                    :aria-label="`${n.title}をドラッグして移動`"
+                    :aria-grabbed="draggingId === n.id"
+                    :disabled="movingId !== null || !reorderEnabled"
+                    @pointerdown="startNoteDrag($event, n)"
+                    @pointermove="updateNoteDrag"
+                    @pointerup="finishNoteDrag"
+                    @pointercancel="clearDragState"
+                  ><i class="ti ti-grip-vertical"></i></button>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="記事の並び替え">
                   <button
                     type="button"
                     class="btn btn-outline-secondary"
@@ -325,6 +401,7 @@ function formatDateTime(s) {
                     :disabled="movingId !== null || !canMove(n, 'down')"
                     @click="moveNote(n, 'down')"
                   ><i class="ti ti-chevron-down"></i></button>
+                  </div>
                 </div>
               </td>
               <td>{{ n.title }}</td>
@@ -551,4 +628,13 @@ function formatDateTime(s) {
   border-radius: 8px;
   object-fit: contain;
 }
+.note-drag-handle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.note-drag-handle:active { cursor: grabbing; }
+.note-row-dragging { opacity: .55; }
+.note-drop-before { box-shadow: inset 0 3px 0 var(--bs-primary); }
+.note-drop-after { box-shadow: inset 0 -3px 0 var(--bs-primary); }
 </style>
