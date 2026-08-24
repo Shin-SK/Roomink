@@ -14,7 +14,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email, validate_slug
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
-from django.db.models import ProtectedError, Q
+from django.db.models import Max, ProtectedError, Q
 from django.utils import timezone
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -2777,7 +2777,7 @@ class CastNoteViewSet(viewsets.ModelViewSet):
     """ノート/施術マニュアル — staffは閲覧のみ、managerはCRUD可能。"""
     permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
     queryset = CastNote.objects.prefetch_related("target_casts").order_by(
-        "-is_pinned", "-published_at", "-created_at",
+        "-is_pinned", "sort_order", "pk",
     )
     serializer_class = CastNoteSerializer
     filterset_fields = {
@@ -2787,7 +2787,7 @@ class CastNoteViewSet(viewsets.ModelViewSet):
         "visibility": ["exact"],
     }
     search_fields = ["title", "body"]
-    ordering = ["-is_pinned", "-published_at", "-created_at"]
+    ordering = ["-is_pinned", "sort_order", "pk"]
 
     def get_queryset(self):
         store = get_user_store(self.request)
@@ -2804,8 +2804,15 @@ class CastNoteViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
+        store = get_user_store(self.request)
+        is_pinned = serializer.validated_data.get("is_pinned", False)
+        current_max = CastNote.objects.filter(
+            store=store,
+            is_pinned=is_pinned,
+        ).aggregate(max_order=Max("sort_order"))["max_order"] or 0
         instance = serializer.save(
-            store=get_user_store(self.request),
+            store=store,
+            sort_order=current_max + 10,
             created_by=self.request.user,
             updated_by=self.request.user,
         )
@@ -2830,6 +2837,45 @@ class CastNoteViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         self.check_manager(request)
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def move(self, request, pk=None):
+        """同じピン留め区分内でノートを1件ずつ上下移動する。"""
+        self.check_manager(request)
+        direction = request.data.get("direction")
+        if direction not in ("up", "down"):
+            return Response(
+                {"detail": "direction は up または down を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        instance = self.get_object()
+        with transaction.atomic():
+            notes = list(
+                CastNote.objects.select_for_update()
+                .filter(store=instance.store, is_pinned=instance.is_pinned)
+                .order_by("sort_order", "pk")
+            )
+            current_index = next(
+                index for index, note in enumerate(notes) if note.pk == instance.pk
+            )
+            target_index = current_index - 1 if direction == "up" else current_index + 1
+            if target_index < 0 or target_index >= len(notes):
+                return Response({"moved": False})
+
+            for index, note in enumerate(notes, start=1):
+                note.sort_order = index * 10
+            notes[current_index].sort_order, notes[target_index].sort_order = (
+                notes[target_index].sort_order,
+                notes[current_index].sort_order,
+            )
+            CastNote.objects.bulk_update(notes, ["sort_order"])
+
+        instance.refresh_from_db()
+        return Response({
+            "moved": True,
+            "note": CastNoteSerializer(instance, context={"request": request}).data,
+        })
 
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
@@ -2868,8 +2914,12 @@ class CastNoteViewSet(viewsets.ModelViewSet):
         self.check_manager(request)
         instance = self.get_object()
         instance.is_pinned = True
+        instance.sort_order = (
+            CastNote.objects.filter(store=instance.store, is_pinned=True)
+            .aggregate(max_order=Max("sort_order"))["max_order"] or 0
+        ) + 10
         instance.updated_by = request.user
-        instance.save(update_fields=["is_pinned", "updated_by", "updated_at"])
+        instance.save(update_fields=["is_pinned", "sort_order", "updated_by", "updated_at"])
         return Response(CastNoteSerializer(instance).data)
 
     @action(detail=True, methods=["post"])
@@ -2877,8 +2927,12 @@ class CastNoteViewSet(viewsets.ModelViewSet):
         self.check_manager(request)
         instance = self.get_object()
         instance.is_pinned = False
+        instance.sort_order = (
+            CastNote.objects.filter(store=instance.store, is_pinned=False)
+            .aggregate(max_order=Max("sort_order"))["max_order"] or 0
+        ) + 10
         instance.updated_by = request.user
-        instance.save(update_fields=["is_pinned", "updated_by", "updated_at"])
+        instance.save(update_fields=["is_pinned", "sort_order", "updated_by", "updated_at"])
         return Response(CastNoteSerializer(instance).data)
 
 
@@ -2901,7 +2955,7 @@ class CastNoteListView(APIView):
             visibility__in=[CastNote.Visibility.CAST, CastNote.Visibility.ALL],
         ).filter(
             Q(target_casts__isnull=True) | Q(target_casts=cast),
-        ).distinct().order_by("-is_pinned", "-published_at", "-created_at")
+        ).distinct().order_by("-is_pinned", "sort_order", "pk")
 
         category = request.query_params.get("category")
         if category:

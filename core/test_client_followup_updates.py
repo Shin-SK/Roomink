@@ -260,3 +260,82 @@ class ClientFollowupUpdatesTest(TestCase):
 
         self.assertEqual(response.status_code, 400, response.data)
         self.assertFalse(CastNote.objects.filter(title="不正な対象指定").exists())
+
+    def test_manager_can_reorder_notes_and_cast_sees_saved_order(self):
+        first = CastNote.objects.create(
+            store=self.store,
+            title="最初の記事",
+            status=CastNote.Status.PUBLISHED,
+            sort_order=10,
+        )
+        second = CastNote.objects.create(
+            store=self.store,
+            title="二番目の記事",
+            status=CastNote.Status.PUBLISHED,
+            sort_order=20,
+        )
+        third = CastNote.objects.create(
+            store=self.store,
+            title="三番目の記事",
+            status=CastNote.Status.PUBLISHED,
+            sort_order=30,
+        )
+
+        response = self._client(self.manager).post(
+            f"/api/cast-notes/{third.pk}/move/",
+            {"direction": "up"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["moved"])
+        self.assertEqual(
+            list(
+                CastNote.objects.filter(store=self.store, is_pinned=False)
+                .order_by("sort_order", "pk")
+                .values_list("id", flat=True)
+            ),
+            [first.pk, third.pk, second.pk],
+        )
+        cast_response = self._client(self.cast_user).get("/api/cast/notes/")
+        self.assertEqual(cast_response.status_code, 200, cast_response.data)
+        self.assertEqual(
+            [note["id"] for note in cast_response.data["recent"]],
+            [first.pk, third.pk, second.pk],
+        )
+
+    def test_staff_and_other_store_manager_cannot_reorder_notes(self):
+        first = CastNote.objects.create(
+            store=self.store,
+            title="一番目",
+            status=CastNote.Status.PUBLISHED,
+            sort_order=10,
+        )
+        second = CastNote.objects.create(
+            store=self.store,
+            title="二番目",
+            status=CastNote.Status.PUBLISHED,
+            sort_order=20,
+        )
+        other_manager = self._user(
+            "followup_other_manager",
+            self.other_store,
+            UserProfile.Role.MANAGER,
+        )
+
+        staff_response = self._client(self.staff).post(
+            f"/api/cast-notes/{second.pk}/move/",
+            {"direction": "up"},
+            format="json",
+        )
+        foreign_response = self._client(other_manager).post(
+            f"/api/cast-notes/{second.pk}/move/",
+            {"direction": "up"},
+            format="json",
+        )
+
+        self.assertEqual(staff_response.status_code, 403, staff_response.data)
+        self.assertEqual(foreign_response.status_code, 404, foreign_response.data)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.sort_order, second.sort_order), (10, 20))

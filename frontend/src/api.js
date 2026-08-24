@@ -280,6 +280,7 @@ export const api = {
   publishCastNote: (id) => request('POST', `/cast-notes/${id}/publish/`),
   unpublishCastNote: (id) => request('POST', `/cast-notes/${id}/unpublish/`),
   archiveCastNote: (id) => request('POST', `/cast-notes/${id}/archive/`),
+  moveCastNote: (id, direction) => request('POST', `/cast-notes/${id}/move/`, { direction }),
   pinCastNote: (id) => request('POST', `/cast-notes/${id}/pin/`),
   unpinCastNote: (id) => request('POST', `/cast-notes/${id}/unpin/`),
 

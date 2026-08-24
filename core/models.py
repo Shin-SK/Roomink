@@ -1182,6 +1182,7 @@ class CastNote(models.Model):
     body = models.TextField(blank=True, default="", help_text="本文（プレーンテキストまたは簡易Markdown）")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
     is_pinned = models.BooleanField(default=False)
+    sort_order = models.PositiveIntegerField(default=0)
     visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.CAST)
     video_url = models.URLField(
         blank=True, default="",
@@ -1214,7 +1215,7 @@ class CastNote(models.Model):
         indexes = [
             models.Index(fields=["store", "status", "is_pinned"]),
         ]
-        ordering = ["-is_pinned", "-published_at", "-created_at"]
+        ordering = ["-is_pinned", "sort_order", "pk"]
 
     def __str__(self):
         return f"{self.title} ({self.status})"

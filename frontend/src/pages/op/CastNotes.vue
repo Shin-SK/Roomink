@@ -23,6 +23,7 @@ const bodyTextarea = ref(null)
 const filterStatus = ref('')
 const filterCategory = ref('')
 const searchQuery = ref('')
+const movingId = ref(null)
 
 const statusLabel = { DRAFT: '下書き', PUBLISHED: '公開', ARCHIVED: 'アーカイブ' }
 const statusClass = { DRAFT: 'bg-secondary', PUBLISHED: 'bg-success', ARCHIVED: 'bg-dark' }
@@ -32,6 +33,20 @@ const categories = computed(() => {
   const set = new Set(notes.value.map(n => n.category).filter(Boolean))
   return Array.from(set).sort()
 })
+
+const reorderEnabled = computed(() => (
+  isManager.value
+  && !filterStatus.value
+  && !filterCategory.value
+  && !searchQuery.value.trim()
+))
+
+function canMove(note, direction) {
+  if (!reorderEnabled.value) return false
+  const group = notes.value.filter(item => item.is_pinned === note.is_pinned)
+  const index = group.findIndex(item => item.id === note.id)
+  return direction === 'up' ? index > 0 : index >= 0 && index < group.length - 1
+}
 
 function buildParams() {
   const params = new URLSearchParams()
@@ -208,6 +223,20 @@ async function doAction(fn, n) {
   }
 }
 
+async function moveNote(note, direction) {
+  if (!canMove(note, direction) || movingId.value) return
+  error.value = ''
+  movingId.value = note.id
+  try {
+    await api.moveCastNote(note.id, direction)
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    movingId.value = null
+  }
+}
+
 function formatDateTime(s) {
   if (!s) return '-'
   return s.slice(0, 16).replace('T', ' ')
@@ -247,6 +276,14 @@ function formatDateTime(s) {
             <input v-model="searchQuery" type="text" class="form-control form-control-sm" placeholder="タイトル・本文で検索" />
           </div>
         </div>
+        <div v-if="isManager" class="small text-muted mb-3">
+          <template v-if="reorderEnabled">
+            <i class="ti ti-arrows-sort"></i> 矢印ボタンで、キャストに表示する記事の順番を変更できます。
+          </template>
+          <template v-else>
+            並び替える場合は、ステータス・カテゴリ・検索の絞り込みを解除してください。
+          </template>
+        </div>
 
         <div v-if="loading" class="text-center py-3">
           <div class="spinner-border text-primary"></div>
@@ -258,6 +295,7 @@ function formatDateTime(s) {
           <thead>
             <tr>
               <th style="width: 40px;"></th>
+              <th v-if="isManager" style="width: 84px;">並び順</th>
               <th>タイトル</th>
               <th>カテゴリ</th>
               <th>公開範囲</th>
@@ -269,6 +307,26 @@ function formatDateTime(s) {
           <tbody>
             <tr v-for="n in notes" :key="n.id">
               <td><i v-if="n.is_pinned" class="ti ti-pin text-warning" title="ピン留め"></i></td>
+              <td v-if="isManager">
+                <div class="btn-group btn-group-sm" role="group" aria-label="記事の並び替え">
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary"
+                    title="上へ移動"
+                    :aria-label="`${n.title}を上へ移動`"
+                    :disabled="movingId !== null || !canMove(n, 'up')"
+                    @click="moveNote(n, 'up')"
+                  ><i class="ti ti-chevron-up"></i></button>
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary"
+                    title="下へ移動"
+                    :aria-label="`${n.title}を下へ移動`"
+                    :disabled="movingId !== null || !canMove(n, 'down')"
+                    @click="moveNote(n, 'down')"
+                  ><i class="ti ti-chevron-down"></i></button>
+                </div>
+              </td>
               <td>{{ n.title }}</td>
               <td><span v-if="n.category" class="badge bg-light text-dark border">{{ n.category }}</span><span v-else class="text-muted small">-</span></td>
               <td class="small">
