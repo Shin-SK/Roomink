@@ -402,12 +402,15 @@ class CastNoteSerializer(serializers.ModelSerializer):
         model = CastNote
         fields = [
             "id", "store", "title", "category", "body", "status", "status_display",
-            "is_pinned", "visibility", "visibility_display", "video_url",
+            "is_pinned", "sort_order", "visibility", "visibility_display", "video_url",
             "target_cast_ids", "target_cast_names", "image_urls",
             "created_by", "created_by_name", "updated_by", "updated_by_name",
             "published_at", "created_at", "updated_at",
         ]
-        read_only_fields = ["store", "created_by", "updated_by", "published_at", "created_at", "updated_at"]
+        read_only_fields = [
+            "store", "sort_order", "created_by", "updated_by",
+            "published_at", "created_at", "updated_at",
+        ]
 
     def get_created_by_name(self, obj) -> Optional[str]:
         return obj.created_by.username if obj.created_by else None
@@ -442,7 +445,7 @@ class CastNoteCastSerializer(serializers.ModelSerializer):
         model = CastNote
         fields = [
             "id", "title", "category", "category_label", "body",
-            "is_pinned", "video_url", "image_urls", "published_at",
+            "is_pinned", "sort_order", "video_url", "image_urls", "published_at",
         ]
         read_only_fields = fields
 
