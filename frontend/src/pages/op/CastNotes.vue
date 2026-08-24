@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { getAuthRole } from '../../router.js'
@@ -246,6 +246,17 @@ function clearDragState() {
   dropPosition.value = 'before'
 }
 
+function detachDragListeners() {
+  window.removeEventListener('pointermove', updateNoteDrag)
+  window.removeEventListener('pointerup', finishNoteDrag)
+  window.removeEventListener('pointercancel', cancelNoteDrag)
+}
+
+function cancelNoteDrag() {
+  detachDragListeners()
+  clearDragState()
+}
+
 function startNoteDrag(event, note) {
   if (!reorderEnabled.value || movingId.value) return
   if (event.pointerType === 'mouse' && event.button !== 0) return
@@ -254,6 +265,9 @@ function startNoteDrag(event, note) {
   draggingId.value = note.id
   dropTargetId.value = note.id
   dropPosition.value = 'before'
+  window.addEventListener('pointermove', updateNoteDrag, { passive: false })
+  window.addEventListener('pointerup', finishNoteDrag)
+  window.addEventListener('pointercancel', cancelNoteDrag)
 }
 
 function updateNoteDrag(event) {
@@ -270,9 +284,9 @@ function updateNoteDrag(event) {
   dropPosition.value = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
-async function finishNoteDrag(event) {
+async function finishNoteDrag() {
   if (!draggingId.value) return
-  event.currentTarget.releasePointerCapture?.(event.pointerId)
+  detachDragListeners()
   const movingNoteId = draggingId.value
   const targetId = dropTargetId.value
   const position = dropPosition.value
@@ -290,6 +304,8 @@ async function finishNoteDrag(event) {
     movingId.value = null
   }
 }
+
+onBeforeUnmount(detachDragListeners)
 
 function formatDateTime(s) {
   if (!s) return '-'
@@ -380,9 +396,6 @@ function formatDateTime(s) {
                     :aria-grabbed="draggingId === n.id"
                     :disabled="movingId !== null || !reorderEnabled"
                     @pointerdown="startNoteDrag($event, n)"
-                    @pointermove="updateNoteDrag"
-                    @pointerup="finishNoteDrag"
-                    @pointercancel="clearDragState"
                   ><i class="ti ti-grip-vertical"></i></button>
                   <div class="btn-group btn-group-sm" role="group" aria-label="記事の並び替え">
                   <button
