@@ -233,6 +233,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Twilio Webhook signature validation ---
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_SIP_URI = os.getenv("TWILIO_SIP_URI", "").strip()
 TWILIO_WEBHOOK_PUBLIC_BASE_URL = os.getenv("TWILIO_WEBHOOK_PUBLIC_BASE_URL", "").rstrip("/")
 TWILIO_WEBHOOK_ALLOW_UNSIGNED = os.getenv("TWILIO_WEBHOOK_ALLOW_UNSIGNED", "0") == "1"
 

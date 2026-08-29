@@ -27,6 +27,7 @@ import os
 from datetime import date, time, timedelta
 from unittest.mock import patch
 from urllib.parse import urlencode
+from xml.etree import ElementTree
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
@@ -331,6 +332,7 @@ class CtiInboundAuthenticationTest(RoomankOpsSmokeTestBase):
 
 @override_settings(
     TWILIO_AUTH_TOKEN="twilio-webhook-test-token",
+    TWILIO_SIP_URI="reception@roomink.sip.twilio.com",
     TWILIO_WEBHOOK_PUBLIC_BASE_URL="https://roomink.example",
     TWILIO_WEBHOOK_ALLOW_UNSIGNED=False,
 )
@@ -441,6 +443,12 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         call = CallLog.objects.get(contact_id=data["CallSid"])
         self.assertEqual(call.from_phone, "09012345678")
         self.assertEqual(call.to_phone, "15075800167")
+        twiml = ElementTree.fromstring(response.content)
+        dial = twiml.find("Dial")
+        self.assertIsNotNone(dial)
+        self.assertEqual(dial.attrib["answerOnBridge"], "true")
+        self.assertEqual(dial.attrib["timeout"], "30")
+        self.assertEqual(dial.findtext("Sip"), "reception@roomink.sip.twilio.com")
         logs = "\n".join(captured.output)
         self.assertNotIn(self.from_phone, logs)
         self.assertNotIn("09012345678", logs)
@@ -448,6 +456,46 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         self.assertNotIn("15075800167", logs)
         self.assertIn("***5678", logs)
         self.assertIn("***0167", logs)
+
+    @override_settings(TWILIO_SIP_URI="")
+    def test_missing_sip_configuration_fails_safe_after_recording_call(self):
+        data = self.voice_data("CAmissing-sip")
+
+        with self.assertLogs("core.views", level="ERROR") as captured:
+            response = self.signed_post(
+                self.voice_endpoint,
+                f"https://roomink.example{self.voice_endpoint}",
+                data,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(CallLog.objects.filter(contact_id=data["CallSid"]).exists())
+        twiml = ElementTree.fromstring(response.content)
+        self.assertIsNone(twiml.find("Dial"))
+        self.assertTrue(any(
+            "電話をおつなぎできません" in (say.text or "")
+            for say in twiml.findall("Say")
+        ))
+        self.assertIn("SIP reception is not configured", "\n".join(captured.output))
+
+    def test_customer_name_is_xml_escaped_before_sip_dial(self):
+        Customer.objects.create(
+            store=self.store_a,
+            phone="09012345678",
+            display_name="A&B<受付>",
+        )
+        data = self.voice_data("CAxml-safe")
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            data,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        twiml = ElementTree.fromstring(response.content)
+        self.assertIn("A&B<受付>", twiml.findtext("Say"))
+        self.assertEqual(twiml.findtext("Dial/Sip"), "reception@roomink.sip.twilio.com")
 
     @override_settings(
         TWILIO_WEBHOOK_PUBLIC_BASE_URL="",

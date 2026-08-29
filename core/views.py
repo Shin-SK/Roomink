@@ -28,6 +28,7 @@ from rest_framework.views import APIView
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from twilio.request_validator import RequestValidator
+from twilio.twiml.voice_response import Dial, VoiceResponse
 
 from .models import (
     CallLog, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
@@ -4562,6 +4563,15 @@ def _twilio_forbidden_response():
     return HttpResponse("Forbidden", content_type="text/plain", status=403)
 
 
+def _configured_twilio_sip_uri():
+    sip_uri = settings.TWILIO_SIP_URI.strip()
+    if sip_uri.lower().startswith("sip:"):
+        sip_uri = sip_uri[4:]
+    if not re.fullmatch(r"[A-Za-z0-9_.!~*'()%+\-]+@[A-Za-z0-9.-]+\.sip\.twilio\.com", sip_uri):
+        return ""
+    return sip_uri
+
+
 def _twilio_regulatory_status_value(request, *keys):
     for key in keys:
         value = request.data.get(key)
@@ -4696,24 +4706,29 @@ def twilio_voice_webhook(request):
         call.status = CallLog.Status.NEW
         call.save(update_fields=["status"])
 
-    # TwiML レスポンス（受付メッセージ + StatusCallback）
+    # TwiML レスポンス（受付メッセージ + 登録済みSIP端末への接続）
     customer_name = customer.display_name if customer and customer.display_name else ""
     if customer_name:
         say_text = f"お電話ありがとうございます。{customer_name}様ですね。少々お待ちください。"
     else:
         say_text = "お電話ありがとうございます。少々お待ちください。"
 
-    # StatusCallback URL を構築
-    status_url = os.getenv("TWILIO_STATUS_CALLBACK_URL", "")
-    status_attr = f' statusCallback="{status_url}" statusCallbackMethod="POST"' if status_url else ""
+    voice_response = VoiceResponse()
+    voice_response.say(say_text, language="ja-JP")
 
-    twiml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        f"<Response{status_attr}>"
-        f'<Say language="ja-JP">{say_text}</Say>'
-        "</Response>"
-    )
-    return HttpResponse(twiml, content_type="application/xml")
+    sip_uri = _configured_twilio_sip_uri()
+    if not sip_uri:
+        logger.error("Twilio SIP reception is not configured")
+        voice_response.say(
+            "申し訳ありません。ただいま電話をおつなぎできません。",
+            language="ja-JP",
+        )
+        return HttpResponse(str(voice_response), content_type="application/xml")
+
+    dial = Dial(answer_on_bridge=True, timeout=30)
+    dial.sip(sip_uri)
+    voice_response.append(dial)
+    return HttpResponse(str(voice_response), content_type="application/xml")
 
 
 @extend_schema(operation_id="twilio_status_webhook", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.STR)
