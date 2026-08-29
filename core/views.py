@@ -4959,7 +4959,7 @@ class GroundwireProvisioningView(APIView):
         with transaction.atomic():
             try:
                 link = (
-                    SipProvisioningLink.objects.select_for_update()
+                    SipProvisioningLink.objects.select_for_update(of=("self",))
                     .select_related("store", "device")
                     .get(token_hash=token_hash)
                 )
