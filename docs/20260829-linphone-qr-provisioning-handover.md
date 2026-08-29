@@ -134,7 +134,7 @@ iPhoneのバックグラウンド・アプリ終了中でもPush着信できる�
 
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
-- `TWILIO_SIP_CREDENTIAL_LIST_SID`
+- `TWILIO_SIP_CREDENTIAL_LIST_SID`（Roomink本番値を既定値として設定済み。別Twilioアカウントでは上書き必須）
 - `TWILIO_WEBHOOK_PUBLIC_BASE_URL`
 
 Twilio Consoleで、Credential ListをRoominkが使用するSIP Domainへ紐付ける必要がある。
@@ -153,7 +153,7 @@ Twilio Consoleで、Credential ListをRoominkが使用するSIP Domainへ紐付�
 ### 未実施・本番前確認
 
 - 本番デプロイとmigration `0064`適用
-- Herokuへの`TWILIO_SIP_CREDENTIAL_LIST_SID`設定
+- Roomink本番では既定のCredential List SIDを使用。別Twilioアカウントへ移す場合はHerokuで上書きする
 - Twilio実APIによるCredential作成・更新・削除
 - Groundwireの前面・バックグラウンド・画面ロック・アプリ終了中の実機着信
 - 2台以上の同時着信、最初の応答後の他端末停止、1台だけ利用停止した場合の継続着信
