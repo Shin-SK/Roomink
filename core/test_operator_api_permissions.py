@@ -90,7 +90,7 @@ class OperatorApiPermissionTest(TestCase):
             ("post", "/api/op/orders/1/cast-ack/"),
             ("post", "/api/op/csv-import/"),
             ("post", "/api/op/sms-templates/"),
-            ("post", "/api/op/sip-provisioning/issue/"),
+            ("post", "/api/op/sip-reception-devices/"),
         ]
 
         for client in (self.cast_client, self.customer_client):

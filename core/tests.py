@@ -31,14 +31,15 @@ from xml.etree import ElementTree
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 from twilio.request_validator import RequestValidator
 
 from core.models import (
     CallLog, Cast, CastAdjustment, CastDailyCheckout, CastNote, Course, Customer,
     CastExpenseTemplate, CastExpenseTemplateHistory, Order, Room, StorePhoneNumber,
-    ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsTemplate,
-    Store, UserProfile,
+    ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SipReceptionDevice,
+    SmsTemplate, Store, UserProfile,
 )
 from core.services.notify import build_confirmation_body
 
@@ -515,6 +516,95 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         self.assertEqual(
             twiml.findtext("Dial/Sip"),
             "store-reception@store-roomink.sip.twilio.com",
+        )
+
+    def test_active_reception_devices_ring_in_parallel(self):
+        self.store_a.sip_domain = "store-roomink.sip.twilio.com"
+        self.store_a.save(update_fields=["sip_domain"])
+        SipReceptionDevice.objects.create(
+            store=self.store_a,
+            label="受付1",
+            sip_username="device-one",
+            twilio_credential_sid="CRone",
+            provisioned_at=timezone.now(),
+        )
+        SipReceptionDevice.objects.create(
+            store=self.store_a,
+            label="受付2",
+            sip_username="device-two",
+            twilio_credential_sid="CRtwo",
+            provisioned_at=timezone.now(),
+        )
+        SipReceptionDevice.objects.create(
+            store=self.store_a,
+            label="停止済み受付",
+            sip_username="disabled-device",
+            twilio_credential_sid="",
+            is_active=False,
+        )
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            self.voice_data("CAmulti-device"),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        twiml = ElementTree.fromstring(response.content)
+        self.assertEqual(
+            [node.text for node in twiml.findall("Dial/Sip")],
+            [
+                "device-one@store-roomink.sip.twilio.com",
+                "device-two@store-roomink.sip.twilio.com",
+            ],
+        )
+
+    @override_settings(TWILIO_SIP_URI="reception@fallback.sip.twilio.com")
+    def test_inactive_managed_device_does_not_fall_back_to_shared_account(self):
+        self.store_a.sip_domain = "store-roomink.sip.twilio.com"
+        self.store_a.save(update_fields=["sip_domain"])
+        SipReceptionDevice.objects.create(
+            store=self.store_a,
+            label="停止端末",
+            sip_username="disabled-device",
+            twilio_credential_sid="",
+            is_active=False,
+            provisioned_at=timezone.now(),
+        )
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            self.voice_data("CAdisabled-device"),
+        )
+
+        twiml = ElementTree.fromstring(response.content)
+        self.assertIsNone(twiml.find("Dial"))
+        self.assertTrue(any(
+            "電話をおつなぎできません" in (say.text or "")
+            for say in twiml.findall("Say")
+        ))
+
+    def test_first_unprovisioned_device_keeps_legacy_route_during_setup(self):
+        self.store_a.sip_domain = "roomink-reception.sip.twilio.com"
+        self.store_a.save(update_fields=["sip_domain"])
+        SipReceptionDevice.objects.create(
+            store=self.store_a,
+            label="初回設定中",
+            sip_username="pending-device",
+            twilio_credential_sid="CRpending",
+        )
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            self.voice_data("CAfirst-device-pending"),
+        )
+
+        twiml = ElementTree.fromstring(response.content)
+        self.assertEqual(
+            twiml.findtext("Dial/Sip"),
+            "reception@roomink.sip.twilio.com",
         )
 
     @override_settings(

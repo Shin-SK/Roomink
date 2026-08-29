@@ -692,11 +692,52 @@ class StorePhoneNumber(models.Model):
         return f"{self.store.name} - {self.phone}"
 
 
+class SipReceptionDevice(models.Model):
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="sip_reception_devices",
+    )
+    label = models.CharField(max_length=80)
+    sip_username = models.CharField(max_length=64, unique=True)
+    provisioning_password = models.TextField(
+        blank=True,
+        default="",
+        help_text="Groundwire初期設定用。使い切り画面表示後に消去する。",
+    )
+    twilio_credential_sid = models.CharField(max_length=34, blank=True, default="")
+    is_active = models.BooleanField(default=True, db_index=True)
+    provisioned_at = models.DateTimeField(null=True, blank=True)
+    disabled_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_sip_reception_devices",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return f"{self.store} - {self.label}"
+
+
 class SipProvisioningLink(models.Model):
     store = models.ForeignKey(
         Store,
         on_delete=models.CASCADE,
         related_name="sip_provisioning_links",
+    )
+    device = models.ForeignKey(
+        SipReceptionDevice,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="provisioning_links",
     )
     token_hash = models.CharField(max_length=64, unique=True)
     expires_at = models.DateTimeField(db_index=True)

@@ -117,17 +117,27 @@ urlpatterns = [
         name="store-sip-provisioning-settings",
     ),
     path(
-        "op/sip-provisioning/issue/",
-        views.StoreSipProvisioningIssueView.as_view(),
-        name="store-sip-provisioning-issue",
+        "op/sip-reception-devices/",
+        views.SipReceptionDeviceListCreateView.as_view(),
+        name="sip-reception-device-list-create",
+    ),
+    path(
+        "op/sip-reception-devices/<int:device_id>/provision/",
+        views.SipReceptionDeviceProvisionView.as_view(),
+        name="sip-reception-device-provision",
+    ),
+    path(
+        "op/sip-reception-devices/<int:device_id>/deactivate/",
+        views.SipReceptionDeviceDeactivateView.as_view(),
+        name="sip-reception-device-deactivate",
     ),
     path("op/", include(op_sr_router.urls)),
 
-    # Linphone remote provisioning（短時間・使い切りURL）
+    # Groundwire設定案内（短時間・使い切りURL）
     path(
-        "provisioning/linphone/<str:token>/",
-        views.LinphoneProvisioningView.as_view(),
-        name="linphone-provisioning",
+        "provisioning/groundwire/<str:token>/",
+        views.GroundwireProvisioningView.as_view(),
+        name="groundwire-provisioning",
     ),
 
     # Twilio webhook

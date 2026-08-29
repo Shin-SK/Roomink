@@ -8,7 +8,6 @@ import secrets
 import uuid
 from collections import defaultdict
 from datetime import date as date_type, datetime, timedelta
-from xml.etree import ElementTree
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -18,6 +17,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
 from django.db.models import Max, ProtectedError, Q
 from django.utils import timezone
+from django.utils.html import escape
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import parsers, viewsets, status
@@ -41,7 +41,8 @@ from .models import (
     LineNotificationLog, NominationFee, Option, Order, OrderOption, PointLog,
     OrderServiceRecipientLinkLog,
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
-    SipProvisioningLink, SmsTemplate, Store, StorePhoneNumber, StoreSlugAlias, UserProfile,
+    SipProvisioningLink, SipReceptionDevice, SmsTemplate, Store, StorePhoneNumber,
+    StoreSlugAlias, UserProfile,
     generate_line_link_code,
     generate_line_operations_link_code,
 )
@@ -4574,7 +4575,7 @@ def _configured_twilio_sip_uri():
     return sip_uri
 
 
-def _store_twilio_sip_uri(store):
+def _legacy_store_twilio_sip_uri(store):
     username = (store.sip_username or "").strip()
     domain = (store.sip_domain or "").strip().lower()
     if username and domain:
@@ -4584,62 +4585,179 @@ def _store_twilio_sip_uri(store):
     return _configured_twilio_sip_uri()
 
 
+def _store_twilio_sip_uris(store):
+    devices = store.sip_reception_devices.all()
+    if devices.exists():
+        domain = (store.sip_domain or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9.-]*\.sip\.twilio\.com", domain):
+            return []
+        active_uris = [
+            f"{username}@{domain}"
+            for username in devices.filter(is_active=True, provisioned_at__isnull=False)
+            .order_by("created_at", "id")
+            .values_list("sip_username", flat=True)[:10]
+        ]
+        if active_uris:
+            return active_uris
+        if devices.filter(provisioned_at__isnull=False).exists() or not devices.filter(is_active=True).exists():
+            return []
+        legacy_uri = _legacy_store_twilio_sip_uri(store)
+        return [legacy_uri] if legacy_uri else []
+    legacy_uri = _legacy_store_twilio_sip_uri(store)
+    return [legacy_uri] if legacy_uri else []
+
+
+def _twilio_sip_credential_api_configured():
+    return bool(
+        settings.TWILIO_ACCOUNT_SID
+        and settings.TWILIO_AUTH_TOKEN
+        and settings.TWILIO_SIP_CREDENTIAL_LIST_SID
+    )
+
+
 def _sip_settings_payload(store):
     return {
-        "sip_username": store.sip_username or "",
         "sip_domain": store.sip_domain or "",
-        "configured": bool(store.sip_username and store.sip_password and store.sip_domain),
+        "credential_api_configured": _twilio_sip_credential_api_configured(),
+        "configured": bool(store.sip_domain and _twilio_sip_credential_api_configured()),
+        "max_devices": 10,
     }
 
 
-def _build_linphone_provisioning_xml(store):
-    namespace = "http://www.linphone.org/xsds/lpconfig.xsd"
-    ElementTree.register_namespace("", namespace)
-    root = ElementTree.Element(
-        f"{{{namespace}}}config",
-        {
-            "{http://www.w3.org/2001/XMLSchema-instance}schemaLocation": (
-                f"{namespace} lpconfig.xsd"
-            ),
-        },
+def _twilio_sip_credentials():
+    from twilio.rest import Client
+
+    return Client(
+        settings.TWILIO_ACCOUNT_SID,
+        settings.TWILIO_AUTH_TOKEN,
+    ).sip.credential_lists(
+        settings.TWILIO_SIP_CREDENTIAL_LIST_SID,
+    ).credentials
+
+
+def _create_twilio_sip_credential(username, password):
+    return _twilio_sip_credentials().create(
+        username=username,
+        password=password,
+    ).sid
+
+
+def _update_twilio_sip_credential(credential_sid, password):
+    _twilio_sip_credentials()(credential_sid).update(password=password)
+
+
+def _delete_twilio_sip_credential(credential_sid):
+    return _twilio_sip_credentials()(credential_sid).delete()
+
+
+def _device_payload(device):
+    return {
+        "id": device.pk,
+        "label": device.label,
+        "sip_username": device.sip_username,
+        "is_active": device.is_active,
+        "provisioned_at": device.provisioned_at,
+        "disabled_at": device.disabled_at,
+        "created_at": device.created_at,
+        "revocation_pending": bool(
+            not device.is_active and device.twilio_credential_sid
+        ),
+    }
+
+
+def _issue_device_provisioning_link(request, device):
+    now = timezone.now()
+    device.provisioning_links.filter(used_at__isnull=True).update(used_at=now)
+    token = secrets.token_urlsafe(32)
+    expires_at = now + timedelta(minutes=10)
+    SipProvisioningLink.objects.create(
+        store=device.store,
+        device=device,
+        token_hash=hashlib.sha256(token.encode()).hexdigest(),
+        expires_at=expires_at,
+        created_by=request.user,
     )
+    path = f"/api/provisioning/groundwire/{token}/"
+    return {
+        "device": _device_payload(device),
+        "provisioning_url": request.build_absolute_uri(path),
+        "expires_at": expires_at,
+    }
 
-    def section(name):
-        return ElementTree.SubElement(root, f"{{{namespace}}}section", {"name": name, "overwrite": "true"})
 
-    def entry(parent, name, value):
-        node = ElementTree.SubElement(
-            parent,
-            f"{{{namespace}}}entry",
-            {"name": name, "overwrite": "true"},
-        )
-        node.text = str(value)
-
-    sip = section("sip")
-    entry(sip, "default_proxy", "0")
-
-    misc = section("misc")
-    entry(misc, "transient_provisioning", "1")
-
-    auth = section("auth_info_0")
-    entry(auth, "username", store.sip_username)
-    entry(auth, "userid", store.sip_username)
-    entry(auth, "passwd", store.sip_password)
-    entry(auth, "domain", store.sip_domain)
-
-    proxy = section("proxy_0")
-    entry(proxy, "reg_proxy", f"<sip:{store.sip_domain};transport=tls>")
-    entry(proxy, "reg_route", "<sip:sip.tokyo.twilio.com;transport=tls>")
-    entry(
-        proxy,
-        "reg_identity",
-        f'"{store.name}" <sip:{store.sip_username}@{store.sip_domain}>',
+def _build_groundwire_setup_page(store, device):
+    fields = (
+        ("タイトル", f"{store.name} - {device.label}"),
+        ("ユーザー名", device.sip_username),
+        ("パスワード", device.provisioning_password),
+        ("ドメイン", store.sip_domain),
+        ("トランスポート", "tls (sip)"),
+        ("Proxy", "sip.tokyo.twilio.com"),
     )
-    entry(proxy, "reg_expires", "600")
-    entry(proxy, "reg_sendregister", "1")
-    entry(proxy, "publish", "0")
-
-    return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+    field_html = "".join(
+        f"""
+        <div class="field">
+          <label>{escape(label)}</label>
+          <div class="copy-row">
+            <input type="text" value="{escape(str(value))}" readonly autocomplete="off">
+            <button type="button" onclick="copyField(this)">コピー</button>
+          </div>
+        </div>
+        """
+        for label, value in fields
+    )
+    return f"""<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Groundwire受付設定</title>
+  <style>
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; background: #f4f7f7; color: #273332; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }}
+    main {{ width: min(100% - 24px, 560px); margin: 24px auto; }}
+    .card {{ background: white; border-radius: 16px; padding: 22px; box-shadow: 0 8px 28px rgba(24, 73, 68, .10); }}
+    h1 {{ margin: 0 0 8px; color: #258f84; font-size: 24px; }}
+    .lead {{ margin: 0 0 20px; line-height: 1.7; }}
+    .steps {{ margin: 0 0 22px; padding-left: 22px; line-height: 1.8; }}
+    .field {{ margin-top: 16px; }}
+    label {{ display: block; margin-bottom: 6px; font-weight: 700; }}
+    .copy-row {{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }}
+    input {{ width: 100%; min-height: 46px; border: 1px solid #cdd9d8; border-radius: 9px; padding: 10px 12px; font-size: 16px; background: #f9fbfb; }}
+    button, .app-link {{ min-height: 46px; border: 0; border-radius: 9px; padding: 10px 14px; background: #258f84; color: white; font-size: 15px; font-weight: 700; text-decoration: none; }}
+    .app-link {{ display: block; margin-top: 20px; text-align: center; }}
+    .warning {{ margin-top: 20px; padding: 12px; border-radius: 10px; background: #fff4dd; color: #76520a; font-size: 14px; line-height: 1.6; }}
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Groundwire受付設定</h1>
+      <p class="lead">Groundwireの「新しいSIPアカウント」へ、以下を順番にコピーしてください。</p>
+      <ol class="steps">
+        <li>Groundwireを開き「設定 → Accounts → ＋ → New SIP Account」を選ぶ</li>
+        <li>下の値を入力して保存する</li>
+        <li>通知とマイクを許可し、アカウント表示が緑色になれば完了</li>
+      </ol>
+      {field_html}
+      <a class="app-link" href="https://apps.apple.com/jp/app/groundwire-voip-sip-softphone/id378503081">GroundwireをApp Storeで開く</a>
+      <div class="warning">この画面には受付電話の認証情報が含まれます。設定完了後は閉じ、スクリーンショットや第三者への転送はしないでください。このリンクは再表示できません。</div>
+    </section>
+  </main>
+  <script>
+    async function copyField(button) {{
+      const input = button.previousElementSibling;
+      try {{
+        await navigator.clipboard.writeText(input.value);
+        button.textContent = 'コピー済み';
+      }} catch (error) {{
+        input.select();
+        button.textContent = '長押ししてコピー';
+      }}
+    }}
+  </script>
+</body>
+</html>"""
 
 
 class StoreSipProvisioningSettingsView(APIView):
@@ -4659,81 +4777,181 @@ class StoreSipProvisioningSettingsView(APIView):
     )
     def patch(self, request):
         store = get_user_store(request)
-        username = (request.data.get("sip_username") or "").strip()
         domain = (request.data.get("sip_domain") or "").strip().lower()
-        password = request.data.get("sip_password")
-
-        if not re.fullmatch(r"[A-Za-z0-9_.!~*'()%+\-]{3,64}", username):
-            return Response(
-                {"detail": "SIP IDの形式が正しくありません。"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         if not re.fullmatch(r"[a-z0-9][a-z0-9.-]*\.sip\.twilio\.com", domain):
             return Response(
                 {"detail": "Twilio SIP Domainの形式が正しくありません。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if password is not None and len(str(password)) < 12:
-            return Response(
-                {"detail": "SIPパスワードは12文字以上で入力してください。"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if password is None and not store.sip_password:
-            return Response(
-                {"detail": "SIPパスワードを入力してください。"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        store.sip_username = username
         store.sip_domain = domain
-        update_fields = ["sip_username", "sip_domain"]
-        if password is not None:
-            store.sip_password = str(password)
-            update_fields.append("sip_password")
-        store.save(update_fields=update_fields)
+        store.save(update_fields=["sip_domain"])
         return Response(_sip_settings_payload(store))
 
 
-class StoreSipProvisioningIssueView(APIView):
+class SipReceptionDeviceListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
 
     @extend_schema(
-        operation_id="store_sip_provisioning_issue",
-        request=None,
+        operation_id="sip_reception_device_list",
+        responses=OpenApiTypes.OBJECT,
+    )
+    def get(self, request):
+        store = get_user_store(request)
+        return Response([
+            _device_payload(device)
+            for device in store.sip_reception_devices.all()
+        ])
+
+    @extend_schema(
+        operation_id="sip_reception_device_create",
+        request=OpenApiTypes.OBJECT,
         responses=OpenApiTypes.OBJECT,
     )
     def post(self, request):
         store = get_user_store(request)
-        if not _sip_settings_payload(store)["configured"]:
+        label = str(request.data.get("label") or "").strip()
+        if not label or len(label) > 80:
             return Response(
-                {"detail": "SIP ID・パスワード・Domainを先に保存してください。"},
+                {"detail": "端末名を80文字以内で入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not store.sip_domain:
+            return Response(
+                {"detail": "Twilio SIP Domainを先に保存してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not _twilio_sip_credential_api_configured():
+            return Response(
+                {"detail": "Twilioの端末認証APIが設定されていません。"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        if store.sip_reception_devices.filter(is_active=True).count() >= 10:
+            return Response(
+                {"detail": "1店舗に登録できる受付端末は10台までです。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        token = secrets.token_urlsafe(32)
-        expires_at = timezone.now() + timedelta(minutes=10)
-        SipProvisioningLink.objects.create(
-            store=store,
-            token_hash=hashlib.sha256(token.encode()).hexdigest(),
-            expires_at=expires_at,
-            created_by=request.user,
-        )
-        path = f"/api/provisioning/linphone/{token}/"
-        return Response(
-            {
-                "provisioning_url": request.build_absolute_uri(path),
-                "expires_at": expires_at,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        username = f"roomink-{store.pk}-{secrets.token_hex(6)}"
+        password = secrets.token_urlsafe(24)
+        try:
+            credential_sid = _create_twilio_sip_credential(username, password)
+        except Exception:
+            logger.exception("Twilio SIP credential creation failed for store=%s", store.pk)
+            return Response(
+                {"detail": "Twilioで端末認証を作成できませんでした。"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
+            with transaction.atomic():
+                device = SipReceptionDevice.objects.create(
+                    store=store,
+                    label=label,
+                    sip_username=username,
+                    provisioning_password=password,
+                    twilio_credential_sid=credential_sid,
+                    created_by=request.user,
+                )
+                payload = _issue_device_provisioning_link(request, device)
+        except Exception:
+            try:
+                _delete_twilio_sip_credential(credential_sid)
+            except Exception:
+                logger.exception("Orphaned Twilio SIP credential cleanup failed")
+            raise
+        return Response(payload, status=status.HTTP_201_CREATED)
 
 
-class LinphoneProvisioningView(APIView):
+class SipReceptionDeviceProvisionView(APIView):
+    permission_classes = [IsAuthenticated, IsManager]
+
+    @extend_schema(
+        operation_id="sip_reception_device_provision",
+        request=None,
+        responses=OpenApiTypes.OBJECT,
+    )
+    def post(self, request, device_id):
+        device = SipReceptionDevice.objects.filter(
+            pk=device_id,
+            store=get_user_store(request),
+            is_active=True,
+        ).first()
+        if not device:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if not device.twilio_credential_sid:
+            return Response(
+                {"detail": "Twilio端末認証が見つかりません。新しい端末を登録してください。"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        password = secrets.token_urlsafe(24)
+        try:
+            _update_twilio_sip_credential(device.twilio_credential_sid, password)
+        except Exception:
+            logger.exception("Twilio SIP credential update failed for device=%s", device.pk)
+            return Response(
+                {"detail": "Twilioで端末認証を更新できませんでした。"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        with transaction.atomic():
+            device.provisioning_password = password
+            device.provisioned_at = None
+            device.save(update_fields=["provisioning_password", "provisioned_at", "updated_at"])
+            payload = _issue_device_provisioning_link(request, device)
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class SipReceptionDeviceDeactivateView(APIView):
+    permission_classes = [IsAuthenticated, IsManager]
+
+    @extend_schema(
+        operation_id="sip_reception_device_deactivate",
+        request=None,
+        responses=OpenApiTypes.OBJECT,
+    )
+    def post(self, request, device_id):
+        device = SipReceptionDevice.objects.filter(
+            pk=device_id,
+            store=get_user_store(request),
+        ).first()
+        if not device:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        now = timezone.now()
+        with transaction.atomic():
+            device.is_active = False
+            device.disabled_at = device.disabled_at or now
+            device.provisioning_password = ""
+            device.save(update_fields=[
+                "is_active", "disabled_at", "provisioning_password", "updated_at",
+            ])
+            device.provisioning_links.filter(used_at__isnull=True).update(used_at=now)
+
+        credential_sid = device.twilio_credential_sid
+        if credential_sid:
+            try:
+                _delete_twilio_sip_credential(credential_sid)
+            except Exception:
+                logger.exception("Twilio SIP credential deletion failed for device=%s", device.pk)
+                return Response(
+                    {
+                        "detail": "端末への着信は停止しましたが、Twilio認証の削除に失敗しました。再試行してください。",
+                        "device": _device_payload(device),
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            device.twilio_credential_sid = ""
+            device.save(update_fields=["twilio_credential_sid", "updated_at"])
+        return Response({"device": _device_payload(device)})
+
+
+class GroundwireProvisioningView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
     @extend_schema(
-        operation_id="linphone_provisioning",
+        operation_id="groundwire_provisioning",
         responses=OpenApiTypes.STR,
     )
     def get(self, request, token):
@@ -4742,7 +4960,7 @@ class LinphoneProvisioningView(APIView):
             try:
                 link = (
                     SipProvisioningLink.objects.select_for_update()
-                    .select_related("store")
+                    .select_related("store", "device")
                     .get(token_hash=token_hash)
                 )
             except SipProvisioningLink.DoesNotExist:
@@ -4751,17 +4969,32 @@ class LinphoneProvisioningView(APIView):
             if link.used_at is not None or link.expires_at <= timezone.now():
                 return HttpResponse(status=410)
             store = link.store
-            if not _sip_settings_payload(store)["configured"]:
+            device = link.device
+            if (
+                not device
+                or not device.is_active
+                or not device.provisioning_password
+                or not store.sip_domain
+            ):
                 return HttpResponse(status=410)
 
-            body = _build_linphone_provisioning_xml(store)
+            body = _build_groundwire_setup_page(store, device)
             link.used_at = timezone.now()
             link.save(update_fields=["used_at"])
+            device.provisioning_password = ""
+            device.provisioned_at = timezone.now()
+            device.save(update_fields=["provisioning_password", "provisioned_at", "updated_at"])
 
-        response = HttpResponse(body, content_type="application/xml")
+        response = HttpResponse(body, content_type="text/html; charset=utf-8")
         response["Cache-Control"] = "no-store"
         response["Pragma"] = "no-cache"
         response["X-Robots-Tag"] = "noindex, nofollow"
+        response["Referrer-Policy"] = "no-referrer"
+        response["Content-Security-Policy"] = (
+            "default-src 'none'; style-src 'unsafe-inline'; "
+            "script-src 'unsafe-inline'; connect-src 'none'; "
+            "img-src 'none'; form-action 'none'; base-uri 'none'"
+        )
         return response
 
 
@@ -4909,8 +5142,8 @@ def twilio_voice_webhook(request):
     voice_response = VoiceResponse()
     voice_response.say(say_text, language="ja-JP")
 
-    sip_uri = _store_twilio_sip_uri(store)
-    if not sip_uri:
+    sip_uris = _store_twilio_sip_uris(store)
+    if not sip_uris:
         logger.error("Twilio SIP reception is not configured")
         voice_response.say(
             "申し訳ありません。ただいま電話をおつなぎできません。",
@@ -4919,7 +5152,8 @@ def twilio_voice_webhook(request):
         return HttpResponse(str(voice_response), content_type="application/xml")
 
     dial = Dial(answer_on_bridge=True, timeout=30)
-    dial.sip(sip_uri)
+    for sip_uri in sip_uris:
+        dial.sip(sip_uri)
     voice_response.append(dial)
     return HttpResponse(str(voice_response), content_type="application/xml")
 

@@ -235,7 +235,10 @@ export const api = {
   updatePublicBookingSettings: (body) => request('PATCH', '/op/public-booking-settings/', body),
   getSipProvisioningSettings: () => request('GET', '/op/sip-provisioning/settings/'),
   updateSipProvisioningSettings: (body) => request('PATCH', '/op/sip-provisioning/settings/', body),
-  issueSipProvisioningLink: () => request('POST', '/op/sip-provisioning/issue/', {}),
+  getSipReceptionDevices: () => request('GET', '/op/sip-reception-devices/'),
+  createSipReceptionDevice: (body) => request('POST', '/op/sip-reception-devices/', body),
+  issueSipReceptionDeviceLink: (id) => request('POST', `/op/sip-reception-devices/${id}/provision/`, {}),
+  deactivateSipReceptionDevice: (id) => request('POST', `/op/sip-reception-devices/${id}/deactivate/`, {}),
   getOrderSmsLogs: (id) => request('GET', `/op/orders/${id}/sms-logs/`),
 
   // Cast
