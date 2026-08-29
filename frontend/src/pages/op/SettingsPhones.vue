@@ -20,10 +20,11 @@ const sipIssuing = ref(false)
 const sipError = ref('')
 const sipConfigured = ref(false)
 const sipForm = ref({
-  sip_username: '',
-  sip_password: '',
   sip_domain: 'roomink-reception.sip.twilio.com',
 })
+const sipDevices = ref([])
+const deviceLabel = ref('')
+const deviceActionId = ref(null)
 const provisioningUrl = ref('')
 const provisioningExpiresAt = ref('')
 const qrDataUrl = ref('')
@@ -51,10 +52,9 @@ async function loadSipSettings() {
   sipError.value = ''
   try {
     const data = await api.getSipProvisioningSettings()
-    sipForm.value.sip_username = data.sip_username || ''
-    sipForm.value.sip_password = ''
     sipForm.value.sip_domain = data.sip_domain || 'roomink-reception.sip.twilio.com'
     sipConfigured.value = Boolean(data.configured)
+    sipDevices.value = await api.getSipReceptionDevices()
   } catch (e) {
     sipError.value = e.message
   } finally {
@@ -74,13 +74,10 @@ async function saveSipSettings() {
   qrDataUrl.value = ''
   try {
     const payload = {
-      sip_username: sipForm.value.sip_username,
       sip_domain: sipForm.value.sip_domain,
     }
-    if (sipForm.value.sip_password) payload.sip_password = sipForm.value.sip_password
     const data = await api.updateSipProvisioningSettings(payload)
     sipConfigured.value = Boolean(data.configured)
-    sipForm.value.sip_password = ''
   } catch (e) {
     sipError.value = e.message
   } finally {
@@ -88,23 +85,58 @@ async function saveSipSettings() {
   }
 }
 
-async function issueProvisioningQr() {
+async function showProvisioningQr(data) {
+  provisioningUrl.value = data.provisioning_url
+  provisioningExpiresAt.value = data.expires_at
+  qrDataUrl.value = await QRCode.toDataURL(data.provisioning_url, {
+    errorCorrectionLevel: 'M',
+    margin: 2,
+    width: 320,
+  })
+}
+
+async function createReceptionDevice() {
   sipIssuing.value = true
   sipError.value = ''
   copyMessage.value = ''
   try {
-    const data = await api.issueSipProvisioningLink()
-    provisioningUrl.value = data.provisioning_url
-    provisioningExpiresAt.value = data.expires_at
-    qrDataUrl.value = await QRCode.toDataURL(data.provisioning_url, {
-      errorCorrectionLevel: 'M',
-      margin: 2,
-      width: 320,
-    })
+    const data = await api.createSipReceptionDevice({ label: deviceLabel.value })
+    deviceLabel.value = ''
+    await showProvisioningQr(data)
+    sipDevices.value = await api.getSipReceptionDevices()
   } catch (e) {
     sipError.value = e.message
   } finally {
     sipIssuing.value = false
+  }
+}
+
+async function reissueProvisioningQr(device) {
+  deviceActionId.value = device.id
+  sipError.value = ''
+  copyMessage.value = ''
+  try {
+    const data = await api.issueSipReceptionDeviceLink(device.id)
+    await showProvisioningQr(data)
+    sipDevices.value = await api.getSipReceptionDevices()
+  } catch (e) {
+    sipError.value = e.message
+  } finally {
+    deviceActionId.value = null
+  }
+}
+
+async function deactivateReceptionDevice(device) {
+  if (!window.confirm(`「${device.label}」を停止しますか？この端末だけ着信できなくなります。`)) return
+  deviceActionId.value = device.id
+  sipError.value = ''
+  try {
+    await api.deactivateSipReceptionDevice(device.id)
+  } catch (e) {
+    sipError.value = e.message
+  } finally {
+    sipDevices.value = await api.getSipReceptionDevices()
+    deviceActionId.value = null
   }
 }
 
@@ -196,63 +228,106 @@ async function toggleActive(it) {
         </div>
         <template v-else>
           <p class="text-muted small">
-            最初に一度だけSIP IDとパスワードを保存します。受付担当者にはQRコードを読み取ってもらうだけです。
+            受付端末ごとに専用IDを発行します。退職・紛失時は、その端末だけ停止できます（1店舗10台まで）。
           </p>
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label">SIP ID</label>
-              <input
-                v-model="sipForm.sip_username"
-                type="text"
-                class="form-control"
-                autocomplete="off"
-                placeholder="roomink-reception"
-              />
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">SIPパスワード</label>
-              <input
-                v-model="sipForm.sip_password"
-                type="password"
-                class="form-control"
-                autocomplete="new-password"
-                :placeholder="sipConfigured ? '変更しない場合は空欄' : '12文字以上'"
-              />
-            </div>
-          </div>
           <details class="mt-3">
-            <summary class="small text-muted">接続先の詳細設定</summary>
+            <summary class="small text-muted">Twilio接続先の設定</summary>
             <div class="mt-2">
               <label class="form-label">Twilio SIP Domain</label>
               <input v-model="sipForm.sip_domain" type="text" class="form-control" />
+              <button
+                class="btn btn-outline-primary mt-2"
+                :disabled="sipSaving || !sipForm.sip_domain.trim()"
+                @click="saveSipSettings"
+              >
+                {{ sipSaving ? '保存中...' : '接続先を保存' }}
+              </button>
             </div>
           </details>
-          <div class="d-flex flex-wrap gap-2 mt-3">
-            <button
-              class="btn btn-outline-primary"
-              :disabled="sipSaving || !sipForm.sip_username.trim() || !sipForm.sip_domain.trim()"
-              @click="saveSipSettings"
-            >
-              {{ sipSaving ? '保存中...' : 'SIP設定を保存' }}
-            </button>
+
+          <div class="input-group mt-3">
+            <input
+              v-model="deviceLabel"
+              type="text"
+              class="form-control"
+              maxlength="80"
+              placeholder="例：受付iPhone 1、近藤さん端末"
+              @keyup.enter="createReceptionDevice"
+            />
             <button
               class="btn btn-primary"
-              :disabled="sipIssuing || !sipConfigured"
-              @click="issueProvisioningQr"
+              :disabled="sipIssuing || !sipConfigured || !deviceLabel.trim() || sipDevices.filter((item) => item.is_active).length >= 10"
+              @click="createReceptionDevice"
             >
               <i class="ti ti-qrcode text-white"></i>
-              {{ sipIssuing ? '発行中...' : '設定用QRを発行' }}
+              {{ sipIssuing ? '発行中...' : '端末を追加してQR発行' }}
             </button>
           </div>
 
+          <div v-if="!sipConfigured" class="alert alert-warning small mt-3 mb-0">
+            Twilio SIP Domainと本番の端末認証API設定が揃うと端末を追加できます。
+          </div>
+
+          <div class="table-responsive mt-3">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>端末名</th>
+                  <th>状態</th>
+                  <th>初期設定</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!sipDevices.length">
+                  <td colspan="4" class="text-muted text-center py-3">受付端末はまだありません</td>
+                </tr>
+                <tr v-for="device in sipDevices" :key="device.id">
+                  <td>
+                    <div class="fw-semibold">{{ device.label }}</div>
+                    <div class="small text-muted">{{ device.sip_username }}</div>
+                  </td>
+                  <td>
+                    <span v-if="device.is_active" class="badge bg-success">利用中</span>
+                    <span v-else class="badge bg-secondary">停止済み</span>
+                    <div v-if="device.revocation_pending" class="small text-danger mt-1">認証削除の再試行が必要</div>
+                  </td>
+                  <td>
+                    <span v-if="device.provisioned_at" class="small text-success">設定済み</span>
+                    <span v-else-if="device.is_active" class="small text-warning">QR読み取り待ち</span>
+                    <span v-else>—</span>
+                  </td>
+                  <td class="text-nowrap text-end">
+                    <button
+                      v-if="device.is_active"
+                      class="btn btn-outline-primary btn-sm me-1"
+                      :disabled="deviceActionId === device.id"
+                      @click="reissueProvisioningQr(device)"
+                    >
+                      QR再発行
+                    </button>
+                    <button
+                      v-if="device.is_active || device.revocation_pending"
+                      class="btn btn-outline-danger btn-sm"
+                      :disabled="deviceActionId === device.id"
+                      @click="deactivateReceptionDevice(device)"
+                    >
+                      {{ device.revocation_pending ? '認証削除を再試行' : '利用停止' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
           <div v-if="qrDataUrl" class="provisioning-card mt-4 text-center">
-            <h6>Linphoneで読み取ってください</h6>
+            <h6>iPhoneのカメラで読み取ってください</h6>
             <ol class="text-start small mb-3">
-              <li>Linphoneを開く</li>
-              <li>「QRコードをスキャン」を選ぶ</li>
-              <li>下のQRコードを読み取る</li>
+              <li>受付端末へGroundwireをインストールする</li>
+              <li>iPhone標準カメラで下のQRコードを読み取る</li>
+              <li>表示された値をGroundwireへコピーする</li>
             </ol>
-            <img :src="qrDataUrl" class="provisioning-qr" alt="Linphone設定用QRコード" />
+            <img :src="qrDataUrl" class="provisioning-qr" alt="Groundwire設定用QRコード" />
             <div class="small text-danger mt-2">10分以内・1台のみ利用できます</div>
             <button class="btn btn-outline-secondary btn-sm mt-2" @click="copyProvisioningLink">
               設定リンクをコピー

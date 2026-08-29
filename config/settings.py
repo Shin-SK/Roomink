@@ -233,6 +233,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Twilio Webhook signature validation ---
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_SIP_CREDENTIAL_LIST_SID = os.getenv("TWILIO_SIP_CREDENTIAL_LIST_SID", "")
 TWILIO_SIP_URI = os.getenv(
     "TWILIO_SIP_URI",
     "roomink-reception@roomink-reception.sip.twilio.com",
