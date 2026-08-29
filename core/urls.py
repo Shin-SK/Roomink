@@ -111,7 +111,24 @@ urlpatterns = [
     ),
     path("op/line-settings/", views.StoreLineSettingsView.as_view(), name="store-line-settings"),
     path("op/payment-fee-settings/", views.StorePaymentFeeSettingsView.as_view(), name="store-payment-fee-settings"),
+    path(
+        "op/sip-provisioning/settings/",
+        views.StoreSipProvisioningSettingsView.as_view(),
+        name="store-sip-provisioning-settings",
+    ),
+    path(
+        "op/sip-provisioning/issue/",
+        views.StoreSipProvisioningIssueView.as_view(),
+        name="store-sip-provisioning-issue",
+    ),
     path("op/", include(op_sr_router.urls)),
+
+    # Linphone remote provisioning（短時間・使い切りURL）
+    path(
+        "provisioning/linphone/<str:token>/",
+        views.LinphoneProvisioningView.as_view(),
+        name="linphone-provisioning",
+    ),
 
     # Twilio webhook
     path(

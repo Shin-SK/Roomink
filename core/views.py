@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import io
 import logging
 import os
@@ -7,6 +8,7 @@ import secrets
 import uuid
 from collections import defaultdict
 from datetime import date as date_type, datetime, timedelta
+from xml.etree import ElementTree
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -39,7 +41,7 @@ from .models import (
     LineNotificationLog, NominationFee, Option, Order, OrderOption, PointLog,
     OrderServiceRecipientLinkLog,
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
-    SmsTemplate, Store, StorePhoneNumber, StoreSlugAlias, UserProfile,
+    SipProvisioningLink, SmsTemplate, Store, StorePhoneNumber, StoreSlugAlias, UserProfile,
     generate_line_link_code,
     generate_line_operations_link_code,
 )
@@ -4572,6 +4574,197 @@ def _configured_twilio_sip_uri():
     return sip_uri
 
 
+def _store_twilio_sip_uri(store):
+    username = (store.sip_username or "").strip()
+    domain = (store.sip_domain or "").strip().lower()
+    if username and domain:
+        sip_uri = f"{username}@{domain}"
+        if re.fullmatch(r"[A-Za-z0-9_.!~*'()%+\-]+@[A-Za-z0-9.-]+\.sip\.twilio\.com", sip_uri):
+            return sip_uri
+    return _configured_twilio_sip_uri()
+
+
+def _sip_settings_payload(store):
+    return {
+        "sip_username": store.sip_username or "",
+        "sip_domain": store.sip_domain or "",
+        "configured": bool(store.sip_username and store.sip_password and store.sip_domain),
+    }
+
+
+def _build_linphone_provisioning_xml(store):
+    namespace = "http://www.linphone.org/xsds/lpconfig.xsd"
+    ElementTree.register_namespace("", namespace)
+    root = ElementTree.Element(
+        f"{{{namespace}}}config",
+        {
+            "{http://www.w3.org/2001/XMLSchema-instance}schemaLocation": (
+                f"{namespace} lpconfig.xsd"
+            ),
+        },
+    )
+
+    def section(name):
+        return ElementTree.SubElement(root, f"{{{namespace}}}section", {"name": name, "overwrite": "true"})
+
+    def entry(parent, name, value):
+        node = ElementTree.SubElement(
+            parent,
+            f"{{{namespace}}}entry",
+            {"name": name, "overwrite": "true"},
+        )
+        node.text = str(value)
+
+    sip = section("sip")
+    entry(sip, "default_proxy", "0")
+
+    misc = section("misc")
+    entry(misc, "transient_provisioning", "1")
+
+    auth = section("auth_info_0")
+    entry(auth, "username", store.sip_username)
+    entry(auth, "userid", store.sip_username)
+    entry(auth, "passwd", store.sip_password)
+    entry(auth, "domain", store.sip_domain)
+
+    proxy = section("proxy_0")
+    entry(proxy, "reg_proxy", f"<sip:{store.sip_domain};transport=tls>")
+    entry(proxy, "reg_route", "<sip:sip.tokyo.twilio.com;transport=tls>")
+    entry(
+        proxy,
+        "reg_identity",
+        f'"{store.name}" <sip:{store.sip_username}@{store.sip_domain}>',
+    )
+    entry(proxy, "reg_expires", "600")
+    entry(proxy, "reg_sendregister", "1")
+    entry(proxy, "publish", "0")
+
+    return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+class StoreSipProvisioningSettingsView(APIView):
+    permission_classes = [IsAuthenticated, IsManager]
+
+    @extend_schema(
+        operation_id="store_sip_provisioning_settings_get",
+        responses=OpenApiTypes.OBJECT,
+    )
+    def get(self, request):
+        return Response(_sip_settings_payload(get_user_store(request)))
+
+    @extend_schema(
+        operation_id="store_sip_provisioning_settings_update",
+        request=OpenApiTypes.OBJECT,
+        responses=OpenApiTypes.OBJECT,
+    )
+    def patch(self, request):
+        store = get_user_store(request)
+        username = (request.data.get("sip_username") or "").strip()
+        domain = (request.data.get("sip_domain") or "").strip().lower()
+        password = request.data.get("sip_password")
+
+        if not re.fullmatch(r"[A-Za-z0-9_.!~*'()%+\-]{3,64}", username):
+            return Response(
+                {"detail": "SIP IDの形式が正しくありません。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not re.fullmatch(r"[a-z0-9][a-z0-9.-]*\.sip\.twilio\.com", domain):
+            return Response(
+                {"detail": "Twilio SIP Domainの形式が正しくありません。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if password is not None and len(str(password)) < 12:
+            return Response(
+                {"detail": "SIPパスワードは12文字以上で入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if password is None and not store.sip_password:
+            return Response(
+                {"detail": "SIPパスワードを入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        store.sip_username = username
+        store.sip_domain = domain
+        update_fields = ["sip_username", "sip_domain"]
+        if password is not None:
+            store.sip_password = str(password)
+            update_fields.append("sip_password")
+        store.save(update_fields=update_fields)
+        return Response(_sip_settings_payload(store))
+
+
+class StoreSipProvisioningIssueView(APIView):
+    permission_classes = [IsAuthenticated, IsManager]
+
+    @extend_schema(
+        operation_id="store_sip_provisioning_issue",
+        request=None,
+        responses=OpenApiTypes.OBJECT,
+    )
+    def post(self, request):
+        store = get_user_store(request)
+        if not _sip_settings_payload(store)["configured"]:
+            return Response(
+                {"detail": "SIP ID・パスワード・Domainを先に保存してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        token = secrets.token_urlsafe(32)
+        expires_at = timezone.now() + timedelta(minutes=10)
+        SipProvisioningLink.objects.create(
+            store=store,
+            token_hash=hashlib.sha256(token.encode()).hexdigest(),
+            expires_at=expires_at,
+            created_by=request.user,
+        )
+        path = f"/api/provisioning/linphone/{token}/"
+        return Response(
+            {
+                "provisioning_url": request.build_absolute_uri(path),
+                "expires_at": expires_at,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class LinphoneProvisioningView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="linphone_provisioning",
+        responses=OpenApiTypes.STR,
+    )
+    def get(self, request, token):
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with transaction.atomic():
+            try:
+                link = (
+                    SipProvisioningLink.objects.select_for_update()
+                    .select_related("store")
+                    .get(token_hash=token_hash)
+                )
+            except SipProvisioningLink.DoesNotExist:
+                return HttpResponse(status=404)
+
+            if link.used_at is not None or link.expires_at <= timezone.now():
+                return HttpResponse(status=410)
+            store = link.store
+            if not _sip_settings_payload(store)["configured"]:
+                return HttpResponse(status=410)
+
+            body = _build_linphone_provisioning_xml(store)
+            link.used_at = timezone.now()
+            link.save(update_fields=["used_at"])
+
+        response = HttpResponse(body, content_type="application/xml")
+        response["Cache-Control"] = "no-store"
+        response["Pragma"] = "no-cache"
+        response["X-Robots-Tag"] = "noindex, nofollow"
+        return response
+
+
 def _twilio_regulatory_status_value(request, *keys):
     for key in keys:
         value = request.data.get(key)
@@ -4716,7 +4909,7 @@ def twilio_voice_webhook(request):
     voice_response = VoiceResponse()
     voice_response.say(say_text, language="ja-JP")
 
-    sip_uri = _configured_twilio_sip_uri()
+    sip_uri = _store_twilio_sip_uri(store)
     if not sip_uri:
         logger.error("Twilio SIP reception is not configured")
         voice_response.say(

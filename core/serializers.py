@@ -84,6 +84,8 @@ def validate_extension_duration_value(value, allow_zero=True):
 # ──────────────────────────────────────
 
 class StoreSerializer(serializers.ModelSerializer):
+    sip_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
     class Meta:
         model = Store
         fields = "__all__"

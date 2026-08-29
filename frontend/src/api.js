@@ -233,6 +233,9 @@ export const api = {
   }),
   getPublicBookingSettings: () => request('GET', '/op/public-booking-settings/'),
   updatePublicBookingSettings: (body) => request('PATCH', '/op/public-booking-settings/', body),
+  getSipProvisioningSettings: () => request('GET', '/op/sip-provisioning/settings/'),
+  updateSipProvisioningSettings: (body) => request('PATCH', '/op/sip-provisioning/settings/', body),
+  issueSipProvisioningLink: () => request('POST', '/op/sip-provisioning/issue/', {}),
   getOrderSmsLogs: (id) => request('GET', `/op/orders/${id}/sms-logs/`),
 
   // Cast
