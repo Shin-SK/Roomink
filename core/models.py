@@ -87,6 +87,23 @@ class Store(models.Model):
         default="",
         help_text="店舗別のWeb予約画面へ表示する注意事項",
     )
+    sip_username = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="受付アプリがTwilio SIPへ登録するときの店舗別ユーザー名",
+    )
+    sip_password = models.TextField(
+        blank=True,
+        default="",
+        help_text="受付アプリ用SIPパスワード（API応答には含めない）",
+    )
+    sip_domain = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Twilio SIP Domain（例: store.sip.twilio.com）",
+    )
 
     def __str__(self):
         return self.name
@@ -673,6 +690,31 @@ class StorePhoneNumber(models.Model):
 
     def __str__(self):
         return f"{self.store.name} - {self.phone}"
+
+
+class SipProvisioningLink(models.Model):
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="sip_provisioning_links",
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField(db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_sip_provisioning_links",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"SIP provisioning #{self.pk} ({self.store})"
 
 
 class CallLog(models.Model):

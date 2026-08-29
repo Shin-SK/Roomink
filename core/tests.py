@@ -497,6 +497,26 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         self.assertIn("A&B<受付>", twiml.findtext("Say"))
         self.assertEqual(twiml.findtext("Dial/Sip"), "reception@roomink.sip.twilio.com")
 
+    def test_store_specific_sip_uri_takes_priority_over_global_fallback(self):
+        self.store_a.sip_username = "store-reception"
+        self.store_a.sip_password = "store-test-password"
+        self.store_a.sip_domain = "store-roomink.sip.twilio.com"
+        self.store_a.save(update_fields=["sip_username", "sip_password", "sip_domain"])
+        data = self.voice_data("CAstore-specific-sip")
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            data,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        twiml = ElementTree.fromstring(response.content)
+        self.assertEqual(
+            twiml.findtext("Dial/Sip"),
+            "store-reception@store-roomink.sip.twilio.com",
+        )
+
     @override_settings(
         TWILIO_WEBHOOK_PUBLIC_BASE_URL="",
         USE_X_FORWARDED_HOST=True,
