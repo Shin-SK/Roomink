@@ -43,7 +43,7 @@
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_FROM_PHONE=+15075800167`
-- `TWILIO_SIP_URI=roomink-reception@roomink-reception.sip.twilio.com`
+- `TWILIO_SIP_URI=roomink-reception@roomink-reception.sip.twilio.com`（任意。未設定時も同じRoomink専用AORを使用）
 - `TWILIO_WEBHOOK_PUBLIC_BASE_URL=https://roomink.netlify.app`
 - `TWILIO_WEBHOOK_ALLOW_UNSIGNED=0`
 - `SMS_DUMMY_MODE=0`（実送信を行う本番のみ）
@@ -72,7 +72,7 @@
 
 ## 残課題・注意事項
 
-- Heroku CLIは別アカウントでログイン中のため、Roomink本番Config Varsの設定には正しいHerokuアカウントへの切り替えが必要。
+- Heroku CLIは別アカウントでログイン中だが、SIP URIは非秘密のRoomink専用AORを安全な既定値にしたため、本番受電確認のブロッカーではない。将来別AORへ切り替える場合はConfig Varで上書きする。
 - LinphoneのiOSバックグラウンド・画面ロック着信は、実機確認が完了するまで本番運用可能とは判定しない。
 - 既存090から米国番号への転送は国際転送扱いになる可能性があり、キャリア側の対応・料金確認が必要。
 - 日本番号の申請は並行継続し、承認後に日本番号へ切り替えるか別途判断する。
