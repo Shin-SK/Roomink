@@ -114,6 +114,11 @@ urlpatterns = [
     path("op/", include(op_sr_router.urls)),
 
     # Twilio webhook
+    path(
+        "webhook/twilio/regulatory-status/",
+        views.twilio_regulatory_status_webhook,
+        name="twilio-regulatory-status-webhook",
+    ),
     path("webhook/twilio/voice/", views.twilio_voice_webhook, name="twilio-voice-webhook"),
     path("webhook/twilio/status/", views.twilio_status_webhook, name="twilio-status-webhook"),
 

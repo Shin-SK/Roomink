@@ -4562,6 +4562,62 @@ def _twilio_forbidden_response():
     return HttpResponse("Forbidden", content_type="text/plain", status=403)
 
 
+def _twilio_regulatory_status_value(request, *keys):
+    for key in keys:
+        value = request.data.get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+@extend_schema(
+    operation_id="twilio_regulatory_status_webhook",
+    request=OpenApiTypes.OBJECT,
+    responses=OpenApiTypes.STR,
+)
+@csrf_exempt
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def twilio_regulatory_status_webhook(request):
+    """Twilio Regulatory Bundle の審査状態変更を監視ログへ反映する。"""
+    if not _is_valid_twilio_request(request):
+        return _twilio_forbidden_response()
+
+    bundle_sid = _twilio_regulatory_status_value(
+        request, "BundleSID", "BundleSid", "bundle_sid"
+    )
+    bundle_status = _twilio_regulatory_status_value(request, "Status", "status")
+    failure_reason = _twilio_regulatory_status_value(
+        request, "FailureReason", "failure_reason"
+    )
+
+    if not bundle_sid or not bundle_status:
+        logger.warning("Twilio regulatory webhook: missing BundleSID or Status")
+        return HttpResponse("Bad Request", content_type="text/plain", status=400)
+
+    normalized_status = bundle_status.lower().replace("_", "-")
+    if normalized_status in {"twilio-rejected", "rejected"}:
+        if failure_reason:
+            safe_reason = " ".join(failure_reason.split())[:500]
+            logger.warning(
+                "Twilio regulatory rejection detail: BundleSid=%s Reason=%s",
+                bundle_sid,
+                safe_reason,
+            )
+        logger.error("Twilio regulatory bundle rejected: BundleSid=%s", bundle_sid)
+    elif normalized_status in {"twilio-approved", "approved"}:
+        logger.info("Twilio regulatory bundle approved: BundleSid=%s", bundle_sid)
+    else:
+        logger.info(
+            "Twilio regulatory bundle status changed: BundleSid=%s Status=%s",
+            bundle_sid,
+            normalized_status,
+        )
+
+    return HttpResponse("ok", content_type="text/plain")
+
+
 @extend_schema(operation_id="twilio_voice_webhook", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.STR)
 @csrf_exempt
 @api_view(["POST"])

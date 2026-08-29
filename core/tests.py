@@ -337,6 +337,7 @@ class CtiInboundAuthenticationTest(RoomankOpsSmokeTestBase):
 class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
     voice_endpoint = "/api/webhook/twilio/voice/"
     status_endpoint = "/api/webhook/twilio/status/"
+    regulatory_endpoint = "/api/webhook/twilio/regulatory-status/"
     auth_token = "twilio-webhook-test-token"
     from_phone = "+819012345678"
     to_phone = "+15075800167"
@@ -375,6 +376,56 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
             "To": self.to_phone,
             "CallStatus": call_status,
         }
+
+    def regulatory_data(self, status="twilio-approved", failure_reason=""):
+        return {
+            "BundleSID": "BUe1607c8af22b99b0939173b64e3b5cca",
+            "Status": status,
+            "FailureReason": failure_reason,
+        }
+
+    def test_valid_regulatory_approved_callback_is_logged_without_database_access(self):
+        data = self.regulatory_data()
+
+        with self.assertNumQueries(0), self.assertLogs("core.views", level="INFO") as captured:
+            response = self.signed_post(
+                self.regulatory_endpoint,
+                f"https://roomink.example{self.regulatory_endpoint}",
+                data,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("regulatory bundle approved", "\n".join(captured.output))
+
+    def test_valid_regulatory_rejection_logs_reason_and_error_without_database_access(self):
+        reason = "The submitted document address does not match."
+        data = self.regulatory_data("twilio-rejected", reason)
+
+        with self.assertNumQueries(0), self.assertLogs("core.views", level="WARNING") as captured:
+            response = self.signed_post(
+                self.regulatory_endpoint,
+                f"https://roomink.example{self.regulatory_endpoint}",
+                data,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        logs = "\n".join(captured.output)
+        self.assertIn(reason, logs)
+        self.assertIn("regulatory bundle rejected", logs)
+
+    def test_invalid_regulatory_callback_is_rejected_without_database_access(self):
+        data = self.regulatory_data("twilio-rejected", "must not be processed")
+
+        with self.assertNumQueries(0), patch("core.views.logger") as logger_mock:
+            response = self.signed_post(
+                self.regulatory_endpoint,
+                f"https://roomink.example{self.regulatory_endpoint}",
+                data,
+                signature="invalid-signature",
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("must not be processed", str(logger_mock.method_calls))
 
     def test_valid_voice_signature_succeeds_and_masks_phone_logs(self):
         data = self.voice_data()
@@ -437,6 +488,7 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         for endpoint, data in (
             (self.voice_endpoint, self.voice_data("CAmissing-voice")),
             (self.status_endpoint, self.status_data("CAmissing-status")),
+            (self.regulatory_endpoint, self.regulatory_data()),
         ):
             with self.subTest(endpoint=endpoint), self.assertNumQueries(0):
                 response = APIClient().post(
@@ -1117,5 +1169,6 @@ class OpenApiSchemaSmokeTest(TestCase):
             "/api/op/daily-settlement/",
             "/api/webhook/twilio/voice/",
             "/api/webhook/twilio/status/",
+            "/api/webhook/twilio/regulatory-status/",
         ):
             self.assertIn(path, paths)
