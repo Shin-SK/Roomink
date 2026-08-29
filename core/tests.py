@@ -27,6 +27,7 @@ import os
 from datetime import date, time, timedelta
 from unittest.mock import patch
 from urllib.parse import urlencode
+from xml.etree import ElementTree
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
@@ -331,12 +332,14 @@ class CtiInboundAuthenticationTest(RoomankOpsSmokeTestBase):
 
 @override_settings(
     TWILIO_AUTH_TOKEN="twilio-webhook-test-token",
+    TWILIO_SIP_URI="reception@roomink.sip.twilio.com",
     TWILIO_WEBHOOK_PUBLIC_BASE_URL="https://roomink.example",
     TWILIO_WEBHOOK_ALLOW_UNSIGNED=False,
 )
 class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
     voice_endpoint = "/api/webhook/twilio/voice/"
     status_endpoint = "/api/webhook/twilio/status/"
+    regulatory_endpoint = "/api/webhook/twilio/regulatory-status/"
     auth_token = "twilio-webhook-test-token"
     from_phone = "+819012345678"
     to_phone = "+15075800167"
@@ -376,6 +379,56 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
             "CallStatus": call_status,
         }
 
+    def regulatory_data(self, status="twilio-approved", failure_reason=""):
+        return {
+            "BundleSID": "BUe1607c8af22b99b0939173b64e3b5cca",
+            "Status": status,
+            "FailureReason": failure_reason,
+        }
+
+    def test_valid_regulatory_approved_callback_is_logged_without_database_access(self):
+        data = self.regulatory_data()
+
+        with self.assertNumQueries(0), self.assertLogs("core.views", level="INFO") as captured:
+            response = self.signed_post(
+                self.regulatory_endpoint,
+                f"https://roomink.example{self.regulatory_endpoint}",
+                data,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("regulatory bundle approved", "\n".join(captured.output))
+
+    def test_valid_regulatory_rejection_logs_reason_and_error_without_database_access(self):
+        reason = "The submitted document address does not match."
+        data = self.regulatory_data("twilio-rejected", reason)
+
+        with self.assertNumQueries(0), self.assertLogs("core.views", level="WARNING") as captured:
+            response = self.signed_post(
+                self.regulatory_endpoint,
+                f"https://roomink.example{self.regulatory_endpoint}",
+                data,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        logs = "\n".join(captured.output)
+        self.assertIn(reason, logs)
+        self.assertIn("regulatory bundle rejected", logs)
+
+    def test_invalid_regulatory_callback_is_rejected_without_database_access(self):
+        data = self.regulatory_data("twilio-rejected", "must not be processed")
+
+        with self.assertNumQueries(0), patch("core.views.logger") as logger_mock:
+            response = self.signed_post(
+                self.regulatory_endpoint,
+                f"https://roomink.example{self.regulatory_endpoint}",
+                data,
+                signature="invalid-signature",
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("must not be processed", str(logger_mock.method_calls))
+
     def test_valid_voice_signature_succeeds_and_masks_phone_logs(self):
         data = self.voice_data()
 
@@ -390,6 +443,12 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         call = CallLog.objects.get(contact_id=data["CallSid"])
         self.assertEqual(call.from_phone, "09012345678")
         self.assertEqual(call.to_phone, "15075800167")
+        twiml = ElementTree.fromstring(response.content)
+        dial = twiml.find("Dial")
+        self.assertIsNotNone(dial)
+        self.assertEqual(dial.attrib["answerOnBridge"], "true")
+        self.assertEqual(dial.attrib["timeout"], "30")
+        self.assertEqual(dial.findtext("Sip"), "reception@roomink.sip.twilio.com")
         logs = "\n".join(captured.output)
         self.assertNotIn(self.from_phone, logs)
         self.assertNotIn("09012345678", logs)
@@ -397,6 +456,46 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         self.assertNotIn("15075800167", logs)
         self.assertIn("***5678", logs)
         self.assertIn("***0167", logs)
+
+    @override_settings(TWILIO_SIP_URI="")
+    def test_missing_sip_configuration_fails_safe_after_recording_call(self):
+        data = self.voice_data("CAmissing-sip")
+
+        with self.assertLogs("core.views", level="ERROR") as captured:
+            response = self.signed_post(
+                self.voice_endpoint,
+                f"https://roomink.example{self.voice_endpoint}",
+                data,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(CallLog.objects.filter(contact_id=data["CallSid"]).exists())
+        twiml = ElementTree.fromstring(response.content)
+        self.assertIsNone(twiml.find("Dial"))
+        self.assertTrue(any(
+            "電話をおつなぎできません" in (say.text or "")
+            for say in twiml.findall("Say")
+        ))
+        self.assertIn("SIP reception is not configured", "\n".join(captured.output))
+
+    def test_customer_name_is_xml_escaped_before_sip_dial(self):
+        Customer.objects.create(
+            store=self.store_a,
+            phone="09012345678",
+            display_name="A&B<受付>",
+        )
+        data = self.voice_data("CAxml-safe")
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            data,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        twiml = ElementTree.fromstring(response.content)
+        self.assertIn("A&B<受付>", twiml.findtext("Say"))
+        self.assertEqual(twiml.findtext("Dial/Sip"), "reception@roomink.sip.twilio.com")
 
     @override_settings(
         TWILIO_WEBHOOK_PUBLIC_BASE_URL="",
@@ -437,6 +536,7 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         for endpoint, data in (
             (self.voice_endpoint, self.voice_data("CAmissing-voice")),
             (self.status_endpoint, self.status_data("CAmissing-status")),
+            (self.regulatory_endpoint, self.regulatory_data()),
         ):
             with self.subTest(endpoint=endpoint), self.assertNumQueries(0):
                 response = APIClient().post(
@@ -1117,5 +1217,6 @@ class OpenApiSchemaSmokeTest(TestCase):
             "/api/op/daily-settlement/",
             "/api/webhook/twilio/voice/",
             "/api/webhook/twilio/status/",
+            "/api/webhook/twilio/regulatory-status/",
         ):
             self.assertIn(path, paths)
