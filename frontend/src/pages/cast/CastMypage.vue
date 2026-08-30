@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
-import { parseNoteContent, trailingNoteImages } from '../../noteContent.js'
+import { sanitizeNoteHtml } from '../../noteContent.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -33,12 +33,13 @@ const showAllNotes = ref(false)
 const selectedNote = ref(null)
 const selectedNoteImage = ref('')
 
-function noteContentBlocks(note) {
-  return parseNoteContent(note?.body || '', note?.image_urls || [])
+function noteHtml(note) {
+  return sanitizeNoteHtml(note?.body || '', note?.image_urls || [])
 }
 
-function noteTrailingImages(note) {
-  return trailingNoteImages(note?.body || '', note?.image_urls || [])
+function openNoteImage(event) {
+  const image = event.target instanceof Element ? event.target.closest('img') : null
+  if (image?.src) selectedNoteImage.value = image.src
 }
 
 // 出勤確認（Phase 3-B-1）
@@ -527,30 +528,7 @@ function durationMin(order) {
                 <div class="small text-muted mb-3" v-if="selectedNote.published_at">
                   公開日: {{ formatTime(selectedNote.published_at) === '' ? '' : selectedNote.published_at.slice(0, 10) }}
                 </div>
-                <div class="note-content">
-                  <template v-for="(block, index) in noteContentBlocks(selectedNote)" :key="`${block.type}-${index}`">
-                    <div v-if="block.type === 'text'" class="note-content-text">{{ block.text }}</div>
-                    <button
-                      v-else
-                      type="button"
-                      class="note-inline-image-button"
-                      @click="selectedNoteImage = block.url"
-                    >
-                      <img :src="block.url" :alt="`本文内の画像 ${block.imageIndex + 1}`" />
-                    </button>
-                  </template>
-                </div>
-                <div v-if="noteTrailingImages(selectedNote).length" class="note-images mt-3">
-                  <button
-                    v-for="image in noteTrailingImages(selectedNote)"
-                    :key="image.url"
-                    type="button"
-                    class="note-image-button"
-                    @click="selectedNoteImage = image.url"
-                  >
-                    <img :src="image.url" :alt="`添付画像 ${image.imageIndex + 1}`" />
-                  </button>
-                </div>
+                <div class="note-content" v-html="noteHtml(selectedNote)" @click="openNoteImage"></div>
                 <div v-if="selectedNote.video_url" class="mt-3 small">
                   <a :href="selectedNote.video_url" target="_blank" rel="noopener"><i class="ti ti-video"></i> 関連動画リンク</a>
                 </div>
@@ -1001,42 +979,30 @@ function durationMin(order) {
 .line-code-copy.copied {
   color: #06C755;
 }
-.note-images {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+.note-content {
+  line-height: 1.75;
+  overflow-wrap: anywhere;
 }
-.note-content-text { white-space: pre-wrap; }
-.note-inline-image-button {
-  display: block;
-  width: 100%;
-  margin: 12px 0;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  overflow: hidden;
+.note-content :deep(> *:first-child) { margin-top: 0; }
+.note-content :deep(> *:last-child) { margin-bottom: 0; }
+.note-content :deep(h2) { margin: 1.2em 0 .55em; font-size: 1.42rem; }
+.note-content :deep(h3) { margin: 1.1em 0 .5em; font-size: 1.16rem; }
+.note-content :deep(blockquote) {
+  margin: 1em 0;
+  padding: .2em 1em;
+  border-left: 4px solid #2d9c8f;
+  color: #56606d;
 }
-.note-inline-image-button img {
+.note-content :deep(a) { color: #0d6efd; text-decoration: underline; }
+.note-content :deep(img) {
   display: block;
   width: auto;
   max-width: 100%;
   max-height: 70vh;
-  margin: 0 auto;
-  object-fit: contain;
-}
-.note-image-button {
-  padding: 0;
-  border: 0;
+  margin: 14px auto;
   border-radius: 10px;
-  background: transparent;
-  overflow: hidden;
-}
-.note-image-button img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  display: block;
+  object-fit: contain;
+  cursor: zoom-in;
 }
 .note-image-overlay {
   align-items: center;
