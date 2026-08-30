@@ -246,6 +246,30 @@ class ClientFollowupUpdatesTest(TestCase):
         self.assertEqual(note["body"], body)
         self.assertEqual(note["image_urls"], [image_url])
 
+    def test_note_keeps_rich_text_and_inline_image_for_cast(self):
+        image_url = "https://res.cloudinary.com/example/image/upload/note-rich.jpg"
+        body = (
+            '<h2>ルーム案内</h2><p><strong>住所</strong>を確認してください。</p>'
+            f'<img src="{image_url}" alt="入口"><ul><li>オートロックあり</li></ul>'
+        )
+        response = self._client(self.manager).post(
+            "/api/cast-notes/",
+            {
+                "title": "リッチ本文の案内",
+                "body": body,
+                "visibility": CastNote.Visibility.CAST,
+                "status": CastNote.Status.PUBLISHED,
+                "image_urls": [image_url],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        visible = self._client(self.cast_user).get("/api/cast/notes/")
+        note = next(item for item in visible.data["recent"] if item["id"] == response.data["id"])
+        self.assertEqual(note["body"], body)
+        self.assertEqual(note["image_urls"], [image_url])
+
     def test_manager_cannot_target_cast_from_another_store(self):
         response = self._client(self.manager).post(
             "/api/cast-notes/",
