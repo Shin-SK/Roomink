@@ -119,6 +119,37 @@ def create_staff_with_user(store, username, password=None, email="",
 
 
 @transaction.atomic
+def provision_cast_account(cast, username, password):
+    """既存Castを作り直さず、ログイン用Userを発行または再設定する。"""
+    username = (username or "").strip()
+    if not username:
+        raise ValueError("ユーザー名を入力してください")
+
+    if cast.user_id:
+        user = cast.user
+        if user.username != username:
+            raise ValueError("発行済みアカウントのユーザー名は変更できません")
+        user.set_password(password)
+        user.is_active = True
+        user.save(update_fields=["password", "is_active"])
+        ensure_user_profile(user, cast.store, role=UserProfile.Role.CAST)
+        return user
+
+    if User.objects.filter(username=username).exists():
+        raise ValueError("このユーザー名は既に使用されています")
+
+    user = User.objects.create_user(
+        username=username,
+        password=password,
+        is_active=True,
+    )
+    ensure_user_profile(user, cast.store, role=UserProfile.Role.CAST)
+    cast.user = user
+    cast.save(update_fields=["user"])
+    return user
+
+
+@transaction.atomic
 def update_or_create_staff_with_user(store, username, defaults=None):
     """CSV 一括登録向け Staff 版.
 

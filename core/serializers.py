@@ -106,6 +106,8 @@ class CastExpenseTemplateInputSerializer(serializers.Serializer):
 
 class CastSerializer(serializers.ModelSerializer):
     line_linked = serializers.SerializerMethodField()
+    account_enabled = serializers.SerializerMethodField()
+    account_username = serializers.SerializerMethodField()
     expense_templates = CastExpenseTemplateInputSerializer(
         many=True,
         required=False,
@@ -121,6 +123,12 @@ class CastSerializer(serializers.ModelSerializer):
 
     def get_line_linked(self, obj) -> bool:
         return obj.line_user_id is not None
+
+    def get_account_enabled(self, obj) -> bool:
+        return obj.user_id is not None and obj.user.is_active
+
+    def get_account_username(self, obj) -> str:
+        return obj.user.username if obj.user_id else ""
 
     @transaction.atomic
     def create(self, validated_data):
@@ -189,6 +197,17 @@ class CastSerializer(serializers.ModelSerializer):
             normalized_seen.add(normalized)
 
         return attrs
+
+
+class CastAccountProvisionSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    password = serializers.CharField(min_length=8, max_length=128, write_only=True)
+
+    def validate_username(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("ユーザー名を入力してください")
+        return value
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -1029,6 +1048,9 @@ class OrderSerializer(serializers.ModelSerializer):
     is_off_shift = serializers.SerializerMethodField()
     is_room_pending = serializers.SerializerMethodField()
     service_recipient_customer_label = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+    updated_by_name = serializers.SerializerMethodField()
+    cancelled_by_name = serializers.SerializerMethodField()
     # course_name is now a snapshot field on Order; no source override needed
 
     class Meta:
@@ -1046,8 +1068,29 @@ class OrderSerializer(serializers.ModelSerializer):
             "medium", "medium_name",
             "total_price", "payment_method",
             "card_payment_confirmed_at", "card_payment_confirmed_by",
+            "created_by", "created_by_name", "updated_by", "updated_by_name",
+            "cancelled_by", "cancelled_by_name",
             "created_at", "updated_at",
         ]
+
+        read_only_fields = [
+            "created_by", "updated_by", "cancelled_by",
+        ]
+
+    @staticmethod
+    def _operator_name(user) -> str:
+        if not user:
+            return ""
+        return user.get_full_name() or user.username
+
+    def get_created_by_name(self, obj) -> str:
+        return self._operator_name(obj.created_by)
+
+    def get_updated_by_name(self, obj) -> str:
+        return self._operator_name(obj.updated_by)
+
+    def get_cancelled_by_name(self, obj) -> str:
+        return self._operator_name(obj.cancelled_by)
 
     def get_customer_label(self, obj) -> str:
         return build_customer_label(obj.customer)
