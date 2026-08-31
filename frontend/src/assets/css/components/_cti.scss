@@ -213,6 +213,12 @@ $cti-card-bg-active: color.adjust($cti-warn, $lightness: 38%);
   }
 }
 
+@media (min-width: 900px) {
+  body:has(.cti-sidebar--open) .support-assistant {
+    right: 462px;
+  }
+}
+
 /* --- 着信1件カード --- */
 .cti-item {
   background: #ffffff;
