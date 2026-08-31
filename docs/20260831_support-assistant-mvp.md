@@ -45,7 +45,10 @@ Roominkへ、ログイン済み利用者向けの操作案内と、解決しな�
 - `frontend/src/router.js`
 - `frontend/src/components/LayoutOperator.vue`
 - `frontend/src/components/SupportAssistant.vue`
+- `frontend/src/assets/css/components/_cti.scss`
 - `frontend/src/pages/op/SupportInbox.vue`
+
+デスクトップで着信パネルが開いている間は、サポートボタンとパネルを着信パネルの左側へ退避し、両方を同時に操作できるようにしている。スマートフォンでは着信対応を優先し、既存の全画面表示を維持する。
 
 ## 必要な環境変数
 
