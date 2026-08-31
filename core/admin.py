@@ -10,7 +10,7 @@ from .models import (
     CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerAccountInvitation, CustomerMergeLog,
     DailySettlement, LineNotificationLog, Option, Order, OrderServiceRecipientLinkLog, PointLog, PublicBookingVerification, Room,
     ShiftAssignment, ShiftConfirmNotificationLog, ShiftEndAlert, ShiftRequest, SmsLog, SmsTemplate, Store, StoreSlugAlias,
-    StorePhoneNumber, UserProfile,
+    StorePhoneNumber, SupportConversation, SupportMessage, UserProfile,
     generate_line_link_code,
 )
 from .services.cast_user import ensure_user_profile, create_staff_with_user
@@ -348,3 +348,19 @@ class UserProfileAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
         if obj.user:
             ensure_user_profile(obj.user, obj.store, role=obj.role)
+
+
+@admin.register(SupportConversation)
+class SupportConversationAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "user", "user_role", "kind", "status", "page_path", "updated_at")
+    list_filter = ("store", "kind", "status", "user_role")
+    search_fields = ("summary", "page_path", "user__username")
+    readonly_fields = ("created_at", "updated_at", "slack_notified_at", "trend_notified_at")
+
+
+@admin.register(SupportMessage)
+class SupportMessageAdmin(admin.ModelAdmin):
+    list_display = ("id", "conversation", "role", "created_at")
+    list_filter = ("role",)
+    search_fields = ("content",)
+    readonly_fields = ("conversation", "role", "content", "sources", "created_at")

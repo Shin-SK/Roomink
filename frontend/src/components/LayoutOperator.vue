@@ -50,6 +50,7 @@ const navItems = computed(() => {
       { to: '/op/daily-settlement', icon: 'ti-calculator', label: '日給一覧', page: 'daily-settlement' },
       { to: '/op/cast-checkouts', icon: 'ti-door-exit', label: '退勤提出', page: 'cast-checkouts' },
       { to: '/op/cast-adjustments', icon: 'ti-cash-banknote', label: '調整金', page: 'cast-adjustments' },
+      { to: '/op/support', icon: 'ti-lifebuoy', label: '問い合わせ', page: 'support-inbox' },
     )
   }
   items.push(

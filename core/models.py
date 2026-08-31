@@ -1422,3 +1422,93 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"Profile({self.user.username})"
+
+
+class SupportConversation(models.Model):
+    """Roomink内の操作案内と、解決しなかった問い合わせの記録。"""
+
+    class Kind(models.TextChoices):
+        SUPPORT = "SUPPORT", "操作・不具合の問い合わせ"
+        FEATURE_REQUEST = "FEATURE", "ご意見・機能要望"
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "対応中"
+        RESOLVED = "RESOLVED", "解決済み"
+        ESCALATED = "ESCALATED", "運営確認待ち"
+
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="support_conversations",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="support_conversations",
+    )
+    user_role = models.CharField(max_length=20)
+    page_path = models.CharField(max_length=500, blank=True, default="")
+    page_title = models.CharField(max_length=200, blank=True, default="")
+    kind = models.CharField(
+        max_length=10,
+        choices=Kind.choices,
+        default=Kind.SUPPORT,
+    )
+    status = models.CharField(
+        max_length=12,
+        choices=Status.choices,
+        default=Status.OPEN,
+    )
+    summary = models.TextField(blank=True, default="")
+    unresolved_reason = models.TextField(blank=True, default="")
+    unresolved_at = models.DateTimeField(null=True, blank=True)
+    inquiry_submitted_at = models.DateTimeField(null=True, blank=True)
+    ai_reply_draft = models.TextField(blank=True, default="")
+    auto_reply_scheduled_at = models.DateTimeField(null=True, blank=True)
+    auto_reply_sent_at = models.DateTimeField(null=True, blank=True)
+    auto_reply_cancelled_at = models.DateTimeField(null=True, blank=True)
+    user_last_viewed_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    escalated_at = models.DateTimeField(null=True, blank=True)
+    slack_notified_at = models.DateTimeField(null=True, blank=True)
+    trend_notified_at = models.DateTimeField(null=True, blank=True)
+    slack_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "status"], name="core_sup_store_status_idx"),
+            models.Index(fields=["user", "created_at"], name="core_sup_user_created_idx"),
+        ]
+        ordering = ["-updated_at", "-id"]
+
+    def __str__(self):
+        return f"Support #{self.pk} {self.store} {self.status}"
+
+
+class SupportMessage(models.Model):
+    """サポート会話。個人情報をマスキングした本文だけを保存する。"""
+
+    class Role(models.TextChoices):
+        USER = "USER", "利用者"
+        ASSISTANT = "ASSISTANT", "サポート"
+        OPERATOR = "OPERATOR", "運営"
+
+    conversation = models.ForeignKey(
+        SupportConversation,
+        on_delete=models.CASCADE,
+        related_name="messages",
+    )
+    role = models.CharField(max_length=10, choices=Role.choices)
+    content = models.TextField()
+    sources = models.JSONField(blank=True, default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return f"SupportMessage #{self.pk} {self.role}"

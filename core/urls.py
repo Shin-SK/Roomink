@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import views
+from . import support_views, views
 
 router = DefaultRouter()
 router.register("orders", views.OrderViewSet)
@@ -42,6 +42,59 @@ urlpatterns = [
     path("auth/password-reset/", views.auth_password_reset, name="auth-password-reset"),
     path("auth/me/", views.auth_me, name="auth-me"),
     path("auth/profile/", views.auth_profile_update, name="auth-profile-update"),
+
+    # in-app support assistant
+    path("support/chat/", support_views.SupportChatView.as_view(), name="support-chat"),
+    path(
+        "support/feature-requests/",
+        support_views.SupportFeatureRequestView.as_view(),
+        name="support-feature-request",
+    ),
+    path(
+        "support/conversations/<int:conversation_id>/resolve/",
+        support_views.SupportConversationResolveView.as_view(),
+        name="support-conversation-resolve",
+    ),
+    path(
+        "support/conversations/<int:conversation_id>/unresolved/",
+        support_views.SupportConversationUnresolvedView.as_view(),
+        name="support-conversation-unresolved",
+    ),
+    path(
+        "support/conversations/<int:conversation_id>/escalate/",
+        support_views.SupportConversationEscalateView.as_view(),
+        name="support-conversation-escalate",
+    ),
+    path(
+        "support/conversations/",
+        support_views.MySupportConversationListView.as_view(),
+        name="my-support-conversation-list",
+    ),
+    path(
+        "support/conversations/<int:conversation_id>/",
+        support_views.MySupportConversationDetailView.as_view(),
+        name="my-support-conversation-detail",
+    ),
+    path(
+        "op/support/conversations/",
+        support_views.SupportConversationListView.as_view(),
+        name="support-conversation-list",
+    ),
+    path(
+        "op/support/conversations/<int:conversation_id>/",
+        support_views.SupportConversationDetailView.as_view(),
+        name="support-conversation-detail",
+    ),
+    path(
+        "op/support/conversations/<int:conversation_id>/reply/",
+        support_views.SupportConversationReplyView.as_view(),
+        name="support-conversation-reply",
+    ),
+    path(
+        "op/support/conversations/<int:conversation_id>/cancel-auto-reply/",
+        support_views.SupportConversationCancelAutoReplyView.as_view(),
+        name="support-conversation-cancel-auto-reply",
+    ),
 
     # cast
     path("cast/today/", views.CastTodayView.as_view(), name="cast-today"),

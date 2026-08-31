@@ -82,6 +82,38 @@ export const api = {
   me: () => request('GET', '/auth/me/'),
   updateProfile: (body) => request('PATCH', '/auth/profile/', body),
 
+  // In-app support assistant
+  supportChat: (body) => request('POST', '/support/chat/', body),
+  resolveSupportConversation: (id) => request('POST', `/support/conversations/${id}/resolve/`, {}),
+  markSupportConversationUnresolved: (id, reason) => request(
+    'POST',
+    `/support/conversations/${id}/unresolved/`,
+    { reason },
+  ),
+  escalateSupportConversation: (id) => request(
+    'POST',
+    `/support/conversations/${id}/escalate/`,
+    {},
+  ),
+  submitSupportFeatureRequest: (body) => request('POST', '/support/feature-requests/', body),
+  getMySupportConversations: () => request('GET', '/support/conversations/'),
+  getMySupportConversation: (id) => request('GET', `/support/conversations/${id}/`),
+  getSupportConversations: (status = '') => request(
+    'GET',
+    `/op/support/conversations/${status ? '?status=' + encodeURIComponent(status) : ''}`,
+  ),
+  getSupportConversation: (id) => request('GET', `/op/support/conversations/${id}/`),
+  replySupportConversation: (id, message) => request(
+    'POST',
+    `/op/support/conversations/${id}/reply/`,
+    { message },
+  ),
+  cancelSupportAutoReply: (id) => request(
+    'POST',
+    `/op/support/conversations/${id}/cancel-auto-reply/`,
+    {},
+  ),
+
   // Schedule
   getSchedule: (date) => request('GET', `/op/schedule/?date=${date}`),
   getRoomSchedule: (date) => request('GET', `/op/room-schedule/?date=${date}`),
