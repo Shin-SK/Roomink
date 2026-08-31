@@ -35,6 +35,7 @@ const CastExpenses = () => import('./pages/op/CastExpenses.vue')
 const CastCheckouts = () => import('./pages/op/CastCheckouts.vue')
 const CastAdjustments = () => import('./pages/op/CastAdjustments.vue')
 const CastNotes = () => import('./pages/op/CastNotes.vue')
+const SupportInbox = () => import('./pages/op/SupportInbox.vue')
 const SettingsPaymentFees = () => import('./pages/op/SettingsPaymentFees.vue')
 const DailySettlement = () => import('./pages/op/DailySettlement.vue')
 const Sales = () => import('./pages/op/Sales.vue')
@@ -94,6 +95,7 @@ const routes = [
   { path: '/op/cast-checkouts', name: 'cast-checkouts', component: CastCheckouts, meta: { managerOnly: true } },
   { path: '/op/cast-adjustments', name: 'cast-adjustments', component: CastAdjustments, meta: { managerOnly: true } },
   { path: '/op/cast-notes', name: 'cast-notes', component: CastNotes },
+  { path: '/op/support', name: 'support-inbox', component: SupportInbox, meta: { managerOnly: true } },
   { path: '/op/settings/payment-fees', name: 'settings-payment-fees', component: SettingsPaymentFees, meta: { managerOnly: true } },
   { path: '/op/daily-settlement', name: 'daily-settlement', component: DailySettlement, meta: { managerOnly: true } },
   { path: '/op/sales', name: 'sales', component: Sales, meta: { managerOnly: true } },

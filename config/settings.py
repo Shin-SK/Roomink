@@ -250,6 +250,17 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 SMS_DUMMY_MODE = os.getenv("SMS_DUMMY_MODE", "0") == "1"
 PUBLIC_BOOKING_ENABLED = os.getenv("PUBLIC_BOOKING_ENABLED", "0") == "1"
 
+# --- Roomink support assistant ---
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_SUPPORT_MODEL = os.getenv("OPENAI_SUPPORT_MODEL", "gpt-5-mini")
+OPENAI_SUPPORT_API_URL = os.getenv(
+    "OPENAI_SUPPORT_API_URL",
+    "https://api.openai.com/v1/responses",
+)
+SUPPORT_SLACK_WEBHOOK_URL = os.getenv("SUPPORT_SLACK_WEBHOOK_URL", "")
+SUPPORT_AUTO_REPLY_ENABLED = os.getenv("SUPPORT_AUTO_REPLY_ENABLED", "0") == "1"
+SUPPORT_AUTO_REPLY_DELAY_MINUTES = int(os.getenv("SUPPORT_AUTO_REPLY_DELAY_MINUTES", "30"))
+
 # --- LINE Messaging API ---
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
