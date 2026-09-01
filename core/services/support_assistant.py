@@ -199,7 +199,10 @@ def _openai_answer(question, role, page_path, entries):
             "個人情報やパスワードを求めてはいけません。不明な場合は推測せず、運営確認を案内してください。"
         ),
         "input": f"権限: {role}\n現在画面: {page_path}\n質問: {question}\n\n根拠:\n{knowledge}",
-        "max_output_tokens": 500,
+        # Responses API counts both visible text and reasoning tokens against
+        # this limit. Keep enough headroom so short support answers do not end
+        # mid-sentence after the model has spent tokens reasoning.
+        "max_output_tokens": 1200,
     }
     request = Request(
         settings.OPENAI_SUPPORT_API_URL,
@@ -215,6 +218,16 @@ def _openai_answer(question, role, page_path, entries):
             data = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, ValueError):
         logger.warning("Roomink support AI request failed", exc_info=True)
+        return None
+
+    # Never show a partial answer to users. If the response still reaches the
+    # output limit, the complete built-in guidance is safer than a sentence
+    # cut off halfway through.
+    if data.get("status") == "incomplete":
+        logger.warning(
+            "Roomink support AI response was incomplete: %s",
+            data.get("incomplete_details"),
+        )
         return None
 
     if data.get("output_text"):

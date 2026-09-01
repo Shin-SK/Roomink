@@ -375,6 +375,27 @@ class SupportAssistantApiTests(APITestCase):
         request = mocked_urlopen.call_args.args[0]
         payload = json.loads(request.data.decode("utf-8"))
         self.assertFalse(payload["store"])
+        self.assertEqual(payload["max_output_tokens"], 1200)
         self.assertNotIn("090-1234-5678", payload["input"])
         self.assertNotIn("test@example.com", payload["input"])
         self.assertEqual(response.data["mode"], "ai")
+
+    @override_settings(
+        OPENAI_API_KEY="test-key",
+        OPENAI_SUPPORT_MODEL="gpt-5-mini",
+        OPENAI_SUPPORT_API_URL="https://api.openai.com/v1/responses",
+    )
+    @patch("core.services.support_assistant.urlopen")
+    def test_incomplete_openai_response_uses_complete_fallback(self, mocked_urlopen):
+        mocked_urlopen.return_value.__enter__.return_value.read.return_value = json.dumps({
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+            "output_text": "回答（画面／別の",
+        }).encode("utf-8")
+
+        response = self._chat(message="カード決済後のSMSはどこ？")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["mode"], "fallback")
+        self.assertNotEqual(response.data["answer"], "回答（画面／別の")
+        self.assertIn("決済確認後SMSを送る", response.data["answer"])
