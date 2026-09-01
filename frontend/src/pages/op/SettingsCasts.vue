@@ -20,6 +20,11 @@ const form = ref(emptyForm())
 const formError = ref('')
 const saving = ref(false)
 const uploading = ref(false)
+const accountUsername = ref('')
+const accountPassword = ref('')
+const accountSaving = ref(false)
+const accountMessage = ref('')
+const issuedCredentialText = ref('')
 
 function emptyForm() {
   return {
@@ -75,6 +80,10 @@ function openCreate() {
   showExpenseForm.value = false
   showExpenseHistory.value = false
   expenseHistory.value = []
+  accountUsername.value = ''
+  accountPassword.value = ''
+  accountMessage.value = ''
+  issuedCredentialText.value = ''
 }
 
 function openEdit(c) {
@@ -100,7 +109,42 @@ function openEdit(c) {
   showExpenseForm.value = false
   showExpenseHistory.value = false
   expenseHistory.value = []
+  accountUsername.value = c.account_username || ''
+  accountPassword.value = ''
+  accountMessage.value = ''
+  issuedCredentialText.value = ''
   loadExpenseTemplates(c.id)
+}
+
+async function provisionAccount() {
+  if (!editingId.value || !accountUsername.value.trim() || accountPassword.value.length < 8) return
+  accountSaving.value = true
+  accountMessage.value = ''
+  issuedCredentialText.value = ''
+  try {
+    const temporaryPassword = accountPassword.value
+    const updated = await api.provisionCastAccount(editingId.value, {
+      username: accountUsername.value.trim(),
+      password: temporaryPassword,
+    })
+    accountUsername.value = updated.account_username
+    accountMessage.value = updated.account_enabled
+      ? 'ログイン情報を保存しました。下の内容を本人へ共有してください。'
+      : ''
+    issuedCredentialText.value = `Roominkログイン情報\nユーザー名: ${updated.account_username}\n仮パスワード: ${temporaryPassword}\nログインURL: ${window.location.origin}/login`
+    accountPassword.value = ''
+    await loadCasts()
+  } catch (e) {
+    formError.value = e.message
+  } finally {
+    accountSaving.value = false
+  }
+}
+
+async function copyCredentials() {
+  if (!issuedCredentialText.value) return
+  await navigator.clipboard.writeText(issuedCredentialText.value)
+  accountMessage.value = 'ログイン情報をコピーしました。'
 }
 
 async function onAvatarChange(e) {
@@ -516,6 +560,52 @@ async function toggleExpenseHistory() {
               <label class="form-label">運営専用メモ</label>
               <textarea v-model="form.staff_memo" class="form-control" rows="2" placeholder="運営のみが閲覧可能なメモ"></textarea>
             </div>
+
+            <template v-if="editingId">
+              <hr class="my-3">
+              <h6 class="mb-1">本人用ログイン</h6>
+              <p class="small text-muted mb-3">
+                キャスト本人へ渡すユーザー名と仮パスワードを発行します。発行済みの場合は仮パスワードを再設定できます。
+              </p>
+              <div v-if="accountMessage" class="alert alert-success py-2 small">{{ accountMessage }}</div>
+              <div class="mb-2">
+                <label class="form-label small">ユーザー名</label>
+                <input
+                  v-model="accountUsername"
+                  type="text"
+                  class="form-control"
+                  :disabled="casts.find(c => c.id === editingId)?.account_enabled"
+                  placeholder="例: rs_cast_001"
+                >
+                <small v-if="casts.find(c => c.id === editingId)?.account_enabled" class="text-muted">
+                  発行済みのユーザー名は変更できません
+                </small>
+              </div>
+              <div class="mb-2">
+                <label class="form-label small">仮パスワード</label>
+                <input
+                  v-model="accountPassword"
+                  type="password"
+                  class="form-control"
+                  minlength="8"
+                  placeholder="8文字以上"
+                >
+              </div>
+              <button
+                type="button"
+                class="btn btn-outline-primary btn-sm"
+                :disabled="accountSaving || !accountUsername.trim() || accountPassword.length < 8"
+                @click="provisionAccount"
+              >
+                {{ accountSaving ? '保存中...' : (casts.find(c => c.id === editingId)?.account_enabled ? '仮パスワードを再設定' : 'ログインを発行') }}
+              </button>
+              <div v-if="issuedCredentialText" class="border rounded bg-light p-2 mt-3">
+                <pre class="small mb-2" style="white-space: pre-wrap;">{{ issuedCredentialText }}</pre>
+                <button type="button" class="btn btn-primary btn-sm" @click="copyCredentials">
+                  <i class="ti ti-copy"></i> 共有用にコピー
+                </button>
+              </div>
+            </template>
 
             <hr class="my-3">
             <h6 class="mb-1">希望エリア</h6>

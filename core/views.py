@@ -66,6 +66,7 @@ from .serializers import (
     CastNoteSerializer,
     CastNoteCastSerializer,
     CastSerializer,
+    CastAccountProvisionSerializer,
     CastUnavailableTimeSerializer,
     PointLogSerializer,
     CastShiftRequestBulkCreateSerializer,
@@ -101,7 +102,11 @@ from .serializers import (
 from .utils.phone import normalize_phone
 
 logger = logging.getLogger(__name__)
-from .services.cast_user import ensure_user_profile, update_or_create_cast_with_user
+from .services.cast_user import (
+    ensure_user_profile,
+    provision_cast_account,
+    update_or_create_cast_with_user,
+)
 from .services.customer_context import resolve_customer
 from .services.pricing import recalculate_order_total
 from .services.sales import (
@@ -357,6 +362,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     ]
     queryset = Order.objects.select_related(
         "cast", "room", "customer", "service_recipient_customer", "course",
+        "created_by", "updated_by", "cancelled_by",
     ).prefetch_related("options").order_by("start")
 
     filterset_fields = {
@@ -384,6 +390,12 @@ class OrderViewSet(viewsets.ModelViewSet):
         if self.action in ("update", "partial_update"):
             return OrderUpdateSerializer
         return OrderSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
 
     # --- status actions ---
 
@@ -423,7 +435,8 @@ class OrderViewSet(viewsets.ModelViewSet):
             locked_order = Order.objects.select_for_update().get(pk=order.pk)
             previous = locked_order.service_recipient_customer
             locked_order.service_recipient_customer = linked_customer
-            update_fields = ["service_recipient_customer", "updated_at"]
+            locked_order.updated_by = request.user
+            update_fields = ["service_recipient_customer", "updated_by", "updated_at"]
             if linked_customer and not locked_order.service_recipient_name:
                 locked_order.service_recipient_name = linked_customer.display_name
                 update_fields.append("service_recipient_name")
@@ -449,7 +462,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         order.status = Order.Status.CONFIRMED
-        order.save(update_fields=["status", "updated_at"])
+        order.updated_by = request.user
+        order.save(update_fields=["status", "updated_by", "updated_at"])
         notify_order_confirmed(order, created_by=request.user)
         notify_cast_order(order, created_by=request.user)
         return Response(OrderSerializer(order).data)
@@ -508,9 +522,11 @@ class OrderViewSet(viewsets.ModelViewSet):
             if locked_order.card_payment_confirmed_at is None:
                 locked_order.card_payment_confirmed_at = timezone.now()
                 locked_order.card_payment_confirmed_by = request.user
+                locked_order.updated_by = request.user
                 locked_order.save(update_fields=[
                     "card_payment_confirmed_at",
                     "card_payment_confirmed_by",
+                    "updated_by",
                     "updated_at",
                 ])
             notify_card_payment_confirmed(locked_order, created_by=request.user)
@@ -528,7 +544,9 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         order.status = Order.Status.CANCELLED
-        order.save(update_fields=["status", "updated_at"])
+        order.updated_by = request.user
+        order.cancelled_by = request.user
+        order.save(update_fields=["status", "updated_by", "cancelled_by", "updated_at"])
         notify_order_cancelled(order, created_by=request.user)
         return Response(OrderSerializer(order).data)
 
@@ -553,7 +571,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": f"ステータスが {order.get_status_display()} のため進められません"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        order.save(update_fields=["status", "updated_at"])
+        order.updated_by = request.user
+        order.save(update_fields=["status", "updated_by", "updated_at"])
         return Response(OrderSerializer(order).data)
 
     @extend_schema(request=ExtensionApplySerializer, responses=OrderSerializer)
@@ -659,9 +678,10 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.extension_price = extension_price
         order.end = new_end
         order.room = target_room
+        order.updated_by = request.user
         order.save(update_fields=[
             "extension", "extension_name", "extension_duration", "extension_price",
-            "end", "room", "updated_at",
+            "end", "room", "updated_by", "updated_at",
         ])
         recalculate_order_total(order)
         return Response(OrderSerializer(order).data)
@@ -685,7 +705,11 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.nomination_fee_name = nf.name
             order.nomination_fee_price = nf.price
 
-        order.save(update_fields=["nomination_fee", "nomination_fee_name", "nomination_fee_price", "updated_at"])
+        order.updated_by = request.user
+        order.save(update_fields=[
+            "nomination_fee", "nomination_fee_name", "nomination_fee_price",
+            "updated_by", "updated_at",
+        ])
         recalculate_order_total(order)
         return Response(OrderSerializer(order).data)
 
@@ -711,8 +735,10 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.discount_type_snapshot = dc.discount_type
             order.discount_value_snapshot = dc.value
 
+        order.updated_by = request.user
         order.save(update_fields=[
-            "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot", "updated_at",
+            "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot",
+            "updated_by", "updated_at",
         ])
         recalculate_order_total(order)
         return Response(OrderSerializer(order).data)
@@ -734,7 +760,8 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.medium = med
             order.medium_name = med.name
 
-        order.save(update_fields=["medium", "medium_name", "updated_at"])
+        order.updated_by = request.user
+        order.save(update_fields=["medium", "medium_name", "updated_by", "updated_at"])
         return Response(OrderSerializer(order).data)
 
 
@@ -2094,7 +2121,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
 class CastViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
-    queryset = Cast.objects.order_by("name")
+    queryset = Cast.objects.select_related("user").order_by("name")
     serializer_class = CastSerializer
 
     def get_queryset(self):
@@ -2105,6 +2132,18 @@ class CastViewSet(viewsets.ModelViewSet):
         cast = serializer.save(store=get_user_store(self.request))
         if cast.user:
             ensure_user_profile(cast.user, cast.store, role=UserProfile.Role.CAST)
+
+    @action(detail=True, methods=["post"], url_path="provision-account")
+    def provision_account(self, request, pk=None):
+        cast = self.get_object()
+        serializer = CastAccountProvisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            provision_cast_account(cast, **serializer.validated_data)
+        except ValueError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        cast.refresh_from_db()
+        return Response(CastSerializer(cast, context={"request": request}).data)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

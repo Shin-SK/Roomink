@@ -139,6 +139,12 @@ export const api = {
   ),
   opOrderCastAck: (id) => request('POST', `/op/orders/${id}/cast-ack/`),
 
+  provisionCastAccount: (id, body) => request(
+    'POST',
+    `/casts/${id}/provision-account/`,
+    body,
+  ),
+
   // Customers
   getCustomers: (params = '') => listRequest('GET', `/customers/${params ? '?' + params : '?limit=1000'}`),
   getCustomer: (id) => request('GET', `/customers/${id}/`),

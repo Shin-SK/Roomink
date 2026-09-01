@@ -701,6 +701,11 @@ async function saveRecipientCustomerLink() {
           <div class="text-muted small text-center mt-3">
             Order #{{ order.id }} / 申請: {{ formatDt(order.created_at) }}
           </div>
+          <div class="text-muted small text-center mt-1">
+            作成: {{ order.created_by_name || 'Web予約・記録なし' }}
+            <template v-if="order.updated_by_name"> / 最終操作: {{ order.updated_by_name }}</template>
+            <template v-if="order.cancelled_by_name"> / キャンセル: {{ order.cancelled_by_name }}</template>
+          </div>
         </template>
 
         <!-- ========== 修正モード ========== -->
