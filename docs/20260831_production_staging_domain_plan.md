@@ -30,14 +30,14 @@
 ## 独自ドメイン取得後の作業
 
 1. ~~ドメインの管理主体・支払者を確定する~~（Cloudflareで取得済み）
-2. Netlifyへ本番フロント用サブドメインを接続する
-3. Herokuへ本番API用サブドメインを接続する
-4. DNSレコードを設定する
-5. HerokuのCORS、CSRF、Cookie、公開URL設定へ新ドメインを追加する
-6. Netlifyの本番API URLを新しいAPIドメインへ変更して再ビルドする
-7. manager / staff / cast / customer のログインと主要操作を本番で確認する
-8. Cookie、CSRF、画像、CSV、SMSプレビュー、CTIの回帰を確認する
-9. 問題がなければ新ドメインを正式URLとして案内する
+2. ~~Netlifyへ本番フロント用サブドメインを接続する~~
+3. ~~Herokuへ本番API用サブドメインを接続する~~
+4. ~~DNSレコードを設定する~~
+5. ~~HerokuのCORS、CSRF、Cookie、公開URL設定へ新ドメインを追加する~~
+6. ~~新ドメインから既存の同一オリジンAPI proxyへ到達できることを確認する~~
+7. ~~manager / cast / customer のログイン入口とR's SPA専用画面を本番で確認する~~
+8. ~~Cookie、CSRF、assets、公開Web予約、console errorのドメイン切替回帰を確認する~~
+9. `https://app.roomink.net` を正式URLとして案内する
 
 ## データ保護
 
@@ -55,6 +55,8 @@
 - `pg_restore --list` でバックアップ形式を検証済み
 - Herokuへ `api.roomink.net` を追加済み
 - Heroku Automatic Certificate Managementを有効化済み
-- Cloudflare DNSとNetlifyカスタムドメインの接続後に正式切替する
+- Cloudflare DNSとNetlifyカスタムドメインを接続済み
+- `app.roomink.net` / `api.roomink.net` のHTTPS 200を確認済み
+- Heroku release `v125` で正式フロント／Webhook URLへ切替済み
 
 独自ドメイン切替ではDBの作成・交換・初期化を行わない。R’s SPAが入力済みのデータをそのまま利用する。
