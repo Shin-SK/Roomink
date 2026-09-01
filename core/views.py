@@ -5900,7 +5900,7 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
             cast.line_linked_at = timezone.now()
             cast.save(update_fields=["line_user_id", "line_linked_at"])
 
-            app_url = os.getenv("FRONTEND_URL", "https://roomink.netlify.app")
+            app_url = os.getenv("FRONTEND_URL", "https://app.roomink.net")
             _line_reply(channel_token, reply_token,
                         f"連携が完了しました！\n{cast.name}さん、よろしくお願いします。\n出勤リマインド通知をお届けします。\n\nアプリに戻る:\n{app_url}/cast/mypage")
 

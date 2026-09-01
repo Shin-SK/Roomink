@@ -19,6 +19,7 @@ DEBUG = False if IS_PRODUCTION else os.getenv("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0,.ngrok-free.dev,.ngrok-free.app").split(",")
 if "DYNO" in os.environ:
     ALLOWED_HOSTS.append("roomink-0315e6e58623.herokuapp.com")
+    ALLOWED_HOSTS.append("api.roomink.net")
 
 # Heroku / reverse proxy 配下の公開URLを正しく復元する。
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -86,6 +87,7 @@ CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()] if
     "http://127.0.0.1:5173",
     "https://roomink-0315e6e58623.herokuapp.com",
     "https://roomink.netlify.app",
+    "https://app.roomink.net",
 ]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
@@ -106,6 +108,7 @@ CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(",") if o.strip()] if
 if "DYNO" in os.environ:
     CSRF_TRUSTED_ORIGINS.append("https://roomink-0315e6e58623.herokuapp.com")
     CSRF_TRUSTED_ORIGINS.append("https://roomink.netlify.app")
+    CSRF_TRUSTED_ORIGINS.append("https://app.roomink.net")
 
 # --- Cross-origin cookie settings (for Amplify ↔ App Runner) ---
 if _cors_env or IS_PRODUCTION:
