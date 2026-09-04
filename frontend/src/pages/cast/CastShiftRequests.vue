@@ -46,9 +46,26 @@ function openCreate() {
   showForm.value = true
 }
 
+function formatExtendedEndTimeInput(value) {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0))
+    .replace('：', ':')
+
+  if (/^\d{4}$/.test(normalized)) {
+    return `${normalized.slice(0, 2)}:${normalized.slice(2)}`
+  }
+  return normalized
+}
+
+function formatEndTimeField() {
+  form.value.end_time = formatExtendedEndTimeInput(form.value.end_time)
+}
+
 function normalizeExtendedEndTime(value) {
-  const match = /^(\d{2}):(\d{2})$/.exec(value || '')
-  if (!match) throw new Error('終了時間はHH:MM形式で入力してください（例: 23:00 / 29:00）')
+  const formatted = formatExtendedEndTimeInput(value)
+  const match = /^(\d{2}):(\d{2})$/.exec(formatted)
+  if (!match) throw new Error('終了時間は「23:00」または「2300」の形式で入力してください')
 
   const hour = Number(match[1])
   const minute = Number(match[2])
@@ -83,6 +100,7 @@ async function onSave() {
       throw new Error('同じ日付が重複しています')
     }
     const normalizedEnd = normalizeExtendedEndTime(form.value.end_time)
+    form.value.end_time = formatExtendedEndTimeInput(form.value.end_time)
     const body = {
       start_time: form.value.start_time,
       ...normalizedEnd,
@@ -222,10 +240,11 @@ function formatDateTime(s) {
                     type="text"
                     inputmode="numeric"
                     maxlength="5"
-                    placeholder="例: 23:00 / 29:00"
+                    placeholder="例: 23:00 / 2300"
                     class="form-control"
+                    @blur="formatEndTimeField"
                   />
-                  <div class="form-text">翌朝は24:00〜29:00で入力できます。</div>
+                  <div class="form-text">翌朝は24:00〜29:00。2400〜2900でも入力できます。</div>
                 </div>
               </div>
               <div class="mb-3">
