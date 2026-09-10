@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 
@@ -14,8 +14,49 @@ const formError = ref('')
 const saving = ref(false)
 
 function emptyForm() {
-  return { dates: [new Date().toISOString().slice(0, 10)], start_time: '', end_time: '', desired_room: '', memo: '' }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return {
+    week_start: formatLocalDate(today),
+    days: buildSevenDays(today),
+    desired_room: '',
+    memo: '',
+  }
 }
+
+function formatLocalDate(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function buildSevenDays(startDate) {
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(startDate)
+    date.setDate(date.getDate() + index)
+    return {
+      date: formatLocalDate(date),
+      enabled: false,
+      start_time: '',
+      end_time: '',
+    }
+  })
+}
+
+function dateLabel(value) {
+  const date = new Date(`${value}T00:00:00`)
+  return `${date.getMonth() + 1}/${date.getDate()}（${['日', '月', '火', '水', '木', '金', '土'][date.getDay()]}）`
+}
+
+function changeWeek(offset) {
+  const start = new Date(`${form.value.week_start}T00:00:00`)
+  start.setDate(start.getDate() + offset * 7)
+  form.value.week_start = formatLocalDate(start)
+  form.value.days = buildSevenDays(start)
+}
+
+const selectedDayCount = computed(() => form.value.days.filter((day) => day.enabled).length)
 
 async function load() {
   loading.value = true
@@ -58,8 +99,8 @@ function formatExtendedEndTimeInput(value) {
   return normalized
 }
 
-function formatEndTimeField() {
-  form.value.end_time = formatExtendedEndTimeInput(form.value.end_time)
+function formatEndTimeField(day) {
+  day.end_time = formatExtendedEndTimeInput(day.end_time)
 }
 
 function normalizeExtendedEndTime(value) {
@@ -79,39 +120,31 @@ function normalizeExtendedEndTime(value) {
   }
 }
 
-function addDate() {
-  form.value.dates.push('')
-}
-
-function removeDate(index) {
-  if (form.value.dates.length === 1) return
-  form.value.dates.splice(index, 1)
-}
-
 async function onSave() {
   saving.value = true
   formError.value = ''
   try {
-    const dates = form.value.dates.filter(Boolean)
-    if (!dates.length || dates.length !== form.value.dates.length) {
-      throw new Error('申請する日付をすべて入力してください')
-    }
-    if (new Set(dates).size !== dates.length) {
-      throw new Error('同じ日付が重複しています')
-    }
-    const normalizedEnd = normalizeExtendedEndTime(form.value.end_time)
-    form.value.end_time = formatExtendedEndTimeInput(form.value.end_time)
+    const selectedDays = form.value.days.filter((day) => day.enabled)
+    if (!selectedDays.length) throw new Error('出勤する日を1日以上選択してください')
+
+    const items = selectedDays.map((day) => {
+      if (!day.start_time || !day.end_time) {
+        throw new Error(`${dateLabel(day.date)}の開始・終了時間を入力してください`)
+      }
+      const normalizedEnd = normalizeExtendedEndTime(day.end_time)
+      day.end_time = formatExtendedEndTimeInput(day.end_time)
+      return {
+        date: day.date,
+        start_time: day.start_time,
+        ...normalizedEnd,
+      }
+    })
     const body = {
-      start_time: form.value.start_time,
-      ...normalizedEnd,
+      items,
       memo: form.value.memo,
     }
     if (form.value.desired_room) body.desired_room = Number(form.value.desired_room)
-    if (dates.length === 1) {
-      await api.createCastShiftRequest({ ...body, date: dates[0] })
-    } else {
-      await api.createCastShiftRequestsBulk({ ...body, dates })
-    }
+    await api.createCastShiftRequestsBulk(body)
     showForm.value = false
     await load()
   } catch (e) {
@@ -199,7 +232,7 @@ function formatDateTime(s) {
 
       <!-- Form modal -->
       <div v-if="showForm" class="modal d-block" style="background: rgba(0,0,0,0.3);" @click.self="showForm = false">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-lg">
           <div class="modal-content">
             <div class="modal-header">
               <h5 class="modal-title">シフト申請</h5>
@@ -207,46 +240,54 @@ function formatDateTime(s) {
             </div>
             <div class="modal-body">
               <div v-if="formError" class="alert alert-danger">{{ formError }}</div>
-              <div class="mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                  <label class="form-label mb-0">日付</label>
-                  <button type="button" class="btn btn-outline-primary btn-sm" @click="addDate">
-                    <i class="ti ti-plus"></i> 日付を追加
-                  </button>
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <button type="button" class="btn btn-outline-secondary btn-sm" @click="changeWeek(-1)">
+                  <i class="ti ti-chevron-left"></i> 前の7日
+                </button>
+                <div class="fw-bold text-center">
+                  {{ dateLabel(form.days[0].date) }}〜{{ dateLabel(form.days[6].date) }}
                 </div>
-                <div v-for="(_, index) in form.dates" :key="index" class="input-group mb-2">
-                  <input v-model="form.dates[index]" type="date" class="form-control" />
-                  <button
-                    type="button"
-                    class="btn btn-outline-danger"
-                    :disabled="form.dates.length === 1"
-                    aria-label="日付を削除"
-                    @click="removeDate(index)"
-                  >
-                    <i class="ti ti-trash"></i>
-                  </button>
-                </div>
-                <div class="form-text">複数日を追加すると、同じ時間・希望部屋・メモでまとめて申請できます。</div>
+                <button type="button" class="btn btn-outline-secondary btn-sm" @click="changeWeek(1)">
+                  次の7日 <i class="ti ti-chevron-right"></i>
+                </button>
               </div>
-              <div class="row">
-                <div class="col-6 mb-3">
-                  <label class="form-label">開始時間</label>
-                  <input v-model="form.start_time" type="time" step="1800" class="form-control" />
-                </div>
-                <div class="col-6 mb-3">
-                  <label class="form-label">終了時間</label>
-                  <input
-                    v-model="form.end_time"
-                    type="text"
-                    inputmode="numeric"
-                    maxlength="5"
-                    placeholder="例: 23:00 / 2300"
-                    class="form-control"
-                    @blur="formatEndTimeField"
-                  />
-                  <div class="form-text">翌朝は24:00〜29:00。2400〜2900でも入力できます。</div>
+
+              <div class="weekly-shift-list mb-3">
+                <div
+                  v-for="day in form.days"
+                  :key="day.date"
+                  class="weekly-shift-row"
+                  :class="{ 'weekly-shift-row--enabled': day.enabled }"
+                >
+                  <label class="weekly-shift-date">
+                    <input v-model="day.enabled" type="checkbox" class="form-check-input" />
+                    <span>{{ dateLabel(day.date) }}</span>
+                  </label>
+                  <div class="weekly-shift-time">
+                    <input
+                      v-model="day.start_time"
+                      type="time"
+                      step="1800"
+                      class="form-control"
+                      aria-label="開始時間"
+                      :disabled="!day.enabled"
+                    />
+                    <span>〜</span>
+                    <input
+                      v-model="day.end_time"
+                      type="text"
+                      inputmode="numeric"
+                      maxlength="5"
+                      placeholder="終了"
+                      class="form-control"
+                      aria-label="終了時間"
+                      :disabled="!day.enabled"
+                      @blur="formatEndTimeField(day)"
+                    />
+                  </div>
                 </div>
               </div>
+              <div class="form-text mb-3">出勤する日にチェックを入れ、日ごとに時間を入力してください。翌朝は24:00〜29:00で入力できます。</div>
               <div class="mb-3">
                 <label class="form-label">希望部屋（任意）</label>
                 <select v-model="form.desired_room" class="form-select">
@@ -262,7 +303,7 @@ function formatDateTime(s) {
             <div class="modal-footer">
               <button class="btn btn-secondary" @click="showForm = false">キャンセル</button>
               <button class="btn btn-primary" :disabled="saving" @click="onSave">
-                {{ saving ? '送信中...' : '申請する' }}
+                {{ saving ? '送信中...' : `${selectedDayCount}日分をまとめて申請` }}
               </button>
             </div>
           </div>
@@ -270,3 +311,51 @@ function formatDateTime(s) {
       </div>
   </LayoutCast>
 </template>
+
+<style scoped>
+.weekly-shift-list {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.weekly-shift-row {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+  padding: 0.65rem 0.75rem;
+  background: var(--bs-tertiary-bg);
+  border-bottom: 1px solid var(--bs-border-color);
+}
+
+.weekly-shift-row:last-child {
+  border-bottom: 0;
+}
+
+.weekly-shift-row--enabled {
+  background: var(--bs-body-bg);
+}
+
+.weekly-shift-date {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.weekly-shift-time {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+@media (max-width: 575.98px) {
+  .weekly-shift-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+}
+</style>
