@@ -965,14 +965,29 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
         )
 
 
+class CastShiftRequestBulkItemSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    start_time = serializers.TimeField()
+    end_time = serializers.TimeField()
+    end_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
+    desired_room = serializers.PrimaryKeyRelatedField(
+        queryset=Room.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    memo = serializers.CharField(required=False, allow_blank=True)
+
+
 class CastShiftRequestBulkCreateSerializer(serializers.Serializer):
     dates = serializers.ListField(
         child=serializers.DateField(),
         allow_empty=False,
         max_length=31,
+        required=False,
     )
-    start_time = serializers.TimeField()
-    end_time = serializers.TimeField()
+    items = CastShiftRequestBulkItemSerializer(many=True, required=False, allow_empty=False)
+    start_time = serializers.TimeField(required=False)
+    end_time = serializers.TimeField(required=False)
     end_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
     desired_room = serializers.PrimaryKeyRelatedField(
         queryset=Room.objects.all(),
@@ -985,6 +1000,24 @@ class CastShiftRequestBulkCreateSerializer(serializers.Serializer):
         if len(dates) != len(set(dates)):
             raise serializers.ValidationError("同じ日付が重複しています")
         return sorted(dates)
+
+    def validate(self, data):
+        dates = data.get("dates")
+        items = data.get("items")
+        if bool(dates) == bool(items):
+            raise serializers.ValidationError("dates または items のどちらか一方を指定してください")
+
+        if dates and (not data.get("start_time") or not data.get("end_time")):
+            raise serializers.ValidationError(
+                "dates を使用する場合は start_time と end_time を指定してください"
+            )
+
+        if items:
+            item_dates = [item["date"] for item in items]
+            if len(item_dates) != len(set(item_dates)):
+                raise serializers.ValidationError({"items": "同じ日付が重複しています"})
+
+        return data
 
 
 class OpShiftRequestSerializer(serializers.ModelSerializer):

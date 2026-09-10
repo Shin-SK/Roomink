@@ -3341,26 +3341,46 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
         bulk_serializer.is_valid(raise_exception=True)
         data = bulk_serializer.validated_data
         cast = request.user.cast_profile
-        common_data = {
-            "start_time": data["start_time"],
-            "end_time": data["end_time"],
-            "end_day_offset": data["end_day_offset"],
-            "memo": data["memo"],
-        }
-        if data.get("desired_room") is not None:
-            common_data["desired_room"] = data["desired_room"].pk
+
+        if data.get("items"):
+            request_items = []
+            for item in data["items"]:
+                request_data = {
+                    "date": item["date"],
+                    "start_time": item["start_time"],
+                    "end_time": item["end_time"],
+                    "end_day_offset": item.get("end_day_offset", 0),
+                    "memo": item.get("memo", data["memo"]),
+                }
+                desired_room = item.get("desired_room", data.get("desired_room"))
+                if desired_room is not None:
+                    request_data["desired_room"] = desired_room.pk
+                request_items.append(request_data)
+        else:
+            common_data = {
+                "start_time": data["start_time"],
+                "end_time": data["end_time"],
+                "end_day_offset": data["end_day_offset"],
+                "memo": data["memo"],
+            }
+            if data.get("desired_room") is not None:
+                common_data["desired_room"] = data["desired_room"].pk
+            request_items = [
+                {"date": request_date, **common_data}
+                for request_date in data["dates"]
+            ]
 
         created = []
         with transaction.atomic():
-            for request_date in data["dates"]:
+            for request_data in request_items:
                 serializer = CastShiftRequestSerializer(
-                    data={"date": request_date, **common_data},
+                    data=request_data,
                     context=self.get_serializer_context(),
                 )
                 try:
                     serializer.is_valid(raise_exception=True)
                 except ValidationError as exc:
-                    raise ValidationError({request_date.isoformat(): exc.detail}) from exc
+                    raise ValidationError({request_data["date"].isoformat(): exc.detail}) from exc
                 created.append(serializer.save(cast=cast, store=cast.store))
 
         return Response(

@@ -170,3 +170,45 @@ class ShiftRequestBulkCreateTest(TestCase):
 
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(ShiftRequest.objects.count(), 1)
+
+    def test_cast_can_submit_seven_days_with_individual_times(self):
+        items = [
+            {
+                "date": (self.start_date + timedelta(days=offset)).isoformat(),
+                "start_time": f"{12 + offset:02d}:00",
+                "end_time": "23:00" if offset < 6 else "05:00",
+                "end_day_offset": 1 if offset == 6 else 0,
+            }
+            for offset in range(7)
+        ]
+
+        response = self.client.post(
+            "/api/cast/shift-requests/bulk-create/",
+            {"items": items, "desired_room": self.room.id, "memo": "週次提出"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["created_count"], 7)
+        created = ShiftRequest.objects.order_by("date")
+        self.assertEqual(created.count(), 7)
+        self.assertEqual(created.first().start_time, time(12, 0))
+        self.assertEqual(created.last().start_time, time(18, 0))
+        self.assertEqual(created.last().end_time, time(5, 0))
+        self.assertEqual(created.last().end_day_offset, 1)
+
+    def test_items_duplicate_dates_are_rejected_atomically(self):
+        duplicated = self.start_date.isoformat()
+        response = self.client.post(
+            "/api/cast/shift-requests/bulk-create/",
+            {
+                "items": [
+                    {"date": duplicated, "start_time": "18:00", "end_time": "23:00"},
+                    {"date": duplicated, "start_time": "19:00", "end_time": "00:00", "end_day_offset": 1},
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(ShiftRequest.objects.count(), 0)
