@@ -46,6 +46,7 @@ const extensionDuration = ref(0)
 const extensionPrice = ref(0)
 const selectedNominationFee = ref(null)
 const selectedDiscount = ref(null)
+const paymentFeeRates = ref({ card_fee_rate: 10, paypay_fee_rate: 5 })
 
 // SMS送信履歴（表示のみ。再送信は行わない）
 const smsLogs = ref([])
@@ -105,11 +106,24 @@ const canEdit = computed(() =>
 )
 
 const isCardPayment = computed(() => order.value?.payment_method === 'CARD')
+const isPayPayPayment = computed(() => order.value?.payment_method === 'PAYPAY')
+const cardFeeRate = computed(() => Number(paymentFeeRates.value.card_fee_rate) || 0)
+const payPayFeeRate = computed(() => Number(paymentFeeRates.value.paypay_fee_rate) || 0)
+const cardCashDue = computed(() => {
+  if (!isCardPayment.value || order.value?.card_include_options) return 0
+  return Math.min(order.value?.options_price || 0, order.value?.total_price || 0)
+})
+const cardChargeBase = computed(() => Math.max(0, (order.value?.total_price || 0) - cardCashDue.value))
 const cardFee = computed(() => {
   if (!isCardPayment.value || !order.value) return 0
-  return Math.round((order.value.total_price || 0) * 0.1)
+  return Math.round(cardChargeBase.value * cardFeeRate.value / 100)
 })
-const cardTotal = computed(() => (order.value?.total_price || 0) + cardFee.value)
+const cardTotal = computed(() => cardChargeBase.value + cardFee.value)
+const payPayFee = computed(() => {
+  if (!isPayPayPayment.value || !order.value) return 0
+  return Math.round((order.value.total_price || 0) * payPayFeeRate.value / 100)
+})
+const payPayTotal = computed(() => (order.value?.total_price || 0) + payPayFee.value)
 const cardPaymentCompletedSmsSent = computed(() => smsLogs.value.some(log => (
   log.template_type === 'CARD_PAYMENT_CONFIRMED' && ['SENT', 'DUMMY'].includes(log.status)
 )))
@@ -122,11 +136,12 @@ const canOperateCardPayment = computed(() => (
 
 onMounted(async () => {
   try {
-    const [o, exts, nfs, dcs] = await Promise.all([
+    const [o, exts, nfs, dcs, feeData] = await Promise.all([
       api.getOrder(props.id),
       api.getExtensions(),
       api.getNominationFees(),
       api.getDiscounts(),
+      api.getPaymentFeeSettings().catch(() => paymentFeeRates.value),
     ])
     order.value = o
     extensions.value = Array.isArray(exts) ? exts : []
@@ -137,6 +152,10 @@ onMounted(async () => {
     extensionPrice.value = o.extension_price || 0
     selectedNominationFee.value = o.nomination_fee ?? null
     selectedDiscount.value = o.discount ?? null
+    paymentFeeRates.value = {
+      card_fee_rate: Number(feeData?.card_fee_rate ?? 10),
+      paypay_fee_rate: Number(feeData?.paypay_fee_rate ?? 5),
+    }
     selectedRecipientCustomer.value = o.service_recipient_customer || ''
     if (isManager.value) {
       try {
@@ -476,6 +495,10 @@ async function saveRecipientCustomerLink() {
                       </select>
                     </td>
                   </tr>
+                  <tr v-if="isCardPayment && order.options_price > 0">
+                    <th>オプション代</th>
+                    <td>{{ order.card_include_options ? 'カードに含める' : '来店時に現金' }}</td>
+                  </tr>
                   <tr v-if="order.memo">
                     <th>メモ</th>
                     <td style="white-space: pre-wrap;">{{ order.memo }}</td>
@@ -559,11 +582,28 @@ async function saveRecipientCustomerLink() {
                     <td colspan="2" class="text-end">
                       <div class="order-card-fee">
                         <div class="order-card-fee__total">
-                          カード決済時のお客様請求額（目安）:
+                          カード請求額（目安）:
                           <strong>{{ cardTotal.toLocaleString() }}円</strong>
                         </div>
                         <div class="order-card-fee__breakdown">
-                          （{{ order.total_price.toLocaleString() }}円 ＋ 手数料10% {{ cardFee.toLocaleString() }}円）
+                          （{{ cardChargeBase.toLocaleString() }}円 ＋ 手数料{{ cardFeeRate }}% {{ cardFee.toLocaleString() }}円）
+                        </div>
+                        <div v-if="cardCashDue > 0" class="order-card-fee__cash">
+                          来店時に現金で受領するオプション代: <strong>{{ cardCashDue.toLocaleString() }}円</strong>
+                        </div>
+                        <div class="order-card-fee__hint">※ 売上計上額は手数料を含みません</div>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="isPayPayPayment" class="card-fee-row">
+                    <td colspan="2" class="text-end">
+                      <div class="order-card-fee">
+                        <div class="order-card-fee__total">
+                          PayPay請求額（目安）:
+                          <strong>{{ payPayTotal.toLocaleString() }}円</strong>
+                        </div>
+                        <div class="order-card-fee__breakdown">
+                          （{{ order.total_price.toLocaleString() }}円 ＋ 手数料{{ payPayFeeRate }}% {{ payPayFee.toLocaleString() }}円）
                         </div>
                         <div class="order-card-fee__hint">※ 売上計上額は手数料を含みません</div>
                       </div>

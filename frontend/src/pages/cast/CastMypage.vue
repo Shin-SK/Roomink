@@ -388,7 +388,7 @@ function durationMin(order) {
                 <div class="fw-bold text-primary">{{ formatYen(todaySales.estimated_pay) }}</div>
               </div>
             </div>
-            <div class="small text-muted">完了済みの予約を元にした見込みです。最終精算額とは異なる場合があります。</div>
+            <div class="small text-muted">店舗側で「施術終了」後に「会計確定」まで完了した予約を元にした見込みです。予約時間を過ぎただけでは反映されません。</div>
           </div>
         </div>
 

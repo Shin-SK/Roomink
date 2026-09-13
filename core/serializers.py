@@ -1099,7 +1099,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "nomination_fee", "nomination_fee_name", "nomination_fee_price",
             "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot", "discount_amount",
             "medium", "medium_name",
-            "total_price", "payment_method",
+            "total_price", "payment_method", "card_include_options",
             "card_payment_confirmed_at", "card_payment_confirmed_by",
             "created_by", "created_by_name", "updated_by", "updated_by_name",
             "cancelled_by", "cancelled_by_name",
@@ -1183,6 +1183,9 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     extension = serializers.PrimaryKeyRelatedField(
         queryset=Extension.objects.all(), required=False, allow_null=True,
     )
+    nomination_fee = serializers.PrimaryKeyRelatedField(
+        queryset=NominationFee.objects.all(), required=False, allow_null=True,
+    )
     extension_duration = serializers.IntegerField(
         required=False,
         min_value=0,
@@ -1195,7 +1198,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         fields = [
             "cast", "customer", "course", "start", "end",
             "service_recipient_name", "memo", "options", "extension", "extension_duration", "extension_price",
-            "medium", "discount", "payment_method",
+            "nomination_fee", "medium", "discount", "payment_method", "card_include_options",
         ]
         extra_kwargs = {
             "end": {"required": False},
@@ -1251,6 +1254,16 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"extension_price": "延長時間が0分の場合、料金は0円にしてください"})
         data["extension_duration"] = extension_duration
         data["extension_price"] = extension_price
+
+        nomination_fee = data.get("nomination_fee")
+        if nomination_fee is not None:
+            if nomination_fee.store_id != store.id:
+                raise serializers.ValidationError({"nomination_fee": "他店舗の指名料は使用できません"})
+            if not nomination_fee.is_active:
+                raise serializers.ValidationError({"nomination_fee": "無効な指名料は使用できません"})
+
+        if data.get("payment_method", Order.PaymentMethod.UNSET) != Order.PaymentMethod.CARD:
+            data["card_include_options"] = False
 
         # B) end auto-calc（延長選択時は終了時刻へ必ず反映）
         course = data["course"]
@@ -1334,6 +1347,10 @@ class OrderCreateSerializer(serializers.ModelSerializer):
                     if extension and extension_duration == extension.duration
                     else f"{extension_duration}分延長"
                 )
+            nomination_fee = validated_data.get("nomination_fee")
+            if nomination_fee:
+                validated_data["nomination_fee_name"] = nomination_fee.name
+                validated_data["nomination_fee_price"] = nomination_fee.price
             medium = validated_data.get("medium")
             if medium:
                 validated_data["medium_name"] = medium.name
@@ -1373,12 +1390,15 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
     options = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Option.objects.all(), required=False,
     )
+    nomination_fee = serializers.PrimaryKeyRelatedField(
+        queryset=NominationFee.objects.all(), required=False, allow_null=True,
+    )
 
     class Meta:
         model = Order
         fields = [
             "cast", "course", "start", "end", "service_recipient_name",
-            "memo", "options", "payment_method",
+            "memo", "options", "nomination_fee", "payment_method", "card_include_options",
         ]
 
     def validate_service_recipient_name(self, value):
@@ -1398,6 +1418,17 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
         cast = data.get("cast", instance.cast)
         start = data.get("start", instance.start)
         end = data.get("end", instance.end)
+
+        nomination_fee = data.get("nomination_fee", instance.nomination_fee)
+        if nomination_fee is not None:
+            if nomination_fee.store_id != instance.store_id:
+                raise serializers.ValidationError({"nomination_fee": "他店舗の指名料は使用できません"})
+            if not nomination_fee.is_active:
+                raise serializers.ValidationError({"nomination_fee": "無効な指名料は使用できません"})
+
+        payment_method = data.get("payment_method", instance.payment_method)
+        if payment_method != Order.PaymentMethod.CARD:
+            data["card_include_options"] = False
 
         request = self.context.get("request")
         if request and not can_modify_business_datetime(
@@ -1461,6 +1492,11 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         option_objs = validated_data.pop("options", None)
+
+        if "nomination_fee" in validated_data:
+            nomination_fee = validated_data["nomination_fee"]
+            validated_data["nomination_fee_name"] = nomination_fee.name if nomination_fee else ""
+            validated_data["nomination_fee_price"] = nomination_fee.price if nomination_fee else 0
 
         # course snapshot
         if "course" in validated_data:

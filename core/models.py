@@ -555,6 +555,10 @@ class Order(models.Model):
     payment_method = models.CharField(
         max_length=10, choices=PaymentMethod.choices, default=PaymentMethod.UNSET,
     )
+    card_include_options = models.BooleanField(
+        default=False,
+        help_text="カード決済額にオプション代を含めるか（Falseの場合はオプション代を現金で受領）",
+    )
     card_payment_confirmed_at = models.DateTimeField(null=True, blank=True)
     card_payment_confirmed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

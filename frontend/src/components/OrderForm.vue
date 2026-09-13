@@ -27,8 +27,10 @@ const casts = ref([])
 const courses = ref([])
 const options = ref([])
 const extensions = ref([])
+const nominationFees = ref([])
 const media = ref([])
 const discounts = ref([])
+const paymentFeeRates = ref({ card_fee_rate: 10, paypay_fee_rate: 5 })
 const loading = ref(true)
 const submitting = ref(false)
 const errorMsg = ref('')
@@ -47,11 +49,13 @@ const form = ref({
   extension: '',
   extension_duration: 0,
   extension_price: 0,
+  nomination_fee: '',
   medium: '',
   discount: '',
   service_recipient_name: '',
   memo: '',
   payment_method: 'UNSET',
+  card_include_options: false,
 })
 
 const paymentMethods = [
@@ -144,6 +148,10 @@ const selectedExtension = computed(() =>
   extensions.value.find(e => e.id === Number(form.value.extension))
 )
 
+const selectedNominationFee = computed(() =>
+  nominationFees.value.find(n => n.id === Number(form.value.nomination_fee))
+)
+
 const selectedDiscount = computed(() =>
   discounts.value.find(d => d.id === Number(form.value.discount))
 )
@@ -152,6 +160,7 @@ const subtotalPrice = computed(() => {
   let total = selectedCourse.value ? selectedCourse.value.price : 0
   total += selectedOptions.value.reduce((sum, o) => sum + o.price, 0)
   total += Number(form.value.extension_price) || 0
+  total += selectedNominationFee.value ? selectedNominationFee.value.price : 0
   return total
 })
 
@@ -165,8 +174,24 @@ const discountAmount = computed(() => {
 const totalPrice = computed(() => Math.max(0, subtotalPrice.value - discountAmount.value))
 
 const isCardPayment = computed(() => form.value.payment_method === 'CARD')
-const cardFee = computed(() => isCardPayment.value ? Math.round(totalPrice.value * 0.1) : 0)
-const cardTotal = computed(() => totalPrice.value + cardFee.value)
+const isPayPayPayment = computed(() => form.value.payment_method === 'PAYPAY')
+const selectedOptionsPrice = computed(() => selectedOptions.value.reduce((sum, o) => sum + o.price, 0))
+const cardCashDue = computed(() => (
+  isCardPayment.value && !form.value.card_include_options
+    ? Math.min(selectedOptionsPrice.value, totalPrice.value)
+    : 0
+))
+const cardChargeBase = computed(() => Math.max(0, totalPrice.value - cardCashDue.value))
+const cardFeeRate = computed(() => Number(paymentFeeRates.value.card_fee_rate) || 0)
+const payPayFeeRate = computed(() => Number(paymentFeeRates.value.paypay_fee_rate) || 0)
+const cardFee = computed(() => (
+  isCardPayment.value ? Math.round(cardChargeBase.value * cardFeeRate.value / 100) : 0
+))
+const cardTotal = computed(() => cardChargeBase.value + cardFee.value)
+const payPayFee = computed(() => (
+  isPayPayPayment.value ? Math.round(totalPrice.value * payPayFeeRate.value / 100) : 0
+))
+const payPayTotal = computed(() => totalPrice.value + payPayFee.value)
 
 const resolvedSubmitLabel = computed(() => {
   if (props.submitLabel) return props.submitLabel
@@ -191,11 +216,13 @@ function applyInitialOrder() {
   form.value.cast = o.cast ?? ''
   form.value.course = o.course ?? ''
   form.value.options = Array.isArray(o.option_ids) ? [...o.option_ids] : []
+  form.value.nomination_fee = o.nomination_fee ?? ''
   form.value.medium = o.medium ?? ''
   form.value.discount = o.discount ?? ''
   form.value.service_recipient_name = o.service_recipient_name || ''
   form.value.memo = o.memo || ''
   form.value.payment_method = o.payment_method || 'UNSET'
+  form.value.card_include_options = Boolean(o.card_include_options)
   form.value.start = toLocalInput(o.start)
   form.value.end = toLocalInput(o.end)
 }
@@ -203,24 +230,31 @@ function applyInitialOrder() {
 async function loadMasters() {
   loading.value = true
   try {
-    const [custData, castData, courseData, optData, extData, mdData, dcData] = await Promise.all([
+    const [custData, castData, courseData, optData, extData, nfData, mdData, dcData, feeData] = await Promise.all([
       api.getCustomers(),
       api.getCasts(),
       api.getCourses(),
       api.getOptions(),
       api.getExtensions(),
+      api.getNominationFees(),
       api.getMedia(),
       api.getDiscounts(),
+      api.getPaymentFeeSettings().catch(() => paymentFeeRates.value),
     ])
     customers.value = Array.isArray(custData) ? custData : []
     casts.value = Array.isArray(castData) ? castData : []
     courses.value = Array.isArray(courseData) ? courseData : []
     options.value = Array.isArray(optData) ? optData : []
     extensions.value = (Array.isArray(extData) ? extData : []).filter(e => e.is_active)
+    nominationFees.value = (Array.isArray(nfData) ? nfData : []).filter(n => n.is_active)
     const allMedia = Array.isArray(mdData) ? mdData : []
     media.value = allMedia.filter(m => m.is_active)
     const allDiscounts = Array.isArray(dcData) ? dcData : []
     discounts.value = allDiscounts.filter(d => d.is_active)
+    paymentFeeRates.value = {
+      card_fee_rate: Number(feeData?.card_fee_rate ?? 10),
+      paypay_fee_rate: Number(feeData?.paypay_fee_rate ?? 5),
+    }
 
     if (isEdit.value) {
       applyInitialOrder()
@@ -286,6 +320,11 @@ function toggleOption(optId) {
   }
 }
 
+function selectPaymentMethod(value) {
+  form.value.payment_method = value
+  if (value !== 'CARD') form.value.card_include_options = false
+}
+
 function selectExtensionTemplate(extensionId) {
   form.value.extension = extensionId
   if (!extensionId) {
@@ -342,9 +381,11 @@ async function submitCreate() {
   if (form.value.extension) body.extension = Number(form.value.extension)
   body.extension_duration = Number(form.value.extension_duration) || 0
   body.extension_price = Number(form.value.extension_price) || 0
+  body.nomination_fee = form.value.nomination_fee ? Number(form.value.nomination_fee) : null
   if (form.value.medium) body.medium = Number(form.value.medium)
   if (form.value.discount) body.discount = Number(form.value.discount)
   if (form.value.payment_method) body.payment_method = form.value.payment_method
+  body.card_include_options = Boolean(form.value.card_include_options)
 
   submitting.value = true
   try {
@@ -378,9 +419,11 @@ async function submitEdit() {
     end: form.value.end,
     service_recipient_name: form.value.service_recipient_name,
     options: form.value.options,
+    nomination_fee: form.value.nomination_fee ? Number(form.value.nomination_fee) : null,
     memo: form.value.memo,
     medium: form.value.medium ? Number(form.value.medium) : null,
     payment_method: form.value.payment_method || 'UNSET',
+    card_include_options: Boolean(form.value.card_include_options),
   }
   submitting.value = true
   try {
@@ -624,6 +667,30 @@ function formatYen(n) {
               </div>
             </div>
 
+            <div class="mb-3" v-if="nominationFees.length">
+              <label class="form-label">指名</label>
+              <div class="select-grid">
+                <button
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.nomination_fee === '' ? 'active' : ''"
+                  @click="form.nomination_fee = ''"
+                >
+                  指名なし
+                </button>
+                <button
+                  v-for="nomination in nominationFees"
+                  :key="nomination.id"
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.nomination_fee == nomination.id ? 'active' : ''"
+                  @click="form.nomination_fee = nomination.id"
+                >
+                  {{ nomination.name }}<br><small>+{{ formatYen(nomination.price) }}</small>
+                </button>
+              </div>
+            </div>
+
             <div class="mb-3" v-if="options.length">
               <label class="form-label">オプション</label>
               <div class="select-grid">
@@ -709,11 +776,34 @@ function formatYen(n) {
                   type="button"
                   class="btn btn-sm select-btn"
                   :class="form.payment_method === pm.value ? 'active' : ''"
-                  @click="form.payment_method = pm.value"
+                  @click="selectPaymentMethod(pm.value)"
                 >
                   <i :class="['ti', pm.icon, 'me-1']"></i>{{ pm.label }}
                 </button>
               </div>
+            </div>
+
+            <div v-if="isCardPayment && selectedOptionsPrice > 0" class="mb-3">
+              <label class="form-label">オプション代の支払い</label>
+              <div class="select-grid select-grid--2">
+                <button
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="!form.card_include_options ? 'active' : ''"
+                  @click="form.card_include_options = false"
+                >
+                  オプション代は現金
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.card_include_options ? 'active' : ''"
+                  @click="form.card_include_options = true"
+                >
+                  オプション代もカードに含める
+                </button>
+              </div>
+              <div class="form-text">通常は「オプション代は現金」です。</div>
             </div>
 
             <div class="row">
@@ -754,11 +844,24 @@ function formatYen(n) {
               </div>
               <div v-if="selectedCourse && isCardPayment" class="card-fee-note mt-2">
                 <div class="card-fee-note__total">
-                  カード決済時のお客様請求額（目安）:
+                  カード請求額（目安）:
                   <strong>{{ formatYen(cardTotal) }}</strong>
                 </div>
                 <div class="card-fee-note__breakdown">
-                  （{{ formatYen(totalPrice) }} ＋ 手数料10% {{ formatYen(cardFee) }}）
+                  （{{ formatYen(cardChargeBase) }} ＋ 手数料{{ cardFeeRate }}% {{ formatYen(cardFee) }}）
+                </div>
+                <div v-if="cardCashDue > 0" class="card-fee-note__cash">
+                  来店時に現金で受領するオプション代: <strong>{{ formatYen(cardCashDue) }}</strong>
+                </div>
+                <div class="card-fee-note__hint">※ 売上計上額は手数料を含みません</div>
+              </div>
+              <div v-if="selectedCourse && isPayPayPayment" class="card-fee-note mt-2">
+                <div class="card-fee-note__total">
+                  PayPay請求額（目安）:
+                  <strong>{{ formatYen(payPayTotal) }}</strong>
+                </div>
+                <div class="card-fee-note__breakdown">
+                  （{{ formatYen(totalPrice) }} ＋ 手数料{{ payPayFeeRate }}% {{ formatYen(payPayFee) }}）
                 </div>
                 <div class="card-fee-note__hint">※ 売上計上額は手数料を含みません</div>
               </div>
@@ -899,6 +1002,10 @@ function formatYen(n) {
 
   &--3 {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  &--2 {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 

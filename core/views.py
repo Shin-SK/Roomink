@@ -6180,14 +6180,14 @@ class StoreLineSettingsView(APIView):
 
 @document_object_api_view
 class StorePaymentFeeSettingsView(APIView):
-    """GET / PATCH /api/op/payment-fee-settings/ — 決済手数料率（参考値）の設定。manager のみ。
-    ここで設定した値は売上集計(/op/sales-dashboard/)・退勤提出の手数料見込み計算にのみ使用し、
+    """GET / PATCH /api/op/payment-fee-settings/ — 決済手数料率（参考値）の設定。
+    GETは運営スタッフも参照可、PATCHはmanagerのみ。
+    ここで設定した値は予約画面の請求目安・売上集計(/op/sales-dashboard/)・退勤提出の手数料見込み計算に使用し、
     確定精算・給与確定・DailySettlementViewには一切接続しない。"""
 
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
 
     def get(self, request):
-        _require_manager(request)
         store = get_user_store(request)
         return Response({
             "cash_fee_rate": store.cash_fee_rate,

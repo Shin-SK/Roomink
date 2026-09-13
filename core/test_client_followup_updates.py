@@ -66,6 +66,112 @@ class ClientFollowupUpdatesTest(TestCase):
         client.force_authenticate(user)
         return client
 
+    def _order_payload(self, **overrides):
+        payload = {
+            "customer": self.customer.pk,
+            "cast": self.cast.pk,
+            "course": self.course.pk,
+            "start": (timezone.now() + timedelta(days=7)).isoformat(),
+            "payment_method": Order.PaymentMethod.CARD,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_order_create_saves_nomination_and_card_option_payment_choice(self):
+        nomination = NominationFee.objects.create(
+            store=self.store,
+            name="本指名",
+            price=3000,
+        )
+        option = Option.objects.create(
+            store=self.store,
+            name="衣装チェンジ",
+            price=2000,
+        )
+
+        response = self._client(self.staff).post(
+            "/api/orders/",
+            self._order_payload(
+                nomination_fee=nomination.pk,
+                options=[option.pk],
+                card_include_options=True,
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["nomination_fee"], nomination.pk)
+        self.assertEqual(response.data["nomination_fee_name"], "本指名")
+        self.assertEqual(response.data["nomination_fee_price"], 3000)
+        self.assertEqual(response.data["total_price"], 25000)
+        self.assertIs(response.data["card_include_options"], True)
+
+    def test_card_option_payment_choice_persists_on_edit_and_resets_for_paypay(self):
+        order = Order.objects.create(
+            store=self.store,
+            cast=self.cast,
+            customer=self.customer,
+            course=self.course,
+            course_name=self.course.name,
+            course_price=self.course.price,
+            total_price=self.course.price,
+            start=timezone.now() + timedelta(days=8),
+            end=timezone.now() + timedelta(days=8, hours=2),
+            payment_method=Order.PaymentMethod.CARD,
+            card_include_options=True,
+        )
+        client = self._client(self.staff)
+
+        card_response = client.patch(
+            f"/api/orders/{order.pk}/",
+            {"card_include_options": False},
+            format="json",
+        )
+        paypay_response = client.patch(
+            f"/api/orders/{order.pk}/",
+            {"payment_method": Order.PaymentMethod.PAYPAY, "card_include_options": True},
+            format="json",
+        )
+
+        self.assertEqual(card_response.status_code, 200, card_response.data)
+        self.assertIs(card_response.data["card_include_options"], False)
+        self.assertEqual(paypay_response.status_code, 200, paypay_response.data)
+        self.assertEqual(paypay_response.data["payment_method"], Order.PaymentMethod.PAYPAY)
+        self.assertIs(paypay_response.data["card_include_options"], False)
+
+    def test_staff_can_read_payment_fee_rates_but_cannot_change_them(self):
+        client = self._client(self.staff)
+
+        get_response = client.get("/api/op/payment-fee-settings/")
+        patch_response = client.patch(
+            "/api/op/payment-fee-settings/",
+            {"paypay_fee_rate": 9},
+            format="json",
+        )
+
+        self.assertEqual(get_response.status_code, 200, get_response.data)
+        self.assertEqual(get_response.data["card_fee_rate"], 10)
+        self.assertEqual(get_response.data["paypay_fee_rate"], 5)
+        self.assertEqual(patch_response.status_code, 403, patch_response.data)
+        self.store.refresh_from_db()
+        self.assertEqual(self.store.paypay_fee_rate, 5)
+
+    def test_order_create_rejects_nomination_from_another_store(self):
+        foreign_nomination = NominationFee.objects.create(
+            store=self.other_store,
+            name="別店舗指名",
+            price=9999,
+        )
+
+        response = self._client(self.staff).post(
+            "/api/orders/",
+            self._order_payload(nomination_fee=foreign_nomination.pk),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("nomination_fee", response.data)
+
     def test_sms_discount_placeholders_render_from_order_snapshot(self):
         order = Order.objects.create(
             store=self.store,
