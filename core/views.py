@@ -769,6 +769,96 @@ class OrderViewSet(viewsets.ModelViewSet):
 # Cast Today / ACK
 # ──────────────────────────────────────
 
+def _serialize_cast_today_order(order, cast, business_date, *, is_unconfirmed):
+    option_rows = [
+        {"id": option.id, "name": option.name, "price": option.price}
+        for option in order.options.all()
+    ]
+    reservation_name = (
+        order.service_recipient_name
+        or order.customer.display_name
+        or "予約名未設定"
+    )
+    return {
+        "id": order.id,
+        "start": order.start,
+        "end": order.end,
+        "start_time_extended": format_business_time(
+            order.start,
+            business_date,
+            cast.store.timezone,
+        ),
+        "end_time_extended": format_business_time(
+            order.end,
+            business_date,
+            cast.store.timezone,
+        ),
+        "status": order.status,
+        "room_id": order.room_id,
+        "room_name": order.room.name if order.room_id else "",
+        "is_room_pending": order.room_id is None,
+        "customer_label": build_customer_label(order.customer),
+        "reservation_name": reservation_name,
+        "service_recipient_name": order.service_recipient_name,
+        "course_name": order.course_name,
+        "course_price": order.course_price,
+        "option_ids": [row["id"] for row in option_rows],
+        "options": option_rows,
+        "options_price": order.options_price,
+        "nomination_fee_name": order.nomination_fee_name,
+        "nomination_fee_price": order.nomination_fee_price,
+        "total_price": order.total_price,
+        "payment_method": order.payment_method,
+        "payment_method_label": order.get_payment_method_display(),
+        "memo": order.memo,
+        "is_unconfirmed": is_unconfirmed,
+    }
+
+
+def _get_cast_owned_order(request, pk):
+    cast = getattr(request.user, "cast_profile", None)
+    if cast is None:
+        return None, None, Response(
+            {"detail": "このユーザーにキャストが紐づいていません"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    order = (
+        Order.objects
+        .select_related("room", "customer", "course")
+        .prefetch_related("options")
+        .filter(pk=pk)
+        .first()
+    )
+    if order is None:
+        return cast, None, Response(
+            {"detail": "予約が見つかりません"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if order.cast_id != cast.id:
+        return cast, order, Response(
+            {"detail": "この予約は別のキャストに割り当てられています"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return cast, order, None
+
+
+def _cast_order_response(order, cast):
+    order_business_date = business_date_for_datetime(
+        order.start,
+        cast.store.timezone,
+    )
+    is_unconfirmed = not CastAck.objects.filter(
+        order=order,
+        acked_at__isnull=False,
+    ).exists()
+    data = _serialize_cast_today_order(
+        order,
+        cast,
+        order_business_date,
+        is_unconfirmed=is_unconfirmed,
+    )
+    return Response(CastTodayOrderSerializer(data).data)
+
 @document_object_api_view
 class CastTodayView(APIView):
     """GET /api/cast/today/?date=YYYY-MM-DD — キャスト本人の営業日別予約一覧。日付省略時は現在営業日。"""
@@ -799,6 +889,7 @@ class CastTodayView(APIView):
             .filter(cast=cast, start__gte=range_start, start__lt=range_end)
             .exclude(status__in=[Order.Status.DONE, Order.Status.CANCELLED])
             .select_related("room", "customer", "course")
+            .prefetch_related("options")
             .order_by("start")
         )
 
@@ -818,31 +909,12 @@ class CastTodayView(APIView):
 
         data = []
         for o in orders:
-            data.append({
-                "id": o.id,
-                "start": o.start,
-                "end": o.end,
-                "start_time_extended": format_business_time(
-                    o.start,
-                    d,
-                    cast.store.timezone,
-                ),
-                "end_time_extended": format_business_time(
-                    o.end,
-                    d,
-                    cast.store.timezone,
-                ),
-                "status": o.status,
-                "room_id": o.room_id,
-                "room_name": o.room.name if o.room_id else "",
-                "is_room_pending": o.room_id is None,
-                "customer_label": build_customer_label(o.customer),
-                "service_recipient_name": o.service_recipient_name,
-                "course_name": o.course_name,
-                "course_price": o.course_price,
-                "memo": o.memo,
-                "is_unconfirmed": o.id not in acked_ids,
-            })
+            data.append(_serialize_cast_today_order(
+                o,
+                cast,
+                d,
+                is_unconfirmed=o.id not in acked_ids,
+            ))
 
         serializer = CastTodayOrderSerializer(data, many=True)
 
@@ -862,6 +934,10 @@ class CastTodayView(APIView):
             "total_orders": len(data),
             "unconfirmed_count": sum(1 for o in data if o["is_unconfirmed"]),
             "orders": serializer.data,
+            "available_options": [
+                {"id": option.id, "name": option.name, "price": option.price}
+                for option in Option.objects.filter(store=cast.store).order_by("id")
+            ],
             "line_linked": cast.line_user_id is not None,
             "line_link_code": cast.line_link_code,
             "line_add_friend_url": cast.store.line_add_friend_url if cast.store else "",
@@ -1129,60 +1205,121 @@ class CastAckView(APIView):
     """POST /api/cast/orders/{id}/ack/ — キャストが予約を確認"""
 
     def post(self, request, pk):
-        cast = getattr(request.user, "cast_profile", None)
-        if cast is None:
-            return Response(
-                {"detail": "このユーザーにキャストが紐づいていません"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            order = Order.objects.select_related("room", "customer", "course").get(pk=pk)
-        except Order.DoesNotExist:
-            return Response(
-                {"detail": "予約が見つかりません"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if order.cast_id != cast.id:
-            return Response(
-                {"detail": "この予約は別のキャストに割り当てられています"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        cast, order, error_response = _get_cast_owned_order(request, pk)
+        if error_response is not None:
+            return error_response
 
         from django.utils import timezone
         ack, _ = CastAck.objects.get_or_create(order=order)
         ack.acked_at = timezone.now()
         ack.save(update_fields=["acked_at"])
 
-        order_business_date = business_date_for_datetime(
-            order.start,
-            cast.store.timezone,
-        )
-        return Response({
-            "id": order.id,
-            "start": order.start,
-            "end": order.end,
-            "start_time_extended": format_business_time(
-                order.start,
-                order_business_date,
-                cast.store.timezone,
-            ),
-            "end_time_extended": format_business_time(
-                order.end,
-                order_business_date,
-                cast.store.timezone,
-            ),
-            "status": order.status,
-            "room_id": order.room_id,
-            "room_name": order.room.name if order.room_id else "",
-            "customer_label": build_customer_label(order.customer),
-            "service_recipient_name": order.service_recipient_name,
-            "course_name": order.course_name,
-            "course_price": order.course_price,
-            "memo": order.memo,
-            "is_unconfirmed": False,
-        })
+        return _cast_order_response(order, cast)
+
+
+@document_object_api_view
+class CastOrderOptionsView(APIView):
+    """POST /api/cast/orders/{id}/options/ — キャスト本人が担当予約のオプションを更新。"""
+
+    def post(self, request, pk):
+        cast, order, error_response = _get_cast_owned_order(request, pk)
+        if error_response is not None:
+            return error_response
+        if order.status in (Order.Status.DONE, Order.Status.CANCELLED):
+            return Response(
+                {"detail": "完了またはキャンセル済みの予約は変更できません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if (
+            order.payment_method == Order.PaymentMethod.CARD
+            and order.card_include_options
+            and order.card_payment_confirmed_at is not None
+        ):
+            return Response(
+                {"detail": "カード決済確認済みのため、店舗へオプション変更を依頼してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        option_ids = request.data.get("option_ids")
+        if not isinstance(option_ids, list) or any(
+            not isinstance(option_id, int) for option_id in option_ids
+        ):
+            return Response(
+                {"detail": "オプションを正しく選択してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        unique_ids = list(dict.fromkeys(option_ids))
+        options = list(Option.objects.filter(store=cast.store, pk__in=unique_ids))
+        if len(options) != len(unique_ids):
+            return Response(
+                {"detail": "選択できないオプションが含まれています"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            OrderOption.objects.filter(order=order).delete()
+            for option in options:
+                OrderOption.objects.create(order=order, option=option)
+            order.options_price = sum(option.price for option in options)
+            order.updated_by = request.user
+            order.save(update_fields=["options_price", "updated_by", "updated_at"])
+            recalculate_order_total(order)
+
+        order.refresh_from_db()
+        return _cast_order_response(order, cast)
+
+
+@document_object_api_view
+class CastOrderStartView(APIView):
+    """POST /api/cast/orders/{id}/start/ — キャスト本人が接客開始。"""
+
+    def post(self, request, pk):
+        cast, order, error_response = _get_cast_owned_order(request, pk)
+        if error_response is not None:
+            return error_response
+        if not CastAck.objects.filter(order=order, acked_at__isnull=False).exists():
+            return Response(
+                {"detail": "先に予約内容を確認してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if order.status != Order.Status.CONFIRMED:
+            return Response(
+                {"detail": f"現在の状態では接客を開始できません（{order.get_status_display()}）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        order.status = Order.Status.IN_PROGRESS
+        order.updated_by = request.user
+        order.save(update_fields=["status", "updated_by", "updated_at"])
+        return _cast_order_response(order, cast)
+
+
+@document_object_api_view
+class CastOrderCompleteView(APIView):
+    """POST /api/cast/orders/{id}/complete/ — キャスト本人の接客終了で会計完了。"""
+
+    def post(self, request, pk):
+        cast, order, error_response = _get_cast_owned_order(request, pk)
+        if error_response is not None:
+            return error_response
+        if order.status not in (Order.Status.IN_PROGRESS, Order.Status.PENDING_FINALIZE):
+            return Response(
+                {"detail": f"現在の状態では接客を終了できません（{order.get_status_display()}）"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if order.payment_method not in (
+            Order.PaymentMethod.CARD,
+            Order.PaymentMethod.CASH,
+            Order.PaymentMethod.PAYPAY,
+        ):
+            return Response(
+                {"detail": "支払い方法が未設定です。店舗へ設定を依頼してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        order.status = Order.Status.DONE
+        order.updated_by = request.user
+        order.save(update_fields=["status", "updated_by", "updated_at"])
+        return _cast_order_response(order, cast)
 
 
 @document_object_api_view
