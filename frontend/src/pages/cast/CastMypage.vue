@@ -20,6 +20,11 @@ const codeCopied = ref(false)
 const totalPoints = ref(0)
 const pointHistory = ref([])
 const todaySales = ref(null)
+const availableOptions = ref([])
+const processingOrderId = ref(null)
+const optionEditorId = ref(null)
+const optionDraftIds = ref([])
+const actionErrors = ref({})
 
 // 調整金（Phase 3-E）
 const adjustments = ref({ open_total: 0, open: [], resolved_recent: [] })
@@ -100,6 +105,7 @@ onMounted(async () => {
     orders.value = data.orders
     totalOrders.value = data.total_orders
     unconfirmedCount.value = data.unconfirmed_count
+    availableOptions.value = data.available_options || []
     lineLinked.value = data.line_linked || false
     lineLinkCode.value = data.line_link_code || ''
     lineAddFriendUrl.value = data.line_add_friend_url || ''
@@ -236,6 +242,75 @@ async function doAck(order) {
   } catch (e) {
     alert(e.message)
   }
+}
+
+function replaceOrder(updated) {
+  const idx = orders.value.findIndex(order => order.id === updated.id)
+  if (idx !== -1) orders.value[idx] = updated
+  unconfirmedCount.value = orders.value.filter(order => order.is_unconfirmed).length
+}
+
+function openOptionEditor(order) {
+  actionErrors.value[order.id] = ''
+  if (optionEditorId.value === order.id) {
+    optionEditorId.value = null
+    return
+  }
+  optionEditorId.value = order.id
+  optionDraftIds.value = [...(order.option_ids || [])]
+}
+
+async function saveOptions(order) {
+  processingOrderId.value = order.id
+  actionErrors.value[order.id] = ''
+  try {
+    const updated = await api.updateCastOrderOptions(order.id, optionDraftIds.value)
+    replaceOrder(updated)
+    optionEditorId.value = null
+  } catch (e) {
+    actionErrors.value[order.id] = e.message
+  } finally {
+    processingOrderId.value = null
+  }
+}
+
+async function startService(order) {
+  processingOrderId.value = order.id
+  actionErrors.value[order.id] = ''
+  try {
+    replaceOrder(await api.startCastOrder(order.id))
+  } catch (e) {
+    actionErrors.value[order.id] = e.message
+  } finally {
+    processingOrderId.value = null
+  }
+}
+
+async function completeService(order) {
+  if (!window.confirm('接客を終了し、売上・給与へ反映します。よろしいですか？')) return
+  processingOrderId.value = order.id
+  actionErrors.value[order.id] = ''
+  try {
+    await api.completeCastOrder(order.id)
+    orders.value = orders.value.filter(item => item.id !== order.id)
+    totalOrders.value = orders.value.length
+    unconfirmedCount.value = orders.value.filter(item => item.is_unconfirmed).length
+    todaySales.value = await api.getCastTodaySales()
+    await loadCheckout()
+  } catch (e) {
+    actionErrors.value[order.id] = e.message
+  } finally {
+    processingOrderId.value = null
+  }
+}
+
+function statusLabel(status) {
+  return {
+    REQUESTED: '店舗確認待ち',
+    CONFIRMED: '接客前',
+    IN_PROGRESS: '接客中',
+    PENDING_FINALIZE: '終了待ち',
+  }[status] || status
 }
 
 function formatTime(dt) {
@@ -388,7 +463,7 @@ function durationMin(order) {
                 <div class="fw-bold text-primary">{{ formatYen(todaySales.estimated_pay) }}</div>
               </div>
             </div>
-            <div class="small text-muted">店舗側で「施術終了」後に「会計確定」まで完了した予約を元にした見込みです。予約時間を過ぎただけでは反映されません。</div>
+            <div class="small text-muted">セラピスト側で「接客終了・売上へ反映」まで完了した予約を元にした見込みです。予約時間を過ぎただけでは反映されません。</div>
           </div>
         </div>
 
@@ -672,15 +747,48 @@ function durationMin(order) {
               <span
                 class="badge"
                 :class="order.is_unconfirmed ? 'badge-unconfirmed' : 'badge-approved'"
-              >{{ order.is_unconfirmed ? '未確認' : '確認済' }}</span>
+              >{{ order.is_unconfirmed ? '未確認' : statusLabel(order.status) }}</span>
             </div>
-            <div class="small text-muted mb-2">
-              <div><i class="ti ti-door"></i> {{ order.room_name }}</div>
-              <div><i class="ti ti-currency-yen"></i> {{ formatYen(order.course_price) }}</div>
+            <div class="small mb-2 d-flex flex-column gap-1">
+              <div><i class="ti ti-user text-primary"></i> <span class="text-muted">予約名：</span><strong>{{ order.reservation_name }}</strong></div>
+              <div><i class="ti ti-door text-primary"></i> {{ order.room_name }}</div>
+              <div><i class="ti ti-receipt text-primary"></i> {{ order.course_name }} / {{ formatYen(order.course_price) }}</div>
+              <div>
+                <i class="ti ti-sparkles text-primary"></i>
+                オプション：{{ order.options?.length ? order.options.map(option => option.name).join('、') : 'なし' }}
+              </div>
+              <div v-if="order.nomination_fee_name"><i class="ti ti-heart text-primary"></i> {{ order.nomination_fee_name }} / {{ formatYen(order.nomination_fee_price) }}</div>
+              <div><i class="ti ti-credit-card text-primary"></i> 支払い：<strong>{{ order.payment_method_label }}</strong></div>
+              <div><i class="ti ti-currency-yen text-primary"></i> 合計：<strong>{{ formatYen(order.total_price) }}</strong></div>
+            </div>
+
+            <button
+              v-if="availableOptions.length"
+              class="btn btn-sm btn-outline-secondary w-100 mb-2"
+              :disabled="processingOrderId === order.id"
+              @click="openOptionEditor(order)"
+            >
+              <i class="ti ti-adjustments"></i> オプションを選択・変更
+            </button>
+            <div v-if="optionEditorId === order.id" class="border rounded p-2 mb-3 bg-light">
+              <label v-for="option in availableOptions" :key="option.id" class="form-check py-1">
+                <input v-model="optionDraftIds" class="form-check-input" type="checkbox" :value="option.id">
+                <span class="form-check-label">{{ option.name }}（{{ formatYen(option.price) }}）</span>
+              </label>
+              <button
+                class="btn btn-sm btn-primary w-100 mt-2"
+                :disabled="processingOrderId === order.id"
+                @click="saveOptions(order)"
+              >選択内容を保存</button>
             </div>
             <div class="bg-light p-2 rounded small mb-3">
               <i class="ti ti-note"></i> {{ order.memo || '備考なし' }}
             </div>
+
+            <div v-if="actionErrors[order.id]" class="alert alert-danger py-2 small mb-2">
+              {{ actionErrors[order.id] }}
+            </div>
+
             <button
               v-if="order.is_unconfirmed"
               class="btn btn-sm btn-warning w-100"
@@ -689,12 +797,24 @@ function durationMin(order) {
               <i class="ti ti-check"></i> 確認する
             </button>
             <button
-              v-else
-              class="btn btn-sm btn-outline-primary w-100"
+              v-else-if="order.status === 'REQUESTED'"
+              class="btn btn-sm btn-light w-100"
               disabled
             >
-              <i class="ti ti-check"></i> 確認済
+              <i class="ti ti-clock"></i> 店舗確認待ち
             </button>
+            <button
+              v-else-if="order.status === 'CONFIRMED'"
+              class="btn btn-sm btn-primary w-100 fw-bold"
+              :disabled="processingOrderId === order.id"
+              @click="startService(order)"
+            ><i class="ti ti-player-play"></i> 接客開始</button>
+            <button
+              v-else-if="order.status === 'IN_PROGRESS' || order.status === 'PENDING_FINALIZE'"
+              class="btn btn-sm btn-success w-100 fw-bold"
+              :disabled="processingOrderId === order.id"
+              @click="completeService(order)"
+            ><i class="ti ti-check"></i> 接客終了・売上へ反映</button>
           </div>
         </div>
 
