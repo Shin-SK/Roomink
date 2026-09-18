@@ -3,10 +3,10 @@
 環境変数 TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_PHONE が設定されていれば
 Twilio 経由で実送信する。未設定時は明示的な SMS_DUMMY_MODE の場合だけダミー記録する。
 
-予約確認SMSの文面は、店舗の SmsTemplate（支払方法別）が有効なら優先して使用し、
-未設定なら従来どおり下記の既定文言を使う。
+予約通知は、決済や住所をSMS本文へ載せず、予約ごとのゲストページへ誘導する。
 """
 import logging
+import math
 import os
 from typing import Optional
 from urllib.parse import urlencode
@@ -16,12 +16,20 @@ from django.conf import settings
 from django.utils import timezone
 
 from core.models import Order, SmsLog, SmsTemplate
+from core.services.reservation_access import build_order_guest_url
 
 logger = logging.getLogger(__name__)
 
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM_PHONE = os.getenv("TWILIO_FROM_PHONE", "")
+
+GSM_BASIC_CHARS = set(
+    "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞ"
+    " !\"#¤%&'()*+,-./0123456789:;<=>?"
+    "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"
+)
+GSM_EXTENDED_CHARS = set("^{}\\[~]|€")
 
 
 # ── low-level ─────────────────────────────────
@@ -37,6 +45,17 @@ def _format_to_e164(phone: str) -> str:
     if phone.startswith("0"):
         return "+81" + phone[1:]
     return phone
+
+
+def sms_encoding_and_segments(body: str):
+    """Twilio課金単位に合わせてGSM-7/UCS-2と概算セグメント数を返す。"""
+    if all(char in GSM_BASIC_CHARS or char in GSM_EXTENDED_CHARS for char in body):
+        units = sum(2 if char in GSM_EXTENDED_CHARS else 1 for char in body)
+        limit = 160 if units <= 160 else 153
+        return "GSM-7", max(1, math.ceil(units / limit))
+    units = len(body.encode("utf-16-be")) // 2
+    limit = 70 if units <= 70 else 67
+    return "UCS-2", max(1, math.ceil(units / limit))
 
 
 def _local_order_datetimes(order: Order):
@@ -72,6 +91,7 @@ def send_sms(
     """
     meta = _log_meta(order, template_type, created_by)
     persisted_body = log_body if log_body is not None else body
+    encoding, segment_count = sms_encoding_and_segments(body)
 
     if not to_phone or to_phone == "cast":
         logger.info("SMS skip (no valid phone) → %s", _mask_phone(to_phone))
@@ -80,11 +100,17 @@ def send_sms(
             status=SmsLog.Status.SKIPPED,
             provider=SmsLog.Provider.NONE,
             error_message="送信先電話番号が未設定のため送信していません",
+            encoding=encoding,
+            segment_count=segment_count,
             **meta,
         )
 
     if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM_PHONE:
-        return _send_twilio(to_phone, body, persisted_body, meta)
+        return _send_twilio(
+            to_phone, body, persisted_body, meta,
+            encoding=encoding,
+            segment_count=segment_count,
+        )
 
     if settings.SMS_DUMMY_MODE:
         logger.info("SMS development dummy → %s", _mask_phone(to_phone))
@@ -99,6 +125,8 @@ def send_sms(
         status=send_status,
         provider=SmsLog.Provider.NONE,
         error_message=error_message,
+        encoding=encoding,
+        segment_count=segment_count,
         **meta,
     )
 
@@ -115,22 +143,53 @@ def _log_meta(order: Optional[Order], template_type: str, created_by) -> dict:
     }
 
 
-def _send_twilio(to_phone: str, body: str, persisted_body: str, meta: dict) -> SmsLog:
+def _send_twilio(
+    to_phone: str,
+    body: str,
+    persisted_body: str,
+    meta: dict,
+    *,
+    encoding: str,
+    segment_count: int,
+) -> SmsLog:
     """Twilio API で SMS を送信。TWILIO_FROM_PHONE は取得済みの SMS 送信可能な Twilio 番号。"""
     try:
         from twilio.rest import Client
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        create_kwargs = {
+            "body": body,
+            "from_": TWILIO_FROM_PHONE,
+            "to": _format_to_e164(to_phone),
+        }
+        if settings.TWILIO_WEBHOOK_PUBLIC_BASE_URL:
+            create_kwargs["status_callback"] = (
+                f"{settings.TWILIO_WEBHOOK_PUBLIC_BASE_URL}/api/webhook/twilio/sms-status/"
+            )
         message = client.messages.create(
-            body=body,
-            from_=TWILIO_FROM_PHONE,
-            to=_format_to_e164(to_phone),
+            **create_kwargs,
         )
-        logger.info("SMS sent via Twilio → %s sid=%s", _mask_phone(to_phone), message.sid)
+        message_sid = message.sid if isinstance(getattr(message, "sid", None), str) else ""
+        provider_status = (
+            message.status if isinstance(getattr(message, "status", None), str) else ""
+        )
+        raw_segments = getattr(message, "num_segments", None)
+        actual_segments = (
+            int(raw_segments)
+            if isinstance(raw_segments, (int, str))
+            and not isinstance(raw_segments, bool)
+            and str(raw_segments).isdigit()
+            and int(raw_segments) > 0
+            else segment_count
+        )
+        logger.info("SMS sent via Twilio → %s sid=%s", _mask_phone(to_phone), message_sid)
         return SmsLog.objects.create(
             to_phone=to_phone, body=persisted_body,
             status=SmsLog.Status.SENT,
             provider=SmsLog.Provider.TWILIO,
-            provider_message_id=message.sid or "",
+            provider_message_id=message_sid,
+            provider_status=provider_status,
+            encoding=encoding,
+            segment_count=actual_segments,
             **meta,
         )
     except Exception as e:
@@ -141,6 +200,8 @@ def _send_twilio(to_phone: str, body: str, persisted_body: str, meta: dict) -> S
             status=SmsLog.Status.FAILED,
             provider=SmsLog.Provider.TWILIO,
             error_message=safe_error,
+            encoding=encoding,
+            segment_count=segment_count,
             **meta,
         )
 
@@ -307,7 +368,38 @@ def notify_order_confirmed(order: Order, created_by=None) -> SmsLog:
     """予約確定時に顧客へ通知"""
     if order.payment_method == Order.PaymentMethod.CARD:
         return notify_card_payment_requested(order, created_by=created_by)
-    return notify_customer_account(order.customer, order=order, created_by=created_by)
+    return _send_guest_reservation_sms(
+        order,
+        body_prefix="ご予約が確定しました。\n詳細はこちら",
+        template_type=SmsLog.TemplateType.RESERVATION_CONFIRMATION,
+        created_by=created_by,
+    )
+
+
+def _send_guest_reservation_sms(order, body_prefix, template_type, created_by=None):
+    guest_url = build_order_guest_url(order)
+    if not guest_url:
+        logger.warning(
+            "Reservation SMS not sent (link base URL missing) → %s",
+            _mask_phone(order.customer.phone),
+        )
+        return SmsLog.objects.create(
+            to_phone=order.customer.phone,
+            body=f"{body_prefix}\n[予約リンク未設定]",
+            status=SmsLog.Status.CONFIG_MISSING,
+            provider=SmsLog.Provider.NONE,
+            error_message="RESERVATION_LINK_BASE_URL_MISSING",
+            **_log_meta(order, template_type, created_by),
+        )
+    body = f"{body_prefix}\n{guest_url}"
+    return send_sms(
+        to_phone=order.customer.phone,
+        body=body,
+        order=order,
+        template_type=template_type,
+        created_by=created_by,
+        log_body=f"{body_prefix}\n[予約リンク]",
+    )
 
 
 def notify_customer_account(
@@ -373,7 +465,7 @@ def notify_customer_account(
 
 
 def notify_card_payment_requested(order: Order, created_by=None) -> SmsLog:
-    """カード予約確定時に、店舗別の共通決済URLを含む1通目を送る。"""
+    """カード仮予約時に、ゲスト予約ページを含む1通目を送る。"""
     if not order.store.card_payment_url:
         logger.warning(
             "Card payment SMS not sent (payment URL missing) → %s",
@@ -387,21 +479,19 @@ def notify_card_payment_requested(order: Order, created_by=None) -> SmsLog:
             error_message="CARD_PAYMENT_URL_MISSING",
             **_log_meta(order, SmsLog.TemplateType.CARD_PAYMENT_REQUEST, created_by),
         )
-    return send_sms(
-        to_phone=order.customer.phone,
-        body=build_card_payment_request_body(order),
-        order=order,
+    return _send_guest_reservation_sms(
+        order,
+        body_prefix="仮予約を受け付けました。\nカード決済はこちら",
         template_type=SmsLog.TemplateType.CARD_PAYMENT_REQUEST,
         created_by=created_by,
     )
 
 
 def notify_card_payment_confirmed(order: Order, created_by=None) -> SmsLog:
-    """決済確認操作後に、ルーム案内を含む2通目を送る。"""
-    return send_sms(
-        to_phone=order.customer.phone,
-        body=build_card_payment_confirmed_body(order),
-        order=order,
+    """店舗の決済確認操作後に、本予約ページを含む2通目を送る。"""
+    return _send_guest_reservation_sms(
+        order,
+        body_prefix="決済を確認しました。予約確定です。",
         template_type=SmsLog.TemplateType.CARD_PAYMENT_CONFIRMED,
         created_by=created_by,
     )
@@ -430,17 +520,9 @@ def notify_cast_order(order: Order, created_by=None) -> SmsLog:
 
 def notify_order_cancelled(order: Order, created_by=None) -> SmsLog:
     """予約キャンセル時に顧客へ通知"""
-    start, end = _local_order_datetimes(order)
-    body = (
-        f"【Roomink】ご予約がキャンセルされました。\n"
-        f"日時: {start:%Y-%m-%d %H:%M}〜{end:%H:%M}\n"
-        f"コース: {order.course.name}\n"
-        f"ご不明点がございましたらお問い合わせください。"
-    )
-    return send_sms(
-        to_phone=order.customer.phone,
-        body=body,
-        order=order,
+    return _send_guest_reservation_sms(
+        order,
+        body_prefix="ご予約がキャンセルされました。\n詳細はこちら",
         template_type=SmsLog.TemplateType.RESERVATION_CANCELLED,
         created_by=created_by,
     )

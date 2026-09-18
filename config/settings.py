@@ -209,7 +209,7 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            "NAME": os.getenv("SQLITE_PATH", BASE_DIR / "db.sqlite3"),
         }
     }
 
@@ -237,6 +237,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # --- Twilio Webhook signature validation ---
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_FROM_PHONE = os.getenv("TWILIO_FROM_PHONE", "").strip()
 TWILIO_SIP_CREDENTIAL_LIST_SID = os.getenv(
     "TWILIO_SIP_CREDENTIAL_LIST_SID",
     "CL61459635521ae572c76b9d689df74f7a",
@@ -245,13 +246,43 @@ TWILIO_SIP_URI = os.getenv(
     "TWILIO_SIP_URI",
     "roomink-reception@roomink-reception.sip.twilio.com",
 ).strip()
+TWILIO_BYOC_TRUNK_SID = os.getenv("TWILIO_BYOC_TRUNK_SID", "").strip()
+TWILIO_BYOC_TERMINATION_DOMAIN_SID = os.getenv(
+    "TWILIO_BYOC_TERMINATION_DOMAIN_SID", ""
+).strip()
+TWILIO_BYOC_CREDENTIAL_LIST_SID = os.getenv(
+    "TWILIO_BYOC_CREDENTIAL_LIST_SID", ""
+).strip()
+TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID = os.getenv(
+    "TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID", ""
+).strip()
 TWILIO_WEBHOOK_PUBLIC_BASE_URL = os.getenv("TWILIO_WEBHOOK_PUBLIC_BASE_URL", "").rstrip("/")
 TWILIO_WEBHOOK_ALLOW_UNSIGNED = os.getenv("TWILIO_WEBHOOK_ALLOW_UNSIGNED", "0") == "1"
 
 # --- Customer account invitation / SMS delivery ---
 FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
+RESERVATION_LINK_BASE_URL = os.getenv(
+    "RESERVATION_LINK_BASE_URL",
+    FRONTEND_URL,
+).rstrip("/")
 SMS_DUMMY_MODE = os.getenv("SMS_DUMMY_MODE", "0") == "1"
 PUBLIC_BOOKING_ENABLED = os.getenv("PUBLIC_BOOKING_ENABLED", "0") == "1"
+
+# Staging must be isolated and must never send a real customer SMS by accident.
+_deployment_environment = os.getenv("DJANGO_ENV", "").strip().lower()
+if _deployment_environment == "staging":
+    if not FRONTEND_URL or not RESERVATION_LINK_BASE_URL:
+        raise ImproperlyConfigured(
+            "FRONTEND_URL and RESERVATION_LINK_BASE_URL are required in staging"
+        )
+    if any(
+        production_host in url
+        for production_host in ("app.roomink.net", "r.roomink.net")
+        for url in (FRONTEND_URL, RESERVATION_LINK_BASE_URL)
+    ):
+        raise ImproperlyConfigured("staging URLs must not point to production")
+    if not SMS_DUMMY_MODE:
+        raise ImproperlyConfigured("SMS_DUMMY_MODE=1 is required in staging")
 
 # --- Roomink support assistant ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

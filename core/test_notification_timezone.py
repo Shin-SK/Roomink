@@ -10,7 +10,10 @@ from core.services.notify import (
 )
 
 
-@override_settings(SMS_DUMMY_MODE=False)
+@override_settings(
+    SMS_DUMMY_MODE=False,
+    RESERVATION_LINK_BASE_URL="https://r.roomink.net",
+)
 class NotificationTimezoneTest(TestCase):
     def setUp(self):
         self.store = Store.objects.create(name="通知時刻テスト店舗", timezone="Asia/Tokyo")
@@ -65,7 +68,9 @@ class NotificationTimezoneTest(TestCase):
 
         self.assert_tokyo_time(log.body)
 
-    def test_cancellation_notice_uses_store_timezone(self):
+    def test_cancellation_notice_is_short_and_uses_guest_link(self):
         log = notify_order_cancelled(self.order)
 
-        self.assert_tokyo_time(log.body)
+        self.assertEqual(log.segment_count, 1)
+        self.assertIn("[予約リンク]", log.body)
+        self.assertNotIn("2099-12-31", log.body)

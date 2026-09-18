@@ -168,6 +168,7 @@ function statusClass(order) {
   // 完了は他のフラグ（要注意・未確認 等）より優先して完了感を出す
   if (order.status === 'DONE') return ['is-done']
   const cls = []
+  if (order.customer_reservation_state === 'PAYMENT_REQUIRED') cls.push('is-attention')
   switch (order.status) {
     case 'CONFIRMED': cls.push('is-approved'); break
     case 'REQUESTED': cls.push('is-requested'); break
@@ -202,6 +203,7 @@ function blockMeta(order) {
   const t = `${orderStartTime(order)}–${orderEndTime(order)}`
   const labels = []
   if (order.status === 'REQUESTED') labels.push('申請中')
+  if (order.customer_reservation_state === 'PAYMENT_REQUIRED') labels.push('カード決済待ち')
   if (order.is_off_shift) labels.push('シフト外')
   if (order.is_room_pending) labels.push('ルーム未定')
   labels.push(t)

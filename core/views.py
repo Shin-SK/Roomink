@@ -123,12 +123,20 @@ from .services.notify import (
     notify_order_cancelled,
     notify_order_confirmed,
     notify_customer_account,
+    sms_encoding_and_segments,
 )
+from .services.sms_billing import parse_usage_month, sms_usage_summary
 from .services.customer_invitation import (
     INVALID_INVITATION_MESSAGE,
     activate_customer_invitation,
     get_valid_invitation,
     serialize_invitation_status,
+)
+from .services.reservation_access import (
+    get_valid_order_guest_access,
+    guest_reservation_state,
+    mark_guest_access_opened,
+    serialize_guest_reservation,
 )
 from .services.business_datetime import (
     BusinessDateTimeError,
@@ -362,7 +370,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     ]
     queryset = Order.objects.select_related(
         "cast", "room", "customer", "service_recipient_customer", "course",
-        "created_by", "updated_by", "cancelled_by",
+        "created_by", "updated_by", "cancelled_by", "guest_access",
     ).prefetch_related("options").order_by("start")
 
     filterset_fields = {
@@ -470,7 +478,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="send-card-payment-request")
     def send_card_payment_request(self, request, pk=None):
-        """カード決済リンクSMSを安全に再送する。"""
+        """カード決済案内付きの予約ページSMSを安全に再送する。"""
         order = self.get_object()
         if order.payment_method != Order.PaymentMethod.CARD:
             return Response(
@@ -482,12 +490,17 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": "確定済みの有効な予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if order.card_payment_confirmed_at is not None:
+            return Response(
+                {"detail": "決済確認済みのため、仮予約SMSは再送できません。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         notify_card_payment_requested(order, created_by=request.user)
         return Response(OrderSerializer(order, context={"request": request}).data)
 
     @action(detail=True, methods=["post"], url_path="confirm-card-payment")
     def confirm_card_payment(self, request, pk=None):
-        """決済確認を記録し、ルーム案内を含む2通目のSMSを送る。"""
+        """店舗による外部決済確認を記録し、予約確定の2通目を送る。"""
         order = self.get_object()
         if order.payment_method != Order.PaymentMethod.CARD:
             return Response(
@@ -501,7 +514,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             )
         if order.room_id is None:
             return Response(
-                {"detail": "ルームを確定してから住所SMSを送信してください。"},
+                {"detail": "ルームを確定してから本予約にしてください。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -516,7 +529,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             ).exists()
             if already_sent:
                 return Response(
-                    {"detail": "決済完了後の住所SMSは送信済みです。"},
+                    {"detail": "決済確認後の予約確定SMSは送信済みです。"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             if locked_order.card_payment_confirmed_at is None:
@@ -555,6 +568,11 @@ class OrderViewSet(viewsets.ModelViewSet):
         """1ステップずつ前進: CONFIRMED/IN_PROGRESS → PENDING_FINALIZE → DONE
         DONE化(会計確定)時は payment_method が CARD/CASH/PAYPAY のいずれかである必要がある"""
         order = self.get_object()
+        if guest_reservation_state(order) == "PAYMENT_REQUIRED":
+            return Response(
+                {"detail": "店舗でカード決済を確認し、本予約にしてから施術を進めてください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if order.status in (Order.Status.CONFIRMED, Order.Status.IN_PROGRESS):
             order.status = Order.Status.PENDING_FINALIZE
         elif order.status == Order.Status.PENDING_FINALIZE:
@@ -794,6 +812,7 @@ def _serialize_cast_today_order(order, cast, business_date, *, is_unconfirmed):
             cast.store.timezone,
         ),
         "status": order.status,
+        "customer_reservation_state": guest_reservation_state(order),
         "room_id": order.room_id,
         "room_name": order.room.name if order.room_id else "",
         "is_room_pending": order.room_id is None,
@@ -1278,6 +1297,11 @@ class CastOrderStartView(APIView):
         cast, order, error_response = _get_cast_owned_order(request, pk)
         if error_response is not None:
             return error_response
+        if guest_reservation_state(order) == "PAYMENT_REQUIRED":
+            return Response(
+                {"detail": "店舗でカード決済を確認し、本予約にしてから接客を開始してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if not CastAck.objects.filter(order=order, acked_at__isnull=False).exists():
             return Response(
                 {"detail": "先に予約内容を確認してください"},
@@ -1863,7 +1887,31 @@ def _customer_visible_room_address(order):
     """予約確定後に限り、顧客本人へルーム住所を返す。"""
     if order.status not in CUSTOMER_ROOM_ADDRESS_STATUSES or not order.room:
         return ""
+    if (
+        order.payment_method == Order.PaymentMethod.CARD
+        and order.card_payment_confirmed_at is None
+    ):
+        return ""
     return order.room.address
+
+
+@document_object_api_view
+class PublicGuestReservationView(APIView):
+    """SMSの予約URLから、アカウント登録なしで安全な予約情報だけを返す。"""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        access = get_valid_order_guest_access(token)
+        if access is None:
+            return Response(
+                {"detail": "この予約案内は利用できません。店舗へお問い合わせください。"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        state = guest_reservation_state(access.order)
+        mark_guest_access_opened(access, state)
+        return Response(serialize_guest_reservation(access))
 
 
 @document_object_api_view
@@ -4762,6 +4810,41 @@ def _twilio_forbidden_response():
     return HttpResponse("Forbidden", content_type="text/plain", status=403)
 
 
+def _phone_from_twilio_party(value):
+    """PSTN番号またはSIP URIのuser部から、国内比較用の電話番号を取り出す。"""
+    party = str(value or "").strip()
+    if not party:
+        return ""
+    angle_match = re.search(r"<([^>]+)>", party)
+    if angle_match:
+        party = angle_match.group(1)
+    party = re.sub(r"^(?:sip|sips|tel):", "", party, flags=re.IGNORECASE)
+    party = party.split("@", 1)[0]
+    party = party.split(";", 1)[0]
+    party = party.split("?", 1)[0]
+    return normalize_phone(party)
+
+
+def _twilio_request_phone(request, *field_names):
+    for field_name in field_names:
+        phone = _phone_from_twilio_party(request.data.get(field_name, ""))
+        if phone:
+            return phone
+    return ""
+
+
+def _twilio_request_caller_phone(request, *field_names):
+    """発信者番号非通知でも着信自体は拒否せず、顧客未照合として扱う。"""
+    phone = _twilio_request_phone(request, *field_names)
+    if phone:
+        return phone
+    for field_name in field_names:
+        party = str(request.data.get(field_name, "")).strip().lower()
+        if any(value in party for value in ("anonymous", "unknown", "restricted", "private")):
+            return "anonymous"
+    return ""
+
+
 def _configured_twilio_sip_uri():
     sip_uri = settings.TWILIO_SIP_URI.strip()
     if sip_uri.lower().startswith("sip:"):
@@ -5275,7 +5358,15 @@ def twilio_voice_webhook(request):
         call_sid, _mask_phone(raw_from), _mask_phone(raw_to), call_status,
     )
 
-    if not call_sid or not raw_from or not raw_to:
+    from_phone = _twilio_request_caller_phone(
+        request,
+        "From", "Caller", "SipHeader_X-Original-From", "SipHeader_X-Caller-Number",
+    )
+    to_phone = _twilio_request_phone(
+        request,
+        "To", "Called", "SipHeader_X-Original-To", "SipHeader_X-Called-Number",
+    )
+    if not call_sid or not from_phone or not to_phone:
         logger.warning("Twilio voice webhook: missing required fields")
         return HttpResponse(
             '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="ja-JP">エラーが発生しました</Say></Response>',
@@ -5283,8 +5374,6 @@ def twilio_voice_webhook(request):
             status=400,
         )
 
-    from_phone = normalize_phone(raw_from)
-    to_phone = normalize_phone(raw_to)
     logger.info(
         "Twilio voice: normalized from=%s to=%s",
         _mask_phone(from_phone), _mask_phone(to_phone),
@@ -5385,9 +5474,15 @@ def twilio_status_webhook(request):
         call = CallLog.objects.get(contact_id=call_sid)
     except CallLog.DoesNotExist:
         # Fallback: voice webhook で CallLog が作られなかった場合、ここで作成を試みる
-        if raw_from and raw_to:
-            from_phone = normalize_phone(raw_from)
-            to_phone = normalize_phone(raw_to)
+        from_phone = _twilio_request_caller_phone(
+            request,
+            "From", "Caller", "SipHeader_X-Original-From", "SipHeader_X-Caller-Number",
+        )
+        to_phone = _twilio_request_phone(
+            request,
+            "To", "Called", "SipHeader_X-Original-To", "SipHeader_X-Called-Number",
+        )
+        if from_phone and to_phone:
             store_phone = StorePhoneNumber.objects.select_related("store").filter(phone=to_phone, is_active=True).first()
             if store_phone:
                 store = store_phone.store
@@ -5408,7 +5503,10 @@ def twilio_status_webhook(request):
                 )
                 return HttpResponse("ok", content_type="text/plain")
         else:
-            logger.warning("Twilio status webhook: CallLog not found for %s and no From/To for fallback", call_sid)
+            logger.warning(
+                "Twilio status webhook: CallLog not found for %s and no caller/called number for fallback",
+                call_sid,
+            )
             return HttpResponse("ok", content_type="text/plain")
 
     # オペレーターが既に対応完了にしている場合は上書きしない
@@ -5422,6 +5520,63 @@ def twilio_status_webhook(request):
         call.status = CallLog.Status.MISSED
         call.save(update_fields=["status", "updated_at"])
 
+    return HttpResponse("ok", content_type="text/plain")
+
+
+@extend_schema(operation_id="twilio_sms_status_webhook", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.STR)
+@csrf_exempt
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def twilio_sms_status_webhook(request):
+    """Twilio SMSの配信結果と確定セグメント数をSmsLogへ反映する。"""
+    if not _is_valid_twilio_request(request):
+        return _twilio_forbidden_response()
+
+    message_sid = request.data.get("MessageSid", "")
+    message_status = request.data.get("MessageStatus", "")
+    if not message_sid:
+        return HttpResponse("ok", content_type="text/plain")
+
+    sms_log = SmsLog.objects.filter(provider_message_id=message_sid).first()
+    if sms_log is None:
+        logger.warning("Twilio SMS status: SmsLog not found sid=%s", message_sid)
+        return HttpResponse("ok", content_type="text/plain")
+
+    now = timezone.now()
+    sms_log.provider_status = message_status
+    sms_log.delivery_updated_at = now
+    update_fields = ["provider_status", "delivery_updated_at"]
+
+    if message_status == "delivered":
+        sms_log.status = SmsLog.Status.SENT
+        sms_log.delivered_at = now
+        update_fields.extend(["status", "delivered_at"])
+    elif message_status in ("failed", "undelivered"):
+        sms_log.status = SmsLog.Status.FAILED
+        error_code = request.data.get("ErrorCode", "")
+        sms_log.error_message = f"TWILIO_{message_status.upper()}_{error_code}".rstrip("_")
+        update_fields.extend(["status", "error_message"])
+
+    callback_segments = request.data.get("NumSegments", "")
+    if str(callback_segments).isdigit() and int(callback_segments) > 0:
+        sms_log.segment_count = int(callback_segments)
+        update_fields.append("segment_count")
+    elif message_status in ("delivered", "failed", "undelivered"):
+        try:
+            from twilio.rest import Client
+
+            message = Client(
+                settings.TWILIO_ACCOUNT_SID,
+                settings.TWILIO_AUTH_TOKEN,
+            ).messages(message_sid).fetch()
+            if str(message.num_segments).isdigit() and int(message.num_segments) > 0:
+                sms_log.segment_count = int(message.num_segments)
+                update_fields.append("segment_count")
+        except Exception:
+            logger.exception("Twilio SMS segment fetch failed sid=%s", message_sid)
+
+    sms_log.save(update_fields=list(dict.fromkeys(update_fields)))
     return HttpResponse("ok", content_type="text/plain")
 
 
@@ -6774,10 +6929,28 @@ class SmsTemplateSettingsView(APIView):
                 "updated_at": tpl.updated_at if tpl else None,
                 "default_body": _default_sms_preview(payment_method, template_type),
             })
+        sample_url = "https://r.roomink.net/r/abcdefghijklmnopqrstuv"
+        system_messages = []
+        for key, label, prefix in (
+            ("confirmed", "現金・PayPay：予約確定", "ご予約が確定しました。\n詳細はこちら"),
+            ("card_pending", "カード：仮予約・決済待ち", "仮予約を受け付けました。\nカード決済はこちら"),
+            ("card_confirmed", "カード：店舗確認後の予約確定", "決済を確認しました。予約確定です。"),
+            ("cancelled", "キャンセル", "ご予約がキャンセルされました。\n詳細はこちら"),
+        ):
+            body = f"{prefix}\n{sample_url}"
+            encoding, segments = sms_encoding_and_segments(body)
+            system_messages.append({
+                "key": key,
+                "label": label,
+                "body": body,
+                "encoding": encoding,
+                "segment_count": segments,
+            })
         return {
             "placeholders": list(SmsTemplate.PLACEHOLDERS),
             "card_payment_url": store.card_payment_url,
             "items": items,
+            "system_messages": system_messages,
         }
 
     def get(self, request):
@@ -6920,3 +7093,19 @@ class SmsTemplateSettingsView(APIView):
                 )
 
         return Response(self._payload(store))
+
+
+@document_object_api_view
+class SmsUsageView(APIView):
+    """店舗の月次SMS送信数（実体は課金セグメント数）と料金ブロックを返す。"""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
+    def get(self, request):
+        _require_staff_or_manager(request)
+        store = get_user_store(request)
+        try:
+            month = parse_usage_month(request.query_params.get("month"), store.timezone)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(sms_usage_summary(store, month=month))

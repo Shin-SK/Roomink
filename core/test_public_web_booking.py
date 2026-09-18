@@ -10,7 +10,6 @@ from core.models import (
     Cast,
     Course,
     Customer,
-    CustomerAccountInvitation,
     Option,
     Order,
     PublicBookingVerification,
@@ -26,6 +25,7 @@ TOKYO = ZoneInfo("Asia/Tokyo")
 
 @override_settings(
     FRONTEND_URL="https://roomink.example",
+    RESERVATION_LINK_BASE_URL="https://r.roomink.example",
     SMS_DUMMY_MODE=True,
     PUBLIC_BOOKING_ENABLED=True,
 )
@@ -164,7 +164,7 @@ class PublicWebBookingTest(TestCase):
         self.assertNotIn("123456", otp_log.body)
         self.assertNotIn("09012345678", otp_log.body)
 
-    def test_correct_code_atomically_confirms_booking_and_issues_customer_invitation(self):
+    def test_correct_code_atomically_confirms_booking_and_issues_guest_reservation_link(self):
         requested = self.request_code()
         confirmed = self.client.post(
             "/api/public/booking/confirm/",
@@ -189,7 +189,12 @@ class PublicWebBookingTest(TestCase):
         self.assertEqual(list(order.options.all()), [self.option])
         challenge = PublicBookingVerification.objects.get()
         self.assertIsNotNone(challenge.consumed_at)
-        self.assertTrue(CustomerAccountInvitation.objects.filter(order=order).exists())
+        self.assertTrue(hasattr(order, "guest_access"))
+        confirmation = SmsLog.objects.get(
+            order=order,
+            template_type=SmsLog.TemplateType.RESERVATION_CONFIRMATION,
+        )
+        self.assertIn("[予約リンク]", confirmation.body)
 
     def test_wrong_code_changes_nothing_and_counts_attempt(self):
         requested = self.request_code()

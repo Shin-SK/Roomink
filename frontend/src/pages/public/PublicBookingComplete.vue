@@ -54,10 +54,6 @@ function formatYen(value) {
       <div v-if="result?.sms_status && !['SENT', 'DUMMY'].includes(result.sms_status)" class="alert alert-warning text-start">
         予約は確定していますが、案内SMSの送信を確認できませんでした。店舗へお問い合わせください。
       </div>
-      <p v-if="result?.account_setup_required" class="small text-muted">
-        初めてのお客様には、SMSでパスワード設定用URLをご案内しています。
-      </p>
-
       <router-link :to="storeSlug ? `/s/${storeSlug}/booking` : '/booking'" class="btn btn-outline-primary mt-3">別の予約をする</router-link>
     </main>
   </div>

@@ -304,13 +304,14 @@ async function completeService(order) {
   }
 }
 
-function statusLabel(status) {
+function statusLabel(order) {
+  if (order.customer_reservation_state === 'PAYMENT_REQUIRED') return 'カード決済待ち'
   return {
     REQUESTED: '店舗確認待ち',
     CONFIRMED: '接客前',
     IN_PROGRESS: '接客中',
     PENDING_FINALIZE: '終了待ち',
-  }[status] || status
+  }[order.status] || order.status
 }
 
 function formatTime(dt) {
@@ -746,8 +747,8 @@ function durationMin(order) {
               </div>
               <span
                 class="badge"
-                :class="order.is_unconfirmed ? 'badge-unconfirmed' : 'badge-approved'"
-              >{{ order.is_unconfirmed ? '未確認' : statusLabel(order.status) }}</span>
+                :class="order.is_unconfirmed ? 'badge-unconfirmed' : order.customer_reservation_state === 'PAYMENT_REQUIRED' ? 'text-bg-warning' : 'badge-approved'"
+              >{{ order.is_unconfirmed ? '未確認' : statusLabel(order) }}</span>
             </div>
             <div class="small mb-2 d-flex flex-column gap-1">
               <div><i class="ti ti-user text-primary"></i> <span class="text-muted">予約名：</span><strong>{{ order.reservation_name }}</strong></div>

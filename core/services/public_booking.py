@@ -349,7 +349,6 @@ def confirm_public_booking(verification_id, code):
                 lock_cast=True,
             )
             customer = _find_or_create_verified_customer(challenge)
-            account_setup_required = customer.user_id is None
             serializer = OrderCreateSerializer(data={
                 "customer": customer.id,
                 "cast": selection["cast"].id,
@@ -387,6 +386,5 @@ def confirm_public_booking(verification_id, code):
         "total_price": order.total_price,
         "room_name": order.room.name if order.room else "",
         "room_address": order.room.address if order.room else "",
-        "account_setup_required": account_setup_required,
         "sms_status": customer_sms.status,
     }

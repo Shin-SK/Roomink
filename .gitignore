@@ -1,7 +1,9 @@
 venv
 .env
 .env.*
+!.env.staging.example
 !frontend/.env.production
+!frontend/.env.staging.example
 .venv
 .vscode
 .claude
@@ -20,3 +22,5 @@ frontend/dist
 *.egg-info
 CLAUDE.md
 docs/*
+!docs/CRACALL_TWILIO_BYOC_RUNBOOK.md
+!docs/ROOMINK_RELEASE_HANDOFF_2026-09-19.md

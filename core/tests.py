@@ -458,6 +458,85 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         self.assertIn("***5678", logs)
         self.assertIn("***0167", logs)
 
+    def test_byoc_sip_uri_parties_are_normalized_for_store_and_customer_matching(self):
+        StorePhoneNumber.objects.create(
+            store=self.store_a,
+            phone="05012345678",
+            is_active=True,
+        )
+        customer = Customer.objects.create(
+            store=self.store_a,
+            phone="09012345678",
+            display_name="BYOC顧客",
+        )
+        data = {
+            "CallSid": "CAbyoc-sip-uri",
+            "From": '"Caller" <sip:+819012345678@carrier.example>;tag=abc',
+            "To": "sip:roomink-byoc@roomink-byoc.sip.twilio.com",
+            "Called": "sip:+815012345678@roomink-byoc.sip.twilio.com",
+            "CallStatus": "ringing",
+        }
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            data,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        call = CallLog.objects.get(contact_id=data["CallSid"])
+        self.assertEqual(call.from_phone, "09012345678")
+        self.assertEqual(call.to_phone, "05012345678")
+        self.assertEqual(call.customer, customer)
+
+    def test_byoc_standard_from_and_to_work_without_custom_headers(self):
+        StorePhoneNumber.objects.create(
+            store=self.store_a,
+            phone="05012345678",
+            is_active=True,
+        )
+        data = {
+            "CallSid": "CAbyoc-standard-parties",
+            "From": "sip:+819012345678@carrier.example",
+            "To": "sip:+815012345678@roomink-clocall.sip.twilio.com",
+            "CallStatus": "ringing",
+        }
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            data,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        call = CallLog.objects.get(contact_id=data["CallSid"])
+        self.assertEqual(call.from_phone, "09012345678")
+        self.assertEqual(call.to_phone, "05012345678")
+
+    def test_anonymous_byoc_caller_still_reaches_the_store(self):
+        StorePhoneNumber.objects.create(
+            store=self.store_a,
+            phone="05012345678",
+            is_active=True,
+        )
+        data = {
+            "CallSid": "CAbyoc-anonymous",
+            "From": "sip:anonymous@anonymous.invalid",
+            "To": "sip:+815012345678@roomink-clocall.sip.twilio.com",
+            "CallStatus": "ringing",
+        }
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            data,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        call = CallLog.objects.get(contact_id=data["CallSid"])
+        self.assertEqual(call.from_phone, "anonymous")
+        self.assertIsNone(call.customer)
+
     @override_settings(TWILIO_SIP_URI="")
     def test_missing_sip_configuration_fails_safe_after_recording_call(self):
         data = self.voice_data("CAmissing-sip")
@@ -1325,8 +1404,11 @@ class OpenApiSchemaSmokeTest(TestCase):
             "/api/auth/login/",
             "/api/op/schedule/",
             "/api/op/daily-settlement/",
+            "/api/op/sms-usage/",
+            "/api/public/reservations/{token}/",
             "/api/webhook/twilio/voice/",
             "/api/webhook/twilio/status/",
+            "/api/webhook/twilio/sms-status/",
             "/api/webhook/twilio/regulatory-status/",
         ):
             self.assertIn(path, paths)

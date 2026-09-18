@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import List, Optional
 
@@ -7,6 +7,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from .utils.phone import normalize_phone
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 
 from .models import (
@@ -1084,6 +1085,10 @@ class OrderSerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()
     updated_by_name = serializers.SerializerMethodField()
     cancelled_by_name = serializers.SerializerMethodField()
+    customer_reservation_state = serializers.SerializerMethodField()
+    guest_first_opened_at = serializers.SerializerMethodField()
+    guest_last_seen_state = serializers.SerializerMethodField()
+    guest_open_count = serializers.SerializerMethodField()
     # course_name is now a snapshot field on Order; no source override needed
 
     class Meta:
@@ -1103,6 +1108,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "card_payment_confirmed_at", "card_payment_confirmed_by",
             "created_by", "created_by_name", "updated_by", "updated_by_name",
             "cancelled_by", "cancelled_by_name",
+            "customer_reservation_state", "guest_first_opened_at",
+            "guest_last_seen_state", "guest_open_count",
             "created_at", "updated_at",
         ]
 
@@ -1124,6 +1131,29 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def get_cancelled_by_name(self, obj) -> str:
         return self._operator_name(obj.cancelled_by)
+
+    def get_customer_reservation_state(self, obj) -> str:
+        from core.services.reservation_access import guest_reservation_state
+        return guest_reservation_state(obj)
+
+    @staticmethod
+    def _guest_access(obj):
+        try:
+            return obj.guest_access
+        except ObjectDoesNotExist:
+            return None
+
+    def get_guest_first_opened_at(self, obj) -> Optional[datetime]:
+        access = self._guest_access(obj)
+        return access.first_opened_at if access else None
+
+    def get_guest_last_seen_state(self, obj) -> str:
+        access = self._guest_access(obj)
+        return access.last_seen_state if access else ""
+
+    def get_guest_open_count(self, obj) -> int:
+        access = self._guest_access(obj)
+        return access.open_count if access else 0
 
     def get_customer_label(self, obj) -> str:
         return build_customer_label(obj.customer)
@@ -1539,6 +1569,7 @@ class CastTodayOrderSerializer(serializers.Serializer):
     start_time_extended = serializers.CharField()
     end_time_extended = serializers.CharField()
     status = serializers.CharField()
+    customer_reservation_state = serializers.CharField()
     room_id = serializers.IntegerField(allow_null=True)
     room_name = serializers.CharField(allow_blank=True)
     is_room_pending = serializers.BooleanField()
@@ -1603,6 +1634,7 @@ class ScheduleOrderSerializer(serializers.Serializer):
     start_time_extended = serializers.CharField()
     end_time_extended = serializers.CharField()
     status = serializers.CharField()
+    customer_reservation_state = serializers.CharField()
     options = serializers.ListField(child=serializers.CharField())
     is_unconfirmed = serializers.BooleanField()
     is_off_shift = serializers.BooleanField()
@@ -1639,6 +1671,8 @@ class ScheduleResponseSerializer(serializers.Serializer):
 
 
 def build_schedule_data(store, date):
+    from core.services.reservation_access import guest_reservation_state
+
     shifts = (
         ShiftAssignment.objects
         .filter(store=store, date=date)
@@ -1709,6 +1743,7 @@ def build_schedule_data(store, date):
             "start_time_extended": format_business_time(o.start, date, store.timezone),
             "end_time_extended": format_business_time(o.end, date, store.timezone),
             "status": o.status,
+            "customer_reservation_state": guest_reservation_state(o),
             "options": [opt.name for opt in o.options.all()],
             "is_unconfirmed": o.id not in acked_order_ids,
             "is_off_shift": find_covering_shift(store, o.cast, o.start, o.end) is None,
@@ -1763,6 +1798,8 @@ def build_schedule_data(store, date):
 
 
 def build_room_schedule_data(store, date):
+    from core.services.reservation_access import guest_reservation_state
+
     rooms = Room.objects.filter(store=store).order_by("sort_order")
 
     range_start, range_end = business_day_range(date, store.timezone)
@@ -1798,6 +1835,7 @@ def build_room_schedule_data(store, date):
             "start_time_extended": format_business_time(o.start, date, store.timezone),
             "end_time_extended": format_business_time(o.end, date, store.timezone),
             "status": o.status,
+            "customer_reservation_state": guest_reservation_state(o),
             "options": [opt.name for opt in o.options.all()],
             "is_unconfirmed": o.id not in acked_order_ids,
         })
@@ -1911,7 +1949,8 @@ class SmsLogSerializer(serializers.ModelSerializer):
         fields = [
             "id", "order", "to_phone", "body", "status", "status_label",
             "template_type", "template_type_label", "payment_method", "payment_method_label",
-            "provider", "provider_message_id", "error_message",
+            "provider", "provider_message_id", "provider_status",
+            "encoding", "segment_count", "delivered_at", "error_message",
             "created_by_name", "sent_at",
         ]
 

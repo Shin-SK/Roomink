@@ -32,6 +32,11 @@ def generate_store_slug():
     return f"store-{uuid.uuid4().hex[:12]}"
 
 
+def generate_order_guest_token():
+    """予約ごとのゲストURLに使う推測困難な公開トークン。"""
+    return secrets.token_urlsafe(16)
+
+
 class Store(models.Model):
     class LineOperationsRecipientType(models.TextChoices):
         USER = "user", "個人トーク"
@@ -81,6 +86,10 @@ class Store(models.Model):
         blank=True,
         default="",
         help_text="カード予約時に送る店舗別の共通決済URL",
+    )
+    sms_billing_exempt = models.BooleanField(
+        default=False,
+        help_text="検証店舗など、SMS利用量は計測するが月額課金の対象外とする店舗",
     )
     public_booking_notice = models.TextField(
         blank=True,
@@ -644,6 +653,39 @@ class CustomerAccountInvitation(models.Model):
         return f"CustomerAccountInvitation#{self.pk} customer={self.customer_id}"
 
 
+class OrderGuestAccess(models.Model):
+    """アカウント登録なしで予約詳細を確認するための予約単位アクセス。"""
+
+    order = models.OneToOneField(
+        Order,
+        on_delete=models.CASCADE,
+        related_name="guest_access",
+    )
+    token = models.CharField(
+        max_length=32,
+        unique=True,
+        default=generate_order_guest_token,
+        editable=False,
+    )
+    expires_at = models.DateTimeField(db_index=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+    first_opened_at = models.DateTimeField(null=True, blank=True)
+    last_opened_at = models.DateTimeField(null=True, blank=True)
+    open_count = models.PositiveIntegerField(default=0)
+    last_seen_state = models.CharField(max_length=32, blank=True, default="")
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["expires_at", "invalidated_at"]),
+        ]
+
+    def __str__(self):
+        return f"OrderGuestAccess#{self.pk} order={self.order_id}"
+
+
 class PublicBookingVerification(models.Model):
     """公開Web予約のSMS本人確認。予約・顧客は確認完了後にだけ作成する。"""
 
@@ -925,6 +967,11 @@ class SmsLog(models.Model):
         max_length=10, choices=Provider.choices, default=Provider.NONE,
     )
     provider_message_id = models.CharField(max_length=64, blank=True, default="")
+    provider_status = models.CharField(max_length=32, blank=True, default="")
+    encoding = models.CharField(max_length=12, blank=True, default="")
+    segment_count = models.PositiveSmallIntegerField(default=0)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    delivery_updated_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True, default="")
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
