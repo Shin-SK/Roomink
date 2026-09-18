@@ -83,6 +83,7 @@ const routes = [
     meta: { public: true },
   },
   { path: '/op/login', redirect: '/login' },
+  { path: '/op', redirect: '/op/dashboard' },
   { path: '/op/dashboard', name: 'dashboard', component: Dashboard },
   { path: '/op/schedule', name: 'schedule', component: Schedule },
   { path: '/op/phone', name: 'phone', component: Phone },
