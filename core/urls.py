@@ -132,6 +132,13 @@ urlpatterns = [
     path("cu/bookings/", views.CustomerBookingCreateView.as_view(), name="cu-bookings"),
     path("cu/reservations/<int:pk>/", views.CustomerReservationDetailView.as_view(), name="cu-reservation-detail"),
 
+    # account-less guest reservation page
+    path(
+        "public/reservations/<str:token>/",
+        views.PublicGuestReservationView.as_view(),
+        name="public-guest-reservation",
+    ),
+
     # operator
     path("op/orders/<int:pk>/cast-ack/", views.OpOrderCastAckView.as_view(), name="op-order-cast-ack"),
     path("op/orders/<int:pk>/sms-logs/", views.OrderSmsLogsView.as_view(), name="op-order-sms-logs"),
@@ -139,6 +146,7 @@ urlpatterns = [
     path("op/shifts/weekly/", views.WeeklyShiftView.as_view(), name="op-shifts-weekly"),
     path("op/schedule-cast-order/", views.ScheduleCastOrderView.as_view(), name="op-schedule-cast-order"),
     path("op/sms-templates/", views.SmsTemplateSettingsView.as_view(), name="op-sms-templates"),
+    path("op/sms-usage/", views.SmsUsageView.as_view(), name="op-sms-usage"),
     path(
         "op/public-booking-settings/",
         views.StorePublicBookingSettingsView.as_view(),
@@ -204,6 +212,11 @@ urlpatterns = [
     ),
     path("webhook/twilio/voice/", views.twilio_voice_webhook, name="twilio-voice-webhook"),
     path("webhook/twilio/status/", views.twilio_status_webhook, name="twilio-status-webhook"),
+    path(
+        "webhook/twilio/sms-status/",
+        views.twilio_sms_status_webhook,
+        name="twilio-sms-status-webhook",
+    ),
 
     # LINE webhook
     path("webhook/line/", views.line_webhook, name="line-webhook"),

@@ -264,6 +264,7 @@ export const api = {
 
   // SMS文面設定 / SMS送信履歴
   getSmsTemplates: () => request('GET', '/op/sms-templates/'),
+  getSmsUsage: (month = '') => request('GET', `/op/sms-usage/${month ? `?month=${encodeURIComponent(month)}` : ''}`),
   previewSmsTemplate: (body) => request('POST', '/op/sms-templates/', body),
   updateSmsTemplates: (items, cardPaymentUrl) => request('PUT', '/op/sms-templates/', {
     items,
@@ -278,6 +279,7 @@ export const api = {
   issueSipReceptionDeviceLink: (id) => request('POST', `/op/sip-reception-devices/${id}/provision/`, {}),
   deactivateSipReceptionDevice: (id) => request('POST', `/op/sip-reception-devices/${id}/deactivate/`, {}),
   getOrderSmsLogs: (id) => request('GET', `/op/orders/${id}/sms-logs/`),
+  getGuestReservation: (token) => request('GET', `/public/reservations/${encodeURIComponent(token)}/`),
 
   // Cast
   getCastToday: (date = '') => request(

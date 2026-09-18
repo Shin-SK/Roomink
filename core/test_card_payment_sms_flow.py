@@ -5,13 +5,17 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from core.models import Cast, Course, Customer, Order, Room, SmsLog, SmsTemplate, Store, UserProfile
+from core.models import Cast, Course, Customer, Order, OrderGuestAccess, Room, SmsLog, SmsTemplate, Store, UserProfile
 
 
 User = get_user_model()
 
 
-@override_settings(FRONTEND_URL="https://roomink.example", SMS_DUMMY_MODE=True)
+@override_settings(
+    FRONTEND_URL="https://roomink.example",
+    RESERVATION_LINK_BASE_URL="https://r.roomink.example",
+    SMS_DUMMY_MODE=True,
+)
 class CardPaymentSmsFlowTest(TestCase):
     def setUp(self):
         self.store = Store.objects.create(
@@ -117,7 +121,7 @@ class CardPaymentSmsFlowTest(TestCase):
         )
         self.assertEqual(forbidden.status_code, 403, forbidden.data)
 
-    def test_card_reservation_sends_link_then_confirm_action_sends_room_guidance(self):
+    def test_card_reservation_uses_one_guest_page_before_and_after_manual_confirmation(self):
         order = self.create_order()
 
         confirmed = self.manager_client.post(f"/api/orders/{order.id}/confirm/")
@@ -128,9 +132,16 @@ class CardPaymentSmsFlowTest(TestCase):
             template_type=SmsLog.TemplateType.CARD_PAYMENT_REQUEST,
         )
         self.assertEqual(first_log.status, SmsLog.Status.DUMMY)
-        self.assertIn(self.store.card_payment_url, first_log.body)
+        self.assertIn("[予約リンク]", first_log.body)
+        self.assertNotIn(self.store.card_payment_url, first_log.body)
         self.assertNotIn(self.room.address, first_log.body)
         self.assertNotIn("/cu/", first_log.body)
+        access = OrderGuestAccess.objects.get(order=order)
+        guest_before = APIClient().get(f"/api/public/reservations/{access.token}/")
+        self.assertEqual(guest_before.status_code, 200, guest_before.data)
+        self.assertEqual(guest_before.data["state"], "PAYMENT_REQUIRED")
+        self.assertEqual(guest_before.data["payment_url"], self.store.card_payment_url)
+        self.assertEqual(guest_before.data["room_address"], "")
 
         second = self.manager_client.post(f"/api/orders/{order.id}/confirm-card-payment/")
 
@@ -143,18 +154,32 @@ class CardPaymentSmsFlowTest(TestCase):
             template_type=SmsLog.TemplateType.CARD_PAYMENT_CONFIRMED,
         )
         self.assertEqual(second_log.status, SmsLog.Status.DUMMY)
-        self.assertIn(self.room.address, second_log.body)
-        self.assertIn(self.room.map_url, second_log.body)
-        self.assertIn(self.room.sms_notice, second_log.body)
+        self.assertIn("[予約リンク]", second_log.body)
+        self.assertNotIn(self.room.address, second_log.body)
+        self.assertNotIn(self.room.map_url, second_log.body)
+        self.assertNotIn(self.room.sms_notice, second_log.body)
+        self.assertEqual(OrderGuestAccess.objects.get(order=order).pk, access.pk)
+        guest_after = APIClient().get(f"/api/public/reservations/{access.token}/")
+        self.assertEqual(guest_after.status_code, 200, guest_after.data)
+        self.assertEqual(guest_after.data["state"], "CONFIRMED")
+        self.assertEqual(guest_after.data["payment_url"], "")
+        self.assertEqual(guest_after.data["room_address"], self.room.address)
 
         duplicate = self.manager_client.post(f"/api/orders/{order.id}/confirm-card-payment/")
+        stale_first_stage = self.manager_client.post(
+            f"/api/orders/{order.id}/send-card-payment-request/",
+        )
         self.assertEqual(duplicate.status_code, 400, duplicate.data)
+        self.assertEqual(stale_first_stage.status_code, 400, stale_first_stage.data)
         self.assertEqual(
             SmsLog.objects.filter(
                 order=order,
-                template_type=SmsLog.TemplateType.CARD_PAYMENT_CONFIRMED,
+                template_type__in=(
+                    SmsLog.TemplateType.CARD_PAYMENT_REQUEST,
+                    SmsLog.TemplateType.CARD_PAYMENT_CONFIRMED,
+                ),
             ).count(),
-            1,
+            2,
         )
 
     def test_missing_payment_url_fails_closed_without_sending_card_link(self):
@@ -171,6 +196,15 @@ class CardPaymentSmsFlowTest(TestCase):
         )
         self.assertEqual(log.status, SmsLog.Status.CONFIG_MISSING)
         self.assertEqual(log.error_message, "CARD_PAYMENT_URL_MISSING")
+
+    def test_card_pending_cannot_advance_to_service_finished(self):
+        order = self.create_order(status=Order.Status.CONFIRMED)
+
+        response = self.manager_client.post(f"/api/orders/{order.id}/done/")
+
+        self.assertEqual(response.status_code, 400, response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.CONFIRMED)
 
     def test_second_sms_rejects_non_card_and_room_pending_without_updates(self):
         cash_order = self.create_order(

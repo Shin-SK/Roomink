@@ -29,7 +29,11 @@ from core.services.sales import get_sales_summary
 User = get_user_model()
 
 
-@override_settings(FRONTEND_URL="https://roomink.example", SMS_DUMMY_MODE=True)
+@override_settings(
+    FRONTEND_URL="https://roomink.example",
+    RESERVATION_LINK_BASE_URL="https://r.roomink.example",
+    SMS_DUMMY_MODE=True,
+)
 class OrderServiceRecipientTest(TestCase):
     def setUp(self):
         self.store = Store.objects.create(name="実利用者テスト店舗", timezone="Asia/Tokyo")
@@ -269,7 +273,7 @@ class OrderServiceRecipientTest(TestCase):
         self.assertEqual(owner.data["service_recipient_name"], "利用者B")
         self.assertEqual(other.status_code, 404, other.data)
 
-    def test_sms_and_invitation_remain_linked_to_contact(self):
+    def test_sms_and_guest_access_remain_linked_to_contact(self):
         order = self.create_order(service_recipient_name="利用者B")
         self.contact.user = None
         self.contact.save(update_fields=["user"])
@@ -281,9 +285,8 @@ class OrderServiceRecipientTest(TestCase):
 
         self.assertEqual(log.to_phone, self.contact.phone)
         self.assertEqual(log.customer, self.contact)
-        invitation = CustomerAccountInvitation.objects.get(order=order)
-        self.assertEqual(invitation.customer, self.contact)
-        self.assertEqual(CustomerAccountInvitation.objects.count(), 1)
+        self.assertEqual(order.guest_access.order.customer, self.contact)
+        self.assertEqual(CustomerAccountInvitation.objects.count(), 0)
         self.assertEqual(SmsLog.objects.filter(order=order).count(), 1)
         self.assertEqual(self.other_customer.account_invitations.count(), 0)
 

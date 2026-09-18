@@ -1,86 +1,50 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { getAuthRole } from '../../router.js'
 
 const loading = ref(true)
+const usageLoading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const success = ref('')
-
 const items = ref([])
-const placeholders = ref([])
+const systemMessages = ref([])
 const cardPaymentUrl = ref('')
+const usage = ref(null)
+const usageMonth = ref('')
 
 const isManager = computed(() => getAuthRole() === 'manager')
+const usagePercent = computed(() => {
+  if (!usage.value?.current_block_limit) return 0
+  return Math.min(100, Math.round(usage.value.used_segments / usage.value.current_block_limit * 100))
+})
 
-const placeholderHelp = {
-  customer_name: 'お客様名',
-  date: '予約日（2026-07-15）',
-  start_time: '開始時刻（18:00）',
-  end_time: '終了時刻（23:00）',
-  course_name: 'コース名',
-  cast_name: '担当キャスト名',
-  room_name: 'ルーム名',
-  room_address: 'ルーム住所',
-  room_map_url: 'ルームの地図URL',
-  room_notice: 'ルーム固有の注意事項',
-  room_guidance: 'ルーム名・住所・地図・注意事項をまとめた案内',
-  payment_method: '支払方法（現金／カード／PayPay／未設定）',
-  discount_name: '割引名（割引なしの場合は空欄）',
-  discount_amount: '割引額（カンマ区切り）',
-  nomination_type: '指名種別（本指名・写真指名など）',
-  nomination_price: '指名料金（カンマ区切り）',
-  course_price: 'コース料金（カンマ区切り）',
-  option_names: '選択したオプション名（複数は読点区切り）',
-  option_price: 'オプション合計金額（カンマ区切り）',
-  subtotal_price: '割引前金額（カンマ区切り）',
-  total_price: '合計金額（カンマ区切り）',
-  payment_url: '店舗別のカード決済URL',
+function yen(value) {
+  return `¥${Number(value || 0).toLocaleString('ja-JP')}`
 }
 
-const previewOpen = ref(false)
-const previewLoading = ref(false)
-const previewError = ref('')
-const previewResult = ref(null)
-const previewScenario = ref('discount')
-const previewItem = ref(null)
-
-async function loadPreview() {
-  if (!previewItem.value) return
-  previewLoading.value = true
-  previewError.value = ''
+async function loadUsage() {
+  usageLoading.value = true
   try {
-    previewResult.value = await api.previewSmsTemplate({
-      template_type: previewItem.value.template_type,
-      payment_method: previewItem.value.payment_method,
-      body: previewItem.value.body,
-      scenario: previewScenario.value,
-    })
+    usage.value = await api.getSmsUsage(usageMonth.value)
+    usageMonth.value = usage.value.month
   } catch (e) {
-    previewError.value = e.message
+    error.value = e.message
   } finally {
-    previewLoading.value = false
+    usageLoading.value = false
   }
-}
-
-async function openPreview(item) {
-  previewItem.value = item
-  previewScenario.value = 'discount'
-  previewResult.value = null
-  previewOpen.value = true
-  await loadPreview()
 }
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await api.getSmsTemplates()
-    items.value = data.items
-    placeholders.value = data.placeholders
-    cardPaymentUrl.value = data.card_payment_url || ''
+    const [settings] = await Promise.all([api.getSmsTemplates(), loadUsage()])
+    items.value = settings.items || []
+    systemMessages.value = settings.system_messages || []
+    cardPaymentUrl.value = settings.card_payment_url || ''
   } catch (e) {
     error.value = e.message
   } finally {
@@ -94,18 +58,18 @@ async function onSave() {
   success.value = ''
   try {
     const data = await api.updateSmsTemplates(
-      items.value.map(i => ({
-        template_type: i.template_type,
-        payment_method: i.payment_method,
-        body: i.body,
-        is_active: i.is_active,
+      items.value.map(item => ({
+        template_type: item.template_type,
+        payment_method: item.payment_method,
+        body: item.body,
+        is_active: item.is_active,
       })),
       cardPaymentUrl.value,
     )
-    items.value = data.items
+    items.value = data.items || []
+    systemMessages.value = data.system_messages || []
     cardPaymentUrl.value = data.card_payment_url || ''
-    success.value = '保存しました'
-    setTimeout(() => { success.value = '' }, 3000)
+    success.value = 'カード決済URLを保存しました'
   } catch (e) {
     error.value = e.message
   } finally {
@@ -113,20 +77,12 @@ async function onSave() {
   }
 }
 
-function useDefault(item) {
-  item.body = item.default_body
-}
-
-function insertPlaceholder(item, name) {
-  item.body = `${item.body || ''}{${name}}`
-}
-
 onMounted(load)
 </script>
 
 <template>
   <LayoutOperator>
-    <template #title>SMS文面設定</template>
+    <template #title>SMS・カード決済設定</template>
 
     <div class="mb-3">
       <router-link to="/op/settings" class="btn btn-outline-secondary btn-sm">
@@ -134,26 +90,59 @@ onMounted(load)
       </router-link>
     </div>
 
-    <div class="alert alert-info small">
-      <i class="ti ti-info-circle"></i>
-      予約確定時に送るSMSと、カード決済完了後に送るルーム案内を設定できます。
-      「この文面を使う」がOFF、または本文が空の場合は、従来どおりの既定文言で送信されます。
-    </div>
-
-    <div v-if="!isManager" class="alert alert-warning small">
-      <i class="ti ti-lock"></i> 閲覧のみ可能です。編集はマネージャーのみ行えます。
-    </div>
-
-    <div v-if="error" class="alert alert-danger" style="white-space: pre-wrap;">{{ error }}</div>
+    <div v-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-if="success" class="alert alert-success">{{ success }}</div>
+    <div v-if="!isManager" class="alert alert-warning small">
+      閲覧のみ可能です。カード決済URLの変更はマネージャーのみ行えます。
+    </div>
 
-    <div v-if="loading" class="text-center py-4">
-      <div class="spinner-border text-primary"></div>
+    <div v-if="loading" class="text-center py-5">
+      <span class="spinner-border text-primary"></span>
     </div>
 
     <template v-else>
       <div class="card mb-3">
-        <div class="card-header"><i class="ti ti-credit-card"></i> カード決済URL</div>
+        <div class="card-header d-flex align-items-center justify-content-between gap-2">
+          <strong><i class="ti ti-chart-bar"></i> SMS送信数</strong>
+          <input
+            v-model="usageMonth"
+            type="month"
+            class="form-control form-control-sm month-input"
+            :disabled="usageLoading"
+            @change="loadUsage"
+          />
+        </div>
+        <div v-if="usage" class="card-body">
+          <div class="d-flex justify-content-between align-items-end gap-3 mb-2">
+            <div>
+              <div class="display-6 fw-bold">{{ usage.used_segments }}<span class="fs-6 ms-1">通分</span></div>
+              <div class="text-muted small">
+                現在の料金枠：{{ usage.current_block_limit }}通分まで
+                <span v-if="usage.remaining_in_block > 0">（残り{{ usage.remaining_in_block }}通分）</span>
+              </div>
+            </div>
+            <div class="text-end">
+              <div class="text-muted small">当月の料金</div>
+              <div class="fs-4 fw-bold">{{ yen(usage.billed_price) }}</div>
+              <span v-if="usage.billing_exempt" class="badge text-bg-secondary">テスト店舗・課金対象外</span>
+            </div>
+          </div>
+          <div class="progress mb-3" role="progressbar" :aria-valuenow="usagePercent" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar" :style="{ width: `${usagePercent}%` }"></div>
+          </div>
+          <div class="pricing-note small">
+            <strong>月額{{ yen(usage.base_monthly_price) }}に200通分を含みます。</strong>
+            201通分目からは100通分ごとに{{ yen(usage.extra_block_price) }}が加算されます。
+          </div>
+          <p class="small text-muted mb-0 mt-2">
+            表示上は「通分」です。SMS本文が長く2セグメントになった場合は2通分として数えます。
+            キャスト向け通知や、設定不足で送信されなかったSMSは含みません。
+          </p>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header"><strong><i class="ti ti-credit-card"></i> 店舗のカード決済URL</strong></div>
         <div class="card-body">
           <input
             v-model.trim="cardPaymentUrl"
@@ -162,82 +151,29 @@ onMounted(load)
             placeholder="https://..."
             :disabled="!isManager"
           />
-          <div class="form-text">カード予約の1通目に差し込む店舗共通URLです。店舗ごとに別々に保存されます。</div>
+          <p class="form-text mb-0">
+            カード予約のゲストページから、この店舗が契約している外部決済画面を別タブで開きます。
+            Roominkは決済結果を自動判定しません。
+          </p>
         </div>
       </div>
 
-      <!-- 差し込み項目 -->
-      <div class="card mb-3">
-        <div class="card-header"><i class="ti ti-braces"></i> 使用可能な差し込み項目</div>
-        <div class="card-body">
-          <table class="table table-sm mb-0">
-            <tbody>
-              <tr v-for="p in placeholders" :key="p">
-                <td style="width: 40%;"><code>{{ '{' + p + '}' }}</code></td>
-                <td class="text-muted small">{{ placeholderHelp[p] || '' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="alert alert-info small">
+        <strong>SMSは短い通知だけに固定されています。</strong><br>
+        現金・PayPay予約は予約確定時の1通、カード予約は仮予約時と店舗での決済確認後の計2通です。
+        詳細、決済ボタン、確定後の住所はすべて同じ予約ページに表示します。
       </div>
 
-      <!-- 支払方法ごとの文面 -->
-      <div v-for="item in items" :key="`${item.template_type}-${item.payment_method}`" class="card mb-3">
-        <div class="card-header d-flex align-items-center justify-content-between">
-          <span><i class="ti ti-message"></i> {{ item.label }}</span>
-          <div class="form-check form-switch mb-0">
-            <input
-              :id="`active-${item.template_type}-${item.payment_method}`"
-              v-model="item.is_active"
-              class="form-check-input"
-              type="checkbox"
-              :disabled="!isManager"
-            />
-            <label class="form-check-label small" :for="`active-${item.template_type}-${item.payment_method}`">
-              この文面を使う
-            </label>
-          </div>
+      <div v-for="message in systemMessages" :key="message.key" class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2">
+          <strong>{{ message.label }}</strong>
+          <span class="badge" :class="message.segment_count === 1 ? 'text-bg-success' : 'text-bg-warning'">
+            {{ message.segment_count }}通分
+          </span>
         </div>
         <div class="card-body">
-          <textarea
-            v-model="item.body"
-            class="form-control form-control-sm"
-            rows="6"
-            :disabled="!isManager"
-            :placeholder="item.default_body"
-          ></textarea>
-
-          <div v-if="isManager" class="mt-2 d-flex flex-wrap gap-1">
-            <button
-              v-for="p in placeholders"
-              :key="p"
-              class="btn btn-outline-secondary btn-sm py-0"
-              style="font-size: 0.72rem;"
-              @click="insertPlaceholder(item, p)"
-            >{{ '{' + p + '}' }}</button>
-          </div>
-
-          <div class="d-flex align-items-center justify-content-between gap-2 mt-2">
-            <small class="text-muted">
-              <template v-if="item.updated_by_name">最終更新: {{ item.updated_by_name }}</template>
-              <template v-else>未設定（既定文言で送信されます）</template>
-            </small>
-            <div class="d-flex gap-2 flex-shrink-0">
-              <button class="btn btn-outline-primary btn-sm" @click="openPreview(item)">
-                <i class="ti ti-eye"></i> プレビュー
-              </button>
-              <button
-                v-if="isManager"
-                class="btn btn-link btn-sm p-0"
-                @click="useDefault(item)"
-              >既定文言を読み込む</button>
-            </div>
-          </div>
-
-          <details class="mt-2">
-            <summary class="small text-muted" style="cursor: pointer;">既定文言を確認する</summary>
-            <pre class="default-body small mt-2 mb-0">{{ item.default_body }}</pre>
-          </details>
+          <pre class="message-body mb-2">{{ message.body }}</pre>
+          <div class="small text-muted">{{ message.encoding }}／本番短縮URLを含むサンプル</div>
         </div>
       </div>
 
@@ -247,68 +183,27 @@ onMounted(load)
         :disabled="saving"
         @click="onSave"
       >
-        <i class="ti ti-device-floppy"></i> {{ saving ? '保存中...' : '保存' }}
+        <i class="ti ti-device-floppy"></i> {{ saving ? '保存中...' : 'カード決済URLを保存' }}
       </button>
     </template>
-
-    <div v-if="previewOpen" class="modal d-block" style="background: rgba(0,0,0,.38);" @click.self="previewOpen = false">
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-          <div class="modal-header">
-            <div>
-              <h5 class="modal-title">SMS完成文面プレビュー</h5>
-              <div class="small text-muted">実際のSMSは送信されません</div>
-            </div>
-            <button type="button" class="btn-close" @click="previewOpen = false"></button>
-          </div>
-          <div class="modal-body">
-            <label class="form-label small fw-bold">確認する条件</label>
-            <select v-model="previewScenario" class="form-select mb-3" @change="loadPreview">
-              <option value="discount">割引あり・ルーム確定</option>
-              <option value="standard">割引なし・ルーム確定</option>
-              <option value="room_pending">割引なし・ルーム未定</option>
-            </select>
-            <div v-if="previewError" class="alert alert-danger small">{{ previewError }}</div>
-            <div v-if="previewLoading" class="text-center py-4"><span class="spinner-border text-primary"></span></div>
-            <template v-else-if="previewResult">
-              <pre class="preview-body">{{ previewResult.rendered_body }}</pre>
-              <div class="d-flex justify-content-between small text-muted">
-                <span>{{ previewResult.character_count }}文字</span>
-                <span>送信・保存はしていません</span>
-              </div>
-              <div v-if="previewResult.unresolved_placeholders?.length" class="alert alert-warning small mt-3 mb-0">
-                未対応の差し込み項目があります：
-                {{ previewResult.unresolved_placeholders.map(p => '{' + p + '}').join('、') }}
-              </div>
-            </template>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" @click="previewOpen = false">閉じる</button>
-          </div>
-        </div>
-      </div>
-    </div>
   </LayoutOperator>
 </template>
 
 <style scoped>
-.default-body {
-  background: #f7f7f7;
-  padding: 0.5rem;
-  border-radius: 4px;
-  white-space: pre-wrap;
-  color: #555;
+.month-input {
+  width: 145px;
 }
-.preview-body {
-  min-height: 180px;
-  margin: 0 0 8px;
-  padding: 16px;
-  border-radius: 10px;
-  background: #f7f7f7;
-  border: 1px solid #e3e3e3;
+.pricing-note {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f6f8fb;
+}
+.message-body {
+  padding: 14px;
+  border: 1px solid #e3e6ea;
+  border-radius: 8px;
+  background: #f8f9fa;
   white-space: pre-wrap;
-  color: #222;
-  font-family: inherit;
-  font-size: .95rem;
+  font: inherit;
 }
 </style>

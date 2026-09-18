@@ -28,6 +28,7 @@ User = get_user_model()
 
 @override_settings(
     FRONTEND_URL="https://roomink.example",
+    RESERVATION_LINK_BASE_URL="https://r.roomink.example",
     SMS_DUMMY_MODE=True,
 )
 class CustomerInvitationFlowTest(TestCase):
@@ -90,8 +91,14 @@ class CustomerInvitationFlowTest(TestCase):
              patch("core.services.notify.TWILIO_FROM_PHONE", ""), \
              patch("core.services.notify.send_sms", side_effect=capture_sms):
             response = self.manager_client.post(f"/api/orders/{self.order.id}/confirm/")
+            invitation_response = self.manager_client.post(
+                f"/api/op/customers/{self.customer.id}/invitation/",
+                {},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(invitation_response.status_code, 200, invitation_response.data)
         activation_body = next(body for body in bodies if "/s/invitation-store/activate?token=" in body)
         match = re.search(r"/s/invitation-store/activate\?token=([^\s]+)", activation_body)
         self.assertIsNotNone(match)
@@ -126,7 +133,7 @@ class CustomerInvitationFlowTest(TestCase):
         self.customer.refresh_from_db()
         self.assertIsNone(self.customer.user_id)
 
-    def test_confirmation_issues_hashed_one_time_invitation_and_redacts_persisted_sms(self):
+    def test_explicit_invitation_issues_hashed_one_time_token_and_redacts_persisted_sms(self):
         token, sent_body = self._confirm_and_get_token()
         invitation = CustomerAccountInvitation.objects.get(customer=self.customer)
         self.assertEqual(invitation.order_id, self.order.id)
@@ -136,10 +143,7 @@ class CustomerInvitationFlowTest(TestCase):
         self.assertLessEqual(invitation.expires_at, timezone.now() + timedelta(hours=73))
         self.assertIn("https://roomink.example/s/invitation-store/activate?token=", sent_body)
 
-        log = SmsLog.objects.get(
-            order=self.order,
-            template_type=SmsLog.TemplateType.RESERVATION_CONFIRMATION,
-        )
+        log = invitation.sms_log
         self.assertEqual(log.status, SmsLog.Status.DUMMY)
         self.assertNotIn(token, log.body)
         self.assertNotIn("09012345678", log.body)
@@ -377,7 +381,7 @@ class CustomerInvitationFlowTest(TestCase):
             self.assertEqual(me.status_code, 200)
             self.assertEqual(me.data["role"], role)
 
-    def test_registered_customer_gets_login_link_without_invitation(self):
+    def test_registered_customer_confirmation_uses_guest_reservation_link_without_invitation(self):
         user = User.objects.create_user("registered_customer", password="registered-pass-123")
         self.customer.user = user
         self.customer.save(update_fields=["user"])
@@ -395,12 +399,13 @@ class CustomerInvitationFlowTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(CustomerAccountInvitation.objects.filter(customer=self.customer).count(), 0)
-        customer_body = next(body for body in token_bodies if body.startswith("【Roomink】ご予約"))
-        self.assertIn("/s/invitation-store/login?", customer_body)
-        self.assertNotIn("/s/invitation-store/activate?", customer_body)
+        customer_body = next(body for body in token_bodies if body.startswith("ご予約が確定しました"))
+        self.assertIn("https://r.roomink.example/r/", customer_body)
+        self.assertNotIn("/login?", customer_body)
+        self.assertNotIn("/activate?", customer_body)
 
-    @override_settings(FRONTEND_URL="")
-    def test_missing_frontend_url_fails_closed_without_creating_invitation(self):
+    @override_settings(RESERVATION_LINK_BASE_URL="")
+    def test_missing_reservation_link_base_fails_closed_without_creating_invitation(self):
         with patch("core.services.notify.TWILIO_ACCOUNT_SID", ""), \
              patch("core.services.notify.TWILIO_AUTH_TOKEN", ""), \
              patch("core.services.notify.TWILIO_FROM_PHONE", ""):

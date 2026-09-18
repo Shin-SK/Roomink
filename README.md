@@ -33,6 +33,10 @@ npm audit --audit-level=high
 npm run build
 ```
 
+## 開通・運用手順
+
+- クラコール SIP trunk × Twilio BYOC: [`docs/CRACALL_TWILIO_BYOC_RUNBOOK.md`](docs/CRACALL_TWILIO_BYOC_RUNBOOK.md)
+
 ## GitHub Actions
 
 Pull Requestと`main`へのpushで、BackendとFrontendを分けて次を検査します。

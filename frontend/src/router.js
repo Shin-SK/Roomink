@@ -62,6 +62,7 @@ const CuHelp = () => import('./pages/cu/CuHelp.vue')
 const CuHelpArticle = () => import('./pages/cu/CuHelpArticle.vue')
 const PublicBooking = () => import('./pages/public/PublicBooking.vue')
 const PublicBookingComplete = () => import('./pages/public/PublicBookingComplete.vue')
+const GuestReservation = () => import('./pages/public/GuestReservation.vue')
 const PasswordReset = () => import('./pages/PasswordReset.vue')
 
 const routes = [
@@ -69,6 +70,7 @@ const routes = [
   { path: '/login', name: 'login', component: Login, meta: { public: true } },
   { path: '/password-reset', name: 'password-reset', component: PasswordReset, meta: { public: true } },
   { path: '/booking', name: 'public-booking', component: PublicBooking, meta: { public: true } },
+  { path: '/r/:token', name: 'guest-reservation', component: GuestReservation, meta: { public: true } },
   {
     path: '/public/booking',
     redirect: to => ({ name: 'public-booking', query: to.query }),

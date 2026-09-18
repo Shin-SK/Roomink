@@ -18,9 +18,13 @@ from .services.cast_user import ensure_user_profile, create_staff_with_user
 
 @admin.register(Store)
 class StoreAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "slug", "timezone", "line_is_enabled", "line_add_friend_url")
+    list_display = (
+        "id", "name", "slug", "timezone", "sms_billing_exempt",
+        "line_is_enabled", "line_add_friend_url",
+    )
     fieldsets = (
         (None, {"fields": ("name", "slug", "timezone")}),
+        ("料金設定", {"fields": ("sms_billing_exempt",)}),
         ("LINE設定", {"fields": (
             "line_is_enabled",
             "line_channel_secret",

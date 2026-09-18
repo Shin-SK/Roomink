@@ -228,3 +228,19 @@ class CastOrderControlsTest(TestCase):
         self.assertIn("カード決済確認済み", response.data["detail"])
         self.order.refresh_from_db()
         self.assertEqual(list(self.order.options.values_list("id", flat=True)), [self.option_a.id])
+
+    def test_card_payment_pending_is_visible_and_cannot_start_service(self):
+        self.order.payment_method = Order.PaymentMethod.CARD
+        self.order.save(update_fields=["payment_method", "updated_at"])
+        CastAck.objects.create(order=self.order, acked_at=timezone.now())
+        business_date = business_date_for_datetime(self.order.start, self.store.timezone)
+
+        today = self.cast_client.get(f"/api/cast/today/?date={business_date.isoformat()}")
+        start = self.cast_client.post(f"/api/cast/orders/{self.order.id}/start/")
+
+        self.assertEqual(today.status_code, 200, today.data)
+        self.assertEqual(today.data["orders"][0]["customer_reservation_state"], "PAYMENT_REQUIRED")
+        self.assertEqual(start.status_code, 400, start.data)
+        self.assertIn("本予約", start.data["detail"])
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)

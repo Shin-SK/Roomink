@@ -75,6 +75,9 @@ const statusMap = {
 
 const displayStatus = computed(() => {
   if (!order.value) return statusMap.REQUESTED
+  if (order.value.customer_reservation_state === 'PAYMENT_REQUIRED') {
+    return { text: '仮予約・カード決済待ち', cls: 'badge-attention' }
+  }
   if (order.value.status === 'CONFIRMED' && order.value.is_unconfirmed) {
     return { text: 'キャスト確認待ち', cls: 'badge-attention' }
   }
@@ -87,7 +90,10 @@ const canCancel = computed(() =>
   canModify.value && order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
 )
 const canDone = computed(() =>
-  canModify.value && order.value && ['CONFIRMED', 'IN_PROGRESS', 'PENDING_FINALIZE'].includes(order.value.status)
+  canModify.value
+  && order.value
+  && order.value.customer_reservation_state !== 'PAYMENT_REQUIRED'
+  && ['CONFIRMED', 'IN_PROGRESS', 'PENDING_FINALIZE'].includes(order.value.status)
 )
 // 「次へ進める」ボタンのラベル：確定/施術中→施術終了、会計待ち→会計確定
 const doneLabel = computed(() => {
@@ -269,7 +275,7 @@ async function doDone() {
 }
 
 async function sendCardPaymentRequest() {
-  if (!confirm('カード決済リンクのSMSを送信しますか？')) return
+  if (!confirm('仮予約とお客様用予約ページのSMSを送信しますか？')) return
   cardSmsActing.value = true
   try {
     order.value = await api.sendCardPaymentRequest(props.id)
@@ -282,7 +288,7 @@ async function sendCardPaymentRequest() {
 }
 
 async function confirmCardPayment() {
-  if (!confirm('カード決済の入金を確認しましたか？\n確認後、ルーム住所のSMSを送信します。')) return
+  if (!confirm('決済会社の管理画面で入金を確認しましたか？\n本予約を確定し、お客様へ予約確定SMSを送信します。')) return
   cardSmsActing.value = true
   try {
     order.value = await api.confirmCardPayment(props.id)
@@ -616,22 +622,34 @@ async function saveRecipientCustomerLink() {
 
           <div v-if="canOperateCardPayment" class="card mb-4 border-primary">
             <div class="card-header fw-bold">
-              <i class="ti ti-credit-card me-1"></i>カード決済SMS
+              <i class="ti ti-credit-card me-1"></i>カード決済・本予約
             </div>
             <div class="card-body">
               <div v-if="order.card_payment_confirmed_at" class="alert alert-success py-2 small">
                 決済確認済み：{{ formatDt(order.card_payment_confirmed_at) }}
               </div>
               <div v-if="!order.room" class="alert alert-warning py-2 small">
-                2通目を送る前にルームを確定してください。
+                本予約を確定する前にルームを確定してください。
+              </div>
+              <div class="alert alert-light border py-2 small">
+                <strong>Roominkは決済を判定しません。</strong><br>
+                決済会社の管理画面を店舗で確認してから、本予約を確定してください。
+              </div>
+              <div v-if="order.guest_first_opened_at" class="small text-success mb-3">
+                <i class="ti ti-eye me-1"></i>
+                お客様ページ開封済み（{{ formatDt(order.guest_first_opened_at) }}／{{ order.guest_open_count }}回）
+              </div>
+              <div v-else class="small text-muted mb-3">
+                <i class="ti ti-eye-off me-1"></i>お客様ページ未開封
               </div>
               <div class="d-grid gap-2">
                 <button
                   class="btn btn-outline-primary"
-                  :disabled="cardSmsActing"
+                  :disabled="cardSmsActing || !!order.card_payment_confirmed_at"
                   @click="sendCardPaymentRequest"
                 >
-                  <i class="ti ti-link me-1"></i>決済リンクSMSを送信・再送
+                  <i class="ti ti-link me-1"></i>
+                  {{ order.card_payment_confirmed_at ? '仮予約SMSは決済確認済みです' : '仮予約SMSを送信・再送' }}
                 </button>
                 <button
                   class="btn btn-primary"
@@ -639,7 +657,7 @@ async function saveRecipientCustomerLink() {
                   @click="confirmCardPayment"
                 >
                   <i class="ti ti-check me-1"></i>
-                  {{ cardPaymentCompletedSmsSent ? '決済完了・住所SMS送信済み' : '決済確認・住所SMSを送信' }}
+                  {{ cardPaymentCompletedSmsSent ? '本予約確定SMS送信済み' : '決済確認済みとして本予約を確定' }}
                 </button>
               </div>
             </div>
@@ -682,6 +700,7 @@ async function saveRecipientCustomerLink() {
                     {{ log.template_type_label }}
                     ／ 送信先: {{ log.to_phone || '—' }}
                     ／ 支払方法: {{ log.payment_method_label || '—' }}
+                    <template v-if="log.segment_count"> ／ {{ log.segment_count }}通分（{{ log.encoding }}）</template>
                     <template v-if="log.created_by_name"> ／ 操作: {{ log.created_by_name }}</template>
                   </div>
                   <div v-if="!isSmsExpanded(log.id)" class="sms-row__preview text-muted">

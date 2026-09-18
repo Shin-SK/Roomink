@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/validate-env.mjs && vite build",
+    "build:staging": "ROOMINK_ENV=staging node scripts/validate-env.mjs && vite build --mode staging",
     "preview": "vite preview"
   },
   "dependencies": {
