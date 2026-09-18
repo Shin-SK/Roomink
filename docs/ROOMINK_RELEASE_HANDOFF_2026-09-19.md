@@ -77,11 +77,17 @@ python manage.py check_voice_readiness --store-id <STORE_ID> --live
 
 - Web: `https://app.roomink.net`
 - API: `https://api.roomink.net`
+- 予約案内: `https://r.roomink.net`
 - Heroku Postgres、Web dyno、ACMは稼働中
+- 本番リリース `v139` で `RESERVATION_LINK_BASE_URL=https://r.roomink.net` を反映済み
 - 本番ヘルスチェックは正常
 - Twilioには受付端末用SIPドメインとSMS対応番号が存在する
 - Twilio BYOC TrunkとBYOC終端SIPドメインは、クラコールの接続情報待ちのため未作成
-- `r.roomink.net` は未設定。予約URLを1セグメントに収めるため、本番SMS送信開始前に設定する
+- `r.roomink.net` はNetlifyのドメインエイリアスとして登録済み
+- Cloudflareには `r` から `roomink.netlify.app` へのDNS-only CNAMEを登録済み
+- Let's Encrypt証明書は `app.roomink.net` と `r.roomink.net` の両方を含む
+- 実ブラウザで予約画面を表示し、無効トークンが安全なエラー案内になることを確認済み
+- 本番URL長で、現地決済・カード仮予約・カード本予約の3文面がすべてUCS-2の1セグメントに収まることを確認済み
 
 ## クラコール回答後に必要な情報
 
@@ -108,7 +114,6 @@ python manage.py check_voice_readiness --store-id <STORE_ID> --live
 
 - クラコールから届く接続情報を共有する。
 - 新しい電話番号を割り当てるRoomink店舗を指定する。
-- Macのロックを解除し、`r.roomink.net` のNetlify / Cloudflare設定を行える状態にする。
 - 有料の独立ステージング環境を新設する場合は、Heroku Postgres等の費用発生を承認する。
 
 これらが揃うまでは、BYOCリソースを推測で作らず、実在する受付SIP設定も変更しない。
