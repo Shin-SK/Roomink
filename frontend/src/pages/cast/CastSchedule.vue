@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 
@@ -7,7 +7,8 @@ const schedule = ref(null)
 const loading = ref(true)
 const error = ref('')
 const showRooms = ref(false)
-const expandedDate = ref(null)
+const selectedDate = ref(null)
+const dayStrip = ref(null)
 const todayDate = ref('')
 let requestNumber = 0
 
@@ -43,6 +44,17 @@ function hourLabel(value) {
   return `${String(value).padStart(2, '0')}:00`
 }
 
+function centerSelectedDay() {
+  const strip = dayStrip.value
+  const card = [...(strip?.children || [])].find(item => item.dataset.date === selectedDate.value)
+  if (!card) return
+  const cardLeft = card.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft
+  strip.scrollTo({
+    left: cardLeft - (strip.clientWidth - card.clientWidth) / 2,
+    behavior: 'smooth',
+  })
+}
+
 async function load(date = '', weekStart = '') {
   const currentRequest = ++requestNumber
   loading.value = true
@@ -51,8 +63,10 @@ async function load(date = '', weekStart = '') {
     const data = await api.getCastSchedule(date, weekStart)
     if (currentRequest === requestNumber) {
       schedule.value = data
-      expandedDate.value = data.selected_date
+      selectedDate.value = data.selected_date
       if (!date) todayDate.value = data.selected_date
+      await nextTick()
+      centerSelectedDay()
     }
   } catch (exception) {
     if (currentRequest === requestNumber) error.value = exception.message
@@ -65,21 +79,19 @@ onMounted(() => load())
 
 function selectDay(day) {
   if (loading.value || !schedule.value) return
-  if (expandedDate.value === day.date) {
-    expandedDate.value = null
-    return
-  }
+  if (selectedDate.value === day.date) return
   showRooms.value = false
-  expandedDate.value = day.date
+  selectedDate.value = day.date
+  nextTick(centerSelectedDay)
   load(day.date, schedule.value.week_start)
 }
 
 function changeWeek(direction) {
   if (schedule.value) {
     showRooms.value = false
-    expandedDate.value = moveDate(schedule.value.selected_date, direction * 7)
+    selectedDate.value = moveDate(schedule.value.selected_date, direction * 7)
     load(
-      expandedDate.value,
+      selectedDate.value,
       moveDate(schedule.value.week_start, direction * 7),
     )
   }
@@ -183,50 +195,47 @@ function roomPeriodStyle(period) {
             <strong>{{ weekLabel }}</strong>
             <button class="cs-icon-button" aria-label="次の週" :disabled="loading" @click="changeWeek(1)"><i class="ti ti-chevron-right"></i></button>
           </div>
-          <div class="cs-day-list" :aria-busy="loading">
-            <div
+          <p class="cs-strip-hint">日付を横にスワイプして選択</p>
+          <div ref="dayStrip" class="cs-day-strip" :aria-busy="loading" aria-label="日付を選択">
+            <button
               v-for="day in schedule.days"
+              :id="`cs-day-${day.date}`"
               :key="day.date"
-              class="cs-day-item"
+              :data-date="day.date"
+              class="cs-day"
+              :class="{ 'is-selected': selectedDate === day.date }"
+              :aria-pressed="selectedDate === day.date"
+              :aria-controls="'cs-day-panel'"
+              :disabled="loading"
+              @click="selectDay(day)"
             >
-              <h3 class="cs-day-heading">
-                <button
-                  :id="`cs-day-${day.date}`"
-                  class="cs-day"
-                  :class="{ 'is-selected': expandedDate === day.date }"
-                  :aria-expanded="expandedDate === day.date"
-                  :aria-controls="`cs-panel-${day.date}`"
-                  :disabled="loading"
-                  @click="selectDay(day)"
-                >
-                  <span class="cs-day-date">{{ dayLabel(day.date) }}</span>
-                  <span class="cs-day-detail">
-                    <template v-if="day.shifts.length">
-                      <span v-for="(shift, index) in day.shifts" :key="index" class="cs-day-shift">
-                        {{ shift.start }}–{{ shift.end }} · {{ shift.room_name }}
-                      </span>
-                    </template>
-                    <span v-else>出勤予定なし</span>
-                    <small v-if="day.order_count">予約 {{ day.order_count }}件</small>
+              <span class="cs-day-date">{{ dayLabel(day.date) }}</span>
+              <span class="cs-day-detail">
+                <template v-if="day.shifts.length">
+                  <span v-for="(shift, index) in day.shifts" :key="index" class="cs-day-shift">
+                    {{ shift.start }}–{{ shift.end }}
+                    <span>{{ shift.room_name }}</span>
                   </span>
-                  <i class="ti" :class="expandedDate === day.date ? 'ti-chevron-up' : 'ti-chevron-down'"></i>
-                </button>
-              </h3>
-              <div
-                v-if="expandedDate === day.date"
-                :id="`cs-panel-${day.date}`"
-                class="cs-day-panel"
-                role="region"
-                :aria-labelledby="`cs-day-${day.date}`"
-                :aria-busy="loading"
-              >
-                <div v-if="loading && schedule.selected_date !== day.date" class="cs-panel-loading" role="status">この日の予定を読み込み中...</div>
-                <div v-else-if="schedule.selected_date !== day.date" class="cs-panel-loading">予定を読み込めませんでした。もう一度日付を選んでください。</div>
-                <template v-else>
-                  <div class="cs-section-top">
-                    <h4>{{ dayLabel(day.date) }} の予定</h4>
-                    <button v-if="day.date !== todayDate" class="cs-today-button" :disabled="loading" @click="load()">今日へ戻る</button>
-                  </div>
+                </template>
+                <span v-else>出勤予定なし</span>
+                <small>予約 {{ day.order_count }}件</small>
+              </span>
+            </button>
+          </div>
+          <div
+            id="cs-day-panel"
+            class="cs-day-panel"
+            role="region"
+            :aria-labelledby="`cs-day-${selectedDate}`"
+            :aria-busy="loading"
+          >
+            <div v-if="loading && schedule.selected_date !== selectedDate" class="cs-panel-loading" role="status">この日の予定を読み込み中...</div>
+            <div v-else-if="schedule.selected_date !== selectedDate" class="cs-panel-loading">予定を読み込めませんでした。もう一度日付を選んでください。</div>
+            <template v-else>
+              <div class="cs-section-top">
+                <h4>{{ dayLabel(selectedDate) }} の予定</h4>
+                <button v-if="selectedDate !== todayDate" class="cs-today-button" :disabled="loading" @click="load()">今日へ戻る</button>
+              </div>
 
                   <div v-if="selectedDay?.shifts.length" class="cs-shift-summary">
                     <i class="ti ti-door"></i>
@@ -282,9 +291,7 @@ function roomPeriodStyle(period) {
                       <p class="cs-room-note">「使用予定なし」はシフト・予約の割当がない状態です。清掃などを含む予約可能時間の保証ではありません。</p>
                     </div>
                   </section>
-                </template>
-              </div>
-            </div>
+            </template>
           </div>
         </section>
       </template>
@@ -303,14 +310,16 @@ function roomPeriodStyle(period) {
 .cs-week-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f2f8f5; }
 .cs-week-head strong { font-size: .9rem; }
 .cs-icon-button { width: 38px; height: 38px; border: 1px solid #d6e5df; border-radius: 10px; background: #fff; color: #146f62; }
-.cs-day-heading { margin: 0; font-size: inherit; }
-.cs-day { display: grid; grid-template-columns: 86px minmax(0, 1fr) 16px; align-items: center; gap: 8px; width: 100%; padding: 13px 16px; border: 0; border-top: 1px solid #ebf0ee; background: #fff; color: inherit; text-align: left; }
-.cs-day.is-selected { background: #e9f5f0; box-shadow: inset 3px 0 #1b987e; }
-.cs-day-date { font-size: .88rem; font-weight: 800; }
-.cs-day-detail { display: grid; gap: 2px; min-width: 0; color: #63736e; font-size: .79rem; }
-.cs-day-shift { overflow-wrap: anywhere; color: #213e36; font-weight: 700; }
-.cs-day-detail small { color: #14816e; font-weight: 800; }
-.cs-day > i { color: #7a9289; }
+.cs-strip-hint { margin: 10px 16px 0; color: #708078; font-size: .7rem; text-align: right; }
+.cs-day-strip { --cs-day-width: 128px; display: flex; gap: 9px; overflow-x: auto; padding: 10px max(12px, calc((100% - var(--cs-day-width)) / 2)) 15px; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
+.cs-day-strip::-webkit-scrollbar { display: none; }
+.cs-day { display: flex; flex: 0 0 var(--cs-day-width); flex-direction: column; gap: 9px; min-height: 144px; padding: 12px; border: 1px solid #dfe9e3; border-radius: 12px; background: #fff; color: inherit; text-align: left; scroll-snap-align: center; }
+.cs-day.is-selected { border-color: #1b987e; background: #e9f5f0; box-shadow: 0 0 0 1px #1b987e; }
+.cs-day:focus-visible { outline: 2px solid #137d69; outline-offset: 2px; }
+.cs-day-date { font-size: .86rem; font-weight: 800; white-space: nowrap; }
+.cs-day-detail { display: grid; gap: 5px; min-width: 0; color: #63736e; font-size: .74rem; line-height: 1.3; }
+.cs-day-shift { display: grid; gap: 2px; overflow-wrap: anywhere; color: #213e36; font-weight: 700; }
+.cs-day-detail small { margin-top: 2px; color: #14816e; font-size: .73rem; font-weight: 800; }
 .cs-day-panel { padding: 18px; border-top: 1px solid #d9ebe3; background: #fff; }
 .cs-panel-loading { padding: 20px 0; color: #66736f; font-size: .84rem; text-align: center; }
 .cs-section-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
@@ -351,8 +360,7 @@ function roomPeriodStyle(period) {
 .cs-room-note { margin: 18px 0 0; padding: 10px; border-radius: 9px; background: #f6f8f7; }
 @media (max-width: 400px) {
   .cs-heading { align-items: flex-start; flex-direction: column; }
-  .cs-day { grid-template-columns: 74px minmax(0, 1fr) 14px; gap: 5px; padding: 12px; }
-  .cs-day-date { font-size: .8rem; }
+  .cs-day-strip { --cs-day-width: 118px; }
   .cs-day-panel { padding: 16px 12px; }
 }
 </style>
