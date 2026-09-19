@@ -32,8 +32,22 @@ const dateText = computed(() => {
   return `${date} ${time.format(start)}〜${time.format(end)}`
 })
 
+const cardPaymentBase = computed(() => Math.max(
+  0,
+  Number(reservation.value?.total_price || 0) - Number(reservation.value?.cash_due_on_site || 0),
+))
+
+const cardPaymentFee = computed(() => Math.max(
+  0,
+  Number(reservation.value?.payment_amount || 0) - cardPaymentBase.value,
+))
+
 function formatYen(value) {
   return `¥${Number(value || 0).toLocaleString()}`
+}
+
+function phoneHref(value) {
+  return `tel:${String(value || '').replace(/[^\d+]/g, '')}`
 }
 
 function formatTimelineDate(value) {
@@ -107,6 +121,16 @@ onMounted(() => {
             <span>決済金額</span>
             <strong>{{ formatYen(reservation.payment_amount) }}</strong>
           </div>
+          <div class="payment-breakdown">
+            <div>
+              <span>カード決済対象額</span>
+              <strong>{{ formatYen(cardPaymentBase) }}</strong>
+            </div>
+            <div>
+              <span>カード決済手数料</span>
+              <strong>{{ formatYen(cardPaymentFee) }}</strong>
+            </div>
+          </div>
           <p v-if="reservation.cash_due_on_site" class="payment-note">
             別途、来店時に現金でお支払いいただく金額：{{ formatYen(reservation.cash_due_on_site) }}
           </p>
@@ -161,6 +185,17 @@ onMounted(() => {
           ><i class="ti ti-map-pin"></i> 地図を開く</a>
         </section>
 
+        <section
+          v-else-if="reservation.payment_required"
+          class="guidance-pending-card"
+        >
+          <i class="ti ti-lock"></i>
+          <div>
+            <h2>当日のご案内について</h2>
+            <p>ルーム名・住所・地図は、店舗がカード決済を確認して本予約になった後、このページに表示されます。</p>
+          </div>
+        </section>
+
         <section class="timeline-card">
           <div class="section-kicker">TIMELINE</div>
           <h2>予約状況</h2>
@@ -180,7 +215,19 @@ onMounted(() => {
           {{ refreshing ? '確認中…' : '最新の状態を確認' }}
         </button>
 
-        <p class="guest-footer">
+        <section v-if="reservation.contact_phone" class="contact-card">
+          <div>
+            <div class="section-kicker">CONTACT</div>
+            <h2>ご予約店舗へのお問い合わせ</h2>
+            <p>予約内容の変更やご不明点は、店舗へ直接お電話ください。</p>
+          </div>
+          <a :href="phoneHref(reservation.contact_phone)" class="contact-button">
+            <i class="ti ti-phone"></i>
+            {{ reservation.contact_phone }}
+          </a>
+        </section>
+
+        <p v-if="!reservation.contact_phone" class="guest-footer">
           決済・予約内容については、ご予約店舗へ直接お問い合わせください。
         </p>
       </template>
@@ -197,7 +244,7 @@ onMounted(() => {
 .guest-loading p { margin: 14px 0 0; color: #66736f; }
 .guest-error i { font-size: 2.6rem; color: #9a5a5a; }
 .guest-error h1 { margin: 16px 0 10px; font-size: 1.35rem; }
-.status-card, .payment-card, .detail-card, .room-card, .timeline-card { margin-bottom: 14px; padding: 24px; border: 1px solid #dfe7e4; border-radius: 20px; background: #fff; box-shadow: 0 7px 24px rgba(18, 40, 33, .045); }
+.status-card, .payment-card, .detail-card, .room-card, .guidance-pending-card, .timeline-card, .contact-card { margin-bottom: 14px; padding: 24px; border: 1px solid #dfe7e4; border-radius: 20px; background: #fff; box-shadow: 0 7px 24px rgba(18, 40, 33, .045); }
 .status-card { border: 0; color: #fff; background: #63736e; }
 .status-card.is-payment { background: linear-gradient(135deg, #9c6b19, #c18a2e); }
 .status-card.is-confirmed { background: linear-gradient(135deg, #197c6e, #2a9d8f); }
@@ -212,6 +259,9 @@ h2 { margin: 0 0 18px; font-size: 1.15rem; font-weight: 900; }
 .payment-amount { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; padding: 14px 0; border-block: 1px solid #eee1c8; }
 .payment-amount span { color: #76674e; font-size: .85rem; }
 .payment-amount strong { font-size: 1.65rem; }
+.payment-breakdown { display: grid; gap: 8px; margin: -3px 0 14px; padding: 12px 14px; border-radius: 10px; background: #f8f3e8; }
+.payment-breakdown > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: #625944; font-size: .82rem; }
+.payment-breakdown strong { color: #2c2b27; }
 .payment-note { color: #705b38; font-size: .8rem; line-height: 1.6; }
 .payment-button { min-height: 54px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 13px; background: #1f8174; color: #fff; font-weight: 900; text-decoration: none; box-shadow: 0 6px 16px rgba(31, 129, 116, .22); }
 .payment-help { margin: 12px 0 0; color: #6b736f; font-size: .78rem; line-height: 1.65; }
@@ -226,6 +276,10 @@ dd { margin: 0; font-weight: 800; text-align: right; }
 .room-address, .room-notice { white-space: pre-wrap; line-height: 1.7; }
 .room-notice { padding: 12px; border-radius: 10px; background: #f3f7f6; font-size: .84rem; }
 .map-link { display: inline-flex; align-items: center; gap: 5px; color: #197c6e; font-weight: 800; text-decoration: none; }
+.guidance-pending-card { display: flex; gap: 14px; align-items: flex-start; border-color: #e2c58e; background: #fffdf8; }
+.guidance-pending-card > i { flex: 0 0 auto; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: #f3e6ca; color: #96691f; font-size: 1.1rem; }
+.guidance-pending-card h2 { margin-bottom: 8px; }
+.guidance-pending-card p { margin: 0; color: #6f685a; font-size: .84rem; line-height: 1.7; }
 .timeline-card ol { margin: 0; padding: 0; list-style: none; }
 .timeline-card li { position: relative; display: grid; grid-template-columns: 18px 1fr; gap: 10px; padding-bottom: 18px; }
 .timeline-card li:not(:last-child)::before { content: ''; position: absolute; left: 6px; top: 13px; bottom: 0; width: 2px; background: #dce8e4; }
@@ -235,12 +289,17 @@ dd { margin: 0; font-weight: 800; text-align: right; }
 .timeline-card time { flex: 0 0 auto; color: #7d8a86; font-size: .75rem; }
 .refresh-button { width: 100%; min-height: 48px; border: 1px solid #b8cbc5; border-radius: 13px; background: #fff; color: #286e64; font-weight: 800; }
 .refresh-button:disabled { opacity: .65; }
+.contact-card { display: grid; gap: 15px; }
+.contact-card h2 { margin-bottom: 8px; }
+.contact-card p { margin: 0; color: #66736f; font-size: .84rem; line-height: 1.65; }
+.contact-button { min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #197c6e; border-radius: 13px; color: #197c6e; font-size: 1.05rem; font-weight: 900; text-decoration: none; }
+.contact-button:hover { background: #eef8f5; color: #176e63; }
 .spin { animation: spin .8s linear infinite; }
 .guest-footer { margin: 22px 12px 0; color: #7b8783; font-size: .75rem; line-height: 1.65; text-align: center; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 480px) {
   .guest-page { padding-inline: 9px; }
-  .status-card, .payment-card, .detail-card, .room-card, .timeline-card { padding: 20px 17px; border-radius: 17px; }
+  .status-card, .payment-card, .detail-card, .room-card, .guidance-pending-card, .timeline-card, .contact-card { padding: 20px 17px; border-radius: 17px; }
   .timeline-card li > div { display: grid; gap: 3px; }
   dd { font-size: .9rem; }
 }
