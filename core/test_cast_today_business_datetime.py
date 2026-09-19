@@ -37,7 +37,10 @@ class CastTodayBusinessDateTimeTest(TestCase):
             user=cast_user,
             name="深夜キャスト",
         )
-        self.room = Room.objects.create(store=self.store, name="101")
+        self.room = Room.objects.create(
+            store=self.store, name="101",
+            address="東京都新宿区テスト1-2-3", map_url="https://maps.example.com/room-101",
+        )
         self.customer = Customer.objects.create(
             store=self.store,
             phone="09044445555",
@@ -95,6 +98,8 @@ class CastTodayBusinessDateTimeTest(TestCase):
         self.assertEqual(response.data["orders"][0]["start_time_extended"], "27:00")
         self.assertEqual(response.data["orders"][0]["end_time_extended"], "28:00")
         self.assertEqual(response.data["shift"]["end_time_extended"], "29:00")
+        self.assertEqual(response.data["shift"]["room_address"], "東京都新宿区テスト1-2-3")
+        self.assertEqual(response.data["shift"]["room_map_url"], "https://maps.example.com/room-101")
 
     def test_requested_business_date_includes_next_calendar_day_order(self):
         response = self.client.get("/api/cast/today/?date=2026-07-31")
@@ -125,4 +130,6 @@ class CastTodayBusinessDateTimeTest(TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data["shift"]["date"], "2026-07-31")
         self.assertEqual(response.data["shift"]["end_time_extended"], "29:00")
+        self.assertEqual(response.data["shift"]["room_address"], "東京都新宿区テスト1-2-3")
+        self.assertEqual(response.data["shift"]["room_map_url"], "https://maps.example.com/room-101")
         self.assertTrue(response.data["is_today"])

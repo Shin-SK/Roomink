@@ -8,6 +8,7 @@ const router = useRouter()
 const route = useRoute()
 const username = ref('')
 const password = ref('')
+const showPassword = ref(false)
 const error = ref('')
 const loading = ref(false)
 
@@ -67,14 +68,24 @@ async function onSubmit() {
             >
           </div>
           <div class="mb-3">
-            <label class="form-label">パスワード</label>
-            <input
-              v-model="password"
-              type="password"
-              class="form-control"
-              autocomplete="current-password"
-              required
-            >
+            <label for="login-password" class="form-label">パスワード</label>
+            <div class="login-password-field">
+              <input
+                id="login-password"
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                class="form-control"
+                autocomplete="current-password"
+                required
+              >
+              <button
+                type="button"
+                class="login-password-toggle"
+                :aria-label="showPassword ? 'パスワードを隠す' : 'パスワードを表示'"
+                :aria-pressed="showPassword"
+                @click="showPassword = !showPassword"
+              ><i class="ti" :class="showPassword ? 'ti-eye-off' : 'ti-eye'" aria-hidden="true"></i></button>
+            </div>
           </div>
           <button type="submit" class="btn btn-primary btn-block" :disabled="loading">
             {{ loading ? 'ログイン中...' : 'ログイン' }}
@@ -115,4 +126,20 @@ async function onSubmit() {
 .login-card-body {
   padding: 1rem;
 }
+.login-password-field { position: relative; }
+.login-password-field .form-control { padding-right: 3rem; }
+.login-password-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: #56635e;
+  font-size: 1.15rem;
+}
+.login-password-toggle:focus-visible { outline: 2px solid #177f70; outline-offset: -3px; border-radius: 6px; }
 </style>

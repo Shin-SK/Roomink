@@ -15,9 +15,9 @@ onMounted(async () => {
 })
 
 const sidebarItems = [
-  { to: '/cast/mypage', icon: 'ti-home', label: 'マイページ' },
+  { to: '/cast/mypage', icon: 'ti-home', label: 'ホーム' },
+  { to: '/cast/orders', icon: 'ti-calendar-event', label: '予約' },
   { to: '/cast/schedule', icon: 'ti-calendar-week', label: '出勤予定' },
-  { to: '/cast/orders', icon: 'ti-calendar-event', label: 'タイムライン' },
   { to: '/cast/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請' },
   { to: '/cast/profile', icon: 'ti-user', label: 'プロフィール' },
   { to: '/cast/manual', icon: 'ti-book', label: 'マニュアル' },
@@ -25,8 +25,8 @@ const sidebarItems = [
 
 const footerItems = [
   { to: '/cast/mypage', icon: 'ti-home', label: 'ホーム' },
-  { to: '/cast/schedule', icon: 'ti-calendar-week', label: '出勤予定' },
   { to: '/cast/orders', icon: 'ti-calendar-event', label: '予約' },
+  { to: '/cast/schedule', icon: 'ti-calendar-week', label: '出勤予定' },
   { to: '/cast/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請' },
 ]
 

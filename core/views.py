@@ -942,6 +942,7 @@ class CastTodayView(APIView):
             "avatar_url": cast.avatar_url,
             "date": d.isoformat(),
             "shift": {
+                "date": shift.date.isoformat() if shift else None,
                 "start_time": str(shift.start_time)[:5] if shift else None,
                 "end_time": str(shift.end_time)[:5] if shift else None,
                 "end_time_extended": (
@@ -949,6 +950,8 @@ class CastTodayView(APIView):
                     if shift else None
                 ),
                 "room_name": shift.room.name if shift and shift.room_id else None,
+                "room_address": shift.room.address if shift and shift.room_id else "",
+                "room_map_url": shift.room.map_url if shift and shift.room_id else "",
             } if shift else None,
             "total_orders": len(data),
             "unconfirmed_count": sum(1 for o in data if o["is_unconfirmed"]),
@@ -1037,7 +1040,19 @@ class CastScheduleView(APIView):
                 "start": shift.start_time.strftime("%H:%M"),
                 "end": format_extended_time(shift.end_time, shift.end_day_offset),
                 "room_name": shift.room.name,
+                "room_address": shift.room.address,
+                "room_map_url": shift.room.map_url,
             })
+
+        def serialize_day_orders(day):
+            return [{
+                "id": order.id,
+                "start": format_business_time(order.start, day, cast.store.timezone),
+                "end": format_business_time(order.end, day, cast.store.timezone),
+                "room_name": order.room.name if order.room_id else "未定",
+                "course_name": order.course_name,
+                "status": order.status,
+            } for order in orders_by_date[day]]
 
         days = []
         for offset in range(7):
@@ -1046,16 +1061,10 @@ class CastScheduleView(APIView):
                 "date": day.isoformat(),
                 "shifts": shifts_by_date[day],
                 "order_count": len(orders_by_date[day]),
+                "orders": serialize_day_orders(day),
             })
 
-        day_orders = [{
-            "id": order.id,
-            "start": format_business_time(order.start, selected_date, cast.store.timezone),
-            "end": format_business_time(order.end, selected_date, cast.store.timezone),
-            "room_name": order.room.name if order.room_id else "未定",
-            "course_name": order.course_name,
-            "status": order.status,
-        } for order in orders_by_date[selected_date]]
+        day_orders = next(day["orders"] for day in days if day["date"] == selected_date.isoformat())
 
         # 部屋一覧には他キャスト名・顧客名・予約詳細を載せない。
         occupied_by_room = defaultdict(list)
@@ -1305,6 +1314,8 @@ def _serialize_shift_for_confirm(shift):
             shift.end_day_offset,
         ),
         "room_name": shift.room.name if shift.room_id else None,
+        "room_address": shift.room.address if shift.room_id else "",
+        "room_map_url": shift.room.map_url if shift.room_id else "",
         "confirmed_at": shift.confirmed_at,
     }
 

@@ -17,7 +17,10 @@ class CastScheduleTest(TestCase):
         self.day = date(2026, 9, 19)
         self.store = Store.objects.create(name="テスト店舗", timezone="Asia/Tokyo")
         self.other_store = Store.objects.create(name="別店舗", timezone="Asia/Tokyo")
-        self.room_a = Room.objects.create(store=self.store, name="Aルーム", sort_order=1)
+        self.room_a = Room.objects.create(
+            store=self.store, name="Aルーム", sort_order=1,
+            address="東京都新宿区テスト1-2-3", map_url="https://maps.example.com/room-a",
+        )
         self.room_b = Room.objects.create(store=self.store, name="Bルーム", sort_order=2)
         Room.objects.create(store=self.other_store, name="秘密の部屋")
 
@@ -114,8 +117,11 @@ class CastScheduleTest(TestCase):
         day = next(day for day in response.data["days"] if day["date"] == "2026-09-19")
         self.assertEqual(day["shifts"], [{
             "start": "11:00", "end": "29:00", "room_name": "Aルーム",
+            "room_address": "東京都新宿区テスト1-2-3",
+            "room_map_url": "https://maps.example.com/room-a",
         }])
         self.assertEqual(day["order_count"], 1)
+        self.assertEqual(day["orders"], response.data["orders"])
         self.assertEqual(response.data["orders"], [{
             "id": self.own_order.id,
             "start": "27:00",
@@ -126,6 +132,7 @@ class CastScheduleTest(TestCase):
         }])
         next_day = next(day for day in response.data["days"] if day["date"] == "2026-09-20")
         self.assertEqual(next_day["shifts"], [])
+        self.assertEqual(next_day["orders"], [])
         self.assertEqual(response.data["rooms"], [
             {"name": "Aルーム", "occupied": [{"start": "11:00", "end": "29:00"}]},
             {"name": "Bルーム", "occupied": [{"start": "13:00", "end": "21:00"}]},

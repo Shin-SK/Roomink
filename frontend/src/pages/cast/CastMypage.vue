@@ -1,14 +1,16 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 import { sanitizeNoteHtml } from '../../noteContent.js'
+import { roomMapHref } from '../../roomMap.js'
 
 const loading = ref(true)
 const error = ref('')
 const castName = ref('')
 const avatarUrl = ref('')
 const shift = ref(null)
+const todayBusinessDate = ref('')
 const orders = ref([])
 const totalOrders = ref(0)
 const unconfirmedCount = ref(0)
@@ -25,6 +27,8 @@ const processingOrderId = ref(null)
 const optionEditorId = ref(null)
 const optionDraftIds = ref([])
 const actionErrors = ref({})
+const expandedOrderDetails = ref({})
+const activeInfoTab = ref('earnings')
 
 // 調整金（Phase 3-E）
 const adjustments = ref({ open_total: 0, open: [], resolved_recent: [] })
@@ -52,6 +56,9 @@ const shiftConfirm = ref(null)
 const shiftConfirmLoading = ref(true)
 const confirmingShift = ref(false)
 const confirmShiftError = ref('')
+const headerShift = computed(() => shiftConfirm.value?.shift || shift.value)
+const headerShiftDate = computed(() => headerShift.value?.date || todayBusinessDate.value)
+const headerShiftIsToday = computed(() => headerShiftDate.value === todayBusinessDate.value)
 
 // 退勤（Phase 3-A）
 const CHECKLIST_ITEMS = [
@@ -102,6 +109,7 @@ onMounted(async () => {
     castName.value = data.cast_name
     avatarUrl.value = data.avatar_url
     shift.value = data.shift
+    todayBusinessDate.value = data.date
     orders.value = data.orders
     totalOrders.value = data.total_orders
     unconfirmedCount.value = data.unconfirmed_count
@@ -199,6 +207,11 @@ function formatShiftDateLabel(dateStr) {
   return `${m}月${d}日(${WEEK_LABELS[dt.getDay()]})`
 }
 
+function selectInfoTab(tab, focus = false) {
+  activeInfoTab.value = tab
+  if (focus) nextTick(() => document.getElementById(`ca-info-tab-${tab}`)?.focus())
+}
+
 function openCheckoutModal() {
   const co = checkoutData.value?.checkout
   if (co && co.status === 'RETURNED') {
@@ -258,6 +271,10 @@ function openOptionEditor(order) {
   }
   optionEditorId.value = order.id
   optionDraftIds.value = [...(order.option_ids || [])]
+}
+
+function toggleOrderDetails(orderId) {
+  expandedOrderDetails.value[orderId] = !expandedOrderDetails.value[orderId]
 }
 
 async function saveOptions(order) {
@@ -342,11 +359,6 @@ function formatYen(n) {
   return `¥${Number(n).toLocaleString()}`
 }
 
-function durationMin(order) {
-  const s = new Date(order.start)
-  const e = new Date(order.end)
-  return Math.round((e - s) / 60000)
-}
 </script>
 
 <template>
@@ -376,80 +388,139 @@ function durationMin(order) {
           >
           <div class="flex-grow-1">
             <div class="ca-page-header__title">{{ castName }}様</div>
-            <div class="ca-page-header__sub" v-if="shift">
-              <span class="time">
-                <i class="ti ti-calendar-event"></i>{{ shift.start_time }}-{{ shift.end_time_extended || shift.end_time }}</span>
-              <span class="room">
-                <i class="ti ti-door"></i>{{ shift.room_name }}</span>
+            <div v-if="headerShift" class="ca-home-next">
+              <div class="ca-home-next__date">{{ headerShiftIsToday ? '今日の出勤' : '次回の出勤' }} · {{ formatShiftDateLabel(headerShiftDate) }}</div>
+              <div class="ca-home-next__time"><i class="ti ti-clock"></i> {{ headerShift.start_time }}–{{ headerShift.end_time_extended || headerShift.end_time }}</div>
+              <div v-if="headerShift.room_name" class="ca-home-next__room">
+                <span><i class="ti ti-door"></i> {{ headerShift.room_name }}</span>
+                <a v-if="roomMapHref(headerShift)" :href="roomMapHref(headerShift)" target="_blank" rel="noopener noreferrer" class="ca-home-map" :aria-label="`${headerShift.room_name}の地図を開く`"><i class="ti ti-map-pin"></i> 地図</a>
+              </div>
+              <div v-if="headerShift.room_address" class="ca-home-next__address">{{ headerShift.room_address }}</div>
+              <div v-if="shiftConfirm?.shift?.confirmed_at" class="ca-home-next__confirmed"><i class="ti ti-circle-check" aria-hidden="true"></i> {{ headerShiftIsToday ? '本日の出勤確認済み' : '次回の出勤確認済み' }}</div>
             </div>
           </div>
         </div>
 
-        <router-link to="/cast/schedule" class="btn btn-outline-primary w-100 mb-3 fw-bold">
-          <i class="ti ti-calendar-week"></i> 出勤・予約予定を見る
-        </router-link>
+        <!-- 未確認のシフトだけ先頭で案内する。確認後はヘッダーの状態表示に切り替える。 -->
+        <div v-if="!shiftConfirmLoading && shiftConfirm?.shift && !shiftConfirm.shift.confirmed_at" class="ca-shift-prompt mb-3">
+          <div class="ca-shift-prompt__title"><i class="ti ti-calendar-check" aria-hidden="true"></i> {{ shiftConfirm.is_today ? '本日の出勤確認が必要です' : '次回の出勤確認が必要です' }}</div>
+          <div v-if="confirmShiftError" class="alert alert-danger py-2 small mb-2">{{ confirmShiftError }}</div>
+          <button
+            type="button"
+            class="btn btn-primary w-100"
+            :disabled="confirmingShift"
+            @click="onConfirmShift"
+          >{{ confirmingShift ? '送信中...' : '出勤確認する' }}</button>
+          <div class="ca-shift-prompt__hint">出勤2時間前までに確認してください。未確認のまま1時間前を過ぎると店舗側に表示されます。</div>
+        </div>
 
-        <!-- 出勤確認（Phase 3-B-1） -->
-        <div class="rk-section-header"><i class="ti ti-calendar-check"></i> 出勤確認</div>
-        <div class="card mb-3">
-          <div class="card-body">
-            <div v-if="shiftConfirmLoading" class="text-muted text-center py-2 small">読み込み中...</div>
-            <div v-else-if="!shiftConfirm || !shiftConfirm.shift" class="text-muted text-center py-2 small">
-              本日の出勤予定はありません
+        <div class="rk-section-header ca-bookings-heading">
+          <span><i class="ti ti-calendar-event"></i> 本日の予約</span>
+          <span class="ca-bookings-count">{{ totalOrders }}件<span v-if="unconfirmedCount > 0" class="ca-bookings-unconfirmed">未確認 {{ unconfirmedCount }}件</span></span>
+        </div>
+
+        <div
+          v-for="order in orders"
+          :key="order.id"
+          class="card ca-booking-card mb-3"
+        >
+          <div class="card-body ca-booking-card__body">
+            <div class="ca-booking-card__header">
+              <div class="ca-booking-card__time">{{ displayStartTime(order) }}–{{ displayEndTime(order) }}</div>
+              <button
+                v-if="order.is_unconfirmed"
+                type="button"
+                class="btn btn-sm btn-warning ca-booking-card__confirm"
+                :aria-label="`${displayStartTime(order)}から${displayEndTime(order)}の予約を確認する`"
+                @click="doAck(order)"
+              ><i class="ti ti-check" aria-hidden="true"></i> 確認する</button>
+              <span
+                v-else
+                class="badge ca-booking-card__status"
+                :class="order.customer_reservation_state === 'PAYMENT_REQUIRED' ? 'text-bg-warning' : 'badge-approved'"
+              >{{ statusLabel(order) }}</span>
             </div>
-            <template v-else>
-              <div v-if="confirmShiftError" class="alert alert-danger py-2 small">{{ confirmShiftError }}</div>
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <div>
-                  <div class="fw-bold">
-                    {{ formatShiftDateLabel(shiftConfirm.shift.date) }}
-                    <span class="small text-muted">{{ shiftConfirm.is_today ? '（本日）' : '（次回シフト）' }}</span>
-                  </div>
-                  <div class="small text-muted">
-                    <i class="ti ti-clock"></i> {{ shiftConfirm.shift.start_time }}–{{ shiftConfirm.shift.end_time_extended || shiftConfirm.shift.end_time }}
-                    <span v-if="shiftConfirm.shift.room_name"><i class="ti ti-door"></i> {{ shiftConfirm.shift.room_name }}</span>
-                  </div>
-                </div>
-              </div>
-              <div v-if="shiftConfirm.shift.confirmed_at" class="alert alert-success py-2 px-3 small mb-0">
-                <i class="ti ti-circle-check"></i> 出勤確認済み（{{ formatTime(shiftConfirm.shift.confirmed_at) }}）
-              </div>
-              <template v-else>
+
+            <div class="ca-booking-card__primary">
+              <div><i class="ti ti-user" aria-hidden="true"></i><strong>{{ order.reservation_name }}</strong></div>
+              <div><i class="ti ti-door" aria-hidden="true"></i><span>{{ order.room_name }}</span></div>
+            </div>
+
+            <button
+              type="button"
+              class="ca-booking-card__disclosure"
+              :class="{ 'is-open': expandedOrderDetails[order.id] }"
+              :aria-expanded="!!expandedOrderDetails[order.id]"
+              :aria-controls="`ca-booking-details-${order.id}`"
+              @click="toggleOrderDetails(order.id)"
+            >
+              <span class="ca-booking-card__disclosure-label">
+                {{ expandedOrderDetails[order.id] ? '予約内容を閉じる' : '予約内容を見る' }}
+                <i class="ti" :class="expandedOrderDetails[order.id] ? 'ti-chevron-up' : 'ti-chevron-down'" aria-hidden="true"></i>
+              </span>
+              <span v-if="order.memo && !expandedOrderDetails[order.id]" class="ca-booking-card__memo-flag">備考あり</span>
+              <span v-else-if="order.options?.length && !expandedOrderDetails[order.id]" class="ca-booking-card__memo-flag">オプションあり</span>
+            </button>
+
+            <div v-show="expandedOrderDetails[order.id]" :id="`ca-booking-details-${order.id}`" class="ca-booking-card__details">
+              <div><i class="ti ti-receipt" aria-hidden="true"></i> コース：{{ order.course_name }} / {{ formatYen(order.course_price) }}</div>
+              <div><i class="ti ti-credit-card" aria-hidden="true"></i> お支払い：{{ order.payment_method_label }}</div>
+              <div><i class="ti ti-currency-yen" aria-hidden="true"></i> 合計：{{ formatYen(order.total_price) }}</div>
+              <div><i class="ti ti-sparkles" aria-hidden="true"></i> オプション：{{ order.options?.length ? order.options.map(option => option.name).join('、') : 'なし' }}</div>
+              <div v-if="order.nomination_fee_name"><i class="ti ti-heart" aria-hidden="true"></i> {{ order.nomination_fee_name }} / {{ formatYen(order.nomination_fee_price) }}</div>
+              <div><i class="ti ti-note" aria-hidden="true"></i> 備考：{{ order.memo || 'なし' }}</div>
+              <button
+                v-if="availableOptions.length"
+                type="button"
+                class="btn btn-sm btn-outline-secondary w-100 mt-2"
+                :disabled="processingOrderId === order.id"
+                @click="openOptionEditor(order)"
+              ><i class="ti ti-adjustments"></i> オプションを選択・変更</button>
+              <div v-if="optionEditorId === order.id" class="border rounded p-2 mt-2 bg-light">
+                <label v-for="option in availableOptions" :key="option.id" class="form-check py-1">
+                  <input v-model="optionDraftIds" class="form-check-input" type="checkbox" :value="option.id">
+                  <span class="form-check-label">{{ option.name }}（{{ formatYen(option.price) }}）</span>
+                </label>
                 <button
-                  class="btn btn-primary w-100 mb-2"
-                  :disabled="confirmingShift"
-                  @click="onConfirmShift"
-                >
-                  {{ confirmingShift ? '送信中...' : '出勤確認する' }}
-                </button>
-                <div class="small text-muted">
-                  出勤2時間前までに確認してください。未確認のまま1時間前を過ぎると店舗側に表示されます。
-                </div>
-              </template>
-            </template>
-          </div>
-        </div>
-
-        <!-- サマリーカード -->
-        <div class="row g-2 mb-3">
-          <div class="col-6">
-            <div class="card text-center mb-0">
-              <div class="card-body p-3">
-                <div class="small text-muted mb-2">本日の予約</div>
-                <div class="fs-4 fw-bold">{{ totalOrders }}本</div>
+                  class="btn btn-sm btn-primary w-100 mt-2"
+                  :disabled="processingOrderId === order.id"
+                  @click="saveOptions(order)"
+                >選択内容を保存</button>
               </div>
             </div>
-          </div>
-          <div class="col-6">
-            <div class="card text-center mb-0">
-              <div class="card-body p-3">
-                <div class="small text-muted mb-2">未確認</div>
-                <div class="fs-4 fw-bold" :class="unconfirmedCount > 0 ? 'text-danger' : ''">{{ unconfirmedCount }}本</div>
-              </div>
+
+            <div v-if="actionErrors[order.id]" class="alert alert-danger py-2 small mb-2">
+              {{ actionErrors[order.id] }}
+            </div>
+
+            <div v-if="!order.is_unconfirmed && (order.status === 'CONFIRMED' || order.status === 'IN_PROGRESS' || order.status === 'PENDING_FINALIZE')" class="ca-booking-card__actions">
+              <button
+                v-if="order.status === 'CONFIRMED'"
+                type="button"
+                class="btn btn-sm btn-outline-primary ca-booking-card__step"
+                :disabled="processingOrderId === order.id"
+                @click="startService(order)"
+              ><i class="ti ti-player-play"></i> 接客開始</button>
+              <button
+                v-else
+                type="button"
+                class="btn btn-sm btn-outline-success ca-booking-card__step"
+                :disabled="processingOrderId === order.id"
+                @click="completeService(order)"
+              ><i class="ti ti-check"></i> 接客終了・売上へ反映</button>
             </div>
           </div>
         </div>
 
+        <div v-if="orders.length === 0" class="text-muted text-center py-4">本日の予約はありません</div>
+
+        <div class="ca-info-tabs" role="tablist" aria-label="売上・給与見込み、調整金、ノート">
+          <button id="ca-info-tab-earnings" type="button" role="tab" aria-controls="ca-info-earnings" :aria-selected="activeInfoTab === 'earnings'" :tabindex="activeInfoTab === 'earnings' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'earnings' }" @click="selectInfoTab('earnings')" @keydown.right.prevent="selectInfoTab('adjustments', true)">売上・給与見込み</button>
+          <button id="ca-info-tab-adjustments" type="button" role="tab" aria-controls="ca-info-adjustments" :aria-selected="activeInfoTab === 'adjustments'" :tabindex="activeInfoTab === 'adjustments' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'adjustments' }" @click="selectInfoTab('adjustments')" @keydown.left.prevent="selectInfoTab('earnings', true)" @keydown.right.prevent="selectInfoTab('notes', true)">調整金</button>
+          <button id="ca-info-tab-notes" type="button" role="tab" aria-controls="ca-info-notes" :aria-selected="activeInfoTab === 'notes'" :tabindex="activeInfoTab === 'notes' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'notes' }" @click="selectInfoTab('notes')" @keydown.left.prevent="selectInfoTab('adjustments', true)">ノート</button>
+        </div>
+
+        <section id="ca-info-earnings" v-show="activeInfoTab === 'earnings'" role="tabpanel" aria-labelledby="ca-info-tab-earnings" tabindex="0" class="ca-info-panel">
         <!-- 本日の売上/給与見込みカード -->
         <div v-if="todaySales" class="card mb-3">
           <div class="card-body">
@@ -476,7 +547,7 @@ function durationMin(order) {
         <div v-if="totalPoints !== 0 || pointHistory.length" class="card mb-3">
           <div class="card-body">
             <div class="d-flex align-items-center justify-content-between mb-2">
-              <div class="fw-bold"><i class="ti ti-star text-warning"></i> ポイント</div>
+              <div class="fw-bold"><i class="ti ti-star text-warning"></i> 店舗のポイント記録</div>
               <div class="fs-4 fw-bold">{{ totalPoints }} pt</div>
             </div>
             <div v-if="pointHistory.length" class="small">
@@ -485,9 +556,12 @@ function durationMin(order) {
                 <span :class="p.points >= 0 ? 'text-success' : 'text-danger'" class="fw-bold">{{ p.points >= 0 ? '+' : '' }}{{ p.points }}</span>
               </div>
             </div>
+            <div class="small text-muted mt-2">店舗が加点・減点した記録です。売上・給与見込みとは別に表示しています。</div>
           </div>
         </div>
+        </section>
 
+        <section id="ca-info-adjustments" v-show="activeInfoTab === 'adjustments'" role="tabpanel" aria-labelledby="ca-info-tab-adjustments" tabindex="0" class="ca-info-panel">
         <!-- 調整金（Phase 3-E） -->
         <div class="rk-section-header"><i class="ti ti-cash-banknote"></i> 調整金</div>
         <div class="card mb-3">
@@ -540,7 +614,9 @@ function durationMin(order) {
             </template>
           </div>
         </div>
+        </section>
 
+        <section id="ca-info-notes" v-show="activeInfoTab === 'notes'" role="tabpanel" aria-labelledby="ca-info-tab-notes" tabindex="0" class="ca-info-panel">
         <!-- ノート/施術マニュアル（Phase 4） -->
         <div class="rk-section-header"><i class="ti ti-notebook"></i> ノート/マニュアル</div>
         <div class="card mb-3">
@@ -590,6 +666,7 @@ function durationMin(order) {
             </template>
           </div>
         </div>
+        </section>
 
         <!-- ノート詳細モーダル -->
         <Teleport to="body">
@@ -724,108 +801,6 @@ function durationMin(order) {
             </div>
           </div>
         </Teleport>
-
-        <!-- 未確認警告カード -->
-        <div v-if="unconfirmedCount > 0" class="alert alert-warning d-flex align-items-center gap-3 mb-4">
-          <i class="ti ti-alert-triangle fs-4 flex-shrink-0"></i>
-          <div class="flex-grow-1">
-            <div class="fw-bold mb-1">未確認の予約があります</div>
-            <div class="small">予約一覧から「確認する」ボタンを押してください</div>
-          </div>
-        </div>
-
-        <!-- 予約一覧 -->
-        <div class="rk-section-header"><i class="ti ti-calendar-event"></i> 予約一覧</div>
-
-        <div
-          v-for="order in orders"
-          :key="order.id"
-          class="card mb-3"
-          :class="order.is_unconfirmed ? 'border-warning border-2' : ''"
-        >
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-start mb-2">
-              <div>
-                <div class="fw-bold fs-5">{{ displayStartTime(order) }} – {{ displayEndTime(order) }}</div>
-                <div class="small text-muted">{{ durationMin(order) }}分</div>
-              </div>
-              <span
-                class="badge"
-                :class="order.is_unconfirmed ? 'badge-unconfirmed' : order.customer_reservation_state === 'PAYMENT_REQUIRED' ? 'text-bg-warning' : 'badge-approved'"
-              >{{ order.is_unconfirmed ? '未確認' : statusLabel(order) }}</span>
-            </div>
-            <div class="small mb-2 d-flex flex-column gap-1">
-              <div><i class="ti ti-user text-primary"></i> <span class="text-muted">予約名：</span><strong>{{ order.reservation_name }}</strong></div>
-              <div><i class="ti ti-door text-primary"></i> {{ order.room_name }}</div>
-              <div><i class="ti ti-receipt text-primary"></i> {{ order.course_name }} / {{ formatYen(order.course_price) }}</div>
-              <div>
-                <i class="ti ti-sparkles text-primary"></i>
-                オプション：{{ order.options?.length ? order.options.map(option => option.name).join('、') : 'なし' }}
-              </div>
-              <div v-if="order.nomination_fee_name"><i class="ti ti-heart text-primary"></i> {{ order.nomination_fee_name }} / {{ formatYen(order.nomination_fee_price) }}</div>
-              <div><i class="ti ti-credit-card text-primary"></i> 支払い：<strong>{{ order.payment_method_label }}</strong></div>
-              <div><i class="ti ti-currency-yen text-primary"></i> 合計：<strong>{{ formatYen(order.total_price) }}</strong></div>
-            </div>
-
-            <button
-              v-if="availableOptions.length"
-              class="btn btn-sm btn-outline-secondary w-100 mb-2"
-              :disabled="processingOrderId === order.id"
-              @click="openOptionEditor(order)"
-            >
-              <i class="ti ti-adjustments"></i> オプションを選択・変更
-            </button>
-            <div v-if="optionEditorId === order.id" class="border rounded p-2 mb-3 bg-light">
-              <label v-for="option in availableOptions" :key="option.id" class="form-check py-1">
-                <input v-model="optionDraftIds" class="form-check-input" type="checkbox" :value="option.id">
-                <span class="form-check-label">{{ option.name }}（{{ formatYen(option.price) }}）</span>
-              </label>
-              <button
-                class="btn btn-sm btn-primary w-100 mt-2"
-                :disabled="processingOrderId === order.id"
-                @click="saveOptions(order)"
-              >選択内容を保存</button>
-            </div>
-            <div class="bg-light p-2 rounded small mb-3">
-              <i class="ti ti-note"></i> {{ order.memo || '備考なし' }}
-            </div>
-
-            <div v-if="actionErrors[order.id]" class="alert alert-danger py-2 small mb-2">
-              {{ actionErrors[order.id] }}
-            </div>
-
-            <button
-              v-if="order.is_unconfirmed"
-              class="btn btn-sm btn-warning w-100"
-              @click="doAck(order)"
-            >
-              <i class="ti ti-check"></i> 確認する
-            </button>
-            <button
-              v-else-if="order.status === 'REQUESTED'"
-              class="btn btn-sm btn-light w-100"
-              disabled
-            >
-              <i class="ti ti-clock"></i> 店舗確認待ち
-            </button>
-            <button
-              v-else-if="order.status === 'CONFIRMED'"
-              class="btn btn-sm btn-primary w-100 fw-bold"
-              :disabled="processingOrderId === order.id"
-              @click="startService(order)"
-            ><i class="ti ti-player-play"></i> 接客開始</button>
-            <button
-              v-else-if="order.status === 'IN_PROGRESS' || order.status === 'PENDING_FINALIZE'"
-              class="btn btn-sm btn-success w-100 fw-bold"
-              :disabled="processingOrderId === order.id"
-              @click="completeService(order)"
-            ><i class="ti ti-check"></i> 接客終了・売上へ反映</button>
-          </div>
-        </div>
-
-        <div v-if="orders.length === 0" class="text-muted text-center py-4">
-          本日の予約はありません
-        </div>
 
         <!-- 退勤 -->
         <div class="rk-section-header"><i class="ti ti-door-exit"></i> 退勤</div>
@@ -1015,6 +990,45 @@ function durationMin(order) {
 </template>
 
 <style scoped>
+.ca-home-next { display: grid; gap: 3px; margin-top: 7px; }
+.ca-home-next__date { color: #517268; font-size: .76rem; font-weight: 800; }
+.ca-home-next__time { color: #20302d; font-size: 1.12rem; font-weight: 800; line-height: 1.35; }
+.ca-home-next__time i, .ca-home-next__room i { color: #16836f; }
+.ca-home-next__room { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: #31453d; font-size: .86rem; font-weight: 700; }
+.ca-home-next__address { color: #65736e; font-size: .71rem; line-height: 1.4; }
+.ca-home-next__confirmed { display: inline-flex; align-items: center; gap: 3px; width: fit-content; margin-top: 3px; padding: 3px 7px; border-radius: 5px; background: #edf6f1; color: #36735d; font-size: .7rem; font-weight: 700; }
+.ca-home-map { display: inline-flex; align-items: center; gap: 3px; padding: 3px 9px; border: 1px solid #cce3d9; border-radius: 999px; color: #147866; font-size: .73rem; font-weight: 800; text-decoration: none; }
+.ca-home-map:hover { background: #e9f5f0; }
+.ca-home-map:focus-visible { outline: 2px solid #147866; outline-offset: 2px; }
+.ca-shift-prompt { padding: 13px 14px; border: 1px solid #cfe4d8; border-radius: 11px; background: #f5faf7; }
+.ca-shift-prompt__title { margin-bottom: 10px; color: #265746; font-size: .88rem; font-weight: 800; }
+.ca-shift-prompt__hint { margin-top: 8px; color: #5e7065; font-size: .72rem; line-height: 1.45; }
+.ca-bookings-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ca-bookings-count { display: inline-flex; align-items: center; gap: 8px; color: #3e5950; font-size: .78rem; font-weight: 800; white-space: nowrap; }
+.ca-bookings-unconfirmed { color: #b72d32; }
+.ca-booking-card { border-color: #e0eae5; border-radius: 14px; overflow: hidden; }
+.ca-booking-card__body { padding: 15px; }
+.ca-booking-card__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ca-booking-card__time { color: #183a31; font-size: clamp(1.55rem, 5vw, 1.95rem); font-weight: 800; letter-spacing: -.035em; line-height: 1.15; white-space: nowrap; }
+.ca-booking-card__confirm { flex: 0 0 auto; min-height: 40px; padding: 6px 10px; font-size: .76rem; font-weight: 700; white-space: nowrap; }
+.ca-booking-card__status { flex: 0 0 auto; }
+.ca-booking-card__primary { display: flex; flex-wrap: wrap; gap: 4px 15px; margin-top: 12px; }
+.ca-booking-card__primary > div { display: flex; align-items: center; gap: 6px; min-width: 0; color: #4d6258; font-size: .82rem; overflow-wrap: anywhere; }
+.ca-booking-card__primary strong { font-weight: 700; }
+.ca-booking-card__primary i, .ca-booking-card__details i { flex: 0 0 auto; color: #238674; }
+.ca-booking-card__disclosure { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 40px; margin: 9px 0 0; padding: 7px 10px; border: 0; border-radius: 8px; background: #f4f8f6; color: #356e5e; font-size: .78rem; font-weight: 700; text-align: left; }
+.ca-booking-card__disclosure.is-open { border-radius: 8px 8px 0 0; background: #eef6f1; }
+.ca-booking-card__disclosure-label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.ca-booking-card__disclosure:focus-visible { outline: 2px solid #147866; outline-offset: 2px; }
+.ca-booking-card__memo-flag { margin-left: auto; padding: 2px 6px; border-radius: 4px; background: #fff1c8; color: #8c5c00; font-size: .7rem; white-space: nowrap; }
+.ca-booking-card__details { display: grid; gap: 8px; margin-bottom: 4px; padding: 11px; border-radius: 0 0 8px 8px; background: #eef6f1; color: #44584e; font-size: .81rem; line-height: 1.5; overflow-wrap: anywhere; }
+.ca-booking-card__actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.ca-booking-card__step { min-height: 40px; font-weight: 700; }
+.ca-info-tabs { display: grid; grid-template-columns: 1.5fr 1fr .8fr; gap: 3px; margin: 18px 0 12px; padding: 4px; border: 1px solid #dbe9e2; border-radius: 12px; background: #f0f6f3; }
+.ca-info-tabs button { min-width: 0; padding: 9px 4px; border: 0; border-radius: 9px; background: transparent; color: #62766d; font-size: .8rem; font-weight: 800; white-space: nowrap; }
+.ca-info-tabs button.is-active { background: #fff; color: #146f61; box-shadow: 0 1px 4px rgba(25, 73, 58, .1); }
+.ca-info-tabs button:focus-visible { outline: 2px solid #147866; outline-offset: -2px; }
+.ca-info-panel { min-height: 140px; }
 .line-modal-overlay {
   position: fixed;
   inset: 0;
