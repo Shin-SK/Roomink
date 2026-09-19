@@ -116,6 +116,7 @@ class CastScheduleTest(TestCase):
             "start": "11:00", "end": "29:00", "room_name": "Aルーム",
         }])
         self.assertEqual(day["order_count"], 1)
+        self.assertEqual(day["orders"], response.data["orders"])
         self.assertEqual(response.data["orders"], [{
             "id": self.own_order.id,
             "start": "27:00",
@@ -126,6 +127,7 @@ class CastScheduleTest(TestCase):
         }])
         next_day = next(day for day in response.data["days"] if day["date"] == "2026-09-20")
         self.assertEqual(next_day["shifts"], [])
+        self.assertEqual(next_day["orders"], [])
         self.assertEqual(response.data["rooms"], [
             {"name": "Aルーム", "occupied": [{"start": "11:00", "end": "29:00"}]},
             {"name": "Bルーム", "occupied": [{"start": "13:00", "end": "21:00"}]},

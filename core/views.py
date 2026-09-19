@@ -1039,6 +1039,16 @@ class CastScheduleView(APIView):
                 "room_name": shift.room.name,
             })
 
+        def serialize_day_orders(day):
+            return [{
+                "id": order.id,
+                "start": format_business_time(order.start, day, cast.store.timezone),
+                "end": format_business_time(order.end, day, cast.store.timezone),
+                "room_name": order.room.name if order.room_id else "未定",
+                "course_name": order.course_name,
+                "status": order.status,
+            } for order in orders_by_date[day]]
+
         days = []
         for offset in range(7):
             day = week_start + timedelta(days=offset)
@@ -1046,16 +1056,10 @@ class CastScheduleView(APIView):
                 "date": day.isoformat(),
                 "shifts": shifts_by_date[day],
                 "order_count": len(orders_by_date[day]),
+                "orders": serialize_day_orders(day),
             })
 
-        day_orders = [{
-            "id": order.id,
-            "start": format_business_time(order.start, selected_date, cast.store.timezone),
-            "end": format_business_time(order.end, selected_date, cast.store.timezone),
-            "room_name": order.room.name if order.room_id else "未定",
-            "course_name": order.course_name,
-            "status": order.status,
-        } for order in orders_by_date[selected_date]]
+        day_orders = next(day["orders"] for day in days if day["date"] == selected_date.isoformat())
 
         # 部屋一覧には他キャスト名・顧客名・予約詳細を載せない。
         occupied_by_room = defaultdict(list)
