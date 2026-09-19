@@ -385,6 +385,10 @@ function durationMin(order) {
           </div>
         </div>
 
+        <router-link to="/cast/schedule" class="btn btn-outline-primary w-100 mb-3 fw-bold">
+          <i class="ti ti-calendar-week"></i> 出勤・予約予定を見る
+        </router-link>
+
         <!-- 出勤確認（Phase 3-B-1） -->
         <div class="rk-section-header"><i class="ti ti-calendar-check"></i> 出勤確認</div>
         <div class="card mb-3">

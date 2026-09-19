@@ -45,6 +45,7 @@ const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
 const Profile = () => import('./pages/op/Profile.vue')
 const CastMypage = () => import('./pages/cast/CastMypage.vue')
 const CastOrders = () => import('./pages/cast/CastOrders.vue')
+const CastSchedule = () => import('./pages/cast/CastSchedule.vue')
 const CastShiftRequests = () => import('./pages/cast/CastShiftRequests.vue')
 const CastProfile = () => import('./pages/cast/CastProfile.vue')
 const CastManual = () => import('./pages/cast/CastManual.vue')
@@ -127,6 +128,7 @@ const routes = [
   { path: '/cast/login', redirect: '/login' },
   { path: '/cast/mypage', name: 'cast-mypage', component: CastMypage },
   { path: '/cast/orders', name: 'cast-orders', component: CastOrders },
+  { path: '/cast/schedule', name: 'cast-schedule', component: CastSchedule },
   { path: '/cast/shift-requests', name: 'cast-shift-requests', component: CastShiftRequests },
   { path: '/cast/profile', name: 'cast-profile', component: CastProfile },
   { path: '/cast/manual', name: 'cast-manual', component: CastManual },

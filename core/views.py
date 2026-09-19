@@ -963,6 +963,157 @@ class CastTodayView(APIView):
         })
 
 
+@document_object_api_view
+class CastScheduleView(APIView):
+    """キャスト本人の週間勤務・予約と、同店舗の匿名化した部屋使用時間。"""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        selected = request.query_params.get("date")
+        if selected:
+            try:
+                selected_date = date_type.fromisoformat(selected)
+            except ValueError:
+                return Response(
+                    {"detail": "date の形式が不正です（YYYY-MM-DD）"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            selected_date = business_date_for_datetime(timezone.now(), cast.store.timezone)
+
+        requested_week_start = request.query_params.get("week_start")
+        if requested_week_start:
+            try:
+                week_start = date_type.fromisoformat(requested_week_start)
+            except ValueError:
+                return Response(
+                    {"detail": "week_start の形式が不正です（YYYY-MM-DD）"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            week_start = selected_date
+        week_end = week_start + timedelta(days=7)
+        if not week_start <= selected_date < week_end:
+            return Response(
+                {"detail": "選択日を表示中の7日間に含めてください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        range_start, _ = business_day_range(week_start, cast.store.timezone)
+        range_end, _ = business_day_range(week_end, cast.store.timezone)
+
+        own_shifts = list(
+            ShiftAssignment.objects.filter(
+                cast=cast,
+                date__gte=week_start,
+                date__lt=week_end,
+                is_absent=False,
+            ).select_related("room").order_by("date", "start_time", "id")
+        )
+        weekly_orders = list(
+            Order.objects.filter(
+                cast=cast,
+                start__gte=range_start,
+                start__lt=range_end,
+            ).exclude(status=Order.Status.CANCELLED)
+            .select_related("room")
+            .order_by("start", "id")
+        )
+        orders_by_date = defaultdict(list)
+        for order in weekly_orders:
+            day = business_date_for_datetime(order.start, cast.store.timezone)
+            orders_by_date[day].append(order)
+
+        shifts_by_date = defaultdict(list)
+        for shift in own_shifts:
+            shifts_by_date[shift.date].append({
+                "start": shift.start_time.strftime("%H:%M"),
+                "end": format_extended_time(shift.end_time, shift.end_day_offset),
+                "room_name": shift.room.name,
+            })
+
+        days = []
+        for offset in range(7):
+            day = week_start + timedelta(days=offset)
+            days.append({
+                "date": day.isoformat(),
+                "shifts": shifts_by_date[day],
+                "order_count": len(orders_by_date[day]),
+            })
+
+        day_orders = [{
+            "id": order.id,
+            "start": format_business_time(order.start, selected_date, cast.store.timezone),
+            "end": format_business_time(order.end, selected_date, cast.store.timezone),
+            "room_name": order.room.name if order.room_id else "未定",
+            "course_name": order.course_name,
+            "status": order.status,
+        } for order in orders_by_date[selected_date]]
+
+        # 部屋一覧には他キャスト名・顧客名・予約詳細を載せない。
+        occupied_by_room = defaultdict(list)
+        room_shifts = ShiftAssignment.objects.filter(
+            store=cast.store,
+            date=selected_date,
+            is_absent=False,
+        )
+        for shift in room_shifts:
+            occupied_by_room[shift.room_id].append((
+                shift.start_time.hour * 60 + shift.start_time.minute,
+                (shift.end_time.hour + 24 * shift.end_day_offset) * 60 + shift.end_time.minute,
+            ))
+
+        day_start, day_end = business_day_range(selected_date, cast.store.timezone)
+        room_orders = Order.objects.filter(
+            store=cast.store,
+            room__isnull=False,
+            start__gte=day_start,
+            start__lt=day_end,
+            status__in=(*Order.ACTIVE_STATUSES, Order.Status.DONE),
+        ).only("room_id", "start", "end")
+        for order in room_orders:
+            start = format_business_time(order.start, selected_date, cast.store.timezone)
+            end = format_business_time(order.end, selected_date, cast.store.timezone)
+            occupied_by_room[order.room_id].append((
+                int(start[:2]) * 60 + int(start[3:]),
+                int(end[:2]) * 60 + int(end[3:]),
+            ))
+
+        def time_label(minutes):
+            return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+        rooms = []
+        for room in Room.objects.filter(store=cast.store).order_by("sort_order", "id"):
+            merged = []
+            for start, end in sorted(occupied_by_room[room.id]):
+                if merged and start <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], end)
+                else:
+                    merged.append([start, end])
+            rooms.append({
+                "name": room.name,
+                "occupied": [
+                    {"start": time_label(start), "end": time_label(end)}
+                    for start, end in merged
+                ],
+            })
+
+        return Response({
+            "selected_date": selected_date.isoformat(),
+            "week_start": week_start.isoformat(),
+            "days": days,
+            "orders": day_orders,
+            "rooms": rooms,
+        })
+
+
 def _compute_cast_done_sales(cast, d):
     """指定キャスト・指定日のDONE注文を集計し、売上/給与見込みを返す（CastTodaySalesView/CastCheckoutViewで共用）"""
     import math
