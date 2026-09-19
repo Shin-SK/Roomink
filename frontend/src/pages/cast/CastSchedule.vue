@@ -418,7 +418,7 @@ function roomPeriodStyle(period) {
 .cs-day:focus-visible { outline: 2px solid #137d69; outline-offset: 2px; }
 .cs-day-top { display: flex; justify-content: space-between; align-items: center; gap: 3px; min-height: 25px; }
 .cs-day-date { font-size: .78rem; font-weight: 800; white-space: nowrap; }
-.cs-booking-count { display: grid; flex: 0 0 auto; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 999px; background: #a25458; color: #fff; font-size: .74rem; font-weight: 800; line-height: 1; }
+.cs-booking-count { display: grid; flex: 0 0 auto; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 999px; background: var(--bs-danger, #dc3545); color: #fff; font-size: .74rem; font-weight: 800; line-height: 1; }
 .cs-day-detail { display: grid; gap: 5px; min-width: 0; color: #63736e; font-size: .74rem; line-height: 1.3; }
 .cs-day-shift { display: grid; gap: 2px; overflow-wrap: anywhere; color: #213e36; font-weight: 700; }
 .cs-day-panel { padding: 18px; border-top: 1px solid #d9ebe3; background: #fff; }
