@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
+import { roomMapHref } from '../../roomMap.js'
 
 const schedule = ref(null)
 const loading = ref(true)
@@ -339,9 +340,13 @@ function roomPeriodStyle(period) {
                 <i class="ti ti-door"></i>
                 <div>
                   <strong>確定した出勤</strong>
-                  <p v-for="(shift, index) in selectedDay.shifts" :key="index">
-                    {{ shift.start }}–{{ shift.end }}　{{ shift.room_name }}
-                  </p>
+                  <div v-for="(shift, index) in selectedDay.shifts" :key="index" class="cs-shift-line">
+                    <div class="cs-shift-main">
+                      <span>{{ shift.start }}–{{ shift.end }}　{{ shift.room_name }}</span>
+                      <a v-if="roomMapHref(shift)" :href="roomMapHref(shift)" target="_blank" rel="noopener noreferrer" class="cs-map-link" :aria-label="`${shift.room_name}の地図を開く`"><i class="ti ti-map-pin"></i> 地図</a>
+                    </div>
+                    <small v-if="shift.room_address" class="cs-room-address">{{ shift.room_address }}</small>
+                  </div>
                 </div>
               </div>
               <div v-else class="cs-no-shift">この日の確定した出勤はありません。</div>
@@ -428,7 +433,12 @@ function roomPeriodStyle(period) {
 .cs-shift-summary { display: flex; gap: 12px; margin-bottom: 24px; padding: 15px; border-radius: 12px; background: #e9f6f1; }
 .cs-shift-summary > i { color: #178b75; font-size: 1.2rem; }
 .cs-shift-summary strong { font-size: .82rem; }
-.cs-shift-summary p { margin: 2px 0 0; font-size: .92rem; font-weight: 700; }
+.cs-shift-line { margin-top: 3px; }
+.cs-shift-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: .92rem; font-weight: 700; }
+.cs-map-link { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; color: #177f70; font-size: .79rem; font-weight: 800; text-decoration: none; }
+.cs-map-link:hover { text-decoration: underline; }
+.cs-map-link:focus-visible { outline: 2px solid #177f70; outline-offset: 2px; }
+.cs-room-address { display: block; margin-top: 3px; color: #667871; font-size: .73rem; font-weight: 500; line-height: 1.4; }
 .cs-no-shift { margin-bottom: 24px; padding: 13px; border-radius: 10px; background: #f6f8f7; color: #66736f; font-size: .84rem; }
 .cs-timeline-title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 13px; }
 .cs-timeline-title h5 { margin: 0; font-size: .98rem; font-weight: 800; }

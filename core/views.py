@@ -942,6 +942,7 @@ class CastTodayView(APIView):
             "avatar_url": cast.avatar_url,
             "date": d.isoformat(),
             "shift": {
+                "date": shift.date.isoformat() if shift else None,
                 "start_time": str(shift.start_time)[:5] if shift else None,
                 "end_time": str(shift.end_time)[:5] if shift else None,
                 "end_time_extended": (
@@ -949,6 +950,8 @@ class CastTodayView(APIView):
                     if shift else None
                 ),
                 "room_name": shift.room.name if shift and shift.room_id else None,
+                "room_address": shift.room.address if shift and shift.room_id else "",
+                "room_map_url": shift.room.map_url if shift and shift.room_id else "",
             } if shift else None,
             "total_orders": len(data),
             "unconfirmed_count": sum(1 for o in data if o["is_unconfirmed"]),
@@ -1037,6 +1040,8 @@ class CastScheduleView(APIView):
                 "start": shift.start_time.strftime("%H:%M"),
                 "end": format_extended_time(shift.end_time, shift.end_day_offset),
                 "room_name": shift.room.name,
+                "room_address": shift.room.address,
+                "room_map_url": shift.room.map_url,
             })
 
         def serialize_day_orders(day):
@@ -1309,6 +1314,8 @@ def _serialize_shift_for_confirm(shift):
             shift.end_day_offset,
         ),
         "room_name": shift.room.name if shift.room_id else None,
+        "room_address": shift.room.address if shift.room_id else "",
+        "room_map_url": shift.room.map_url if shift.room_id else "",
         "confirmed_at": shift.confirmed_at,
     }
 
