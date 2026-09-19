@@ -272,7 +272,9 @@ function roomPeriodStyle(period) {
       <div v-if="error" class="alert alert-danger" role="alert">
         {{ error }} <button class="btn btn-sm btn-outline-danger ms-2" @click="load(schedule?.selected_date || '', schedule?.week_start || '')">再読み込み</button>
       </div>
-      <div v-if="loading && !schedule" class="text-center py-5" role="status">読み込み中...</div>
+      <div v-if="loading && !schedule" class="text-center py-5" role="status" aria-label="出勤予定を読み込み中">
+        <span class="spinner-border text-primary" aria-hidden="true"></span>
+      </div>
 
       <template v-if="schedule">
         <section class="cs-card cs-week">
@@ -382,7 +384,9 @@ function roomPeriodStyle(period) {
                 </button>
                 <div v-if="showRooms" class="cs-rooms-body">
                   <p>色のついた時間は、確定シフトや予約で使用予定です。</p>
-                  <div v-if="roomLoading" class="text-muted small" role="status">読み込み中...</div>
+                  <div v-if="roomLoading" role="status" aria-label="ルーム使用状況を読み込み中">
+                    <span class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></span>
+                  </div>
                   <div v-else-if="roomError" class="text-danger small">{{ roomError }} <button class="btn btn-sm btn-link" @click="loadRooms">再読み込み</button></div>
                   <div v-else-if="!selectedRooms.length" class="text-muted small">登録済みのルームはありません。</div>
                   <div v-for="room in roomLoading || roomError ? [] : selectedRooms" :key="room.name" class="cs-room">
