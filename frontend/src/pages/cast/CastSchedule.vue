@@ -413,12 +413,12 @@ function roomPeriodStyle(period) {
 .cs-day-strip { --cs-day-width: 128px; display: flex; gap: 9px; overflow-x: auto; padding: 12px max(12px, calc((100% - var(--cs-day-width)) / 2)) 15px; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; cursor: grab; }
 .cs-day-strip.is-dragging { cursor: grabbing; scroll-snap-type: none; user-select: none; }
 .cs-day-strip::-webkit-scrollbar { display: none; }
-.cs-day { display: flex; flex: 0 0 var(--cs-day-width); flex-direction: column; gap: 9px; min-height: 144px; padding: 12px; border: 1px solid #dfe9e3; border-radius: 12px; background: #fff; color: inherit; text-align: left; scroll-snap-align: center; }
+.cs-day { display: flex; flex: 0 0 var(--cs-day-width); flex-direction: column; gap: 7px; min-height: 112px; padding: 10px 11px; border: 1px solid #dfe9e3; border-radius: 12px; background: #fff; color: inherit; text-align: left; scroll-snap-align: center; }
 .cs-day.is-selected { border-color: #1b987e; background: #e9f5f0; box-shadow: 0 0 0 1px #1b987e; }
 .cs-day:focus-visible { outline: 2px solid #137d69; outline-offset: 2px; }
 .cs-day-top { display: flex; justify-content: space-between; align-items: center; gap: 3px; min-height: 25px; }
 .cs-day-date { font-size: .78rem; font-weight: 800; white-space: nowrap; }
-.cs-booking-count { display: grid; flex: 0 0 auto; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 999px; background: #b45309; color: #fff; font-size: .74rem; font-weight: 800; line-height: 1; }
+.cs-booking-count { display: grid; flex: 0 0 auto; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 999px; background: #a25458; color: #fff; font-size: .74rem; font-weight: 800; line-height: 1; }
 .cs-day-detail { display: grid; gap: 5px; min-width: 0; color: #63736e; font-size: .74rem; line-height: 1.3; }
 .cs-day-shift { display: grid; gap: 2px; overflow-wrap: anywhere; color: #213e36; font-weight: 700; }
 .cs-day-panel { padding: 18px; border-top: 1px solid #d9ebe3; background: #fff; }
@@ -436,12 +436,12 @@ function roomPeriodStyle(period) {
 .cs-timeline { position: relative; margin: 0 0 14px 7px; border-left: 1px solid #dbe6e1; }
 .cs-hour { position: absolute; left: 0; right: 0; height: 1px; border-top: 1px solid #e6edeb; }
 .cs-hour span { position: relative; top: -10px; left: 9px; padding-right: 6px; background: #fff; color: #73827c; font-size: .68rem; }
-.cs-booking { position: absolute; right: 3px; left: 65px; z-index: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 36px; padding: 4px 10px; border-left: 4px solid #1b927d; border-radius: 8px; background: #dff3ec; overflow: hidden; line-height: 1.2; }
+.cs-booking { position: absolute; right: 3px; left: 65px; z-index: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 36px; padding: 4px 10px; border: 1px solid #cde6da; border-radius: 8px; background: #e6f4ed; overflow: hidden; line-height: 1.2; }
 .cs-booking strong { font-size: .81rem; }
 .cs-booking > span { font-size: .72rem; }
 .cs-booking-status { color: #526f63; }
-.cs-booking.is-pending { border-color: #cb9129; background: #fff2d9; }
-.cs-booking.is-done { border-color: #8fa49b; background: #edf1ef; }
+.cs-booking.is-pending { border-color: #e9ddc5; background: #fff5e4; }
+.cs-booking.is-done { border-color: #dce5df; background: #edf1ef; }
 .cs-empty-bookings { margin-bottom: 8px; padding: 20px 12px; border-radius: 10px; background: #f7f9f8; color: #71817a; font-size: .82rem; text-align: center; }
 .cs-rooms { margin-top: 22px; border: 1px solid #e0e9e6; border-radius: 12px; overflow: hidden; }
 .cs-rooms-toggle { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 15px; border: 0; background: #f8fbf9; color: #213c32; font-weight: 800; text-align: left; }
