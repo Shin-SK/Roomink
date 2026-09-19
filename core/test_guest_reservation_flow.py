@@ -6,7 +6,10 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from core.models import Cast, Course, Customer, Order, OrderGuestAccess, Room, SmsLog, Store, UserProfile
+from core.models import (
+    Cast, Course, Customer, Order, OrderGuestAccess, Room, SmsLog, Store,
+    StorePhoneNumber, UserProfile,
+)
 
 
 User = get_user_model()
@@ -51,6 +54,13 @@ class GuestReservationFlowTest(TestCase):
             duration=60,
             price=12000,
         )
+        StorePhoneNumber.objects.create(
+            store=self.store,
+            phone="+15551234567",
+            source_phone="0312345678",
+            label="予約受付",
+            is_active=True,
+        )
 
     def create_order(self, payment_method):
         start = timezone.now() + timedelta(days=2)
@@ -93,9 +103,20 @@ class GuestReservationFlowTest(TestCase):
         access, guest = self.guest_response(order)
         self.assertEqual(guest.data["state"], "CONFIRMED")
         self.assertEqual(guest.data["room_address"], self.room.address)
+        self.assertEqual(guest.data["payment_method_label"], "現金")
+        self.assertEqual(guest.data["contact_phone"], "0312345678")
         access.refresh_from_db()
         self.assertEqual(access.open_count, 1)
         self.assertEqual(access.last_seen_state, "CONFIRMED")
+
+    def test_cti_number_is_not_exposed_without_store_reception_number(self):
+        StorePhoneNumber.objects.filter(store=self.store).update(source_phone="")
+        order = self.create_order(Order.PaymentMethod.CASH)
+        self.assertEqual(self.client.post(f"/api/orders/{order.id}/confirm/").status_code, 200)
+
+        _, guest = self.guest_response(order)
+
+        self.assertEqual(guest.data["contact_phone"], "")
 
     def test_card_flow_hides_room_until_manual_confirmation_and_uses_two_segments_total(self):
         order = self.create_order(Order.PaymentMethod.CARD)

@@ -194,6 +194,16 @@ def serialize_guest_reservation(access):
     order = access.order
     state = guest_reservation_state(order)
     copy = guest_state_copy(state)
+    contact_phone = (
+        order.store.phone_numbers
+        .filter(is_active=True)
+        .exclude(source_phone="")
+        .order_by("id")
+        .values_list("source_phone", flat=True)
+        .first()
+        or ""
+    )
+    contact_phone = contact_phone.strip()
     room_visible = (
         state in (
             GuestReservationState.CONFIRMED,
@@ -214,6 +224,7 @@ def serialize_guest_reservation(access):
         "title": copy["title"],
         "message": copy["message"],
         "store_name": order.store.name,
+        "contact_phone": contact_phone,
         "start": order.start,
         "end": order.end,
         "cast_name": order.cast.name,
