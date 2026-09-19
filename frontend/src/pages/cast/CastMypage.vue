@@ -359,11 +359,6 @@ function formatYen(n) {
   return `¥${Number(n).toLocaleString()}`
 }
 
-function durationMin(order) {
-  const s = new Date(order.start)
-  const e = new Date(order.end)
-  return Math.round((e - s) / 60000)
-}
 </script>
 
 <template>
@@ -467,32 +462,24 @@ function durationMin(order) {
         >
           <div class="card-body ca-booking-card__body">
             <div class="ca-booking-card__header">
-              <div>
-                <div class="ca-booking-card__time">{{ displayStartTime(order) }}–{{ displayEndTime(order) }}</div>
-                <div class="ca-booking-card__duration">{{ durationMin(order) }}分</div>
-              </div>
+              <div class="ca-booking-card__time">{{ displayStartTime(order) }}–{{ displayEndTime(order) }}</div>
+              <button
+                v-if="order.is_unconfirmed"
+                type="button"
+                class="btn btn-sm btn-warning ca-booking-card__confirm"
+                :aria-label="`${displayStartTime(order)}から${displayEndTime(order)}の予約を確認する`"
+                @click="doAck(order)"
+              ><i class="ti ti-check" aria-hidden="true"></i> 確認する</button>
               <span
-                class="badge"
-                :class="order.is_unconfirmed ? 'badge-unconfirmed' : order.customer_reservation_state === 'PAYMENT_REQUIRED' ? 'text-bg-warning' : 'badge-approved'"
-              >{{ order.is_unconfirmed ? '未確認' : statusLabel(order) }}</span>
+                v-else
+                class="badge ca-booking-card__status"
+                :class="order.customer_reservation_state === 'PAYMENT_REQUIRED' ? 'text-bg-warning' : 'badge-approved'"
+              >{{ statusLabel(order) }}</span>
             </div>
 
             <div class="ca-booking-card__primary">
               <div><i class="ti ti-user" aria-hidden="true"></i><strong>{{ order.reservation_name }}</strong></div>
               <div><i class="ti ti-door" aria-hidden="true"></i><span>{{ order.room_name }}</span></div>
-            </div>
-
-            <div class="ca-booking-card__facts">
-              <div class="ca-booking-card__fact">
-                <span>コース</span>
-                <strong>{{ order.course_name }}</strong>
-                <small>{{ formatYen(order.course_price) }}</small>
-              </div>
-              <div class="ca-booking-card__fact">
-                <span>お支払い</span>
-                <strong>{{ order.payment_method_label }}</strong>
-                <small>合計 {{ formatYen(order.total_price) }}</small>
-              </div>
             </div>
 
             <button
@@ -502,13 +489,16 @@ function durationMin(order) {
               :aria-controls="`ca-booking-details-${order.id}`"
               @click="toggleOrderDetails(order.id)"
             >
-              <span>{{ expandedOrderDetails[order.id] ? 'オプション・備考を閉じる' : 'オプション・備考を見る' }}</span>
+              <span>{{ expandedOrderDetails[order.id] ? '予約内容を閉じる' : '予約内容を見る' }}</span>
               <span v-if="order.memo && !expandedOrderDetails[order.id]" class="ca-booking-card__memo-flag">備考あり</span>
               <span v-else-if="order.options?.length && !expandedOrderDetails[order.id]" class="ca-booking-card__memo-flag">オプションあり</span>
               <i class="ti" :class="expandedOrderDetails[order.id] ? 'ti-chevron-up' : 'ti-chevron-down'" aria-hidden="true"></i>
             </button>
 
             <div v-show="expandedOrderDetails[order.id]" :id="`ca-booking-details-${order.id}`" class="ca-booking-card__details">
+              <div><i class="ti ti-receipt" aria-hidden="true"></i> コース：{{ order.course_name }} / {{ formatYen(order.course_price) }}</div>
+              <div><i class="ti ti-credit-card" aria-hidden="true"></i> お支払い：{{ order.payment_method_label }}</div>
+              <div><i class="ti ti-currency-yen" aria-hidden="true"></i> 合計：{{ formatYen(order.total_price) }}</div>
               <div><i class="ti ti-sparkles" aria-hidden="true"></i> オプション：{{ order.options?.length ? order.options.map(option => option.name).join('、') : 'なし' }}</div>
               <div v-if="order.nomination_fee_name"><i class="ti ti-heart" aria-hidden="true"></i> {{ order.nomination_fee_name }} / {{ formatYen(order.nomination_fee_price) }}</div>
               <div><i class="ti ti-note" aria-hidden="true"></i> 備考：{{ order.memo || 'なし' }}</div>
@@ -536,33 +526,29 @@ function durationMin(order) {
               {{ actionErrors[order.id] }}
             </div>
 
-            <button
-              v-if="order.is_unconfirmed"
-              class="btn btn-sm btn-warning w-100"
-              @click="doAck(order)"
-            ><i class="ti ti-check"></i> 確認する</button>
-            <button v-else-if="order.status === 'REQUESTED'" class="btn btn-sm btn-light w-100" disabled>
-              <i class="ti ti-clock"></i> 店舗確認待ち
-            </button>
-            <button
-              v-else-if="order.status === 'CONFIRMED'"
-              class="btn btn-sm btn-primary w-100 fw-bold"
-              :disabled="processingOrderId === order.id"
-              @click="startService(order)"
-            ><i class="ti ti-player-play"></i> 接客開始</button>
-            <button
-              v-else-if="order.status === 'IN_PROGRESS' || order.status === 'PENDING_FINALIZE'"
-              class="btn btn-sm btn-success w-100 fw-bold"
-              :disabled="processingOrderId === order.id"
-              @click="completeService(order)"
-            ><i class="ti ti-check"></i> 接客終了・売上へ反映</button>
+            <div v-if="!order.is_unconfirmed && (order.status === 'CONFIRMED' || order.status === 'IN_PROGRESS' || order.status === 'PENDING_FINALIZE')" class="ca-booking-card__actions">
+              <button
+                v-if="order.status === 'CONFIRMED'"
+                type="button"
+                class="btn btn-sm btn-outline-primary ca-booking-card__step"
+                :disabled="processingOrderId === order.id"
+                @click="startService(order)"
+              ><i class="ti ti-player-play"></i> 接客開始</button>
+              <button
+                v-else
+                type="button"
+                class="btn btn-sm btn-outline-success ca-booking-card__step"
+                :disabled="processingOrderId === order.id"
+                @click="completeService(order)"
+              ><i class="ti ti-check"></i> 接客終了・売上へ反映</button>
+            </div>
           </div>
         </div>
 
         <div v-if="orders.length === 0" class="text-muted text-center py-4">本日の予約はありません</div>
 
-        <div class="ca-info-tabs" role="tablist" aria-label="売上・調整金・ノート">
-          <button id="ca-info-tab-earnings" type="button" role="tab" aria-controls="ca-info-earnings" :aria-selected="activeInfoTab === 'earnings'" :tabindex="activeInfoTab === 'earnings' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'earnings' }" @click="selectInfoTab('earnings')" @keydown.right.prevent="selectInfoTab('adjustments', true)">売上・ポイント</button>
+        <div class="ca-info-tabs" role="tablist" aria-label="売上・給与見込み、調整金、ノート">
+          <button id="ca-info-tab-earnings" type="button" role="tab" aria-controls="ca-info-earnings" :aria-selected="activeInfoTab === 'earnings'" :tabindex="activeInfoTab === 'earnings' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'earnings' }" @click="selectInfoTab('earnings')" @keydown.right.prevent="selectInfoTab('adjustments', true)">売上・給与見込み</button>
           <button id="ca-info-tab-adjustments" type="button" role="tab" aria-controls="ca-info-adjustments" :aria-selected="activeInfoTab === 'adjustments'" :tabindex="activeInfoTab === 'adjustments' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'adjustments' }" @click="selectInfoTab('adjustments')" @keydown.left.prevent="selectInfoTab('earnings', true)" @keydown.right.prevent="selectInfoTab('notes', true)">調整金</button>
           <button id="ca-info-tab-notes" type="button" role="tab" aria-controls="ca-info-notes" :aria-selected="activeInfoTab === 'notes'" :tabindex="activeInfoTab === 'notes' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'notes' }" @click="selectInfoTab('notes')" @keydown.left.prevent="selectInfoTab('adjustments', true)">ノート</button>
         </div>
@@ -594,7 +580,7 @@ function durationMin(order) {
         <div v-if="totalPoints !== 0 || pointHistory.length" class="card mb-3">
           <div class="card-body">
             <div class="d-flex align-items-center justify-content-between mb-2">
-              <div class="fw-bold"><i class="ti ti-star text-warning"></i> ポイント</div>
+              <div class="fw-bold"><i class="ti ti-star text-warning"></i> 店舗のポイント記録</div>
               <div class="fs-4 fw-bold">{{ totalPoints }} pt</div>
             </div>
             <div v-if="pointHistory.length" class="small">
@@ -603,6 +589,7 @@ function durationMin(order) {
                 <span :class="p.points >= 0 ? 'text-success' : 'text-danger'" class="fw-bold">{{ p.points >= 0 ? '+' : '' }}{{ p.points }}</span>
               </div>
             </div>
+            <div class="small text-muted mt-2">店舗が加点・減点した記録です。売上・給与見込みとは別に表示しています。</div>
           </div>
         </div>
         </section>
@@ -1051,23 +1038,22 @@ function durationMin(order) {
 .ca-bookings-alert { padding: 9px 12px; font-size: .83rem; font-weight: 700; }
 .ca-booking-card { border-color: #e0eae5; border-radius: 14px; overflow: hidden; }
 .ca-booking-card__body { padding: 15px; }
-.ca-booking-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.ca-booking-card__time { color: #203a32; font-size: 1.16rem; font-weight: 800; line-height: 1.25; }
-.ca-booking-card__duration { margin-top: 2px; color: #63756d; font-size: .76rem; }
-.ca-booking-card__primary { display: grid; gap: 5px; margin-top: 14px; }
-.ca-booking-card__primary > div { display: flex; align-items: center; gap: 7px; min-width: 0; color: #2c433a; font-size: .91rem; overflow-wrap: anywhere; }
+.ca-booking-card__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ca-booking-card__time { color: #183a31; font-size: clamp(1.55rem, 5vw, 1.95rem); font-weight: 800; letter-spacing: -.035em; line-height: 1.15; white-space: nowrap; }
+.ca-booking-card__confirm { flex: 0 0 auto; min-height: 40px; padding: 6px 10px; font-size: .76rem; font-weight: 700; white-space: nowrap; }
+.ca-booking-card__status { flex: 0 0 auto; }
+.ca-booking-card__primary { display: flex; flex-wrap: wrap; gap: 4px 15px; margin-top: 12px; }
+.ca-booking-card__primary > div { display: flex; align-items: center; gap: 6px; min-width: 0; color: #4d6258; font-size: .82rem; overflow-wrap: anywhere; }
+.ca-booking-card__primary strong { font-weight: 700; }
 .ca-booking-card__primary i, .ca-booking-card__details i { flex: 0 0 auto; color: #238674; }
-.ca-booking-card__facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 9px; margin-top: 14px; }
-.ca-booking-card__fact { min-width: 0; padding: 10px 11px; border-radius: 9px; background: #f1f7f4; overflow-wrap: anywhere; }
-.ca-booking-card__fact span, .ca-booking-card__fact small { display: block; color: #5f7269; font-size: .73rem; line-height: 1.35; }
-.ca-booking-card__fact strong { display: block; margin-top: 3px; color: #203a32; font-size: .87rem; line-height: 1.35; }
-.ca-booking-card__fact small { margin-top: 3px; }
-.ca-booking-card__disclosure { display: flex; align-items: center; gap: 5px; width: 100%; min-height: 42px; margin: 4px 0 8px; padding: 6px 0; border: 0; background: transparent; color: #147866; font-size: .79rem; font-weight: 800; text-align: left; }
+.ca-booking-card__disclosure { display: flex; align-items: center; gap: 5px; width: 100%; min-height: 42px; margin: 2px 0 0; padding: 6px 0; border: 0; background: transparent; color: #147866; font-size: .78rem; font-weight: 700; text-align: left; }
 .ca-booking-card__disclosure i { margin-left: auto; }
 .ca-booking-card__disclosure:focus-visible { outline: 2px solid #147866; outline-offset: 2px; }
 .ca-booking-card__memo-flag { padding: 2px 6px; border-radius: 4px; background: #fff1c8; color: #8c5c00; font-size: .7rem; white-space: nowrap; }
-.ca-booking-card__details { display: grid; gap: 8px; margin-bottom: 12px; padding: 11px; border-radius: 9px; background: #f7faf8; color: #44584e; font-size: .81rem; line-height: 1.5; overflow-wrap: anywhere; }
-.ca-info-tabs { display: grid; grid-template-columns: 1.3fr 1fr .8fr; gap: 3px; margin: 18px 0 12px; padding: 4px; border: 1px solid #dbe9e2; border-radius: 12px; background: #f0f6f3; }
+.ca-booking-card__details { display: grid; gap: 8px; margin-bottom: 4px; padding: 11px; border-radius: 9px; background: #f7faf8; color: #44584e; font-size: .81rem; line-height: 1.5; overflow-wrap: anywhere; }
+.ca-booking-card__actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.ca-booking-card__step { min-height: 40px; font-weight: 700; }
+.ca-info-tabs { display: grid; grid-template-columns: 1.5fr 1fr .8fr; gap: 3px; margin: 18px 0 12px; padding: 4px; border: 1px solid #dbe9e2; border-radius: 12px; background: #f0f6f3; }
 .ca-info-tabs button { min-width: 0; padding: 9px 4px; border: 0; border-radius: 9px; background: transparent; color: #62766d; font-size: .8rem; font-weight: 800; white-space: nowrap; }
 .ca-info-tabs button.is-active { background: #fff; color: #146f61; box-shadow: 0 1px 4px rgba(25, 73, 58, .1); }
 .ca-info-tabs button:focus-visible { outline: 2px solid #147866; outline-offset: -2px; }
