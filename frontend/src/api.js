@@ -286,6 +286,12 @@ export const api = {
     'GET',
     date ? `/cast/today/?date=${date}` : '/cast/today/',
   ),
+  getCastSchedule: (date = '', weekStart = '') => request(
+    'GET',
+    date
+      ? `/cast/schedule/?date=${encodeURIComponent(date)}${weekStart ? `&week_start=${encodeURIComponent(weekStart)}` : ''}`
+      : '/cast/schedule/',
+  ),
   getCastTodaySales: () => request('GET', '/cast/today-sales/'),
   ackOrder: (id) => request('POST', `/cast/orders/${id}/ack/`),
   updateCastOrderOptions: (id, optionIds) => request('POST', `/cast/orders/${id}/options/`, { option_ids: optionIds }),
