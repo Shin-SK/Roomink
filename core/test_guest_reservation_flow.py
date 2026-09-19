@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from core.models import (
     Cast, Course, Customer, Order, OrderGuestAccess, Room, SmsLog, Store,
-    StorePhoneNumber, UserProfile,
+    UserProfile,
 )
 
 
@@ -25,6 +25,7 @@ class GuestReservationFlowTest(TestCase):
             name="ゲスト予約テスト店",
             slug="guest-reservation-test",
             card_payment_url="https://pay.example/store",
+            guest_contact_phone="03-1234-5678",
         )
         self.manager = User.objects.create_user("guest_flow_manager")
         UserProfile.objects.create(
@@ -54,14 +55,6 @@ class GuestReservationFlowTest(TestCase):
             duration=60,
             price=12000,
         )
-        StorePhoneNumber.objects.create(
-            store=self.store,
-            phone="+15551234567",
-            source_phone="0312345678",
-            label="予約受付",
-            is_active=True,
-        )
-
     def create_order(self, payment_method):
         start = timezone.now() + timedelta(days=2)
         return Order.objects.create(
@@ -104,13 +97,14 @@ class GuestReservationFlowTest(TestCase):
         self.assertEqual(guest.data["state"], "CONFIRMED")
         self.assertEqual(guest.data["room_address"], self.room.address)
         self.assertEqual(guest.data["payment_method_label"], "現金")
-        self.assertEqual(guest.data["contact_phone"], "0312345678")
+        self.assertEqual(guest.data["contact_phone"], "03-1234-5678")
         access.refresh_from_db()
         self.assertEqual(access.open_count, 1)
         self.assertEqual(access.last_seen_state, "CONFIRMED")
 
-    def test_cti_number_is_not_exposed_without_store_reception_number(self):
-        StorePhoneNumber.objects.filter(store=self.store).update(source_phone="")
+    def test_contact_number_is_hidden_when_public_setting_is_blank(self):
+        self.store.guest_contact_phone = ""
+        self.store.save(update_fields=["guest_contact_phone"])
         order = self.create_order(Order.PaymentMethod.CASH)
         self.assertEqual(self.client.post(f"/api/orders/{order.id}/confirm/").status_code, 200)
 
