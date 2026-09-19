@@ -7,6 +7,8 @@ const schedule = ref(null)
 const loading = ref(true)
 const error = ref('')
 const showRooms = ref(false)
+const expandedDate = ref(null)
+const todayDate = ref('')
 let requestNumber = 0
 
 function parseDate(value) {
@@ -47,7 +49,11 @@ async function load(date = '', weekStart = '') {
   error.value = ''
   try {
     const data = await api.getCastSchedule(date, weekStart)
-    if (currentRequest === requestNumber) schedule.value = data
+    if (currentRequest === requestNumber) {
+      schedule.value = data
+      expandedDate.value = data.selected_date
+      if (!date) todayDate.value = data.selected_date
+    }
   } catch (exception) {
     if (currentRequest === requestNumber) error.value = exception.message
   } finally {
@@ -57,10 +63,23 @@ async function load(date = '', weekStart = '') {
 
 onMounted(() => load())
 
+function selectDay(day) {
+  if (loading.value || !schedule.value) return
+  if (expandedDate.value === day.date) {
+    expandedDate.value = null
+    return
+  }
+  showRooms.value = false
+  expandedDate.value = day.date
+  load(day.date, schedule.value.week_start)
+}
+
 function changeWeek(direction) {
   if (schedule.value) {
+    showRooms.value = false
+    expandedDate.value = moveDate(schedule.value.selected_date, direction * 7)
     load(
-      moveDate(schedule.value.selected_date, direction * 7),
+      expandedDate.value,
       moveDate(schedule.value.week_start, direction * 7),
     )
   }
@@ -165,93 +184,107 @@ function roomPeriodStyle(period) {
             <button class="cs-icon-button" aria-label="次の週" :disabled="loading" @click="changeWeek(1)"><i class="ti ti-chevron-right"></i></button>
           </div>
           <div class="cs-day-list" :aria-busy="loading">
-            <button
+            <div
               v-for="day in schedule.days"
               :key="day.date"
-              class="cs-day"
-              :class="{ 'is-selected': day.date === schedule.selected_date }"
-              :aria-pressed="day.date === schedule.selected_date"
-              :disabled="loading"
-              @click="load(day.date, schedule.week_start)"
+              class="cs-day-item"
             >
-              <span class="cs-day-date">{{ dayLabel(day.date) }}</span>
-              <span class="cs-day-detail">
-                <template v-if="day.shifts.length">
-                  <span v-for="(shift, index) in day.shifts" :key="index" class="cs-day-shift">
-                    {{ shift.start }}–{{ shift.end }} · {{ shift.room_name }}
+              <h3 class="cs-day-heading">
+                <button
+                  :id="`cs-day-${day.date}`"
+                  class="cs-day"
+                  :class="{ 'is-selected': expandedDate === day.date }"
+                  :aria-expanded="expandedDate === day.date"
+                  :aria-controls="`cs-panel-${day.date}`"
+                  :disabled="loading"
+                  @click="selectDay(day)"
+                >
+                  <span class="cs-day-date">{{ dayLabel(day.date) }}</span>
+                  <span class="cs-day-detail">
+                    <template v-if="day.shifts.length">
+                      <span v-for="(shift, index) in day.shifts" :key="index" class="cs-day-shift">
+                        {{ shift.start }}–{{ shift.end }} · {{ shift.room_name }}
+                      </span>
+                    </template>
+                    <span v-else>出勤予定なし</span>
+                    <small v-if="day.order_count">予約 {{ day.order_count }}件</small>
                   </span>
+                  <i class="ti" :class="expandedDate === day.date ? 'ti-chevron-up' : 'ti-chevron-down'"></i>
+                </button>
+              </h3>
+              <div
+                v-if="expandedDate === day.date"
+                :id="`cs-panel-${day.date}`"
+                class="cs-day-panel"
+                role="region"
+                :aria-labelledby="`cs-day-${day.date}`"
+                :aria-busy="loading"
+              >
+                <div v-if="loading && schedule.selected_date !== day.date" class="cs-panel-loading" role="status">この日の予定を読み込み中...</div>
+                <div v-else-if="schedule.selected_date !== day.date" class="cs-panel-loading">予定を読み込めませんでした。もう一度日付を選んでください。</div>
+                <template v-else>
+                  <div class="cs-section-top">
+                    <h4>{{ dayLabel(day.date) }} の予定</h4>
+                    <button v-if="day.date !== todayDate" class="cs-today-button" :disabled="loading" @click="load()">今日へ戻る</button>
+                  </div>
+
+                  <div v-if="selectedDay?.shifts.length" class="cs-shift-summary">
+                    <i class="ti ti-door"></i>
+                    <div>
+                      <strong>確定した出勤</strong>
+                      <p v-for="(shift, index) in selectedDay.shifts" :key="index">
+                        {{ shift.start }}–{{ shift.end }}　{{ shift.room_name }}
+                      </p>
+                    </div>
+                  </div>
+                  <div v-else class="cs-no-shift">この日の確定した出勤はありません。</div>
+
+                  <div class="cs-timeline-title">
+                    <h5>予約タイムライン</h5>
+                    <span>{{ schedule.orders.length }}件</span>
+                  </div>
+                  <div v-if="schedule.orders.length" class="cs-timeline" :style="{ height: `${timelineHeight}px` }">
+                    <div
+                      v-for="hour in timelineHours"
+                      :key="hour"
+                      class="cs-hour"
+                      :style="{ top: `${(hour - timelineStart) * 52}px` }"
+                    ><span>{{ hourLabel(hour) }}</span></div>
+                    <div
+                      v-for="order in schedule.orders"
+                      :key="order.id"
+                      class="cs-booking"
+                      :class="{ 'is-pending': order.status === 'REQUESTED', 'is-done': order.status === 'DONE' }"
+                      :style="bookingStyle(order)"
+                    >
+                      <strong>{{ order.start }}–{{ order.end }}</strong>
+                      <span>{{ order.room_name }} <span class="cs-booking-status">{{ bookingState(order.status) }}</span></span>
+                    </div>
+                  </div>
+                  <div v-else class="cs-empty-bookings">この日の予約はありません</div>
+
+                  <section class="cs-rooms">
+                    <button class="cs-rooms-toggle" :aria-expanded="showRooms" @click="showRooms = !showRooms">
+                      <span><i class="ti ti-door"></i> この日のルーム使用状況</span>
+                      <i class="ti" :class="showRooms ? 'ti-chevron-up' : 'ti-chevron-down'"></i>
+                    </button>
+                    <div v-if="showRooms" class="cs-rooms-body">
+                      <p>色のついた時間は、確定シフトや予約で使用予定です。</p>
+                      <div v-if="!schedule.rooms.length" class="text-muted small">登録済みのルームはありません。</div>
+                      <div v-for="room in schedule.rooms" :key="room.name" class="cs-room">
+                        <div class="cs-room-head"><strong>{{ room.name }}</strong><span>{{ room.occupied.length ? '使用予定あり' : '使用予定なし' }}</span></div>
+                        <div class="cs-room-bar">
+                          <div v-for="(period, index) in room.occupied" :key="index" class="cs-room-occupied" :style="roomPeriodStyle(period)"></div>
+                        </div>
+                        <div class="cs-room-scale"><span>{{ hourLabel(roomAxisStart) }}</span><span>{{ hourLabel(roomAxisEnd) }}</span></div>
+                        <div v-if="room.occupied.length" class="cs-room-periods">使用予定: {{ room.occupied.map(period => `${period.start}–${period.end}`).join('、') }}</div>
+                      </div>
+                      <p class="cs-room-note">「使用予定なし」はシフト・予約の割当がない状態です。清掃などを含む予約可能時間の保証ではありません。</p>
+                    </div>
+                  </section>
                 </template>
-                <span v-else>出勤予定なし</span>
-                <small v-if="day.order_count">予約 {{ day.order_count }}件</small>
-              </span>
-              <i class="ti ti-chevron-right"></i>
-            </button>
-          </div>
-        </section>
-
-        <section class="cs-card cs-detail" :aria-busy="loading">
-          <div class="cs-section-top">
-            <div>
-              <span class="cs-eyebrow">SELECTED DAY</span>
-              <h3>{{ dayLabel(schedule.selected_date) }} の予定</h3>
-            </div>
-            <button class="cs-today-button" :disabled="loading" @click="load()">今日</button>
-          </div>
-
-          <div v-if="selectedDay?.shifts.length" class="cs-shift-summary">
-            <i class="ti ti-door"></i>
-            <div>
-              <strong>確定した出勤</strong>
-              <p v-for="(shift, index) in selectedDay.shifts" :key="index">
-                {{ shift.start }}–{{ shift.end }}　{{ shift.room_name }}
-              </p>
-            </div>
-          </div>
-          <div v-else class="cs-no-shift">この日の確定した出勤はありません。</div>
-
-          <div class="cs-timeline-title">
-            <h4>予約タイムライン</h4>
-            <span>{{ schedule.orders.length }}件</span>
-          </div>
-          <div v-if="schedule.orders.length" class="cs-timeline" :style="{ height: `${timelineHeight}px` }">
-            <div
-              v-for="hour in timelineHours"
-              :key="hour"
-              class="cs-hour"
-              :style="{ top: `${(hour - timelineStart) * 52}px` }"
-            ><span>{{ hourLabel(hour) }}</span></div>
-            <div
-              v-for="order in schedule.orders"
-              :key="order.id"
-              class="cs-booking"
-              :class="{ 'is-pending': order.status === 'REQUESTED', 'is-done': order.status === 'DONE' }"
-              :style="bookingStyle(order)"
-            >
-              <strong>{{ order.start }}–{{ order.end }}</strong>
-              <span>{{ order.room_name }} <span class="cs-booking-status">{{ bookingState(order.status) }}</span></span>
-            </div>
-          </div>
-          <div v-else class="cs-empty-bookings">この日の予約はありません</div>
-          <router-link to="/cast/orders" class="cs-orders-link">今日の予約の確認・操作はこちら <i class="ti ti-arrow-right"></i></router-link>
-        </section>
-
-        <section class="cs-card cs-rooms">
-          <button class="cs-rooms-toggle" :aria-expanded="showRooms" @click="showRooms = !showRooms">
-            <span><i class="ti ti-door"></i> この日のルーム使用状況</span>
-            <i class="ti" :class="showRooms ? 'ti-chevron-up' : 'ti-chevron-down'"></i>
-          </button>
-          <div v-if="showRooms" class="cs-rooms-body">
-            <p>色のついた時間は、確定シフトや予約で使用予定です。</p>
-            <div v-if="!schedule.rooms.length" class="text-muted small">登録済みのルームはありません。</div>
-            <div v-for="room in schedule.rooms" :key="room.name" class="cs-room">
-              <div class="cs-room-head"><strong>{{ room.name }}</strong><span>{{ room.occupied.length ? '使用予定あり' : '使用予定なし' }}</span></div>
-              <div class="cs-room-bar">
-                <div v-for="(period, index) in room.occupied" :key="index" class="cs-room-occupied" :style="roomPeriodStyle(period)"></div>
               </div>
-              <div class="cs-room-scale"><span>{{ hourLabel(roomAxisStart) }}</span><span>{{ hourLabel(roomAxisEnd) }}</span></div>
-              <div v-if="room.occupied.length" class="cs-room-periods">使用予定: {{ room.occupied.map(period => `${period.start}–${period.end}`).join('、') }}</div>
             </div>
-            <p class="cs-room-note">「使用予定なし」はシフト・予約の割当がない状態です。清掃などを含む予約可能時間の保証ではありません。</p>
           </div>
         </section>
       </template>
@@ -265,11 +298,12 @@ function roomPeriodStyle(period) {
 .cs-heading h2 { margin: 3px 0 5px; font-size: 1.6rem; font-weight: 800; }
 .cs-heading p { margin: 0; color: #697874; font-size: .82rem; line-height: 1.5; }
 .cs-eyebrow { color: #15816f; font-size: .68rem; font-weight: 800; letter-spacing: .12em; }
-.cs-request-link, .cs-orders-link { flex-shrink: 0; color: #177f70; font-size: .82rem; font-weight: 700; text-decoration: none; }
+.cs-request-link { flex-shrink: 0; color: #177f70; font-size: .82rem; font-weight: 700; text-decoration: none; }
 .cs-card { margin-bottom: 16px; border: 1px solid #e0e9e6; border-radius: 16px; background: #fff; box-shadow: 0 5px 20px rgba(27, 56, 47, .04); overflow: hidden; }
 .cs-week-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f2f8f5; }
 .cs-week-head strong { font-size: .9rem; }
 .cs-icon-button { width: 38px; height: 38px; border: 1px solid #d6e5df; border-radius: 10px; background: #fff; color: #146f62; }
+.cs-day-heading { margin: 0; font-size: inherit; }
 .cs-day { display: grid; grid-template-columns: 86px minmax(0, 1fr) 16px; align-items: center; gap: 8px; width: 100%; padding: 13px 16px; border: 0; border-top: 1px solid #ebf0ee; background: #fff; color: inherit; text-align: left; }
 .cs-day.is-selected { background: #e9f5f0; box-shadow: inset 3px 0 #1b987e; }
 .cs-day-date { font-size: .88rem; font-weight: 800; }
@@ -277,9 +311,10 @@ function roomPeriodStyle(period) {
 .cs-day-shift { overflow-wrap: anywhere; color: #213e36; font-weight: 700; }
 .cs-day-detail small { color: #14816e; font-weight: 800; }
 .cs-day > i { color: #7a9289; }
-.cs-detail { padding: 20px 18px; }
+.cs-day-panel { padding: 18px; border-top: 1px solid #d9ebe3; background: #fff; }
+.cs-panel-loading { padding: 20px 0; color: #66736f; font-size: .84rem; text-align: center; }
 .cs-section-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.cs-section-top h3 { margin: 3px 0 14px; font-size: 1.2rem; font-weight: 800; }
+.cs-section-top h4 { margin: 0 0 14px; font-size: 1.08rem; font-weight: 800; }
 .cs-today-button { padding: 7px 11px; border: 1px solid #cce1d8; border-radius: 9px; background: #fff; color: #177f70; font-size: .8rem; font-weight: 800; }
 .cs-shift-summary { display: flex; gap: 12px; margin-bottom: 24px; padding: 15px; border-radius: 12px; background: #e9f6f1; }
 .cs-shift-summary > i { color: #178b75; font-size: 1.2rem; }
@@ -287,7 +322,7 @@ function roomPeriodStyle(period) {
 .cs-shift-summary p { margin: 2px 0 0; font-size: .92rem; font-weight: 700; }
 .cs-no-shift { margin-bottom: 24px; padding: 13px; border-radius: 10px; background: #f6f8f7; color: #66736f; font-size: .84rem; }
 .cs-timeline-title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 13px; }
-.cs-timeline-title h4 { margin: 0; font-size: .98rem; font-weight: 800; }
+.cs-timeline-title h5 { margin: 0; font-size: .98rem; font-weight: 800; }
 .cs-timeline-title span { color: #64736e; font-size: .8rem; }
 .cs-timeline { position: relative; margin: 0 0 14px 7px; border-left: 1px solid #dbe6e1; }
 .cs-hour { position: absolute; left: 0; right: 0; height: 1px; border-top: 1px solid #e6edeb; }
@@ -299,8 +334,8 @@ function roomPeriodStyle(period) {
 .cs-booking.is-pending { border-color: #cb9129; background: #fff2d9; }
 .cs-booking.is-done { border-color: #8fa49b; background: #edf1ef; }
 .cs-empty-bookings { margin-bottom: 8px; padding: 20px 12px; border-radius: 10px; background: #f7f9f8; color: #71817a; font-size: .82rem; text-align: center; }
-.cs-orders-link { display: block; padding: 10px 2px 1px; text-align: right; }
-.cs-rooms-toggle { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 18px; border: 0; background: #fff; color: #213c32; font-weight: 800; text-align: left; }
+.cs-rooms { margin-top: 22px; border: 1px solid #e0e9e6; border-radius: 12px; overflow: hidden; }
+.cs-rooms-toggle { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 15px; border: 0; background: #f8fbf9; color: #213c32; font-weight: 800; text-align: left; }
 .cs-rooms-toggle span { display: flex; align-items: center; gap: 8px; }
 .cs-rooms-toggle span i { color: #16836f; }
 .cs-rooms-body { padding: 0 18px 18px; }
@@ -318,6 +353,6 @@ function roomPeriodStyle(period) {
   .cs-heading { align-items: flex-start; flex-direction: column; }
   .cs-day { grid-template-columns: 74px minmax(0, 1fr) 14px; gap: 5px; padding: 12px; }
   .cs-day-date { font-size: .8rem; }
-  .cs-detail { padding: 17px 12px; }
+  .cs-day-panel { padding: 16px 12px; }
 }
 </style>
