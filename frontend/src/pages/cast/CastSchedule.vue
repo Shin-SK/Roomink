@@ -42,6 +42,13 @@ function dayLabel(value) {
   return `${date.getMonth() + 1}/${date.getDate()}（${weekDay}）`
 }
 
+function dayCardLabel(day) {
+  const shifts = day.shifts.length
+    ? day.shifts.map(shift => `${shift.start}から${shift.end}、${shift.room_name}`).join('、')
+    : '出勤予定なし'
+  return `${dayLabel(day.date)}、${shifts}、予約${day.order_count}件`
+}
+
 function minutes(value) {
   const [hour, minute] = String(value || '00:00').split(':').map(Number)
   return hour * 60 + minute
@@ -96,6 +103,12 @@ function selectDay(day) {
   roomError.value = ''
   selectedDate.value = day.date
   nextTick(centerSelectedDay)
+}
+
+function goToday() {
+  const todayInWeek = schedule.value?.days.find(day => day.date === todayDate.value)
+  if (todayInWeek) selectDay(todayInWeek)
+  else load()
 }
 
 function changeWeek(direction) {
@@ -288,12 +301,16 @@ function roomPeriodStyle(period) {
               :data-date="day.date"
               class="cs-day"
               :class="{ 'is-selected': selectedDate === day.date }"
+              :aria-label="dayCardLabel(day)"
               :aria-pressed="selectedDate === day.date"
               aria-controls="cs-day-panel"
               :disabled="loading"
               @click="selectDay(day)"
             >
-              <span class="cs-day-date">{{ dayLabel(day.date) }}</span>
+              <span class="cs-day-top">
+                <span class="cs-day-date">{{ dayLabel(day.date) }}</span>
+                <span v-if="day.order_count" class="cs-booking-count" :title="`予約${day.order_count}件`" aria-hidden="true">{{ day.order_count > 99 ? '99+' : day.order_count }}</span>
+              </span>
               <span class="cs-day-detail">
                 <template v-if="day.shifts.length">
                   <span v-for="(shift, index) in day.shifts" :key="index" class="cs-day-shift">
@@ -302,7 +319,6 @@ function roomPeriodStyle(period) {
                   </span>
                 </template>
                 <span v-else>出勤予定なし</span>
-                <small>予約 {{ day.order_count }}件</small>
               </span>
             </button>
           </div>
@@ -316,7 +332,7 @@ function roomPeriodStyle(period) {
             <template v-if="selectedDay">
               <div class="cs-section-top">
                 <h4>{{ dayLabel(selectedDate) }} の予定</h4>
-                <button v-if="selectedDate !== todayDate" class="cs-today-button" :disabled="loading" @click="load()">今日へ戻る</button>
+                <button v-if="selectedDate !== todayDate" class="cs-today-button" :disabled="loading" @click="goToday">今日へ戻る</button>
               </div>
 
               <div v-if="selectedDay.shifts.length" class="cs-shift-summary">
@@ -400,14 +416,15 @@ function roomPeriodStyle(period) {
 .cs-day { display: flex; flex: 0 0 var(--cs-day-width); flex-direction: column; gap: 9px; min-height: 144px; padding: 12px; border: 1px solid #dfe9e3; border-radius: 12px; background: #fff; color: inherit; text-align: left; scroll-snap-align: center; }
 .cs-day.is-selected { border-color: #1b987e; background: #e9f5f0; box-shadow: 0 0 0 1px #1b987e; }
 .cs-day:focus-visible { outline: 2px solid #137d69; outline-offset: 2px; }
-.cs-day-date { font-size: .86rem; font-weight: 800; white-space: nowrap; }
+.cs-day-top { display: flex; justify-content: space-between; align-items: center; gap: 3px; min-height: 25px; }
+.cs-day-date { font-size: .78rem; font-weight: 800; white-space: nowrap; }
+.cs-booking-count { display: grid; flex: 0 0 auto; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 999px; background: #b45309; color: #fff; font-size: .74rem; font-weight: 800; line-height: 1; }
 .cs-day-detail { display: grid; gap: 5px; min-width: 0; color: #63736e; font-size: .74rem; line-height: 1.3; }
 .cs-day-shift { display: grid; gap: 2px; overflow-wrap: anywhere; color: #213e36; font-weight: 700; }
-.cs-day-detail small { margin-top: 2px; color: #14816e; font-size: .73rem; font-weight: 800; }
 .cs-day-panel { padding: 18px; border-top: 1px solid #d9ebe3; background: #fff; }
-.cs-section-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.cs-section-top h4 { margin: 0 0 14px; font-size: 1.08rem; font-weight: 800; }
-.cs-today-button { padding: 7px 11px; border: 1px solid #cce1d8; border-radius: 9px; background: #fff; color: #177f70; font-size: .8rem; font-weight: 800; }
+.cs-section-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 36px; margin-bottom: 16px; }
+.cs-section-top h4 { margin: 0; font-size: 1.08rem; font-weight: 800; line-height: 1.3; }
+.cs-today-button { flex-shrink: 0; padding: 7px 11px; border: 1px solid #cce1d8; border-radius: 9px; background: #fff; color: #177f70; font-size: .8rem; font-weight: 800; white-space: nowrap; }
 .cs-shift-summary { display: flex; gap: 12px; margin-bottom: 24px; padding: 15px; border-radius: 12px; background: #e9f6f1; }
 .cs-shift-summary > i { color: #178b75; font-size: 1.2rem; }
 .cs-shift-summary strong { font-size: .82rem; }
