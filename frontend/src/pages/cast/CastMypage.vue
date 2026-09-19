@@ -396,63 +396,27 @@ function formatYen(n) {
                 <a v-if="roomMapHref(headerShift)" :href="roomMapHref(headerShift)" target="_blank" rel="noopener noreferrer" class="ca-home-map" :aria-label="`${headerShift.room_name}の地図を開く`"><i class="ti ti-map-pin"></i> 地図</a>
               </div>
               <div v-if="headerShift.room_address" class="ca-home-next__address">{{ headerShift.room_address }}</div>
+              <div v-if="shiftConfirm?.shift?.confirmed_at" class="ca-home-next__confirmed"><i class="ti ti-circle-check" aria-hidden="true"></i> {{ headerShiftIsToday ? '本日の出勤確認済み' : '次回の出勤確認済み' }}</div>
             </div>
           </div>
         </div>
 
-        <!-- 出勤確認（Phase 3-B-1） -->
-        <div class="rk-section-header"><i class="ti ti-calendar-check"></i> 出勤確認</div>
-        <div class="card mb-3">
-          <div class="card-body">
-            <div v-if="shiftConfirmLoading" class="text-muted text-center py-2 small">読み込み中...</div>
-            <div v-else-if="!shiftConfirm || !shiftConfirm.shift" class="text-muted text-center py-2 small">
-              本日の出勤予定はありません
-            </div>
-            <template v-else>
-              <div v-if="confirmShiftError" class="alert alert-danger py-2 small">{{ confirmShiftError }}</div>
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <div>
-                  <div class="fw-bold">
-                    {{ formatShiftDateLabel(shiftConfirm.shift.date) }}
-                    <span class="small text-muted">{{ shiftConfirm.is_today ? '（本日）' : '（次回シフト）' }}</span>
-                  </div>
-                  <div class="small text-muted">
-                    <i class="ti ti-clock"></i> {{ shiftConfirm.shift.start_time }}–{{ shiftConfirm.shift.end_time_extended || shiftConfirm.shift.end_time }}
-                    <span v-if="shiftConfirm.shift.room_name"><i class="ti ti-door"></i> {{ shiftConfirm.shift.room_name }}</span>
-                  </div>
-                </div>
-              </div>
-              <div v-if="shiftConfirm.shift.confirmed_at" class="alert alert-success py-2 px-3 small mb-0">
-                <i class="ti ti-circle-check"></i> 出勤確認済み（{{ formatTime(shiftConfirm.shift.confirmed_at) }}）
-              </div>
-              <template v-else>
-                <button
-                  class="btn btn-primary w-100 mb-2"
-                  :disabled="confirmingShift"
-                  @click="onConfirmShift"
-                >
-                  {{ confirmingShift ? '送信中...' : '出勤確認する' }}
-                </button>
-                <div class="small text-muted">
-                  出勤2時間前までに確認してください。未確認のまま1時間前を過ぎると店舗側に表示されます。
-                </div>
-              </template>
-            </template>
-          </div>
+        <!-- 未確認のシフトだけ先頭で案内する。確認後はヘッダーの状態表示に切り替える。 -->
+        <div v-if="!shiftConfirmLoading && shiftConfirm?.shift && !shiftConfirm.shift.confirmed_at" class="ca-shift-prompt mb-3">
+          <div class="ca-shift-prompt__title"><i class="ti ti-calendar-check" aria-hidden="true"></i> {{ shiftConfirm.is_today ? '本日の出勤確認が必要です' : '次回の出勤確認が必要です' }}</div>
+          <div v-if="confirmShiftError" class="alert alert-danger py-2 small mb-2">{{ confirmShiftError }}</div>
+          <button
+            type="button"
+            class="btn btn-primary w-100"
+            :disabled="confirmingShift"
+            @click="onConfirmShift"
+          >{{ confirmingShift ? '送信中...' : '出勤確認する' }}</button>
+          <div class="ca-shift-prompt__hint">出勤2時間前までに確認してください。未確認のまま1時間前を過ぎると店舗側に表示されます。</div>
         </div>
-
-        <router-link to="/cast/schedule" class="btn btn-outline-primary w-100 mb-3 fw-bold">
-          <i class="ti ti-calendar-week"></i> 出勤・予約予定を見る
-        </router-link>
 
         <div class="rk-section-header ca-bookings-heading">
           <span><i class="ti ti-calendar-event"></i> 本日の予約</span>
           <span class="ca-bookings-count">{{ totalOrders }}件<span v-if="unconfirmedCount > 0" class="ca-bookings-unconfirmed">未確認 {{ unconfirmedCount }}件</span></span>
-        </div>
-
-        <!-- 未確認の予約は他の情報より先に確認する -->
-        <div v-if="unconfirmedCount > 0" class="alert alert-warning ca-bookings-alert mb-3">
-          <i class="ti ti-alert-triangle"></i> 下の予約から「確認する」を押してください。
         </div>
 
         <div
@@ -485,14 +449,17 @@ function formatYen(n) {
             <button
               type="button"
               class="ca-booking-card__disclosure"
+              :class="{ 'is-open': expandedOrderDetails[order.id] }"
               :aria-expanded="!!expandedOrderDetails[order.id]"
               :aria-controls="`ca-booking-details-${order.id}`"
               @click="toggleOrderDetails(order.id)"
             >
-              <span>{{ expandedOrderDetails[order.id] ? '予約内容を閉じる' : '予約内容を見る' }}</span>
+              <span class="ca-booking-card__disclosure-label">
+                {{ expandedOrderDetails[order.id] ? '予約内容を閉じる' : '予約内容を見る' }}
+                <i class="ti" :class="expandedOrderDetails[order.id] ? 'ti-chevron-up' : 'ti-chevron-down'" aria-hidden="true"></i>
+              </span>
               <span v-if="order.memo && !expandedOrderDetails[order.id]" class="ca-booking-card__memo-flag">備考あり</span>
               <span v-else-if="order.options?.length && !expandedOrderDetails[order.id]" class="ca-booking-card__memo-flag">オプションあり</span>
-              <i class="ti" :class="expandedOrderDetails[order.id] ? 'ti-chevron-up' : 'ti-chevron-down'" aria-hidden="true"></i>
             </button>
 
             <div v-show="expandedOrderDetails[order.id]" :id="`ca-booking-details-${order.id}`" class="ca-booking-card__details">
@@ -1029,13 +996,16 @@ function formatYen(n) {
 .ca-home-next__time i, .ca-home-next__room i { color: #16836f; }
 .ca-home-next__room { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: #31453d; font-size: .86rem; font-weight: 700; }
 .ca-home-next__address { color: #65736e; font-size: .71rem; line-height: 1.4; }
+.ca-home-next__confirmed { display: inline-flex; align-items: center; gap: 3px; width: fit-content; margin-top: 3px; padding: 3px 7px; border-radius: 5px; background: #edf6f1; color: #36735d; font-size: .7rem; font-weight: 700; }
 .ca-home-map { display: inline-flex; align-items: center; gap: 3px; padding: 3px 9px; border: 1px solid #cce3d9; border-radius: 999px; color: #147866; font-size: .73rem; font-weight: 800; text-decoration: none; }
 .ca-home-map:hover { background: #e9f5f0; }
 .ca-home-map:focus-visible { outline: 2px solid #147866; outline-offset: 2px; }
+.ca-shift-prompt { padding: 13px 14px; border: 1px solid #cfe4d8; border-radius: 11px; background: #f5faf7; }
+.ca-shift-prompt__title { margin-bottom: 10px; color: #265746; font-size: .88rem; font-weight: 800; }
+.ca-shift-prompt__hint { margin-top: 8px; color: #5e7065; font-size: .72rem; line-height: 1.45; }
 .ca-bookings-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .ca-bookings-count { display: inline-flex; align-items: center; gap: 8px; color: #3e5950; font-size: .78rem; font-weight: 800; white-space: nowrap; }
 .ca-bookings-unconfirmed { color: #b72d32; }
-.ca-bookings-alert { padding: 9px 12px; font-size: .83rem; font-weight: 700; }
 .ca-booking-card { border-color: #e0eae5; border-radius: 14px; overflow: hidden; }
 .ca-booking-card__body { padding: 15px; }
 .ca-booking-card__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -1046,11 +1016,12 @@ function formatYen(n) {
 .ca-booking-card__primary > div { display: flex; align-items: center; gap: 6px; min-width: 0; color: #4d6258; font-size: .82rem; overflow-wrap: anywhere; }
 .ca-booking-card__primary strong { font-weight: 700; }
 .ca-booking-card__primary i, .ca-booking-card__details i { flex: 0 0 auto; color: #238674; }
-.ca-booking-card__disclosure { display: flex; align-items: center; gap: 5px; width: 100%; min-height: 42px; margin: 2px 0 0; padding: 6px 0; border: 0; background: transparent; color: #147866; font-size: .78rem; font-weight: 700; text-align: left; }
-.ca-booking-card__disclosure i { margin-left: auto; }
+.ca-booking-card__disclosure { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 40px; margin: 9px 0 0; padding: 7px 10px; border: 0; border-radius: 8px; background: #f4f8f6; color: #356e5e; font-size: .78rem; font-weight: 700; text-align: left; }
+.ca-booking-card__disclosure.is-open { border-radius: 8px 8px 0 0; background: #eef6f1; }
+.ca-booking-card__disclosure-label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .ca-booking-card__disclosure:focus-visible { outline: 2px solid #147866; outline-offset: 2px; }
-.ca-booking-card__memo-flag { padding: 2px 6px; border-radius: 4px; background: #fff1c8; color: #8c5c00; font-size: .7rem; white-space: nowrap; }
-.ca-booking-card__details { display: grid; gap: 8px; margin-bottom: 4px; padding: 11px; border-radius: 9px; background: #f7faf8; color: #44584e; font-size: .81rem; line-height: 1.5; overflow-wrap: anywhere; }
+.ca-booking-card__memo-flag { margin-left: auto; padding: 2px 6px; border-radius: 4px; background: #fff1c8; color: #8c5c00; font-size: .7rem; white-space: nowrap; }
+.ca-booking-card__details { display: grid; gap: 8px; margin-bottom: 4px; padding: 11px; border-radius: 0 0 8px 8px; background: #eef6f1; color: #44584e; font-size: .81rem; line-height: 1.5; overflow-wrap: anywhere; }
 .ca-booking-card__actions { display: flex; justify-content: flex-end; margin-top: 8px; }
 .ca-booking-card__step { min-height: 40px; font-weight: 700; }
 .ca-info-tabs { display: grid; grid-template-columns: 1.5fr 1fr .8fr; gap: 3px; margin: 18px 0 12px; padding: 4px; border: 1px solid #dbe9e2; border-radius: 12px; background: #f0f6f3; }
