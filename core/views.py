@@ -6528,6 +6528,8 @@ class StorePublicBookingSettingsView(APIView):
             "store_name": store.name,
             "store_slug": store.slug,
             "public_booking_notice": store.public_booking_notice,
+            "guest_contact_phone": store.guest_contact_phone,
+            "guest_contact_phone_memo": store.guest_contact_phone_memo,
             "public_booking_url": f"{frontend_url}/s/{store.slug}/booking",
         }
 
@@ -6550,7 +6552,44 @@ class StorePublicBookingSettingsView(APIView):
                 {"detail": "注意事項は3000文字以内で入力してください。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        update_fields = ["public_booking_notice"]
+        contact_phone = request.data.get("guest_contact_phone", store.guest_contact_phone)
+        if not isinstance(contact_phone, str):
+            return Response(
+                {"detail": "問い合わせ電話番号を文字列で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        contact_phone = contact_phone.strip()
+        if contact_phone:
+            normalized_phone = normalize_phone(contact_phone)
+            if (
+                re.fullmatch(r"[0-9+()（）\-\s]+", contact_phone) is None
+                or len(normalized_phone) not in (10, 11)
+                or not normalized_phone.startswith("0")
+            ):
+                return Response(
+                    {"detail": "問い合わせ電話番号は0から始まる10桁または11桁で入力してください。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        contact_phone_memo = request.data.get(
+            "guest_contact_phone_memo",
+            store.guest_contact_phone_memo,
+        )
+        if not isinstance(contact_phone_memo, str):
+            return Response(
+                {"detail": "問い合わせ番号のメモを文字列で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        contact_phone_memo = contact_phone_memo.strip()
+        if len(contact_phone_memo) > 500:
+            return Response(
+                {"detail": "問い合わせ番号のメモは500文字以内で入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        update_fields = [
+            "public_booking_notice",
+            "guest_contact_phone",
+            "guest_contact_phone_memo",
+        ]
         new_slug = request.data.get("store_slug")
         if new_slug is not None:
             new_slug = str(new_slug).strip().lower()
@@ -6575,6 +6614,8 @@ class StorePublicBookingSettingsView(APIView):
                 store.slug = new_slug
                 update_fields.append("slug")
         store.public_booking_notice = notice
+        store.guest_contact_phone = contact_phone
+        store.guest_contact_phone_memo = contact_phone_memo
         store.save(update_fields=update_fields)
         return Response(self._payload(store))
 

@@ -25,6 +25,10 @@ class StoreAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("name", "slug", "timezone")}),
         ("料金設定", {"fields": ("sms_billing_exempt",)}),
+        ("お客様向け問い合わせ先", {"fields": (
+            "guest_contact_phone",
+            "guest_contact_phone_memo",
+        )}),
         ("LINE設定", {"fields": (
             "line_is_enabled",
             "line_channel_secret",
