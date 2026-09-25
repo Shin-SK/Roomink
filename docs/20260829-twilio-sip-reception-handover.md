@@ -76,3 +76,4 @@
 - LinphoneのiOSバックグラウンド・画面ロック着信は、実機確認が完了するまで本番運用可能とは判定しない。
 - 既存090から米国番号への転送は国際転送扱いになる可能性があり、キャリア側の対応・料金確認が必要。
 - 日本番号の申請は並行継続し、承認後に日本番号へ切り替えるか別途判断する。
+> **2026-09-25追記**: 本資料の受付端末Domainは旧構成である。クラコールの外部入口は提出済み `roomink-reception.sip.jp1.twilio.com` のまま維持し、Groundwireの登録先とRoominkの端末呼出し先だけを `roomink-devices.sip.twilio.com` へ移行した。現行手順は `CRACALL_TWILIO_BYOC_RUNBOOK.md` を正とする。

@@ -1,6 +1,6 @@
 # クラコール × Twilio BYOC 開通反映メモ（2026-09-25）
 
-> **訂正（2026-09-25）**: 本メモに記載した `roomink-clocall.sip.twilio.com` への分離は、2026-09-16にクラコールへ提出済みの `roomink-reception.sip.jp1.twilio.com` と矛盾する無承認の設計変更だった。クラコール側は提出内容どおり正しく設定している。以降は提出済み接続先を固定条件とし、既存 `roomink-reception` DomainへBYOCとクラコール用IP ACLを関連付ける。下記の分離構成は事故記録として残し、正しい最終構成とは扱わない。
+> **最終訂正（2026-09-25）**: クラコールへ提出済みの外部接続先 `roomink-reception.sip.jp1.twilio.com` は固定し、変更しない。一方、実機REGISTERではこのBYOC/IP ACL用DomainがTwilio 403 / 32200を返し、同じCredentialを独立した登録用Domainへ向けると正常な407認証要求へ進むことを再現確認した。したがって、クラコール入口は `roomink-reception` のまま、Roomink内部の受付端末だけを `roomink-devices.sip.twilio.com` へ登録する。過去の `roomink-clocall` への外部切替依頼は誤りであり、本構成とは別物である。
 
 ## 実施済み
 
@@ -57,7 +57,7 @@ Credential List Mappingも同じ形式に対応させた。
   - 正式番号と米国テスト番号: 有効
   - 受付端末: 1台が有効
 
-復旧では `roomink-reception` へBYOC Trunkとクラコール固定IP用ACLを関連付け、Calls AuthenticationだけからCredential Listを外す。Registrations AuthenticationのCredential ListとSIP Registrationは維持する。`roomink-clocall` は即時削除せず、復旧確認が完了するまでロールバック用に残す。
+復旧では `roomink-reception` へBYOC Trunkとクラコール固定IP用ACLを関連付け、Calls AuthenticationからCredential Listを外した。その後の実機検証により、受付端末REGISTERは独立した `roomink-devices` Domainへ分離する。クラコールの接続先、BYOC Trunk、固定IP ACLは変更しない。
 
 ## 実通話で判明した受付端末呼出し条件
 
@@ -67,7 +67,24 @@ Credential List Mappingも同じ形式に対応させた。
 
 Secure Media強制解除後の実通話では、クラコールからRoominkのVoice Webhookへ到達し、正式番号に対応するCallLogが作成された。クラコールはこの試験着信の発信者番号をTwilioへ `Unavailable` として渡したため、Roominkでこれを非通知発信と同じ `anonymous` として受け入れる互換処理と再発テストを追加した。
 
-その後、Roominkは受付端末AORへのTLS子通話を正しく生成した。Twilioの最終結果はエラー32009（登録ユーザーが現在未登録）であり、残件はGroundwire端末をTwilioへオンライン登録させた状態での応答・双方向音声確認だけである。SIP Domain、BYOC、IP ACL、登録用Credential Mapping、RoominkのWebhook処理までは実経路で確認済み。
+その後、Roominkは受付端末AORへのTLS子通話を正しく生成した。Twilioの最終結果はエラー32009（登録ユーザーが現在未登録）だった。Groundwireログでは東京Proxyまで到達後、共有Domainが403 / 32200（insufficient permissions）を返していた。同じ端末Credentialを一時的な独立Domainへ割り当てたREGISTERは407認証要求へ進んだため、Groundwire・iPhone・回線ではなく、BYOC/IP ACLと端末Registrationを同一Domainへ載せた構成が原因と確定した。
+
+最終構成は次のとおり。
+
+- クラコール外部入口: `roomink-reception.sip.jp1.twilio.com`（提出済みのまま）
+- Twilio BYOC終端: `roomink-reception.sip.twilio.com`（クラコール固定IP ACL）
+- Groundwire登録先: `roomink-devices.sip.twilio.com`（受付端末Credential List）
+- Roominkの端末呼出し先: `sip:<端末ユーザー名>@roomink-devices.sip.twilio.com;transport=tls`
+
+## Groundwire初期設定の運用課題
+
+実機では、正式な050受付番号、Groundwireへ入力するSIPアカウント、再表示できないSIPパスワードの違いが利用者に伝わりにくい。既存端末で登録エラーになった場合、利用者がどの値を直すべきか判断できないため、次の改善を本番運用前の課題として残す。
+
+- 正式な受付番号とSIP接続IDを別物として明記する。
+- アカウントを削除させず、対象端末の「QR再発行」からパスワードを更新する手順を画面内で案内する。
+- QR再発行後は、ユーザー名、Domain、TLS、Proxyは原則変更せず、新しいパスワードだけを入れ直すと明記する。
+- Groundwireの登録状態が緑になったことを完了条件として表示する。
+- 将来は、利用者がSIP用語や各入力値を判断しなくても済む初期設定導線を検討する。
 
 ## 誤ってクラコール側へ依頼した切替（撤回）
 
@@ -79,7 +96,7 @@ Twilio電話認証完了後、クラコールへ次を依頼する。
 4. SIP `From` に元の発信者番号を保持する。
 5. G.711 / RFC2833 / SIP 5060で切り替える。
 
-グローバルURIを追加する場合も、提出済みDomainと同じ `roomink-reception.sip.twilio.com` を使用する。別Domainを追加・指定しない。
+クラコール側のグローバルURIを追加する場合も、提出済みDomainと同じ `roomink-reception.sip.twilio.com` を使用する。クラコールの外部接続先として別Domainを追加・指定しない。内部受付端末用の `roomink-devices` はこの外部接続先には使用しない。
 
 ## 切替後の実回線確認
 

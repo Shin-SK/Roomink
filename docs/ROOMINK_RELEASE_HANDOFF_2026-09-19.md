@@ -36,11 +36,11 @@ Roominkはカード情報を保持せず、決済の実行・照合・返金を�
   → クラコール SIP trunk
   → roomink-reception.sip.jp1.twilio.com（クラコール固定IPで認証）
   → Roomink voice webhook
-  → roomink-reception@roomink-reception.sip.twilio.com
+  → <受付端末ユーザー名>@roomink-devices.sip.twilio.com
   → Groundwire等の受付端末
 ```
 
-2026-09-16にクラコールへ提出した接続先は `roomink-reception.sip.jp1.twilio.com` であり、これは外部合意済みの固定条件とする。同じTwilio SIP Domainで、クラコールからのINVITEはIP Access Control List、受付端末のREGISTERは受付端末用Credential Listで別々に認証する。呼制御用Credential Listは設定しない。独自SIPヘッダーには依存せず、標準のSIP `From` とRequest-URIから発信者番号・着信番号を取得する。
+2026-09-16にクラコールへ提出した接続先は `roomink-reception.sip.jp1.twilio.com` であり、これは外部合意済みの固定条件とする。クラコールからのINVITEは同DomainのIP Access Control Listで認証する。受付端末のREGISTERは、実機で共有Domainが403/32200を返すことを確認したため、内部専用 `roomink-devices.sip.twilio.com` のCredential Listで認証する。クラコール側の接続先は変更しない。独自SIPヘッダーには依存せず、標準のSIP `From` とRequest-URIから発信者番号・着信番号を取得する。
 
 ## 2026-09-25 接続先分離事故
 
@@ -112,7 +112,7 @@ python manage.py check_voice_readiness --store-id <STORE_ID> --live
 ## 開通日に行う順序
 
 1. クラコール回答内容を上記チェックリストと照合する。
-2. Twilioの既存 `roomink-reception.sip.twilio.com` をBYOC Trunkへ関連付け、クラコール固定IPのACLを呼認証へ追加する。受付端末のRegistration認証は維持する。
+2. Twilioの既存 `roomink-reception.sip.twilio.com` をBYOC Trunkへ関連付け、クラコール固定IPのACLを呼認証へ追加する。受付端末のRegistration認証は内部専用 `roomink-devices.sip.twilio.com` に設定する。
 3. 対象店舗を確定し、着信番号をRoominkへ登録する。
 4. 本番環境変数へTwilioリソースIDを設定する。
 5. `check_voice_readiness --live` が合格することを確認する。

@@ -242,6 +242,9 @@ TWILIO_SIP_CREDENTIAL_LIST_SID = os.getenv(
     "TWILIO_SIP_CREDENTIAL_LIST_SID",
     "CL61459635521ae572c76b9d689df74f7a",
 )
+TWILIO_SIP_REGISTRATION_DOMAIN_SID = os.getenv(
+    "TWILIO_SIP_REGISTRATION_DOMAIN_SID", ""
+).strip()
 TWILIO_SIP_URI = os.getenv(
     "TWILIO_SIP_URI",
     "roomink-reception@roomink-reception.sip.twilio.com",
@@ -250,6 +253,10 @@ TWILIO_BYOC_TRUNK_SID = os.getenv("TWILIO_BYOC_TRUNK_SID", "").strip()
 TWILIO_BYOC_TERMINATION_DOMAIN_SID = os.getenv(
     "TWILIO_BYOC_TERMINATION_DOMAIN_SID", ""
 ).strip()
+TWILIO_BYOC_TERMINATION_DOMAIN_NAME = os.getenv(
+    "TWILIO_BYOC_TERMINATION_DOMAIN_NAME",
+    "roomink-reception.sip.twilio.com",
+).strip().lower()
 TWILIO_BYOC_CREDENTIAL_LIST_SID = os.getenv(
     "TWILIO_BYOC_CREDENTIAL_LIST_SID", ""
 ).strip()

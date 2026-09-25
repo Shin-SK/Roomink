@@ -10,6 +10,7 @@ SID_PATTERNS = {
     "TWILIO_ACCOUNT_SID": r"AC[0-9a-fA-F]{32}",
     "TWILIO_BYOC_TRUNK_SID": r"BY[0-9a-fA-F]{32}",
     "TWILIO_BYOC_TERMINATION_DOMAIN_SID": r"SD[0-9a-fA-F]{32}",
+    "TWILIO_SIP_REGISTRATION_DOMAIN_SID": r"SD[0-9a-fA-F]{32}",
     "TWILIO_BYOC_CREDENTIAL_LIST_SID": r"CL[0-9a-fA-F]{32}",
     "TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID": r"AL[0-9a-fA-F]{32}",
     "TWILIO_SIP_CREDENTIAL_LIST_SID": r"CL[0-9a-fA-F]{32}",
@@ -41,6 +42,11 @@ class Command(BaseCommand):
         if not re.fullmatch(r"\+[1-9]\d{7,14}", settings.TWILIO_FROM_PHONE or ""):
             failures.append("TWILIO_FROM_PHONE is missing or malformed")
         self._check_sid("TWILIO_SIP_CREDENTIAL_LIST_SID", settings.TWILIO_SIP_CREDENTIAL_LIST_SID, failures)
+        self._check_sid(
+            "TWILIO_SIP_REGISTRATION_DOMAIN_SID",
+            settings.TWILIO_SIP_REGISTRATION_DOMAIN_SID,
+            failures,
+        )
         self._check_sid("TWILIO_BYOC_TRUNK_SID", settings.TWILIO_BYOC_TRUNK_SID, failures)
         self._check_sid(
             "TWILIO_BYOC_TERMINATION_DOMAIN_SID",
@@ -135,8 +141,11 @@ class Command(BaseCommand):
             trunk = client.voice.v1.byoc_trunks(
                 settings.TWILIO_BYOC_TRUNK_SID
             ).fetch()
-            domain = client.api.v2010.account.sip.domains(
+            termination_domain = client.api.v2010.account.sip.domains(
                 settings.TWILIO_BYOC_TERMINATION_DOMAIN_SID
+            ).fetch()
+            registration_domain = client.api.v2010.account.sip.domains(
+                settings.TWILIO_SIP_REGISTRATION_DOMAIN_SID
             ).fetch()
             sms_numbers = client.incoming_phone_numbers.list(
                 phone_number=settings.TWILIO_FROM_PHONE,
@@ -152,46 +161,73 @@ class Command(BaseCommand):
             failures.append("BYOC Trunk status callback is not the Roomink endpoint")
         if str(trunk.status_callback_method).upper() != "POST":
             failures.append("BYOC Trunk status callback method is not POST")
-        if domain.byoc_trunk_sid != settings.TWILIO_BYOC_TRUNK_SID:
+        if termination_domain.byoc_trunk_sid != settings.TWILIO_BYOC_TRUNK_SID:
             failures.append("termination SIP Domain is not linked to the configured BYOC Trunk")
-        if domain.domain_name not in expected_sip_domains:
+        if termination_domain.domain_name != settings.TWILIO_BYOC_TERMINATION_DOMAIN_NAME:
             failures.append(
-                "termination SIP Domain does not match the submitted reception SIP Domain"
+                "termination SIP Domain does not match the submitted Clocall SIP Domain"
             )
         auth_types = {
             value.strip()
-            for value in str(domain.auth_type or "").split(",")
+            for value in str(termination_domain.auth_type or "").split(",")
             if value.strip()
         }
         if not auth_types.intersection({"CREDENTIAL_LIST", "IP_ACL"}):
             failures.append("termination SIP Domain has no supported authentication")
-        call_credential_mappings = domain.credential_list_mappings.list(limit=50)
+        call_credential_mappings = termination_domain.credential_list_mappings.list(limit=50)
         if call_credential_mappings or "CREDENTIAL_LIST" in auth_types:
             failures.append(
                 "submitted carrier connection must not require call credentials"
             )
         if settings.TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID:
-            mappings = domain.ip_access_control_list_mappings.list(limit=50)
+            mappings = termination_domain.ip_access_control_list_mappings.list(limit=50)
             if settings.TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID not in {
                 getattr(item, "ip_access_control_list_sid", None) or item.sid
                 for item in mappings
             }:
                 failures.append("BYOC IP ACL is not mapped to the termination domain")
-        if not domain.sip_registration:
-            failures.append("reception SIP registration must remain enabled")
-        if domain.secure:
+        if termination_domain.secure:
             failures.append(
-                "shared carrier SIP Domain must accept the submitted UDP/5060 transport"
+                "carrier SIP Domain must accept the submitted UDP/5060 transport"
             )
-        registration_mappings = (
-            domain.auth.registrations.credential_list_mappings.list(limit=50)
-        )
+        if termination_domain.domain_name in expected_sip_domains:
+            failures.append(
+                "carrier SIP Domain and reception-device registration Domain must be separate"
+            )
+
+        if registration_domain.domain_name not in expected_sip_domains:
+            failures.append(
+                "reception-device SIP Domain does not match the store configuration"
+            )
+        if registration_domain.domain_name == termination_domain.domain_name:
+            failures.append(
+                "reception-device SIP Domain must not reuse the carrier SIP Domain"
+            )
+        if registration_domain.byoc_trunk_sid:
+            failures.append(
+                "reception-device SIP Domain must not be linked to the carrier BYOC Trunk"
+            )
+        if not registration_domain.sip_registration:
+            failures.append("reception-device SIP registration is disabled")
+        if registration_domain.secure:
+            failures.append(
+                "reception-device SIP Domain requires unsupported mandatory secure media"
+            )
+        registration_mappings = registration_domain.auth.registrations.credential_list_mappings.list(limit=50)
         if settings.TWILIO_SIP_CREDENTIAL_LIST_SID not in {
             getattr(item, "credential_list_sid", None) or item.sid
             for item in registration_mappings
         }:
             failures.append(
                 "reception device Credential List is not mapped to SIP registration"
+            )
+        device_call_mappings = registration_domain.credential_list_mappings.list(limit=50)
+        if settings.TWILIO_SIP_CREDENTIAL_LIST_SID not in {
+            getattr(item, "credential_list_sid", None) or item.sid
+            for item in device_call_mappings
+        }:
+            failures.append(
+                "reception device Credential List is not mapped to SIP calls"
             )
         if not sms_numbers or not bool((sms_numbers[0].capabilities or {}).get("sms")):
             failures.append("TWILIO_FROM_PHONE is not an SMS-capable Twilio number")

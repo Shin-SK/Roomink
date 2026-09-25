@@ -11,7 +11,7 @@
   → クラコール SIP trunk
   → roomink-reception.sip.jp1.twilio.com
   → Roomink voice webhook
-  → sip:roomink-reception@roomink-reception.sip.twilio.com;transport=tls
+  → sip:<受付端末ユーザー名>@roomink-devices.sip.twilio.com;transport=tls
   → Groundwire等の受付端末
 ```
 
@@ -21,7 +21,8 @@
 
 - 2026-09-16にクラコールへ提出した接続先 `roomink-reception.sip.jp1.twilio.com` を使用する。
 - ユーザーの明示承認なしに別のSIP Domainへ変更しない。
-- 同じSIP Domain内で認証用途を分ける。クラコールからのINVITEはIP ACL、受付端末のREGISTERはRegistration用Credential Listを使用する。
+- クラコールからのINVITEは提出済み `roomink-reception` DomainでIP ACL認証する。
+- 受付端末のREGISTERは内部専用 `roomink-devices` DomainでCredential List認証する。外部接続先の変更ではない。
 - 呼認証へ受付端末用Credential Listを紐付けない。IP ACLと呼認証Credentialを両方設定すると、Twilioが両方を要求するためである。
 - PBXの外線転送は使わない。発信者番号が変わる可能性があり、Roominkの顧客照合を壊すためである。
 - Twilio BYOCでは独自SIPヘッダーがWebhookへ渡らないため、独自ヘッダーに依存しない。
@@ -57,18 +58,27 @@
 - Method: `POST`
 - Origination Connection Policy: 不要。今回の経路はクラコールからTwilioへの着信のみ。
 
-### 2. 既存受付SIPドメインをBYOC終端として使用
+### 2. 提出済みSIPドメインをBYOC終端として使用
 
 - Domain: `roomink-reception.sip.twilio.com`
 - Configure With: 上記BYOC Trunk
-- SIP Registration: 有効のまま維持
+- SIP Registration: 受付端末には使用しない
 - Secure Media強制: 無効（クラコール提出仕様のSIP UDP/5060を受けるため）
 - Calls Authentication: クラコール固定送信元IP専用のIP Access Control Listだけを設定
-- Registrations Authentication: 既存の受付端末用Credential Listを維持
+- Registrations Authentication: 受付端末用Credential Listを置かない
 - Calls AuthenticationのCredential List Mappingは削除する。Registration用Mappingは削除しない。
-- Groundwireの登録はTLSを維持し、Roominkから受付端末を呼ぶ `<Dial><Sip>` も `;transport=tls` を必須にする。
 
-### 3. クラコールへ渡す接続先
+### 3. 受付端末専用SIPドメイン
+
+- Domain: `roomink-devices.sip.twilio.com`
+- BYOC Trunk: 関連付けない
+- SIP Registration: 有効
+- Calls Authentication: 受付端末用Credential List
+- Registrations Authentication: 同じ受付端末用Credential List
+- Groundwireは東京Proxy `sip.tokyo.twilio.com` を使ってTLS登録する。
+- Roominkから受付端末を呼ぶ `<Dial><Sip>` は `;transport=tls` を必須にする。
+
+### 4. クラコールへ渡す接続先
 
 クラコールへ提出済みのFQDNは `roomink-reception.sip.jp1.twilio.com`。クラコール側・提出書類・Twilio側・Roomink側の4箇所が一致していることを確認する。
 
@@ -81,15 +91,17 @@
 ```text
 TWILIO_BYOC_TRUNK_SID
 TWILIO_BYOC_TERMINATION_DOMAIN_SID
+TWILIO_BYOC_TERMINATION_DOMAIN_NAME=roomink-reception.sip.twilio.com
 TWILIO_BYOC_CREDENTIAL_LIST_SID
 TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID
+TWILIO_SIP_REGISTRATION_DOMAIN_SID
 TWILIO_FROM_PHONE
 TWILIO_WEBHOOK_PUBLIC_BASE_URL=https://api.roomink.net
 TWILIO_WEBHOOK_ALLOW_UNSIGNED=0
 RESERVATION_LINK_BASE_URL=https://r.roomink.net
 ```
 
-`TWILIO_BYOC_CREDENTIAL_LIST_SID` は空、`TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID` はクラコール固定送信元IP用ACLのSIDにする。`TWILIO_BYOC_TERMINATION_DOMAIN_SID` は既存 `roomink-reception.sip.twilio.com` のDomain SIDにする。
+`TWILIO_BYOC_CREDENTIAL_LIST_SID` は空、`TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID` はクラコール固定送信元IP用ACLのSIDにする。`TWILIO_BYOC_TERMINATION_DOMAIN_SID` は提出済み `roomink-reception.sip.twilio.com`、`TWILIO_SIP_REGISTRATION_DOMAIN_SID` は内部専用 `roomink-devices.sip.twilio.com` のDomain SIDにする。
 
 ### 店舗データ
 
@@ -151,6 +163,7 @@ RESERVATION_LINK_BASE_URL=https://r.roomink.net
 | 403になる | Twilio Webhook署名、公開URL、リバースプロキシのURL復元 |
 | 店舗が見つからない | SIP Request-URIのuser部、`StorePhoneNumber.phone` |
 | 顧客が見つからない | SIP `From`、発信者番号通知、国内番号正規化 |
+| Groundwireが赤・REGISTERが403/32200 | 端末がBYOC終端Domainではなく `roomink-devices.sip.twilio.com` を使っているか、Registration Credential Mapping、東京Proxy |
 | 受付端末が鳴らない | 店舗の受付SIPドメイン、端末Credential、登録状態 |
 | 片通話・無音 | クラコール/TwilioのTLS・SRTP・コーデック・NAT |
 
