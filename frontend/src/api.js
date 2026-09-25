@@ -400,9 +400,14 @@ export const api = {
 
   // CTI
   getCtiQueue: () => request('GET', '/op/cti/queue/'),
+  markCtiCallsSeen: (callIds) => request('POST', '/op/cti/calls/mark-seen/', { call_ids: callIds }),
   ctiCallStart: (id) => request('POST', `/op/cti/calls/${id}/start/`),
   ctiCallDone: (id) => request('POST', `/op/cti/calls/${id}/done/`),
   ctiCallAddNote: (id, body) => request('POST', `/op/cti/calls/${id}/notes/`, { body }),
+
+  // Roomink運営（スーパーユーザー専用）
+  getPlatformDashboard: (month = '') => request('GET', `/platform/dashboard/${month ? `?month=${encodeURIComponent(month)}` : ''}`),
+  setPlatformActiveStore: (storeId) => request('POST', '/platform/active-store/', { store_id: storeId }),
 
   // Op CallLogs (Phase 3: 手動架電履歴)
   getCallLogs: (params = '') => {

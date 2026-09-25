@@ -1895,11 +1895,11 @@ class CallLogSerializer(serializers.ModelSerializer):
             "id", "contact_id", "from_phone", "to_phone", "status",
             "customer", "customer_label",
             "assigned_to", "assigned_to_label",
-            "is_repeat", "created_at", "updated_at",
+            "is_repeat", "duration_seconds", "created_at", "updated_at",
             "notes",
         ]
         read_only_fields = [
-            "id", "contact_id", "status", "assigned_to", "is_repeat",
+            "id", "contact_id", "status", "assigned_to", "is_repeat", "duration_seconds",
             "created_at", "updated_at",
         ]
 

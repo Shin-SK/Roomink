@@ -226,9 +226,14 @@ urlpatterns = [
     # CTI
     path("op/cti/inbound/", views.CtiInboundView.as_view(), name="cti-inbound"),
     path("op/cti/queue/", views.CtiQueueView.as_view(), name="cti-queue"),
+    path("op/cti/calls/mark-seen/", views.CtiCallsMarkSeenView.as_view(), name="cti-calls-mark-seen"),
     path("op/cti/calls/<int:pk>/start/", views.CtiCallStartView.as_view(), name="cti-call-start"),
     path("op/cti/calls/<int:pk>/done/", views.CtiCallDoneView.as_view(), name="cti-call-done"),
     path("op/cti/calls/<int:pk>/notes/", views.CtiCallNoteView.as_view(), name="cti-call-notes"),
+
+    # Roomink運営（スーパーユーザー専用）
+    path("platform/dashboard/", views.PlatformDashboardView.as_view(), name="platform-dashboard"),
+    path("platform/active-store/", views.PlatformActiveStoreView.as_view(), name="platform-active-store"),
 
     # router (orders, shifts, customers, casts, courses, options, rooms)
     path("", include(router.urls)),

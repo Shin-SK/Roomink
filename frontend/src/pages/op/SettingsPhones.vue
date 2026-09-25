@@ -245,7 +245,7 @@ async function toggleActive(it) {
             </div>
           </details>
 
-          <div class="input-group mt-3">
+          <div class="input-group phone-device-create mt-3">
             <input
               v-model="deviceLabel"
               type="text"
@@ -268,7 +268,7 @@ async function toggleActive(it) {
             Twilio SIP Domainと本番の端末認証API設定が揃うと端末を追加できます。
           </div>
 
-          <div class="table-responsive mt-3">
+          <div class="table-responsive phone-settings-table mt-3">
             <table class="table table-sm align-middle mb-0">
               <thead>
                 <tr>
@@ -283,21 +283,21 @@ async function toggleActive(it) {
                   <td colspan="4" class="text-muted text-center py-3">受付端末はまだありません</td>
                 </tr>
                 <tr v-for="device in sipDevices" :key="device.id">
-                  <td>
+                  <td data-label="端末名">
                     <div class="fw-semibold">{{ device.label }}</div>
                     <div class="small text-muted">{{ device.sip_username }}</div>
                   </td>
-                  <td>
+                  <td data-label="状態">
                     <span v-if="device.is_active" class="badge bg-success">利用中</span>
                     <span v-else class="badge bg-secondary">停止済み</span>
                     <div v-if="device.revocation_pending" class="small text-danger mt-1">認証削除の再試行が必要</div>
                   </td>
-                  <td>
+                  <td data-label="初期設定">
                     <span v-if="device.provisioned_at" class="small text-success">設定済み</span>
                     <span v-else-if="device.is_active" class="small text-warning">QR読み取り待ち</span>
                     <span v-else>—</span>
                   </td>
-                  <td class="text-nowrap text-end">
+                  <td data-label="操作" class="phone-settings-actions text-end">
                     <button
                       v-if="device.is_active"
                       class="btn btn-outline-primary btn-sm me-1"
@@ -357,7 +357,8 @@ async function toggleActive(it) {
           登録されたCTI電話番号はありません
         </div>
 
-        <table v-else class="table table-hover mb-0 align-middle">
+        <div v-else class="table-responsive phone-settings-table">
+        <table class="table table-hover mb-0 align-middle">
           <thead>
             <tr>
               <th>CTI着信番号</th>
@@ -370,15 +371,15 @@ async function toggleActive(it) {
           </thead>
           <tbody>
             <tr v-for="it in items" :key="it.id">
-              <td>{{ it.phone }}</td>
-              <td>{{ it.source_phone || '—' }}</td>
-              <td>{{ it.label || '—' }}</td>
-              <td>{{ it.memo || '—' }}</td>
-              <td>
+              <td data-label="CTI着信番号">{{ it.phone }}</td>
+              <td data-label="店舗受付番号">{{ it.source_phone || '—' }}</td>
+              <td data-label="表示名">{{ it.label || '—' }}</td>
+              <td data-label="メモ">{{ it.memo || '—' }}</td>
+              <td data-label="状態">
                 <span v-if="it.is_active" class="badge bg-success">有効</span>
                 <span v-else class="badge bg-secondary">無効</span>
               </td>
-              <td class="text-nowrap">
+              <td data-label="操作" class="phone-settings-actions">
                 <button class="btn btn-outline-secondary btn-sm me-1" @click="openEdit(it)">
                   <i class="ti ti-edit"></i> 編集
                 </button>
@@ -389,6 +390,7 @@ async function toggleActive(it) {
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 
@@ -451,5 +453,24 @@ async function toggleActive(it) {
   margin: 0 auto;
   border-radius: 8px;
   background: #fff;
+}
+@media (max-width: 767.98px) {
+  .phone-device-create { display: grid; grid-template-columns: 1fr; gap: .5rem; }
+  .phone-device-create > .form-control,
+  .phone-device-create > .btn { width: 100%; border-radius: .375rem !important; }
+  .phone-settings-table { overflow: visible; }
+  .phone-settings-table table,
+  .phone-settings-table tbody,
+  .phone-settings-table tr,
+  .phone-settings-table td { display: block; width: 100%; }
+  .phone-settings-table thead { display: none; }
+  .phone-settings-table tr { padding: .85rem; margin-bottom: .75rem; border: 1px solid #dce8e6; border-radius: 12px; background: #fff; }
+  .phone-settings-table td { display: grid; grid-template-columns: minmax(92px, 35%) minmax(0, 1fr); gap: .75rem; padding: .42rem 0; border: 0; text-align: left !important; overflow-wrap: anywhere; }
+  .phone-settings-table td::before { content: attr(data-label); color: #6c7b77; font-size: .78rem; font-weight: 700; }
+  .phone-settings-table td[colspan] { display: block; }
+  .phone-settings-table td[colspan]::before { display: none; }
+  .phone-settings-actions { white-space: normal !important; }
+  .phone-settings-actions .btn { margin: .15rem .25rem .15rem 0 !important; }
+  .card-header { gap: .75rem; flex-wrap: wrap; }
 }
 </style>

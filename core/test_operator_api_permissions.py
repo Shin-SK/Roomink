@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from core.models import CallLog, Cast, CastNote, Customer, Store, UserProfile
+from core.models import CallLog, CallLogReadReceipt, Cast, CastNote, Customer, Store, UserProfile
 
 
 User = get_user_model()
@@ -217,3 +217,63 @@ class OperatorApiPermissionTest(TestCase):
         self.assertEqual(other_response.status_code, 404, other_response.data)
         other_call.refresh_from_db()
         self.assertEqual(other_call.status, CallLog.Status.NEW)
+
+    def test_cti_read_receipt_is_personal_and_does_not_change_workflow_status(self):
+        call = CallLog.objects.create(
+            store=self.store,
+            contact_id="permission-read-receipt",
+            from_phone="07000000004",
+            to_phone="05000000001",
+        )
+
+        response = self.staff_client.post(
+            "/api/op/cti/calls/mark-seen/",
+            {"call_ids": [call.id]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(CallLogReadReceipt.objects.filter(call=call, user=self.staff).exists())
+        call.refresh_from_db()
+        self.assertEqual(call.status, CallLog.Status.NEW)
+
+        staff_queue = self.staff_client.get("/api/op/cti/queue/")
+        manager_queue = self.manager_client.get("/api/op/cti/queue/")
+        self.assertTrue(staff_queue.data["calls"][0]["seen_by_me"])
+        self.assertFalse(manager_queue.data["calls"][0]["seen_by_me"])
+
+    def test_platform_dashboard_and_store_switch_are_superuser_only(self):
+        admin = User.objects.create_superuser("platform_admin", password="test-password")
+        UserProfile.objects.create(user=admin, store=self.store, role=UserProfile.Role.MANAGER)
+        admin_client = self.client_for(admin)
+        other_store = Store.objects.create(name="切替先店舗")
+
+        forbidden = self.manager_client.get("/api/platform/dashboard/")
+        self.assertEqual(forbidden.status_code, 403, forbidden.data)
+
+        dashboard = admin_client.get("/api/platform/dashboard/")
+        self.assertEqual(dashboard.status_code, 200, dashboard.data)
+        dashboard_store_ids = {row["id"] for row in dashboard.data["stores"]}
+        self.assertTrue({self.store.id, other_store.id}.issubset(dashboard_store_ids))
+
+        switched = admin_client.post(
+            "/api/platform/active-store/",
+            {"store_id": other_store.id},
+            format="json",
+        )
+        self.assertEqual(switched.status_code, 200, switched.data)
+        me = admin_client.get("/api/auth/me/")
+        self.assertEqual(me.status_code, 200, me.data)
+        self.assertEqual(me.data["role"], "superuser")
+        self.assertTrue(me.data["is_superuser"])
+        self.assertEqual(me.data["store_id"], other_store.id)
+
+    def test_phone_settings_are_platform_admin_only(self):
+        response = self.manager_client.get("/api/op/store-phones/")
+        self.assertEqual(response.status_code, 403, response.data)
+
+        admin = User.objects.create_superuser("phone_admin", password="test-password")
+        UserProfile.objects.create(user=admin, store=self.store, role=UserProfile.Role.MANAGER)
+        admin_client = self.client_for(admin)
+        response = admin_client.get("/api/op/store-phones/")
+        self.assertEqual(response.status_code, 200, response.data)

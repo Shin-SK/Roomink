@@ -1,9 +1,10 @@
 <script setup>
 import { computed } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
-import { getAuthRole } from '../../router.js'
+import { getAuthIsSuperuser, getAuthRole } from '../../router.js'
 
 const isManager = computed(() => getAuthRole() === 'manager')
+const isSuperuser = computed(() => getAuthIsSuperuser())
 
 const menuItems = [
   { to: '/op/settings/casts', icon: 'ti-users', label: 'キャスト管理', desc: 'キャストの追加・編集・削除', managerOnly: true },
@@ -20,12 +21,15 @@ const menuItems = [
   { to: '/op/settings/payment-fees', icon: 'ti-percentage', label: '決済手数料設定', desc: '現金/PayPay/カードの手数料率（参考値・マネージャーのみ）', managerOnly: true },
   { to: '/op/settings/sms-templates', icon: 'ti-message', label: 'SMS文面設定', desc: '予約確認・カード決済前後のSMS文面と決済URL', managerOnly: false },
   { to: '/op/settings/public-booking', icon: 'ti-world-www', label: 'Web予約設定', desc: '店舗専用URLと予約画面の注意事項', managerOnly: true },
-  { to: '/op/settings/phones', icon: 'ti-phone', label: 'CTI電話番号設定', desc: 'CTI着信番号の登録・編集', managerOnly: true },
+  { to: '/op/settings/phones', icon: 'ti-phone', label: '電話・受付端末設定', desc: 'Roomink運営専用', superuserOnly: true },
   { to: '/op/settings/manual', icon: 'ti-book', label: '操作マニュアル', desc: 'Roominkの使い方ガイド' },
 ]
 
 const visibleItems = computed(() =>
-  menuItems.filter((item) => !item.managerOnly || isManager.value)
+  menuItems.filter((item) =>
+    (!item.managerOnly || isManager.value || isSuperuser.value) &&
+    (!item.superuserOnly || isSuperuser.value)
+  )
 )
 </script>
 

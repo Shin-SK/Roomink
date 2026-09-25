@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
-import { resetAuthCache, getAuthRole } from '../router.js'
+import { resetAuthCache, getAuthIsSuperuser, getAuthRole } from '../router.js'
 import UserAvatar from './UserAvatar.vue'
 import CtiIncomingPanel from './CtiIncomingPanel.vue'
 
@@ -28,8 +28,10 @@ onMounted(async () => {
 
 const isManager = computed(() => {
   // currentUser(api.me 結果) を優先、未取得時は router の authCache(getAuthRole) を fallback
-  return currentUser.value?.role === 'manager' || getAuthRole() === 'manager'
+  return currentUser.value?.role === 'manager' || currentUser.value?.is_superuser || getAuthRole() === 'manager'
 })
+
+const isSuperuser = computed(() => currentUser.value?.is_superuser || getAuthIsSuperuser())
 
 const navItems = computed(() => {
   const items = [
@@ -43,6 +45,9 @@ const navItems = computed(() => {
     { to: '/op/cast-expenses', icon: 'ti-receipt', label: '雑費管理', page: 'cast-expenses' },
     { to: '/op/cast-notes', icon: 'ti-notebook', label: 'ノート', page: 'cast-notes' },
   ]
+  if (isSuperuser.value) {
+    items.unshift({ to: '/platform', icon: 'ti-building-community', label: 'Roomink運営', page: 'platform' })
+  }
   if (isManager.value) {
     items.push(
       { to: '/op/sales', icon: 'ti-chart-bar', label: '売上確認', page: 'sales' },
@@ -132,7 +137,7 @@ onBeforeUnmount(() => {
           </li>
         </ul>
       </nav>
-      <div class="sidebar-footer" style="padding: 1rem; margin-top: auto;">
+      <div class="sidebar-footer">
         <button class="btn btn-outline-primary btn-block" @click="onLogout">
           <i class="ti ti-logout"></i> ログアウト
         </button>

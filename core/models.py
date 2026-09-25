@@ -861,6 +861,10 @@ class CallLog(models.Model):
         related_name="call_logs",
     )
     is_repeat = models.BooleanField(default=False)
+    duration_seconds = models.PositiveIntegerField(
+        default=0,
+        help_text="TwilioのStatusCallbackで確定した通話時間（秒）",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -872,6 +876,34 @@ class CallLog(models.Model):
 
     def __str__(self):
         return f"Call#{self.pk} {self.from_phone} → {self.to_phone} ({self.status})"
+
+
+class CallLogReadReceipt(models.Model):
+    """着信カードを誰が確認したかを、対応ステータスとは分けて記録する。"""
+
+    call = models.ForeignKey(
+        CallLog,
+        on_delete=models.CASCADE,
+        related_name="read_receipts",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="call_read_receipts",
+    )
+    seen_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["call", "user"],
+                name="unique_call_read_receipt",
+            ),
+        ]
+        ordering = ["seen_at", "id"]
+
+    def __str__(self):
+        return f"Call#{self.call_id} seen by {self.user_id}"
 
 
 class CallNote(models.Model):

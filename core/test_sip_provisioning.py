@@ -28,6 +28,9 @@ class SipProvisioningTest(TestCase):
         self.store = Store.objects.create(name="QRテスト店舗", slug="qr-test")
         self.other_store = Store.objects.create(name="別店舗", slug="other-store")
         self.manager = self.create_user("sip_manager", self.store, UserProfile.Role.MANAGER)
+        self.manager.is_staff = True
+        self.manager.is_superuser = True
+        self.manager.save(update_fields=["is_staff", "is_superuser"])
         self.staff = self.create_user("sip_staff", self.store, UserProfile.Role.STAFF)
         self.cast = self.create_user("sip_cast", self.store, UserProfile.Role.CAST)
         self.customer = User.objects.create_user("sip_customer")
@@ -40,6 +43,9 @@ class SipProvisioningTest(TestCase):
         self.other_manager = self.create_user(
             "other_sip_manager", self.other_store, UserProfile.Role.MANAGER,
         )
+        self.other_manager.is_staff = True
+        self.other_manager.is_superuser = True
+        self.other_manager.save(update_fields=["is_staff", "is_superuser"])
         self.anonymous = APIClient()
 
     def create_user(self, username, store, role):

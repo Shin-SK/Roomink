@@ -15,7 +15,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email, validate_slug
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
-from django.db.models import Max, ProtectedError, Q
+from django.db.models import Count, Max, ProtectedError, Q, Sum
 from django.utils import timezone
 from django.utils.html import escape
 from django.http import HttpResponse
@@ -33,7 +33,7 @@ from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Dial, VoiceResponse
 
 from .models import (
-    CallLog, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
+    CallLog, CallLogReadReceipt, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
     CastUnavailableTime,
     CastDailyCheckout, CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer,
@@ -51,6 +51,7 @@ from .permissions import (
     IsManagerOrStaff,
     IsManagerOrStaffReadOnlyManagerWrite,
     IsOperatorOrCastReadOnlyManagerWrite,
+    IsPlatformAdmin,
     PastOrderManagerOnlyPermission,
 )
 from .serializers import (
@@ -125,7 +126,7 @@ from .services.notify import (
     notify_customer_account,
     sms_encoding_and_segments,
 )
-from .services.sms_billing import parse_usage_month, sms_usage_summary
+from .services.sms_billing import parse_usage_month, sms_usage_summary, usage_month_bounds
 from .services.customer_invitation import (
     INVALID_INVITATION_MESSAGE,
     activate_customer_invitation,
@@ -182,7 +183,17 @@ def document_object_api_view(cls):
 
 def get_user_store(request):
     """request.user の所属 Store を返す。未設定なら明示エラー。"""
+    if request.user.is_superuser:
+        selected_store_id = request.session.get("platform_store_id")
+        if selected_store_id:
+            selected_store = Store.objects.filter(pk=selected_store_id).first()
+            if selected_store:
+                return selected_store
     profile = getattr(request.user, "profile", None)
+    if request.user.is_superuser and (profile is None or profile.store_id is None):
+        store = Store.objects.order_by("id").first()
+        if store:
+            return store
     if profile is None:
         from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied("ユーザープロフィールが未作成です。管理者に連絡してください。")
@@ -242,18 +253,24 @@ def auth_me(request):
     customer_profiles = list(
         Customer.objects.filter(user=request.user).select_related("store").order_by("id")
     )
-    if profile is None and not customer_profiles:
+    if profile is None and not customer_profiles and not request.user.is_superuser:
         return Response(
             {"detail": "プロフィールが未作成です。管理者に連絡してください。"},
             status=status.HTTP_403_FORBIDDEN,
         )
     roles = []
+    if request.user.is_superuser:
+        roles.append("superuser")
     if profile:
         roles.append(profile.role)
     if customer_profiles:
         roles.append("customer")
-    store = profile.store if profile else customer_profiles[0].store
-    primary_role = profile.role if profile else "customer"
+    if request.user.is_superuser:
+        store = get_user_store(request)
+        primary_role = "superuser"
+    else:
+        store = profile.store if profile else customer_profiles[0].store
+        primary_role = profile.role if profile else "customer"
     return Response({
         "id": request.user.id,
         "username": request.user.username,
@@ -263,6 +280,7 @@ def auth_me(request):
         "store_name": store.name,
         "role": primary_role,
         "roles": roles,
+        "is_superuser": request.user.is_superuser,
     })
 
 
@@ -2583,7 +2601,7 @@ class CourseViewSet(viewsets.ModelViewSet):
 
 
 class StorePhoneNumberViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated, IsPlatformAdmin]
     queryset = StorePhoneNumber.objects.order_by("id")
     serializer_class = StorePhoneNumberSerializer
 
@@ -4703,10 +4721,12 @@ class CtiQueueView(APIView):
             CallLog.objects
             .filter(store=store, status__in=[CallLog.Status.NEW, CallLog.Status.IN_PROGRESS])
             .select_related("store", "customer", "assigned_to")
+            .prefetch_related("read_receipts__user")
             .order_by("-created_at")
         )
         data = []
         for c in calls:
+            read_receipts = list(c.read_receipts.all())
             data.append({
                 "id": c.id,
                 "contact_id": c.contact_id,
@@ -4719,10 +4739,49 @@ class CtiQueueView(APIView):
                 "is_repeat": c.is_repeat,
                 "status": c.status,
                 "assigned_to": c.assigned_to.username if c.assigned_to else None,
+                "seen_by_me": any(receipt.user_id == request.user.id for receipt in read_receipts),
+                "seen_by": [
+                    receipt.user.first_name or receipt.user.username
+                    for receipt in read_receipts
+                ],
                 "created_at": c.created_at,
                 "updated_at": c.updated_at,
             })
         return Response({"calls": data})
+
+
+@document_object_api_view
+class CtiCallsMarkSeenView(APIView):
+    """POST /api/op/cti/calls/mark-seen/ — 表示した着信を操作者ごとに既読化。"""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
+    def post(self, request):
+        raw_ids = request.data.get("call_ids", [])
+        if not isinstance(raw_ids, list):
+            return Response(
+                {"detail": "call_ids は配列で指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        call_ids = []
+        for raw_id in raw_ids[:100]:
+            try:
+                call_ids.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+        calls = CallLog.objects.filter(
+            store=get_user_store(request),
+            pk__in=call_ids,
+            status__in=[CallLog.Status.NEW, CallLog.Status.IN_PROGRESS],
+        )
+        created_count = 0
+        for call in calls:
+            _, created = CallLogReadReceipt.objects.get_or_create(
+                call=call,
+                user=request.user,
+            )
+            created_count += int(created)
+        return Response({"ok": True, "created": created_count})
 
 
 @document_object_api_view
@@ -5222,7 +5281,7 @@ def _build_groundwire_setup_page(store, device):
 
 
 class StoreSipProvisioningSettingsView(APIView):
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated, IsPlatformAdmin]
 
     @extend_schema(
         operation_id="store_sip_provisioning_settings_get",
@@ -5250,7 +5309,7 @@ class StoreSipProvisioningSettingsView(APIView):
 
 
 class SipReceptionDeviceListCreateView(APIView):
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated, IsPlatformAdmin]
 
     @extend_schema(
         operation_id="sip_reception_device_list",
@@ -5324,7 +5383,7 @@ class SipReceptionDeviceListCreateView(APIView):
 
 
 class SipReceptionDeviceProvisionView(APIView):
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated, IsPlatformAdmin]
 
     @extend_schema(
         operation_id="sip_reception_device_provision",
@@ -5364,7 +5423,7 @@ class SipReceptionDeviceProvisionView(APIView):
 
 
 class SipReceptionDeviceDeactivateView(APIView):
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated, IsPlatformAdmin]
 
     @extend_schema(
         operation_id="sip_reception_device_deactivate",
@@ -5726,7 +5785,13 @@ def twilio_status_webhook(request):
             )
             return HttpResponse("ok", content_type="text/plain")
 
-    # オペレーターが既に対応完了にしている場合は上書きしない
+    duration_raw = request.data.get("CallDuration", "")
+    duration_seconds = int(duration_raw) if str(duration_raw).isdigit() else 0
+    if duration_seconds > call.duration_seconds:
+        call.duration_seconds = duration_seconds
+        call.save(update_fields=["duration_seconds", "updated_at"])
+
+    # オペレーターが既に対応完了にしている場合はステータスを上書きしない
     if call.status in (CallLog.Status.DONE,):
         return HttpResponse("ok", content_type="text/plain")
 
@@ -5738,6 +5803,92 @@ def twilio_status_webhook(request):
         call.save(update_fields=["status", "updated_at"])
 
     return HttpResponse("ok", content_type="text/plain")
+
+
+@document_object_api_view
+class PlatformDashboardView(APIView):
+    """Roomink全体の契約・通信利用状況。スーパーユーザー専用。"""
+
+    permission_classes = [IsAuthenticated, IsPlatformAdmin]
+
+    def get(self, request):
+        stores = Store.objects.order_by("id")
+        requested_month = request.query_params.get("month")
+        rows = []
+        for store in stores:
+            try:
+                month = parse_usage_month(requested_month, store.timezone)
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            start, end = usage_month_bounds(month, store.timezone)
+            monthly_calls = CallLog.objects.filter(
+                store=store,
+                created_at__gte=start,
+                created_at__lt=end,
+            )
+            call_totals = monthly_calls.aggregate(
+                count=Count("id"),
+                duration_seconds=Sum("duration_seconds"),
+                last_at=Max("created_at"),
+            )
+            active_phones = list(
+                store.phone_numbers.filter(is_active=True)
+                .order_by("id")
+                .values("id", "phone", "source_phone", "label")
+            )
+            active_devices = list(
+                store.sip_reception_devices.filter(is_active=True)
+                .order_by("id")
+                .values("id", "label", "provisioned_at")
+            )
+            sms = sms_usage_summary(store, month=month)
+            rows.append({
+                "id": store.id,
+                "name": store.name,
+                "slug": store.slug,
+                "contact_phone": store.guest_contact_phone,
+                "phones": active_phones,
+                "devices": active_devices,
+                "connection_ready": bool(active_phones and any(d["provisioned_at"] for d in active_devices)),
+                "calls": {
+                    "count": call_totals["count"] or 0,
+                    "duration_seconds": call_totals["duration_seconds"] or 0,
+                    "unresolved": CallLog.objects.filter(
+                        store=store,
+                        status__in=[CallLog.Status.NEW, CallLog.Status.IN_PROGRESS],
+                    ).count(),
+                    "last_at": call_totals["last_at"],
+                },
+                "sms": sms,
+            })
+        active_store = get_user_store(request)
+        return Response({
+            "month": rows[0]["sms"]["month"] if rows else requested_month,
+            "active_store_id": active_store.id if active_store else None,
+            "stores": rows,
+        })
+
+
+@document_object_api_view
+class PlatformActiveStoreView(APIView):
+    """運営管理者が通常の店舗画面で操作する対象店舗を切り替える。"""
+
+    permission_classes = [IsAuthenticated, IsPlatformAdmin]
+
+    def post(self, request):
+        try:
+            store_id = int(request.data.get("store_id"))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "store_id を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        store = Store.objects.filter(pk=store_id).first()
+        if not store:
+            return Response({"detail": "店舗が見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+        request.session["platform_store_id"] = store.id
+        request.session.modified = True
+        return Response({"ok": True, "store_id": store.id, "store_name": store.name})
 
 
 @extend_schema(operation_id="twilio_sms_status_webhook", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.STR)

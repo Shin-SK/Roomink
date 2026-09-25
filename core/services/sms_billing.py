@@ -14,7 +14,7 @@ EXTRA_BLOCK_SIZE = 100
 EXTRA_BLOCK_PRICE = 5_000
 
 
-def _month_bounds(month, timezone_name):
+def usage_month_bounds(month, timezone_name):
     try:
         local_timezone = ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError:
@@ -42,7 +42,7 @@ def parse_usage_month(value, timezone_name):
 
 def sms_usage_summary(store, month=None):
     month = month or parse_usage_month(None, store.timezone)
-    start, end = _month_bounds(month, store.timezone)
+    start, end = usage_month_bounds(month, store.timezone)
     billable_attempt = (
         Q(status__in=(SmsLog.Status.SENT, SmsLog.Status.DUMMY))
         | (Q(provider=SmsLog.Provider.TWILIO) & ~Q(provider_message_id=""))

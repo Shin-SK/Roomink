@@ -12,10 +12,38 @@ const calls = ref([])
 const busyIds = ref(new Set())
 const isOpen = ref(false)
 const pollStopped = ref(false)
-const prevNewCount = ref(0)
-const autoOpenSuppressed = ref(false)
+const NOTIFIED_STORAGE_KEY = 'roomink.cti.notified-call-ids'
+const initialized = ref(false)
 
 let timerId = null
+
+function loadNotifiedIds() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(NOTIFIED_STORAGE_KEY) || '[]')
+    return new Set(Array.isArray(parsed) ? parsed.map(Number).filter(Number.isFinite) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function saveNotifiedIds(ids) {
+  try {
+    sessionStorage.setItem(NOTIFIED_STORAGE_KEY, JSON.stringify([...ids].slice(-200)))
+  } catch { /* storage is optional */ }
+}
+
+async function markVisibleCallsSeen() {
+  const unreadIds = calls.value.filter((call) => !call.seen_by_me).map((call) => call.id)
+  if (!unreadIds.length) return
+  calls.value = calls.value.map((call) => (
+    unreadIds.includes(call.id) ? { ...call, seen_by_me: true } : call
+  ))
+  try {
+    await api.markCtiCallsSeen(unreadIds)
+  } catch (err) {
+    console.warn('[CTI] mark seen failed:', err)
+  }
+}
 
 function formatTime(iso) {
   if (!iso) return ''
@@ -50,18 +78,23 @@ async function fetchQueue() {
   try {
     const res = await api.getCtiQueue()
     const list = Array.isArray(res?.calls) ? res.calls : []
-    const currentNewCount = list.filter((c) => c.status === 'NEW').length
-    const shouldAutoOpen =
-      !isOpen.value &&
-      !autoOpenSuppressed.value &&
-      prevNewCount.value === 0 &&
-      currentNewCount >= 1 &&
-      document.visibilityState === 'visible'
+    const notifiedIds = loadNotifiedIds()
+    const newCallIds = list.filter((c) => c.status === 'NEW').map((c) => Number(c.id))
+    const unseenNewIds = newCallIds.filter((id) => !notifiedIds.has(id))
     calls.value = list
-    prevNewCount.value = currentNewCount
-    if (shouldAutoOpen) {
+    if (!initialized.value) {
+      newCallIds.forEach((id) => notifiedIds.add(id))
+      saveNotifiedIds(notifiedIds)
+      initialized.value = true
+      if (isOpen.value) await markVisibleCallsSeen()
+      return
+    }
+    unseenNewIds.forEach((id) => notifiedIds.add(id))
+    saveNotifiedIds(notifiedIds)
+    if (unseenNewIds.length && !isOpen.value && document.visibilityState === 'visible') {
       isOpen.value = true
     }
+    if (isOpen.value) await markVisibleCallsSeen()
   } catch (err) {
     const code = err?.status ?? err?.response?.status
     if (code === 401 || code === 403) {
@@ -130,11 +163,11 @@ function onOpenCustomer(call) {
 
 function openPanel() {
   isOpen.value = true
+  markVisibleCallsSeen()
 }
 
 function closePanel() {
   isOpen.value = false
-  autoOpenSuppressed.value = true
 }
 
 onMounted(() => {
@@ -206,6 +239,7 @@ onBeforeUnmount(() => {
           </span>
           <span v-if="call.is_repeat" class="cti-item__badge cti-item__badge--repeat">リピート</span>
           <span v-if="call.assigned_to" class="cti-item__badge cti-item__badge--assigned">{{ call.assigned_to }}</span>
+          <span v-if="call.seen_by?.length" class="cti-item__seen">確認：{{ call.seen_by.join('・') }}</span>
           <span class="cti-item__time">{{ formatTime(call.created_at) }}</span>
         </div>
 

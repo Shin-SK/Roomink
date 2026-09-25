@@ -13,6 +13,7 @@ const error = ref('')
 const loading = ref(false)
 
 function homeForRole(role) {
+  if (role === 'superuser') return '/platform'
   if (role === 'cast') return '/cast/mypage'
   return '/op/dashboard'
 }

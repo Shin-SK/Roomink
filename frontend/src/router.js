@@ -43,6 +43,7 @@ const SalesSummary = () => import('./pages/op/SalesSummary.vue')
 const PointLogs = () => import('./pages/op/PointLogs.vue')
 const RoomSchedule = () => import('./pages/op/RoomSchedule.vue')
 const Profile = () => import('./pages/op/Profile.vue')
+const PlatformDashboard = () => import('./pages/platform/PlatformDashboard.vue')
 const CastMypage = () => import('./pages/cast/CastMypage.vue')
 const CastOrders = () => import('./pages/cast/CastOrders.vue')
 const CastSchedule = () => import('./pages/cast/CastSchedule.vue')
@@ -119,10 +120,11 @@ const routes = [
   { path: '/op/settings/line', name: 'settings-line', component: SettingsLine, meta: { managerOnly: true } },
   { path: '/op/settings/sms-templates', name: 'settings-sms-templates', component: SettingsSmsTemplates },
   { path: '/op/settings/public-booking', name: 'settings-public-booking', component: SettingsPublicBooking, meta: { managerOnly: true } },
-  { path: '/op/settings/phones', name: 'settings-phones', component: SettingsPhones, meta: { managerOnly: true } },
+  { path: '/op/settings/phones', name: 'settings-phones', component: SettingsPhones, meta: { superuserOnly: true } },
   { path: '/op/settings/manual', name: 'settings-manual', component: SettingsManual },
   { path: '/op/settings/manual/:slug', name: 'manual-article', component: ManualArticle, props: true },
   { path: '/op/profile', name: 'op-profile', component: Profile },
+  { path: '/platform', name: 'platform-dashboard', component: PlatformDashboard, meta: { superuserOnly: true } },
 
   // Cast
   { path: '/cast/login', redirect: '/login' },
@@ -179,7 +181,7 @@ async function ensureAuth() {
   if (authCache) return authCache
   try {
     const me = await api.me()
-    authCache = { authed: true, role: me.role, roles: me.roles || [me.role] }
+    authCache = { authed: true, role: me.role, roles: me.roles || [me.role], isSuperuser: Boolean(me.is_superuser) }
   } catch {
     authCache = { authed: false, role: null }
   }
@@ -187,6 +189,7 @@ async function ensureAuth() {
 }
 
 function homeForRole(role) {
+  if (role === 'superuser') return '/platform'
   if (role === 'cast') return '/cast/mypage'
   if (role === 'customer') return '/cu/mypage'
   return '/op/dashboard'
@@ -196,6 +199,7 @@ router.beforeEach(async (to) => {
   const isOp = to.path.startsWith('/op/')
   const isCast = to.path.startsWith('/cast/')
   const isCu = to.path.startsWith('/cu/') || to.meta.customer
+  const isPlatform = to.path.startsWith('/platform')
 
   // public ページはガード不要
   if (to.meta.public) return
@@ -214,7 +218,7 @@ router.beforeEach(async (to) => {
   }
 
   // /op/* と /cast/* 以外はガード不要
-  if (!isOp && !isCast) return
+  if (!isOp && !isCast && !isPlatform) return
 
   const auth = await ensureAuth()
 
@@ -224,7 +228,12 @@ router.beforeEach(async (to) => {
   }
 
   // role 別アクセス制御
-  if (auth.role === 'cast') {
+  if (to.meta.superuserOnly && !auth.isSuperuser) return { path: homeForRole(auth.role) }
+
+  if (auth.isSuperuser) {
+    if (isCast) return { path: '/platform' }
+    return
+  } else if (auth.role === 'cast') {
     // cast が /op/* に来た場合、/op/profile (castAllowed) 以外は拒否
     if (isOp && !to.meta.castAllowed) return { path: '/cast/mypage' }
   } else if (auth.role === 'staff' || auth.role === 'manager') {
@@ -243,6 +252,10 @@ export function resetAuthCache() {
 
 export function getAuthRole() {
   return authCache?.role || null
+}
+
+export function getAuthIsSuperuser() {
+  return Boolean(authCache?.isSuperuser)
 }
 
 export default router

@@ -5,7 +5,7 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 
 from .models import (
-    CallLog, CallNote, Cast, CastCheckoutExpenseSnapshot, CastDailyCheckout,
+    CallLog, CallLogReadReceipt, CallNote, Cast, CastCheckoutExpenseSnapshot, CastDailyCheckout,
     CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerAccountInvitation, CustomerMergeLog,
     DailySettlement, LineNotificationLog, Option, Order, OrderServiceRecipientLinkLog, PointLog, PublicBookingVerification, Room,
@@ -230,12 +230,18 @@ class CallNoteInline(admin.TabularInline):
     readonly_fields = ("author", "body", "created_at")
 
 
+class CallReadReceiptInline(admin.TabularInline):
+    model = CallLogReadReceipt
+    extra = 0
+    readonly_fields = ("user", "seen_at")
+
+
 @admin.register(CallLog)
 class CallLogAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "contact_id", "from_phone", "to_phone", "status", "customer", "is_repeat", "created_at")
+    list_display = ("id", "store", "contact_id", "from_phone", "to_phone", "status", "duration_seconds", "customer", "is_repeat", "created_at")
     list_filter = ("store", "status", "is_repeat")
     search_fields = ("from_phone", "to_phone", "contact_id")
-    inlines = [CallNoteInline]
+    inlines = [CallReadReceiptInline, CallNoteInline]
 
 
 @admin.register(CallNote)

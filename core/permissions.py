@@ -16,6 +16,8 @@ class IsManagerOrStaff(BasePermission):
     message = "この操作を行えるのはマネージャーまたはスタッフのみです。"
 
     def has_permission(self, request, view):
+        if request.user.is_authenticated and request.user.is_superuser:
+            return True
         profile = getattr(request.user, "profile", None)
         return profile is not None and profile.role in (
             UserProfile.Role.MANAGER,
@@ -29,6 +31,8 @@ class IsManager(BasePermission):
     message = "この操作を行えるのはマネージャーのみです。"
 
     def has_permission(self, request, view):
+        if request.user.is_authenticated and request.user.is_superuser:
+            return True
         profile = getattr(request.user, "profile", None)
         return profile is not None and profile.role == UserProfile.Role.MANAGER
 
@@ -39,6 +43,8 @@ class IsManagerOrStaffReadOnlyManagerWrite(BasePermission):
     message = "このマスターを変更できるのはマネージャーのみです。"
 
     def has_permission(self, request, view):
+        if request.user.is_authenticated and request.user.is_superuser:
+            return True
         profile = getattr(request.user, "profile", None)
         if profile is None:
             return False
@@ -53,6 +59,8 @@ class IsOperatorOrCastReadOnlyManagerWrite(BasePermission):
     message = "ルームを変更できるのはマネージャーのみです。"
 
     def has_permission(self, request, view):
+        if request.user.is_authenticated and request.user.is_superuser:
+            return True
         profile = getattr(request.user, "profile", None)
         if profile is None:
             return False
@@ -62,6 +70,15 @@ class IsOperatorOrCastReadOnlyManagerWrite(BasePermission):
             profile.role in (UserProfile.Role.STAFF, UserProfile.Role.CAST)
             and request.method in SAFE_METHODS
         )
+
+
+class IsPlatformAdmin(BasePermission):
+    """Roomink全体の運営機能はDjangoスーパーユーザーだけに許可する。"""
+
+    message = "この操作を行えるのはRoomink運営管理者のみです。"
+
+    def has_permission(self, request, view):
+        return bool(request.user.is_authenticated and request.user.is_superuser)
 
 
 class PastOrderManagerOnlyPermission(BasePermission):
