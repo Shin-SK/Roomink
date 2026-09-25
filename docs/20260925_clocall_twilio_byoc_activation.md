@@ -35,7 +35,7 @@ Credential List Mappingも同じ形式に対応させた。
 
 - `python manage.py check`: 合格
 - `python manage.py makemigrations --check --dry-run`: 変更なし
-- Django全テスト: 386件合格
+- Django全テスト: 388件合格（最終実通話修正を含む）
 - `check_voice_readiness --store-id 35`: `VOICE READY (local)`
 - Twilio APIでBYOC Trunk、Termination SIP Domain、IP ACL、Mappingの永続化と関連付けを再取得して確認済み
 
@@ -64,6 +64,10 @@ Credential List Mappingも同じ形式に対応させた。
 復旧後の正式番号への試験発信では、RoominkのCallLogとwebhookログが作られる前にTwilioエラー32209（Secure transport required）が発生した。クラコールの提出仕様はSIP 5060であり、共用SIP DomainのSecure Media強制がクラコールからのUDP着信を拒否していた。
 
 同一Domain構成を成立させるため、Domain全体のSecure Media強制は無効にしてクラコールのUDP/5060を受ける。一方、GroundwireはTLS登録を維持し、Roominkが返す `<Dial><Sip>` の宛先も `sip:<AOR>;transport=tls` として受付端末へのSIPシグナリングはTLSを明示する。開通判定では、提出済みDomainがSecure Media強制になっていないことも検査する。
+
+Secure Media強制解除後の実通話では、クラコールからRoominkのVoice Webhookへ到達し、正式番号に対応するCallLogが作成された。クラコールはこの試験着信の発信者番号をTwilioへ `Unavailable` として渡したため、Roominkでこれを非通知発信と同じ `anonymous` として受け入れる互換処理と再発テストを追加した。
+
+その後、Roominkは受付端末AORへのTLS子通話を正しく生成した。Twilioの最終結果はエラー32009（登録ユーザーが現在未登録）であり、残件はGroundwire端末をTwilioへオンライン登録させた状態での応答・双方向音声確認だけである。SIP Domain、BYOC、IP ACL、登録用Credential Mapping、RoominkのWebhook処理までは実経路で確認済み。
 
 ## 誤ってクラコール側へ依頼した切替（撤回）
 
