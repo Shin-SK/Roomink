@@ -16,8 +16,8 @@ READY_SETTINGS = {
     "TWILIO_SIP_CREDENTIAL_LIST_SID": "CL" + "2" * 32,
     "TWILIO_BYOC_TRUNK_SID": "BY" + "3" * 32,
     "TWILIO_BYOC_TERMINATION_DOMAIN_SID": "SD" + "4" * 32,
-    "TWILIO_BYOC_CREDENTIAL_LIST_SID": "CL" + "6" * 32,
-    "TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID": "",
+    "TWILIO_BYOC_CREDENTIAL_LIST_SID": "",
+    "TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID": "AL" + "7" * 32,
     "TWILIO_WEBHOOK_PUBLIC_BASE_URL": "https://api.roomink.net",
     "TWILIO_WEBHOOK_ALLOW_UNSIGNED": False,
 }
@@ -70,13 +70,17 @@ class VoiceReadinessCommandTest(TestCase):
         )
         domain = MagicMock(
             byoc_trunk_sid=READY_SETTINGS["TWILIO_BYOC_TRUNK_SID"],
-            domain_name="roomink-clocall.sip.twilio.com",
-            auth_type="CREDENTIAL_LIST",
+            domain_name=self.store.sip_domain,
+            auth_type="IP_ACL",
+            sip_registration=True,
         )
-        carrier_mapping = MagicMock(
-            credential_list_sid=READY_SETTINGS["TWILIO_BYOC_CREDENTIAL_LIST_SID"],
-        )
-        domain.credential_list_mappings.list.return_value = [carrier_mapping]
+        domain.credential_list_mappings.list.return_value = []
+        domain.ip_access_control_list_mappings.list.return_value = [MagicMock(
+            ip_access_control_list_sid=READY_SETTINGS["TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID"],
+        )]
+        domain.auth.registrations.credential_list_mappings.list.return_value = [MagicMock(
+            credential_list_sid=READY_SETTINGS["TWILIO_SIP_CREDENTIAL_LIST_SID"],
+        )]
         sms_number = MagicMock(capabilities={"sms": True})
         client = MagicMock()
         client.voice.v1.byoc_trunks.return_value.fetch.return_value = trunk
@@ -94,7 +98,7 @@ class VoiceReadinessCommandTest(TestCase):
 
         self.assertIn("VOICE READY (live)", stdout.getvalue())
 
-    def test_live_readiness_rejects_reusing_the_reception_domain(self):
+    def test_live_readiness_rejects_a_different_termination_domain(self):
         trunk = MagicMock(
             voice_url="https://api.roomink.net/api/webhook/twilio/voice/",
             voice_method="POST",
@@ -103,12 +107,15 @@ class VoiceReadinessCommandTest(TestCase):
         )
         domain = MagicMock(
             byoc_trunk_sid=READY_SETTINGS["TWILIO_BYOC_TRUNK_SID"],
-            domain_name=self.store.sip_domain,
-            auth_type="CREDENTIAL_LIST",
+            domain_name="roomink-clocall.sip.twilio.com",
+            auth_type="IP_ACL",
+            sip_registration=False,
         )
-        domain.credential_list_mappings.list.return_value = [MagicMock(
-            credential_list_sid=READY_SETTINGS["TWILIO_BYOC_CREDENTIAL_LIST_SID"],
+        domain.credential_list_mappings.list.return_value = []
+        domain.ip_access_control_list_mappings.list.return_value = [MagicMock(
+            ip_access_control_list_sid=READY_SETTINGS["TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID"],
         )]
+        domain.auth.registrations.credential_list_mappings.list.return_value = []
         client = MagicMock()
         client.voice.v1.byoc_trunks.return_value.fetch.return_value = trunk
         client.api.v2010.account.sip.domains.return_value.fetch.return_value = domain
@@ -125,11 +132,7 @@ class VoiceReadinessCommandTest(TestCase):
                 stderr=StringIO(),
             )
 
-    @override_settings(
-        TWILIO_BYOC_CREDENTIAL_LIST_SID="",
-        TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID="AL" + "7" * 32,
-    )
-    def test_live_readiness_accepts_a_mapped_carrier_ip_acl(self):
+    def test_live_readiness_rejects_call_credentials_on_submitted_domain(self):
         trunk = MagicMock(
             voice_url="https://api.roomink.net/api/webhook/twilio/voice/",
             voice_method="POST",
@@ -138,11 +141,57 @@ class VoiceReadinessCommandTest(TestCase):
         )
         domain = MagicMock(
             byoc_trunk_sid=READY_SETTINGS["TWILIO_BYOC_TRUNK_SID"],
-            domain_name="roomink-clocall.sip.twilio.com",
-            auth_type="IP_ACL",
+            domain_name=self.store.sip_domain,
+            auth_type="IP_ACL,CREDENTIAL_LIST",
+            sip_registration=True,
         )
+        domain.credential_list_mappings.list.return_value = [MagicMock(
+            credential_list_sid="CL" + "8" * 32,
+        )]
+        domain.ip_access_control_list_mappings.list.return_value = [MagicMock(
+            ip_access_control_list_sid=READY_SETTINGS["TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID"],
+        )]
+        domain.auth.registrations.credential_list_mappings.list.return_value = [MagicMock(
+            credential_list_sid=READY_SETTINGS["TWILIO_SIP_CREDENTIAL_LIST_SID"],
+        )]
+        client = MagicMock()
+        client.voice.v1.byoc_trunks.return_value.fetch.return_value = trunk
+        client.api.v2010.account.sip.domains.return_value.fetch.return_value = domain
+        client.incoming_phone_numbers.list.return_value = [
+            MagicMock(capabilities={"sms": True}),
+        ]
+        with patch("twilio.rest.Client", return_value=client), self.assertRaises(CommandError):
+            call_command(
+                "check_voice_readiness",
+                store_id=self.store.id,
+                live=True,
+                stdout=StringIO(),
+                stderr=StringIO(),
+            )
+
+    @override_settings(
+        TWILIO_BYOC_CREDENTIAL_LIST_SID="",
+        TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID="AL" + "7" * 32,
+    )
+    def test_live_readiness_accepts_shared_domain_with_separate_registration_auth(self):
+        trunk = MagicMock(
+            voice_url="https://api.roomink.net/api/webhook/twilio/voice/",
+            voice_method="POST",
+            status_callback_url="https://api.roomink.net/api/webhook/twilio/status/",
+            status_callback_method="POST",
+        )
+        domain = MagicMock(
+            byoc_trunk_sid=READY_SETTINGS["TWILIO_BYOC_TRUNK_SID"],
+            domain_name=self.store.sip_domain,
+            auth_type="IP_ACL",
+            sip_registration=True,
+        )
+        domain.credential_list_mappings.list.return_value = []
         domain.ip_access_control_list_mappings.list.return_value = [MagicMock(
             ip_access_control_list_sid="AL" + "7" * 32,
+        )]
+        domain.auth.registrations.credential_list_mappings.list.return_value = [MagicMock(
+            credential_list_sid=READY_SETTINGS["TWILIO_SIP_CREDENTIAL_LIST_SID"],
         )]
         client = MagicMock()
         client.voice.v1.byoc_trunks.return_value.fetch.return_value = trunk
@@ -171,12 +220,18 @@ class VoiceReadinessCommandTest(TestCase):
         )
         domain = MagicMock(
             byoc_trunk_sid=READY_SETTINGS["TWILIO_BYOC_TRUNK_SID"],
-            domain_name="roomink-clocall.sip.twilio.com",
+            domain_name=self.store.sip_domain,
             auth_type="IP_ACL",
+            sip_registration=True,
         )
+        domain.credential_list_mappings.list.return_value = []
         domain.ip_access_control_list_mappings.list.return_value = [MagicMock(
             spec=["sid"],
             sid="AL" + "7" * 32,
+        )]
+        domain.auth.registrations.credential_list_mappings.list.return_value = [MagicMock(
+            spec=["sid"],
+            sid=READY_SETTINGS["TWILIO_SIP_CREDENTIAL_LIST_SID"],
         )]
         client = MagicMock()
         client.voice.v1.byoc_trunks.return_value.fetch.return_value = trunk
@@ -186,10 +241,7 @@ class VoiceReadinessCommandTest(TestCase):
         ]
         stdout = StringIO()
 
-        with override_settings(
-            TWILIO_BYOC_CREDENTIAL_LIST_SID="",
-            TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID="AL" + "7" * 32,
-        ), patch("twilio.rest.Client", return_value=client):
+        with patch("twilio.rest.Client", return_value=client):
             call_command(
                 "check_voice_readiness",
                 store_id=self.store.id,

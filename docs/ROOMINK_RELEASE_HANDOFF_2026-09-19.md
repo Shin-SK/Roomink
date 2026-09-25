@@ -1,6 +1,6 @@
 # Roomink 本番化・開通準備 引き継ぎ
 
-最終更新: 2026-09-19
+最終更新: 2026-09-25
 
 ## 今回の到達点
 
@@ -34,13 +34,22 @@ Roominkはカード情報を保持せず、決済の実行・照合・返金を�
 ```text
 発信者
   → クラコール SIP trunk
-  → Twilio BYOC終端SIPドメイン
+  → roomink-reception.sip.jp1.twilio.com（クラコール固定IPで認証）
   → Roomink voice webhook
-  → 店舗の受付SIPドメイン
+  → roomink-reception@roomink-reception.sip.twilio.com
   → Groundwire等の受付端末
 ```
 
-受付端末用の `roomink-reception.sip.twilio.com` と、クラコールから受けるBYOC終端は分離する。認証情報も共有しない。独自SIPヘッダーには依存せず、標準のSIP `From` とRequest-URIから発信者番号・着信番号を取得する。
+2026-09-16にクラコールへ提出した接続先は `roomink-reception.sip.jp1.twilio.com` であり、これは外部合意済みの固定条件とする。同じTwilio SIP Domainで、クラコールからのINVITEはIP Access Control List、受付端末のREGISTERは受付端末用Credential Listで別々に認証する。呼制御用Credential Listは設定しない。独自SIPヘッダーには依存せず、標準のSIP `From` とRequest-URIから発信者番号・着信番号を取得する。
+
+## 2026-09-25 接続先分離事故
+
+- 2026-09-16の提出後、ユーザーの依頼・承認なしに「受付端末用とBYOC終端を分離する」という一般設計を本資料とランブックへ追加した。
+- その後、`roomink-clocall.sip.twilio.com` を新設し、本番のBYOC終端を提出済み接続先から変更した。
+- クラコールは提出内容どおり `roomink-reception.sip.jp1.twilio.com` へ送信していたが、この内部変更との不一致を先方の設定ミスと誤認し、接続先変更を依頼した。
+- 原因はRoomink側の無承認な設計変更と、提出書類・本番設定・検査条件の照合不足であり、クラコール側の誤りではない。
+- 今後、外部へ提出・合意した接続情報はユーザーの明示承認なしに変更しない。引き継ぎ資料や一般的な設計論は外部合意を上書きできない。
+- 開通判定は、BYOC終端のDomainが店舗の提出済み受付Domainと一致し、クラコール用IP ACL、受付端末のSIP Registration、Registration用Credential Listが同時に成立する場合だけ合格とする。
 
 具体的な設定、試験、失敗時の切り分けは [CRACALL_TWILIO_BYOC_RUNBOOK.md](CRACALL_TWILIO_BYOC_RUNBOOK.md) を参照する。
 
@@ -103,7 +112,7 @@ python manage.py check_voice_readiness --store-id <STORE_ID> --live
 ## 開通日に行う順序
 
 1. クラコール回答内容を上記チェックリストと照合する。
-2. Twilioにクラコール専用BYOC Trunk、終端ドメイン、認証を作成する。
+2. Twilioの既存 `roomink-reception.sip.twilio.com` をBYOC Trunkへ関連付け、クラコール固定IPのACLを呼認証へ追加する。受付端末のRegistration認証は維持する。
 3. 対象店舗を確定し、着信番号をRoominkへ登録する。
 4. 本番環境変数へTwilioリソースIDを設定する。
 5. `check_voice_readiness --live` が合格することを確認する。
@@ -116,4 +125,4 @@ python manage.py check_voice_readiness --store-id <STORE_ID> --live
 - 新しい電話番号を割り当てるRoomink店舗を指定する。
 - 有料の独立ステージング環境を新設する場合は、Heroku Postgres等の費用発生を承認する。
 
-これらが揃うまでは、BYOCリソースを推測で作らず、実在する受付SIP設定も変更しない。
+これらが揃うまでは、BYOCリソースを推測で作らず、実在する受付SIP設定も変更しない。外部へ提出済みの接続先と異なる構成を採用する場合は、実装前にユーザーの明示承認を得る。

@@ -1,5 +1,7 @@
 # クラコール × Twilio BYOC 開通反映メモ（2026-09-25）
 
+> **訂正（2026-09-25）**: 本メモに記載した `roomink-clocall.sip.twilio.com` への分離は、2026-09-16にクラコールへ提出済みの `roomink-reception.sip.jp1.twilio.com` と矛盾する無承認の設計変更だった。クラコール側は提出内容どおり正しく設定している。以降は提出済み接続先を固定条件とし、既存 `roomink-reception` DomainへBYOCとクラコール用IP ACLを関連付ける。下記の分離構成は事故記録として残し、正しい最終構成とは扱わない。
+
 ## 実施済み
 
 - クラコールの開通資料を確認した。
@@ -33,21 +35,41 @@ Credential List Mappingも同じ形式に対応させた。
 
 - `python manage.py check`: 合格
 - `python manage.py makemigrations --check --dry-run`: 変更なし
-- Django全テスト: 385件合格
+- Django全テスト: 386件合格
 - `check_voice_readiness --store-id 35`: `VOICE READY (local)`
 - Twilio APIでBYOC Trunk、Termination SIP Domain、IP ACL、Mappingの永続化と関連付けを再取得して確認済み
 
-## クラコール側へ依頼する切替
+## 復旧直前の本番スナップショット
+
+2026-09-25の復旧前に、Twilio APIとRoomink本番DBから次の状態を読み取り確認した。秘密情報や電話番号全体は記録しない。
+
+- `roomink-reception.sip.twilio.com`
+  - SIP Registration: 有効
+  - BYOC Trunk: 未関連付け
+  - Calls Authentication: 受付端末用Credential Listが関連付け済み、IP ACLなし
+  - Registrations Authentication: 受付端末用Credential Listが関連付け済み
+- `roomink-clocall.sip.twilio.com`
+  - SIP Registration: 無効
+  - BYOC Trunk: 関連付け済み
+  - Calls Authentication: クラコール固定IP用ACLのみ
+- Roomink store 35
+  - 受付SIP Domain: `roomink-reception.sip.twilio.com`
+  - 正式番号と米国テスト番号: 有効
+  - 受付端末: 1台が有効
+
+復旧では `roomink-reception` へBYOC Trunkとクラコール固定IP用ACLを関連付け、Calls AuthenticationだけからCredential Listを外す。Registrations AuthenticationのCredential ListとSIP Registrationは維持する。`roomink-clocall` は即時削除せず、復旧確認が完了するまでロールバック用に残す。
+
+## 誤ってクラコール側へ依頼した切替（撤回）
 
 Twilio電話認証完了後、クラコールへ次を依頼する。
 
 1. 携帯電話への一時転送を解除する。
-2. 正式番号への着信SIP INVITEを `roomink-clocall.sip.jp1.twilio.com` へ送る。
+2. ~~正式番号への着信SIP INVITEを `roomink-clocall.sip.jp1.twilio.com` へ送る。~~ この依頼は誤り。提出済みの `roomink-reception.sip.jp1.twilio.com` を維持する。
 3. Request-URIのuser部へ着信した正式番号を含める。
 4. SIP `From` に元の発信者番号を保持する。
 5. G.711 / RFC2833 / SIP 5060で切り替える。
 
-グローバルURIの登録が必要な場合は `roomink-clocall.sip.twilio.com` を使い、東京リージョンの利用可否をクラコール担当者と一致させる。
+グローバルURIを追加する場合も、提出済みDomainと同じ `roomink-reception.sip.twilio.com` を使用する。別Domainを追加・指定しない。
 
 ## 切替後の実回線確認
 
@@ -56,4 +78,3 @@ Twilio電話認証完了後、クラコールへ次を依頼する。
 3. 受付端末で応答しない場合に、30秒後のno-answerがRoominkへ反映されることを確認する。
 4. Twilio Voice Logs / DebuggerとHerokuログに認証失敗、Webhook失敗、片通話がないことを確認する。
 5. 問題があればクラコール正式番号の `StorePhoneNumber.is_active` を無効化し、既存の米国テスト番号と受付SIP設定は維持する。
-

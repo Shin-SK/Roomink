@@ -9,19 +9,20 @@
 ```text
 発信者
   → クラコール SIP trunk
-  → Twilio BYOC終端SIPドメイン（クラコール専用）
+  → roomink-reception.sip.jp1.twilio.com
   → Roomink voice webhook
-  → 店舗に登録済みのTwilio受付SIPドメイン
+  → roomink-reception@roomink-reception.sip.twilio.com
   → Groundwire等の受付端末
 ```
 
 クラコール開通後に必要なのは、Twilio側のBYOCリソース作成、Roominkへの番号登録、環境変数設定、実通話試験である。アプリ側はこの経路を受けられる実装と読み取り専用の開通判定コマンドを備える。
 
-## 絶対に混ぜないもの
+## 外部合意済みの固定条件
 
-- `roomink-reception.sip.twilio.com` は受付端末用。クラコールの着信終端には使わない。
-- クラコール用には別のTwilio BYOC終端SIPドメインを作る。候補名は `roomink-clocall.sip.twilio.com`。
-- クラコール側の認証情報と、受付端末のCredential Listは共有しない。
+- 2026-09-16にクラコールへ提出した接続先 `roomink-reception.sip.jp1.twilio.com` を使用する。
+- ユーザーの明示承認なしに別のSIP Domainへ変更しない。
+- 同じSIP Domain内で認証用途を分ける。クラコールからのINVITEはIP ACL、受付端末のREGISTERはRegistration用Credential Listを使用する。
+- 呼認証へ受付端末用Credential Listを紐付けない。IP ACLと呼認証Credentialを両方設定すると、Twilioが両方を要求するためである。
 - PBXの外線転送は使わない。発信者番号が変わる可能性があり、Roominkの顧客照合を壊すためである。
 - Twilio BYOCでは独自SIPヘッダーがWebhookへ渡らないため、独自ヘッダーに依存しない。
 
@@ -36,8 +37,8 @@
    - IP認証の場合: クラコールの固定送信元IPアドレス
 4. 着信時のSIP `From` に元の発信者番号が保持されること
 5. Request-URIのuser部に着信番号が入ること
-   - 期待例: `sip:+8150xxxxxxxx@roomink-clocall.sip.twilio.com`
-6. SIP接続先FQDNに `roomink-clocall.sip.twilio.com` を指定できること
+   - 期待例: `sip:+8150xxxxxxxx@roomink-reception.sip.twilio.com`
+6. SIP接続先FQDNが提出済みの `roomink-reception.sip.jp1.twilio.com` と一致すること
 7. 通信仕様
    - TLS/SRTPの対応可否
    - コーデック（少なくともPCMU）
@@ -56,19 +57,18 @@
 - Method: `POST`
 - Origination Connection Policy: 不要。今回の経路はクラコールからTwilioへの着信のみ。
 
-### 2. BYOC終端SIPドメイン
+### 2. 既存受付SIPドメインをBYOC終端として使用
 
-- Domain: `roomink-clocall.sip.twilio.com`（空いていなければ別名）
+- Domain: `roomink-reception.sip.twilio.com`
 - Configure With: 上記BYOC Trunk
-- 認証はクラコール回答に合わせて次のどちらか一方を設定する。
-  - Credential List: クラコール専用に新規作成
-  - IP Access Control List: クラコール固定送信元IP専用に新規作成
-- 受付端末用Credential Listは使用しない。
-- CredentialとIP ACLを両方設定するとTwilioは両方を要求する。クラコールが両方に対応すると確認できない限り、片方だけを使う。
+- SIP Registration: 有効のまま維持
+- Calls Authentication: クラコール固定送信元IP専用のIP Access Control Listだけを設定
+- Registrations Authentication: 既存の受付端末用Credential Listを維持
+- Calls AuthenticationのCredential List Mappingは削除する。Registration用Mappingは削除しない。
 
 ### 3. クラコールへ渡す接続先
 
-基本FQDNは、上記のTwilio BYOC終端SIPドメイン。東京リージョンをクラコールが明示的に扱える場合は、Twilioの地域別FQDNも候補にする。最終的なFQDNはクラコールとTwilio Consoleの表示を一致させる。
+クラコールへ提出済みのFQDNは `roomink-reception.sip.jp1.twilio.com`。クラコール側・提出書類・Twilio側・Roomink側の4箇所が一致していることを確認する。
 
 ## Roomink側の設定
 
@@ -87,7 +87,7 @@ TWILIO_WEBHOOK_ALLOW_UNSIGNED=0
 RESERVATION_LINK_BASE_URL=https://r.roomink.net
 ```
 
-認証方式に応じて、`TWILIO_BYOC_CREDENTIAL_LIST_SID` または `TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID` の片方を設定する。未使用側は空にする。
+`TWILIO_BYOC_CREDENTIAL_LIST_SID` は空、`TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID` はクラコール固定送信元IP用ACLのSIDにする。`TWILIO_BYOC_TERMINATION_DOMAIN_SID` は既存 `roomink-reception.sip.twilio.com` のDomain SIDにする。
 
 ### 店舗データ
 
@@ -145,7 +145,7 @@ RESERVATION_LINK_BASE_URL=https://r.roomink.net
 
 | 症状 | 最初に見る場所 |
 |---|---|
-| Twilioへ届かない | クラコール送信先FQDN、認証方式、固定IP、Twilio終端ドメイン |
+| Twilioへ届かない | クラコール送信先FQDNが提出済み `roomink-reception.sip.jp1.twilio.com` と一致するか、固定IP、IP ACL、BYOC関連付け |
 | 403になる | Twilio Webhook署名、公開URL、リバースプロキシのURL復元 |
 | 店舗が見つからない | SIP Request-URIのuser部、`StorePhoneNumber.phone` |
 | 顧客が見つからない | SIP `From`、発信者番号通知、国内番号正規化 |
@@ -154,7 +154,7 @@ RESERVATION_LINK_BASE_URL=https://r.roomink.net
 
 ## ロールバック
 
-開通試験で重大な問題が出た場合は、対象の `StorePhoneNumber.is_active` を無効にして店舗への自動ルーティングを止める。既存の受付端末用SIPドメインとCredential Listは変更しない。クラコール側の切替を戻す場合は、クラコール担当者と実施時刻を合わせる。
+開通試験で重大な問題が出た場合は、対象の `StorePhoneNumber.is_active` を無効にして店舗への自動ルーティングを止める。Twilio変更前に保存したDomain設定へ戻し、受付端末のRegistration用Credential Listを維持する。クラコール側の接続先は提出済みのまま変更させない。
 
 ## 公式仕様の根拠
 
