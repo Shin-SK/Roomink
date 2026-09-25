@@ -5170,6 +5170,7 @@ def _build_groundwire_setup_page(store, device):
     input {{ width: 100%; min-height: 46px; border: 1px solid #cdd9d8; border-radius: 9px; padding: 10px 12px; font-size: 16px; background: #f9fbfb; }}
     button, .app-link {{ min-height: 46px; border: 0; border-radius: 9px; padding: 10px 14px; background: #258f84; color: white; font-size: 15px; font-weight: 700; text-decoration: none; }}
     .app-link {{ display: block; margin-top: 20px; text-align: center; }}
+    .finish {{ width: 100%; margin-top: 12px; }}
     .warning {{ margin-top: 20px; padding: 12px; border-radius: 10px; background: #fff4dd; color: #76520a; font-size: 14px; line-height: 1.6; }}
   </style>
 </head>
@@ -5185,7 +5186,8 @@ def _build_groundwire_setup_page(store, device):
       </ol>
       {field_html}
       <a class="app-link" href="https://apps.apple.com/jp/app/groundwire-voip-sip-softphone/id378503081">GroundwireをApp Storeで開く</a>
-      <div class="warning">この画面には受付電話の認証情報が含まれます。設定完了後は閉じ、スクリーンショットや第三者への転送はしないでください。このリンクは再表示できません。</div>
+      <button class="finish" type="button" onclick="finishSetup(this)">設定完了</button>
+      <div class="warning">この画面には受付電話の認証情報が含まれます。有効期限内は再表示できます。Groundwireが緑色になったら「設定完了」を押し、スクリーンショットや第三者への転送はしないでください。</div>
     </section>
   </main>
   <script>
@@ -5197,6 +5199,18 @@ def _build_groundwire_setup_page(store, device):
       }} catch (error) {{
         input.select();
         button.textContent = '長押ししてコピー';
+      }}
+    }}
+    async function finishSetup(button) {{
+      button.disabled = true;
+      button.textContent = '完了処理中…';
+      try {{
+        const response = await fetch(window.location.pathname, {{ method: 'POST' }});
+        if (!response.ok) throw new Error('finish failed');
+        document.querySelector('.card').innerHTML = '<h1>設定完了</h1><p class="lead">この画面を閉じてください。</p>';
+      }} catch (error) {{
+        button.disabled = false;
+        button.textContent = 'もう一度、設定完了を押す';
       }}
     }}
   </script>
@@ -5410,7 +5424,14 @@ class GroundwireProvisioningView(APIView):
             except SipProvisioningLink.DoesNotExist:
                 return HttpResponse(status=404)
 
-            if link.used_at is not None or link.expires_at <= timezone.now():
+            if link.used_at is not None:
+                return HttpResponse(status=410)
+            if link.expires_at <= timezone.now():
+                link.used_at = timezone.now()
+                link.save(update_fields=["used_at"])
+                if link.device and link.device.provisioning_password:
+                    link.device.provisioning_password = ""
+                    link.device.save(update_fields=["provisioning_password", "updated_at"])
                 return HttpResponse(status=410)
             store = link.store
             device = link.device
@@ -5423,11 +5444,6 @@ class GroundwireProvisioningView(APIView):
                 return HttpResponse(status=410)
 
             body = _build_groundwire_setup_page(store, device)
-            link.used_at = timezone.now()
-            link.save(update_fields=["used_at"])
-            device.provisioning_password = ""
-            device.provisioned_at = timezone.now()
-            device.save(update_fields=["provisioning_password", "provisioned_at", "updated_at"])
 
         response = HttpResponse(body, content_type="text/html; charset=utf-8")
         response["Cache-Control"] = "no-store"
@@ -5436,9 +5452,40 @@ class GroundwireProvisioningView(APIView):
         response["Referrer-Policy"] = "no-referrer"
         response["Content-Security-Policy"] = (
             "default-src 'none'; style-src 'unsafe-inline'; "
-            "script-src 'unsafe-inline'; connect-src 'none'; "
+            "script-src 'unsafe-inline'; connect-src 'self'; "
             "img-src 'none'; form-action 'none'; base-uri 'none'"
         )
+        return response
+
+    @extend_schema(
+        operation_id="groundwire_provisioning_complete",
+        request=None,
+        responses={204: None},
+    )
+    def post(self, request, token):
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with transaction.atomic():
+            try:
+                link = (
+                    SipProvisioningLink.objects.select_for_update(of=("self",))
+                    .select_related("device")
+                    .get(token_hash=token_hash)
+                )
+            except SipProvisioningLink.DoesNotExist:
+                return HttpResponse(status=404)
+            if link.used_at is not None or link.expires_at <= timezone.now():
+                return HttpResponse(status=410)
+            device = link.device
+            if not device or not device.is_active or not device.provisioning_password:
+                return HttpResponse(status=410)
+            now = timezone.now()
+            link.used_at = now
+            link.save(update_fields=["used_at"])
+            device.provisioning_password = ""
+            device.provisioned_at = now
+            device.save(update_fields=["provisioning_password", "provisioned_at", "updated_at"])
+        response = HttpResponse(status=204)
+        response["Cache-Control"] = "no-store"
         return response
 
 

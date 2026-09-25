@@ -163,7 +163,18 @@ class SipProvisioningTest(TestCase):
         self.assertIn("roomink-reception.sip.twilio.com", body)
         self.assertIn("sip.tokyo.twilio.com", body)
         self.assertIn("tls (sip)", body)
+        self.assertIn("設定完了", body)
 
+        link.refresh_from_db()
+        device.refresh_from_db()
+        self.assertIsNone(link.used_at)
+        self.assertIsNone(device.provisioned_at)
+        self.assertNotEqual(device.provisioning_password, "")
+        second = self.anonymous.get(urlparse(provisioning_url).path)
+        self.assertEqual(second.status_code, 200)
+
+        completed = self.anonymous.post(urlparse(provisioning_url).path)
+        self.assertEqual(completed.status_code, 204)
         link.refresh_from_db()
         device.refresh_from_db()
         self.assertIsNotNone(link.used_at)
