@@ -5135,8 +5135,8 @@ def _build_groundwire_setup_page(store, device):
         ("ユーザー名", device.sip_username),
         ("パスワード", device.provisioning_password),
         ("ドメイン", store.sip_domain),
-        ("トランスポート", "tls (sip)"),
-        ("Proxy", "sip.tokyo.twilio.com"),
+        ("プロキシ", "sip.tokyo.twilio.com"),
+        ("トランスポートプロトコル", "tls (sip)"),
     )
     field_html = "".join(
         f"""
@@ -5181,7 +5181,10 @@ def _build_groundwire_setup_page(store, device):
       <p class="lead">Groundwireの「新しいSIPアカウント」へ、以下を順番にコピーしてください。</p>
       <ol class="steps">
         <li>Groundwireを開き「設定 → Accounts → ＋ → New SIP Account」を選ぶ</li>
-        <li>下の値を入力して保存する</li>
+        <li>タイトル、ユーザー名、パスワード、ドメインを入力する</li>
+        <li>ドメインの下にある「詳細設定」を開き、「プロキシ」へ下の値を入力する</li>
+        <li>詳細設定の下部にある「トランスポートプロトコル」で「tls (sip)」を選ぶ</li>
+        <li>右上の「完了」を押して保存する</li>
         <li>通知とマイクを許可し、アカウント表示が緑色になれば完了</li>
       </ol>
       {field_html}
