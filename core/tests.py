@@ -449,7 +449,10 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         self.assertIsNotNone(dial)
         self.assertEqual(dial.attrib["answerOnBridge"], "true")
         self.assertEqual(dial.attrib["timeout"], "30")
-        self.assertEqual(dial.findtext("Sip"), "reception@roomink.sip.twilio.com")
+        self.assertEqual(
+            dial.findtext("Sip"),
+            "sip:reception@roomink.sip.twilio.com;transport=tls",
+        )
         logs = "\n".join(captured.output)
         self.assertNotIn(self.from_phone, logs)
         self.assertNotIn("09012345678", logs)
@@ -575,7 +578,10 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         self.assertEqual(response.status_code, 200)
         twiml = ElementTree.fromstring(response.content)
         self.assertIn("A&B<受付>", twiml.findtext("Say"))
-        self.assertEqual(twiml.findtext("Dial/Sip"), "reception@roomink.sip.twilio.com")
+        self.assertEqual(
+            twiml.findtext("Dial/Sip"),
+            "sip:reception@roomink.sip.twilio.com;transport=tls",
+        )
 
     def test_store_specific_sip_uri_takes_priority_over_global_fallback(self):
         self.store_a.sip_username = "store-reception"
@@ -594,7 +600,7 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         twiml = ElementTree.fromstring(response.content)
         self.assertEqual(
             twiml.findtext("Dial/Sip"),
-            "store-reception@store-roomink.sip.twilio.com",
+            "sip:store-reception@store-roomink.sip.twilio.com;transport=tls",
         )
 
     def test_active_reception_devices_ring_in_parallel(self):
@@ -633,8 +639,8 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         self.assertEqual(
             [node.text for node in twiml.findall("Dial/Sip")],
             [
-                "device-one@store-roomink.sip.twilio.com",
-                "device-two@store-roomink.sip.twilio.com",
+                "sip:device-one@store-roomink.sip.twilio.com;transport=tls",
+                "sip:device-two@store-roomink.sip.twilio.com;transport=tls",
             ],
         )
 
@@ -683,7 +689,7 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         twiml = ElementTree.fromstring(response.content)
         self.assertEqual(
             twiml.findtext("Dial/Sip"),
-            "reception@roomink.sip.twilio.com",
+            "sip:reception@roomink.sip.twilio.com;transport=tls",
         )
 
     @override_settings(

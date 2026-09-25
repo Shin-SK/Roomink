@@ -11,7 +11,7 @@
   → クラコール SIP trunk
   → roomink-reception.sip.jp1.twilio.com
   → Roomink voice webhook
-  → roomink-reception@roomink-reception.sip.twilio.com
+  → sip:roomink-reception@roomink-reception.sip.twilio.com;transport=tls
   → Groundwire等の受付端末
 ```
 
@@ -65,6 +65,7 @@
 - Calls Authentication: クラコール固定送信元IP専用のIP Access Control Listだけを設定
 - Registrations Authentication: 既存の受付端末用Credential Listを維持
 - Calls AuthenticationのCredential List Mappingは削除する。Registration用Mappingは削除しない。
+- Roominkから受付端末を呼ぶ `<Dial><Sip>` は `;transport=tls` を必須にする。Secure Media有効のDomainをUDPで呼ぶとTwilioエラー32209になる。
 
 ### 3. クラコールへ渡す接続先
 

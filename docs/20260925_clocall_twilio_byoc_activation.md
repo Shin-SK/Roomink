@@ -59,6 +59,10 @@ Credential List Mappingも同じ形式に対応させた。
 
 復旧では `roomink-reception` へBYOC Trunkとクラコール固定IP用ACLを関連付け、Calls AuthenticationだけからCredential Listを外す。Registrations AuthenticationのCredential ListとSIP Registrationは維持する。`roomink-clocall` は即時削除せず、復旧確認が完了するまでロールバック用に残す。
 
+## 実通話で判明した受付端末呼出し条件
+
+復旧後の正式番号への試験発信では、クラコールからTwilio、Roomink voice webhookまで到達した。その後のGroundwire呼出しでTwilioエラー32209（Secure transport required）が発生した。SIP DomainはSecure Media有効、Groundwire設定もTLSのため、Roominkが返す `<Dial><Sip>` の宛先を `sip:<AOR>;transport=tls` に修正する。これを実通話再試験の必須条件とする。
+
 ## 誤ってクラコール側へ依頼した切替（撤回）
 
 Twilio電話認証完了後、クラコールへ次を依頼する。

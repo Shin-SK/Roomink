@@ -5600,7 +5600,9 @@ def twilio_voice_webhook(request):
 
     dial = Dial(answer_on_bridge=True, timeout=30)
     for sip_uri in sip_uris:
-        dial.sip(sip_uri)
+        # The reception SIP Domain has Secure Media enabled. Twilio otherwise
+        # defaults <Sip> dialing to UDP and rejects the leg with error 32209.
+        dial.sip(f"sip:{sip_uri};transport=tls")
     voice_response.append(dial)
     return HttpResponse(str(voice_response), content_type="application/xml")
 
