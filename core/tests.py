@@ -540,6 +540,33 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         self.assertEqual(call.from_phone, "anonymous")
         self.assertIsNone(call.customer)
 
+    def test_unavailable_byoc_caller_still_reaches_the_store(self):
+        StorePhoneNumber.objects.create(
+            store=self.store_a,
+            phone="05012345678",
+            is_active=True,
+        )
+        data = {
+            "CallSid": "CAbyoc-unavailable",
+            "From": "Unavailable",
+            "Caller": "Unavailable",
+            "To": "+815012345678",
+            "Called": "+815012345678",
+            "CallStatus": "ringing",
+        }
+
+        response = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            data,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        call = CallLog.objects.get(contact_id=data["CallSid"])
+        self.assertEqual(call.from_phone, "anonymous")
+        self.assertEqual(call.to_phone, "05012345678")
+        self.assertIsNone(call.customer)
+
     @override_settings(TWILIO_SIP_URI="")
     def test_missing_sip_configuration_fails_safe_after_recording_call(self):
         data = self.voice_data("CAmissing-sip")
