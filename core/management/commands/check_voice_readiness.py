@@ -165,13 +165,15 @@ class Command(BaseCommand):
         if settings.TWILIO_BYOC_CREDENTIAL_LIST_SID:
             mappings = domain.credential_list_mappings.list(limit=50)
             if settings.TWILIO_BYOC_CREDENTIAL_LIST_SID not in {
-                item.credential_list_sid for item in mappings
+                getattr(item, "credential_list_sid", None) or item.sid
+                for item in mappings
             }:
                 failures.append("BYOC Credential List is not mapped to the termination domain")
         if settings.TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID:
             mappings = domain.ip_access_control_list_mappings.list(limit=50)
             if settings.TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID not in {
-                item.ip_access_control_list_sid for item in mappings
+                getattr(item, "ip_access_control_list_sid", None) or item.sid
+                for item in mappings
             }:
                 failures.append("BYOC IP ACL is not mapped to the termination domain")
         if not sms_numbers or not bool((sms_numbers[0].capabilities or {}).get("sms")):
