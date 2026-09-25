@@ -62,10 +62,11 @@
 - Domain: `roomink-reception.sip.twilio.com`
 - Configure With: 上記BYOC Trunk
 - SIP Registration: 有効のまま維持
+- Secure Media強制: 無効（クラコール提出仕様のSIP UDP/5060を受けるため）
 - Calls Authentication: クラコール固定送信元IP専用のIP Access Control Listだけを設定
 - Registrations Authentication: 既存の受付端末用Credential Listを維持
 - Calls AuthenticationのCredential List Mappingは削除する。Registration用Mappingは削除しない。
-- Roominkから受付端末を呼ぶ `<Dial><Sip>` は `;transport=tls` を必須にする。Secure Media有効のDomainをUDPで呼ぶとTwilioエラー32209になる。
+- Groundwireの登録はTLSを維持し、Roominkから受付端末を呼ぶ `<Dial><Sip>` も `;transport=tls` を必須にする。
 
 ### 3. クラコールへ渡す接続先
 

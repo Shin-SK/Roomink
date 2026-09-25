@@ -61,7 +61,9 @@ Credential List Mappingも同じ形式に対応させた。
 
 ## 実通話で判明した受付端末呼出し条件
 
-復旧後の正式番号への試験発信では、クラコールからTwilio、Roomink voice webhookまで到達した。その後のGroundwire呼出しでTwilioエラー32209（Secure transport required）が発生した。SIP DomainはSecure Media有効、Groundwire設定もTLSのため、Roominkが返す `<Dial><Sip>` の宛先を `sip:<AOR>;transport=tls` に修正する。これを実通話再試験の必須条件とする。
+復旧後の正式番号への試験発信では、RoominkのCallLogとwebhookログが作られる前にTwilioエラー32209（Secure transport required）が発生した。クラコールの提出仕様はSIP 5060であり、共用SIP DomainのSecure Media強制がクラコールからのUDP着信を拒否していた。
+
+同一Domain構成を成立させるため、Domain全体のSecure Media強制は無効にしてクラコールのUDP/5060を受ける。一方、GroundwireはTLS登録を維持し、Roominkが返す `<Dial><Sip>` の宛先も `sip:<AOR>;transport=tls` として受付端末へのSIPシグナリングはTLSを明示する。開通判定では、提出済みDomainがSecure Media強制になっていないことも検査する。
 
 ## 誤ってクラコール側へ依頼した切替（撤回）
 

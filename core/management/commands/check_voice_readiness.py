@@ -179,6 +179,10 @@ class Command(BaseCommand):
                 failures.append("BYOC IP ACL is not mapped to the termination domain")
         if not domain.sip_registration:
             failures.append("reception SIP registration must remain enabled")
+        if domain.secure:
+            failures.append(
+                "shared carrier SIP Domain must accept the submitted UDP/5060 transport"
+            )
         registration_mappings = (
             domain.auth.registrations.credential_list_mappings.list(limit=50)
         )
