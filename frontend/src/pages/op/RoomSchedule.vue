@@ -14,13 +14,18 @@ const loading = ref(true)
 const toolbarOpen = ref(false)
 
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  return formatLocalDate(new Date())
 }
 
 function tomorrow() {
   const d = new Date()
   d.setDate(d.getDate() + 1)
-  return d.toISOString().slice(0, 10)
+  return formatLocalDate(d)
+}
+
+function formatLocalDate(d) {
+  const pad = value => String(value).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 // rooms → casts 形式に変換（TimelineGrid 流用）
@@ -45,6 +50,8 @@ const ordersAdapter = computed(() =>
     start_time_extended: o.start_time_extended,
     end_time_extended: o.end_time_extended,
     status: o.status,
+    timeline_status: o.timeline_status,
+    timeline_status_label: o.timeline_status_label,
     options: o.options,
     is_unconfirmed: o.is_unconfirmed,
   }))

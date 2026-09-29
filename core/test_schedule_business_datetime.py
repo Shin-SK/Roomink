@@ -38,7 +38,7 @@ class ScheduleBusinessDateTimeTest(TestCase):
             duration=60,
             price=10000,
         )
-        ShiftAssignment.objects.create(
+        self.shift = ShiftAssignment.objects.create(
             store=self.store,
             date=self.business_date,
             cast=self.cast,
@@ -99,3 +99,57 @@ class ScheduleBusinessDateTimeTest(TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data["orders"], [])
         self.assertEqual(response.data["kpi"]["total_orders"], 0)
+
+    def test_cancelled_order_is_hidden_from_cast_and_room_timelines(self):
+        self.order.status = Order.Status.CANCELLED
+        self.order.save(update_fields=["status"])
+
+        cast_response = self.client.get(
+            f"/api/op/schedule/?date={self.business_date.isoformat()}"
+        )
+        room_response = self.client.get(
+            f"/api/op/room-schedule/?date={self.business_date.isoformat()}"
+        )
+
+        self.assertEqual(cast_response.status_code, 200, cast_response.data)
+        self.assertEqual(room_response.status_code, 200, room_response.data)
+        self.assertEqual(cast_response.data["orders"], [])
+        self.assertEqual(room_response.data["orders"], [])
+        self.assertEqual(cast_response.data["kpi"]["total_orders"], 0)
+        self.assertEqual(room_response.data["kpi"]["total_orders"], 0)
+
+    def test_timeline_status_is_returned_without_changing_order_status(self):
+        self.order.timeline_status = Order.TimelineStatus.SMS_CONFIRMED
+        self.order.save(update_fields=["timeline_status"])
+
+        response = self.client.get(
+            f"/api/op/schedule/?date={self.business_date.isoformat()}"
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        item = response.data["orders"][0]
+        self.assertEqual(item["status"], Order.Status.CONFIRMED)
+        self.assertEqual(item["timeline_status"], Order.TimelineStatus.SMS_CONFIRMED)
+        self.assertEqual(item["timeline_status_label"], "SMS確認済み")
+
+    def test_shift_absence_can_be_toggled_without_cancelling_existing_order(self):
+        update_response = self.client.patch(
+            f"/api/shifts/{self.shift.id}/",
+            {"is_absent": True},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, 200, update_response.data)
+
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
+
+        schedule_response = self.client.get(
+            f"/api/op/schedule/?date={self.business_date.isoformat()}"
+        )
+        self.assertEqual(schedule_response.status_code, 200, schedule_response.data)
+        cast = next(
+            item for item in schedule_response.data["casts"]
+            if item["id"] == self.cast.id
+        )
+        self.assertTrue(cast["shifts"][0]["is_absent"])
+        self.assertEqual(schedule_response.data["orders"][0]["id"], self.order.id)

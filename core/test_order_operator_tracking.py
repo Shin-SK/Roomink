@@ -82,6 +82,18 @@ class OrderOperatorTrackingTest(TestCase):
         )
         self.assertEqual(update_response.status_code, 200, update_response.data)
 
+        timeline_response = self.client_as(self.manager).patch(
+            f"/api/orders/{order.pk}/",
+            {"timeline_status": Order.TimelineStatus.SMS_SENT},
+            format="json",
+        )
+        self.assertEqual(timeline_response.status_code, 200, timeline_response.data)
+        self.assertEqual(
+            timeline_response.data["timeline_status"],
+            Order.TimelineStatus.SMS_SENT,
+        )
+        self.assertEqual(timeline_response.data["status"], Order.Status.REQUESTED)
+
         cancel_response = self.client_as(self.staff).post(
             f"/api/orders/{order.pk}/cancel/",
             {},

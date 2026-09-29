@@ -8,9 +8,10 @@ const props = defineProps({
   startHour: { type: Number, default: 12 },
   endHour: { type: Number, default: 20 },
   showRoom: { type: Boolean, default: true },
+  absenceUpdatingCastId: { type: [Number, String], default: null },
 })
 
-const emit = defineEmits(['block-click', 'create-order'])
+const emit = defineEmits(['block-click', 'create-order', 'toggle-absence'])
 
 const gridRef = ref(null)
 const nowMs = ref(Date.now())
@@ -23,6 +24,9 @@ let hoverTimeout = null
 
 const visibleCastId = computed(() => pinnedCastId.value || hoveredCastId.value)
 const visibleCast = computed(() => props.casts.find(c => c.id === visibleCastId.value) || null)
+const visibleOrders = computed(() => (
+  (props.orders || []).filter(order => order.status !== 'CANCELLED')
+))
 
 function positionPopover(element) {
   const rect = element.getBoundingClientRect()
@@ -102,7 +106,7 @@ const effectiveStartHour = computed(() => {
       if (Number.isFinite(h) && h < earliest) earliest = h
     }
   }
-  for (const order of props.orders || []) {
+  for (const order of visibleOrders.value) {
     const h = parseInt(orderStartTime(order).slice(0, 2), 10)
     if (Number.isFinite(h) && h < earliest) earliest = h
   }
@@ -126,7 +130,7 @@ const effectiveEndHour = computed(() => {
       if (Number.isFinite(eff) && eff > latest) latest = eff
     }
   }
-  for (const order of props.orders || []) {
+  for (const order of visibleOrders.value) {
     const t = orderEndTime(order)
     const h = parseInt(t.slice(0, 2), 10)
     const m = parseInt(t.slice(3, 5), 10) || 0
@@ -168,12 +172,17 @@ function statusClass(order) {
   // 完了は他のフラグ（要注意・未確認 等）より優先して完了感を出す
   if (order.status === 'DONE') return ['is-done']
   const cls = []
-  if (order.customer_reservation_state === 'PAYMENT_REQUIRED') cls.push('is-attention')
-  switch (order.status) {
-    case 'CONFIRMED': cls.push('is-approved'); break
-    case 'REQUESTED': cls.push('is-requested'); break
-    case 'IN_PROGRESS': cls.push('is-approved'); break
-    case 'PENDING_FINALIZE': cls.push('is-attention'); break
+  const manualTimelineStatus = order.timeline_status && order.timeline_status !== 'AUTO'
+  if (manualTimelineStatus) {
+    cls.push(`is-timeline-${order.timeline_status.toLowerCase().replaceAll('_', '-')}`)
+  } else {
+    if (order.customer_reservation_state === 'PAYMENT_REQUIRED') cls.push('is-attention')
+    switch (order.status) {
+      case 'CONFIRMED': cls.push('is-approved'); break
+      case 'REQUESTED': cls.push('is-requested'); break
+      case 'IN_PROGRESS': cls.push('is-approved'); break
+      case 'PENDING_FINALIZE': cls.push('is-attention'); break
+    }
   }
   if (order.customer_label && order.customer_label.includes('★注意')) {
     cls.push('is-attention')
@@ -208,6 +217,15 @@ function blockMeta(order) {
   if (order.is_room_pending) labels.push('ルーム未定')
   labels.push(t)
   return labels.join(' / ')
+}
+
+function timelineStatusLabel(order) {
+  if (!order.timeline_status || order.timeline_status === 'AUTO') return ''
+  return order.timeline_status_label || {
+    SMS_SENT: 'SMS送信済み',
+    SMS_CONFIRMED: 'SMS確認済み',
+    CARD_PAID: 'カード決済済み',
+  }[order.timeline_status] || ''
 }
 
 function orderPartyLabel(order) {
@@ -293,11 +311,14 @@ function castConfirmFlag(cast) {
 
 function castStatus(cast) {
   const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
-  if (shifts.length === 0 || cast.is_off_shift) {
+  if (shifts.length === 0) {
     return { key: 'offshift', label: 'シフト外', short: '外' }
   }
   const anyAbsent = shifts.some(s => s.is_absent)
   if (anyAbsent) return { key: 'dayoff', label: '当欠', short: '欠' }
+  if (cast.is_off_shift) {
+    return { key: 'offshift', label: 'シフト外', short: '外' }
+  }
   const anyClockedIn = shifts.some(s => s.clocked_in_at)
   if (anyClockedIn) return { key: 'in', label: '出勤済み', short: '済' }
   let minStart = null
@@ -325,6 +346,7 @@ const shiftBands = computed(() => {
   props.casts.forEach((cast, row) => {
     const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
     for (const s of shifts) {
+      if (s.is_absent) continue
       const st = (s.start_time || '').slice(0, 5)
       const ed = (s.end_time_extended || s.end_time || '').slice(0, 5)
       if (!st || !ed) continue
@@ -352,8 +374,8 @@ const intervalBlocks = computed(() => {
   for (const cast of props.casts) {
     const interval = cast.interval_minutes || 0
     if (!interval) continue
-    const castOrders = props.orders
-      .filter(o => o.cast_id === cast.id && o.status !== 'CANCELLED')
+    const castOrders = visibleOrders.value
+      .filter(o => o.cast_id === cast.id)
       .sort((a, b) => new Date(a.end) - new Date(b.end))
     for (const order of castOrders) {
       const endTime = orderEndTime(order)
@@ -564,7 +586,7 @@ onBeforeUnmount(() => {
             <span class="rk-shift-band__label">出勤中</span>
           </div>
           <a
-            v-for="order in orders"
+            v-for="order in visibleOrders"
             :key="order.id"
             class="rk-block"
             :class="statusClass(order)"
@@ -575,6 +597,9 @@ onBeforeUnmount(() => {
             :data-end="orderEndTime(order)"
             @click.prevent.stop="emit('block-click', order)"
           >
+            <div v-if="timelineStatusLabel(order)" class="rk-block__state">
+              {{ timelineStatusLabel(order) }}
+            </div>
             <div class="rk-block__title">{{ orderPartyLabel(order) }} ({{ order.course_name }})</div>
             <div class="rk-block__meta">{{ blockMeta(order) }}</div>
           </a>
@@ -663,6 +688,23 @@ onBeforeUnmount(() => {
         <div v-if="castDailyMemo(visibleCast)" class="rk-castpop__memo">
           <div class="rk-castpop__memo-label">当日メモ</div>
           <div class="rk-castpop__memo-body">{{ castDailyMemo(visibleCast) }}</div>
+        </div>
+
+        <div v-if="visibleCast.shifts && visibleCast.shifts.length" class="rk-castpop__actions">
+          <button
+            type="button"
+            class="btn btn-sm w-100"
+            :class="castStatus(visibleCast).key === 'dayoff' ? 'btn-outline-secondary' : 'btn-outline-danger'"
+            :disabled="String(absenceUpdatingCastId) === String(visibleCast.id)"
+            @click="emit('toggle-absence', visibleCast)"
+          >
+            <span
+              v-if="String(absenceUpdatingCastId) === String(visibleCast.id)"
+              class="spinner-border spinner-border-sm me-1"
+            ></span>
+            <i v-else class="ti ti-calendar-off me-1"></i>
+            {{ castStatus(visibleCast).key === 'dayoff' ? '当欠を解除' : '当欠にする' }}
+          </button>
         </div>
       </div>
     </Teleport>

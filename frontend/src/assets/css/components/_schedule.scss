@@ -246,6 +246,12 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+
+  &__actions {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+  }
 }
 
 .rk-avatar-img {
@@ -325,6 +331,7 @@
   &--in { background: #16a34a; color: #fff; }
   &--scheduled { background: #e0e7ff; color: #3730a3; }
   &--absent { background: #fee2e2; color: #991b1b; }
+  &--dayoff { background: #dc2626; color: #fff; }
   &--offshift { background: #e2e8f0; color: #475569; }
 }
 
@@ -449,7 +456,7 @@
   text-decoration: none;
   color: #0b1220;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  border: 2px solid rgba(15, 23, 42, 0.08);
   overflow: hidden;
   transition: all 0.2s;
   z-index: 2;
@@ -465,21 +472,36 @@
 
   /* 承認済 */
   &.is-approved {
-    background: rgba(42, 157, 143, 0.22);
+    background: #d7f3ec;
     border-color: var(--rk-primary);
   }
 
   /* 申請中 */
   &.is-requested {
-    background: rgba(91, 198, 169, 0.22);
+    background: #ede9fe;
     border-style: dashed;
-    border-color: var(--rk-primary);
+    border-color: #7c3aed;
   }
 
   /* 要注意 */
   &.is-attention {
-    background: rgba(245, 158, 11, 0.2);
+    background: #fef3c7;
     border-color: #f59e0b;
+  }
+
+  &.is-timeline-sms-sent {
+    background: #fee2e2;
+    border-color: #dc2626;
+  }
+
+  &.is-timeline-sms-confirmed {
+    background: #fef3c7;
+    border-color: #eab308;
+  }
+
+  &.is-timeline-card-paid {
+    background: #dcfce7;
+    border-color: #16a34a;
   }
 
   /* 完了 */
@@ -516,6 +538,22 @@
     font-weight: 700;
     font-size: 0.75rem;
     margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__state {
+    align-self: flex-start;
+    max-width: calc(100% - 20px);
+    margin-bottom: 4px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.78);
+    color: #334155;
+    font-size: 0.625rem;
+    font-weight: 800;
+    line-height: 1.5;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

@@ -1089,6 +1089,10 @@ class OrderSerializer(serializers.ModelSerializer):
     guest_first_opened_at = serializers.SerializerMethodField()
     guest_last_seen_state = serializers.SerializerMethodField()
     guest_open_count = serializers.SerializerMethodField()
+    timeline_status_label = serializers.CharField(
+        source="get_timeline_status_display",
+        read_only=True,
+    )
     # course_name is now a snapshot field on Order; no source override needed
 
     class Meta:
@@ -1097,7 +1101,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "id", "store", "cast", "room", "customer", "course",
             "cast_name", "room_name", "course_name", "customer_label", "service_recipient_name",
             "service_recipient_customer", "service_recipient_customer_label",
-            "start", "end", "status", "options", "option_ids", "is_unconfirmed",
+            "start", "end", "status", "timeline_status", "timeline_status_label",
+            "options", "option_ids", "is_unconfirmed",
             "is_past_business_day", "can_modify", "is_off_shift", "is_room_pending", "memo",
             "course_price", "options_price",
             "extension", "extension_name", "extension_duration", "extension_price",
@@ -1429,6 +1434,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
         fields = [
             "cast", "course", "start", "end", "service_recipient_name",
             "memo", "options", "nomination_fee", "payment_method", "card_include_options",
+            "timeline_status",
         ]
 
     def validate_service_recipient_name(self, value):
@@ -1634,6 +1640,8 @@ class ScheduleOrderSerializer(serializers.Serializer):
     start_time_extended = serializers.CharField()
     end_time_extended = serializers.CharField()
     status = serializers.CharField()
+    timeline_status = serializers.CharField()
+    timeline_status_label = serializers.CharField()
     customer_reservation_state = serializers.CharField()
     options = serializers.ListField(child=serializers.CharField())
     is_unconfirmed = serializers.BooleanField()
@@ -1718,6 +1726,7 @@ def build_schedule_data(store, date):
     orders = (
         Order.objects
         .filter(store=store, start__gte=range_start, start__lt=range_end)
+        .exclude(status=Order.Status.CANCELLED)
         .select_related("customer", "course")
         .prefetch_related("options")
     )
@@ -1743,6 +1752,8 @@ def build_schedule_data(store, date):
             "start_time_extended": format_business_time(o.start, date, store.timezone),
             "end_time_extended": format_business_time(o.end, date, store.timezone),
             "status": o.status,
+            "timeline_status": o.timeline_status,
+            "timeline_status_label": o.get_timeline_status_display(),
             "customer_reservation_state": guest_reservation_state(o),
             "options": [opt.name for opt in o.options.all()],
             "is_unconfirmed": o.id not in acked_order_ids,
@@ -1811,6 +1822,7 @@ def build_room_schedule_data(store, date):
             start__lt=range_end,
             room__isnull=False,
         )
+        .exclude(status=Order.Status.CANCELLED)
         .select_related("customer", "course", "cast")
         .prefetch_related("options")
     )
@@ -1835,6 +1847,8 @@ def build_room_schedule_data(store, date):
             "start_time_extended": format_business_time(o.start, date, store.timezone),
             "end_time_extended": format_business_time(o.end, date, store.timezone),
             "status": o.status,
+            "timeline_status": o.timeline_status,
+            "timeline_status_label": o.get_timeline_status_display(),
             "customer_reservation_state": guest_reservation_state(o),
             "options": [opt.name for opt in o.options.all()],
             "is_unconfirmed": o.id not in acked_order_ids,

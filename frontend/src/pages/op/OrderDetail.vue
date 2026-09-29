@@ -54,6 +54,15 @@ const smsLogsLoading = ref(true)
 const smsLogsError = ref('')
 const expandedSmsIds = ref([])
 const cardSmsActing = ref(false)
+const timelineStatusSaving = ref(false)
+const timelineStatusError = ref('')
+
+const timelineStatusOptions = [
+  { value: 'AUTO', label: '自動表示', color: '#2a9d8f' },
+  { value: 'SMS_SENT', label: 'SMS送信済み', color: '#dc2626' },
+  { value: 'SMS_CONFIRMED', label: 'SMS確認済み', color: '#eab308' },
+  { value: 'CARD_PAID', label: 'カード決済済み', color: '#16a34a' },
+]
 
 const smsStatusCls = {
   SENT: 'bg-success',
@@ -376,6 +385,21 @@ async function updatePaymentMethod(value) {
   }
 }
 
+async function updateTimelineStatus(event) {
+  const value = event.target.value
+  const previous = order.value.timeline_status || 'AUTO'
+  timelineStatusError.value = ''
+  timelineStatusSaving.value = true
+  try {
+    order.value = await api.updateOrder(props.id, { timeline_status: value })
+  } catch (e) {
+    event.target.value = previous
+    timelineStatusError.value = e.message || 'タイムライン表示を更新できませんでした'
+  } finally {
+    timelineStatusSaving.value = false
+  }
+}
+
 async function saveRecipientCustomerLink() {
   const customerId = selectedRecipientCustomer.value
     ? Number(selectedRecipientCustomer.value)
@@ -430,6 +454,33 @@ async function saveRecipientCustomerLink() {
               class="badge fs-6 px-3 py-2"
               :class="displayStatus.cls"
             >{{ displayStatus.text }}</span>
+          </div>
+
+          <div class="card mb-3 timeline-display-card">
+            <div class="card-body">
+              <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
+                <div>
+                  <div class="fw-bold"><i class="ti ti-palette me-1"></i>タイムライン表示</div>
+                  <div class="small text-muted">店舗内の対応状況を色で見分けるための表示です。予約の確定状態には影響しません。</div>
+                </div>
+                <select
+                  :value="order.timeline_status || 'AUTO'"
+                  class="form-select form-select-sm timeline-display-card__select"
+                  :disabled="timelineStatusSaving"
+                  @change="updateTimelineStatus"
+                >
+                  <option v-for="item in timelineStatusOptions" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </div>
+              <div class="timeline-display-card__legend">
+                <span v-for="item in timelineStatusOptions.slice(1)" :key="item.value">
+                  <i :style="{ backgroundColor: item.color }"></i>{{ item.label }}
+                </span>
+              </div>
+              <div v-if="timelineStatusError" class="text-danger small mt-2">{{ timelineStatusError }}</div>
+            </div>
           </div>
 
           <!-- サマリー -->
@@ -870,6 +921,33 @@ async function saveRecipientCustomerLink() {
 </template>
 
 <style scoped>
+.timeline-display-card {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+.timeline-display-card__select {
+  width: min(100%, 210px);
+  flex: 0 0 auto;
+}
+.timeline-display-card__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 10px;
+  color: #475569;
+  font-size: 0.75rem;
+}
+.timeline-display-card__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.timeline-display-card__legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
 .sms-row {
   padding: 0.625rem 1rem;
   border-bottom: 1px solid #f0f0f0;

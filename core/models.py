@@ -508,6 +508,12 @@ class Order(models.Model):
         CASH = "CASH", "現金"
         PAYPAY = "PAYPAY", "PayPay"
 
+    class TimelineStatus(models.TextChoices):
+        AUTO = "AUTO", "自動表示"
+        SMS_SENT = "SMS_SENT", "SMS送信済み"
+        SMS_CONFIRMED = "SMS_CONFIRMED", "SMS確認済み"
+        CARD_PAID = "CARD_PAID", "カード決済済み"
+
     ACTIVE_STATUSES = (
         Status.REQUESTED,
         Status.CONFIRMED,
@@ -572,6 +578,12 @@ class Order(models.Model):
     end = models.DateTimeField()
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.REQUESTED,
+    )
+    timeline_status = models.CharField(
+        max_length=20,
+        choices=TimelineStatus.choices,
+        default=TimelineStatus.AUTO,
+        help_text="予約タイムライン上の手動表示区分。予約状態そのものには影響しない。",
     )
     payment_method = models.CharField(
         max_length=10, choices=PaymentMethod.choices, default=PaymentMethod.UNSET,

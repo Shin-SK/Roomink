@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import TimelineGrid from '../../components/TimelineGrid.vue'
@@ -18,6 +18,8 @@ const unavailableTimes = ref([])
 const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 0 })
 const loading = ref(true)
 const toolbarOpen = ref(false)
+const absenceUpdatingCastId = ref(null)
+let orderEntryWindow = null
 
 // 表示モード切り替え（キャスト別 / 部屋別）
 const viewMode = ref('cast')
@@ -46,6 +48,8 @@ const roomOrdersAdapter = computed(() =>
     start_time_extended: o.start_time_extended,
     end_time_extended: o.end_time_extended,
     status: o.status,
+    timeline_status: o.timeline_status,
+    timeline_status_label: o.timeline_status_label,
     options: o.options,
     is_unconfirmed: o.is_unconfirmed,
   }))
@@ -88,13 +92,18 @@ const callLogsError = ref('')
 const savingMemo = ref(false)
 
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  return formatLocalDate(new Date())
 }
 
 function tomorrow() {
   const d = new Date()
   d.setDate(d.getDate() + 1)
-  return d.toISOString().slice(0, 10)
+  return formatLocalDate(d)
+}
+
+function formatLocalDate(d) {
+  const pad = value => String(value).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 async function fetchSchedule() {
@@ -217,6 +226,21 @@ function openCreateModal({ cast = '', customer = '', startTime = '', startDate =
   modalCustomerId.value = customer
   modalStartTime.value = startTime || '15:00'
   modalStartDate.value = startDate || selectedDate.value
+  const query = {
+    popup: '1',
+    date: modalStartDate.value,
+    start: modalStartTime.value,
+  }
+  if (modalCast.value) query.cast = String(modalCast.value)
+  if (modalCustomerId.value) query.customer = String(modalCustomerId.value)
+  const url = router.resolve({ path: '/op/phone', query }).href
+  // ブラウザ標準の別タブで開く。元のタイムラインを残したまま入力できる。
+  orderEntryWindow = window.open(url, '_blank')
+  if (orderEntryWindow) {
+    orderEntryWindow.focus()
+    return
+  }
+  // ブラウザでポップアップが拒否された場合も予約作成を止めない。
   showCreateModal.value = true
 }
 
@@ -252,8 +276,59 @@ function onOrderCreated({ order }) {
   fetchSchedule()
 }
 
+function onOrderWindowMessage(event) {
+  if (event.origin !== window.location.origin) return
+  if (event.data?.type !== 'roomink-order-created') return
+  const order = event.data.order
+  const startDate = event.data.startDate || selectedDate.value
+  if (!order?.id) return
+  highlightId.value = order.id
+  if (startDate !== selectedDate.value) {
+    selectedDate.value = startDate
+  } else {
+    fetchSchedule()
+  }
+}
+
+function onWindowFocus() {
+  if (orderEntryWindow && orderEntryWindow.closed) {
+    orderEntryWindow = null
+    loadSchedule()
+  }
+}
+
 function onOrderCancel() {
   showCreateModal.value = false
+}
+
+async function toggleCastAbsence(cast) {
+  if (!cast?.id || absenceUpdatingCastId.value !== null) return
+  const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
+  if (!shifts.length) return
+  const isAbsent = shifts.some(shift => shift.is_absent)
+  const nextAbsent = !isAbsent
+  const activeOrderCount = orders.value.filter(order => (
+    order.cast_id === cast.id && order.status !== 'CANCELLED'
+  )).length
+  let message = nextAbsent
+    ? `「${cast.name}」を当欠にしますか？`
+    : `「${cast.name}」の当欠を解除しますか？`
+  if (nextAbsent && activeOrderCount > 0) {
+    message += `\n\nこの日の予約が${activeOrderCount}件あります。予約は自動キャンセルされません。振替またはキャンセル対応を別途行ってください。`
+  }
+  if (!window.confirm(message)) return
+
+  absenceUpdatingCastId.value = cast.id
+  try {
+    await Promise.all(shifts.map(shift => (
+      api.updateShift(shift.id, { is_absent: nextAbsent })
+    )))
+    await fetchSchedule()
+  } catch (e) {
+    window.alert(e.message || '当欠状態を更新できませんでした')
+  } finally {
+    absenceUpdatingCastId.value = null
+  }
 }
 
 async function onUnavailableTimeSaved() {
@@ -383,7 +458,15 @@ watch(selectedDate, () => {
 watch(viewMode, () => {
   loadSchedule()
 })
-onMounted(loadSchedule)
+onMounted(() => {
+  loadSchedule()
+  window.addEventListener('message', onOrderWindowMessage)
+  window.addEventListener('focus', onWindowFocus)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('message', onOrderWindowMessage)
+  window.removeEventListener('focus', onWindowFocus)
+})
 </script>
 
 <template>
@@ -468,9 +551,9 @@ onMounted(loadSchedule)
     <!-- 新規予約 / 番号検索 -->
     <div class="rk-actions mb-2">
       <div class="rk-actions__buttons">
-        <router-link to="/op/phone" class="btn btn-sm btn-primary">
+        <button type="button" class="btn btn-sm btn-primary" @click="openCreateModal()">
           <i class="ti ti-plus me-1"></i>新規予約
-        </router-link>
+        </button>
         <button
           type="button"
           class="btn btn-sm btn-outline-primary"
@@ -535,8 +618,10 @@ onMounted(loadSchedule)
         :casts="displayCasts"
         :orders="displayOrders"
         :unavailable-times="displayUnavailableTimes"
+        :absence-updating-cast-id="absenceUpdatingCastId"
         @block-click="onBlockClick"
         @create-order="onCreateOrder"
+        @toggle-absence="toggleCastAbsence"
       />
       <div v-if="displayCasts.length === 0" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="pointer-events: none; z-index: 9999;">
         <span class="text-muted bg-white px-3 py-2 rounded shadow-sm text-center" style="max-width: 240px;">{{ viewMode === 'room' ? '部屋が登録されていません' : 'この日にシフトが登録されたキャストがいません' }}</span>
@@ -558,7 +643,7 @@ onMounted(loadSchedule)
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">
-              <i class="ti ti-plus me-1"></i>予約作成（{{ selectedDate }}）
+              <i class="ti ti-plus me-1"></i>予約作成（{{ modalStartDate || selectedDate }}）
             </h5>
             <button type="button" class="btn-close" @click="showCreateModal = false"></button>
           </div>
