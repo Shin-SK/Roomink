@@ -273,7 +273,6 @@ RESERVATION_LINK_BASE_URL = os.getenv(
     FRONTEND_URL,
 ).rstrip("/")
 SMS_DUMMY_MODE = os.getenv("SMS_DUMMY_MODE", "0") == "1"
-PUBLIC_BOOKING_ENABLED = os.getenv("PUBLIC_BOOKING_ENABLED", "0") == "1"
 
 # Staging must be isolated and must never send a real customer SMS by accident.
 _deployment_environment = os.getenv("DJANGO_ENV", "").strip().lower()

@@ -24,7 +24,7 @@ from core.services.notify import build_confirmation_body
 User = get_user_model()
 
 
-@override_settings(FRONTEND_URL="https://roomink.example", PUBLIC_BOOKING_ENABLED=True)
+@override_settings(FRONTEND_URL="https://roomink.example")
 class ClientFollowupUpdatesTest(TestCase):
     def setUp(self):
         self.store = Store.objects.create(

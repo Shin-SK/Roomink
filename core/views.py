@@ -1597,11 +1597,6 @@ class PublicBookingOptionsView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        if not settings.PUBLIC_BOOKING_ENABLED:
-            return Response(
-                {"detail": "Web予約は現在準備中です。"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
         store_slug = request.query_params.get("store_slug")
         store = Store.resolve_slug(store_slug) if store_slug else None
         if store is None:
@@ -1635,11 +1630,6 @@ class PublicBookingSlotsView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        if not settings.PUBLIC_BOOKING_ENABLED:
-            return Response(
-                {"detail": "Web予約は現在準備中です。"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
         try:
             cast_id = int(request.query_params.get("cast"))
             course_id = int(request.query_params.get("course"))
@@ -1683,11 +1673,6 @@ class PublicBookingVerificationRequestView(APIView):
     throttle_scope = "public_booking_verification"
 
     def post(self, request):
-        if not settings.PUBLIC_BOOKING_ENABLED:
-            return Response(
-                {"detail": "Web予約は現在準備中です。"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
         try:
             result = request_public_booking_verification(request.data)
         except PublicBookingError as exc:
@@ -1705,11 +1690,6 @@ class PublicBookingConfirmView(APIView):
     throttle_scope = "public_booking_confirm"
 
     def post(self, request):
-        if not settings.PUBLIC_BOOKING_ENABLED:
-            return Response(
-                {"detail": "Web予約は現在準備中です。"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
         try:
             result = confirm_public_booking(
                 request.data.get("verification_id"),

@@ -27,7 +27,6 @@ TOKYO = ZoneInfo("Asia/Tokyo")
     FRONTEND_URL="https://roomink.example",
     RESERVATION_LINK_BASE_URL="https://r.roomink.example",
     SMS_DUMMY_MODE=True,
-    PUBLIC_BOOKING_ENABLED=True,
 )
 class PublicWebBookingTest(TestCase):
     def setUp(self):
@@ -128,25 +127,6 @@ class PublicWebBookingTest(TestCase):
         starts = [slot["start"] for slot in slots.data["slots"]]
         self.assertEqual(starts, ["12:00", "12:30", "13:00"])
         self.assertEqual(slots.data["slots"][0]["end"], "14:00")
-
-    @override_settings(PUBLIC_BOOKING_ENABLED=False)
-    def test_disabled_public_booking_is_fail_closed(self):
-        options = self.client.get(
-            "/api/public/booking/options/",
-            {"store": self.store.id},
-        )
-        requested = self.client.post(
-            "/api/public/booking/request-verification/",
-            self.payload(),
-            format="json",
-        )
-
-        self.assertEqual(options.status_code, 503, options.data)
-        self.assertEqual(requested.status_code, 503, requested.data)
-        self.assertEqual(PublicBookingVerification.objects.count(), 0)
-        self.assertEqual(SmsLog.objects.count(), 0)
-        self.assertEqual(Customer.objects.count(), 0)
-        self.assertEqual(Order.objects.count(), 0)
 
     def test_sms_verification_request_creates_no_customer_or_order_and_hides_code(self):
         response = self.request_code()

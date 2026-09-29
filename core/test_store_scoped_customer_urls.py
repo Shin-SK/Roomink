@@ -11,7 +11,7 @@ from core.models import Cast, Customer, Store, StoreSlugAlias, UserProfile
 User = get_user_model()
 
 
-@override_settings(FRONTEND_URL="https://roomink.example", PUBLIC_BOOKING_ENABLED=True)
+@override_settings(FRONTEND_URL="https://roomink.example")
 class StoreScopedCustomerUrlsTest(TestCase):
     def setUp(self):
         self.rs = Store.objects.create(name="アールズスパ", slug="scoped-rs-spa")
