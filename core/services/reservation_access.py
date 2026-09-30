@@ -10,6 +10,26 @@ from core.models import Order, OrderGuestAccess, SmsLog
 ACCESS_RETENTION = timedelta(days=30)
 
 
+def customer_facing_cast_name(order):
+    """顧客向けには、店舗手入力のフリー予約で実担当者名を伏せる。"""
+    nomination_label = "".join((order.nomination_fee_name or "").split()).lower()
+    is_explicitly_free = (
+        nomination_label.startswith("フリー")
+        or nomination_label in {"free", "指名なし", "指名無し"}
+    )
+    # 店舗の予約作成画面で「指名なし」を選んだ既存予約は、指名名が空欄のまま
+    # 保存されている。公開Web予約は created_by が空欄なので、そこまでフリー扱い
+    # せず、お客様自身が選んだキャスト名を表示する。
+    is_legacy_operator_free = (
+        not nomination_label
+        and order.nomination_fee_id is None
+        and order.created_by_id is not None
+    )
+    if is_explicitly_free or is_legacy_operator_free:
+        return "フリー"
+    return order.cast.name if order.cast_id else ""
+
+
 class GuestReservationState:
     REQUESTED = "REQUESTED"
     PAYMENT_REQUIRED = "PAYMENT_REQUIRED"
@@ -218,7 +238,7 @@ def serialize_guest_reservation(access):
         "contact_phone": contact_phone,
         "start": order.start,
         "end": order.end,
-        "cast_name": order.cast.name,
+        "cast_name": customer_facing_cast_name(order),
         "course_name": order.course_name,
         "total_price": order.total_price,
         "payment_method": order.payment_method,

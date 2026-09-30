@@ -134,6 +134,7 @@ from .services.customer_invitation import (
     serialize_invitation_status,
 )
 from .services.reservation_access import (
+    customer_facing_cast_name,
     get_valid_order_guest_access,
     guest_reservation_state,
     mark_guest_access_opened,
@@ -1876,7 +1877,7 @@ class CustomerMypageView(APIView):
                 "start": next_order.start,
                 "end": next_order.end,
                 "status": next_order.status,
-                "cast_name": next_order.cast.name,
+                "cast_name": customer_facing_cast_name(next_order),
                 "course_name": next_order.course_name,
                 "total_price": next_order.total_price,
                 "room_name": next_order.room.name if next_order.room else "",
@@ -1929,7 +1930,7 @@ class CustomerMypageView(APIView):
             history.append({
                 "id": o.id,
                 "date": o.start.date().isoformat(),
-                "cast_name": o.cast.name,
+                "cast_name": customer_facing_cast_name(o),
                 "course_name": o.course_name,
                 "total_price": o.total_price,
                 "status": o.status,
@@ -2101,7 +2102,7 @@ class CustomerReservationDetailView(APIView):
             "status_display": order.get_status_display(),
             "start": order.start,
             "end": order.end,
-            "cast_name": order.cast.name if order.cast else "",
+            "cast_name": customer_facing_cast_name(order),
             "cast_avatar_url": order.cast.avatar_url if order.cast else "",
             "room_name": order.room.name if order.room else "",
             "room_address": _customer_visible_room_address(order),

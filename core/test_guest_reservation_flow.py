@@ -112,6 +112,25 @@ class GuestReservationFlowTest(TestCase):
 
         self.assertEqual(guest.data["contact_phone"], "")
 
+    def test_operator_free_reservation_hides_assigned_cast_from_guest(self):
+        order = self.create_order(Order.PaymentMethod.CASH)
+        order.created_by = self.manager
+        order.updated_by = self.manager
+        order.save(update_fields=["created_by", "updated_by"])
+
+        self.assertEqual(self.client.post(f"/api/orders/{order.id}/confirm/").status_code, 200)
+        _, guest = self.guest_response(order)
+
+        self.assertEqual(guest.data["cast_name"], "フリー")
+
+    def test_public_style_reservation_keeps_selected_cast_name(self):
+        order = self.create_order(Order.PaymentMethod.CASH)
+
+        self.assertEqual(self.client.post(f"/api/orders/{order.id}/confirm/").status_code, 200)
+        _, guest = self.guest_response(order)
+
+        self.assertEqual(guest.data["cast_name"], self.cast.name)
+
     def test_card_flow_hides_room_until_manual_confirmation_and_uses_two_segments_total(self):
         order = self.create_order(Order.PaymentMethod.CARD)
 

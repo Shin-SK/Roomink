@@ -16,7 +16,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from core.models import Order, SmsLog, SmsTemplate
-from core.services.reservation_access import build_order_guest_url
+from core.services.reservation_access import build_order_guest_url, customer_facing_cast_name
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +246,7 @@ def build_template_context(order: Order) -> dict:
         "start_time": f"{start:%H:%M}",
         "end_time": f"{end:%H:%M}",
         "course_name": order.course_name or order.course.name,
-        "cast_name": order.cast.name,
+        "cast_name": customer_facing_cast_name(order),
         "room_name": order.room.name if order.room else "",
         "room_address": order.room.address if order.room else "",
         "room_map_url": order.room.map_url if order.room else "",
@@ -319,7 +319,7 @@ def _default_confirmation_body(order: Order) -> str:
         f"【Roomink】ご予約が確定しました。\n"
         f"日時: {start:%Y-%m-%d %H:%M}〜{end:%H:%M}\n"
         f"コース: {order.course.name}\n"
-        f"担当: {order.cast.name}\n"
+        f"担当: {customer_facing_cast_name(order)}\n"
         f"{_room_guidance(order)}\n"
         f"{_payment_method_note(order.payment_method)}\n"
         f"ありがとうございます。"

@@ -1386,6 +1386,17 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             if nomination_fee:
                 validated_data["nomination_fee_name"] = nomination_fee.name
                 validated_data["nomination_fee_price"] = nomination_fee.price
+            else:
+                request = self.context.get("request")
+                profile = getattr(request.user, "profile", None) if request else None
+                if profile and profile.role in (
+                    UserProfile.Role.MANAGER,
+                    UserProfile.Role.STAFF,
+                ):
+                    # 店舗手入力の「指名なし」は顧客向けには「フリー」と表示する。
+                    # 公開Web予約は request を渡さないため、選択したキャスト名を維持する。
+                    validated_data["nomination_fee_name"] = "フリー"
+                    validated_data["nomination_fee_price"] = 0
             medium = validated_data.get("medium")
             if medium:
                 validated_data["medium_name"] = medium.name
@@ -1531,7 +1542,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
         if "nomination_fee" in validated_data:
             nomination_fee = validated_data["nomination_fee"]
-            validated_data["nomination_fee_name"] = nomination_fee.name if nomination_fee else ""
+            validated_data["nomination_fee_name"] = nomination_fee.name if nomination_fee else "フリー"
             validated_data["nomination_fee_price"] = nomination_fee.price if nomination_fee else 0
 
         # course snapshot

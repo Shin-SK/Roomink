@@ -108,6 +108,16 @@ class ClientFollowupUpdatesTest(TestCase):
         self.assertEqual(response.data["total_price"], 25000)
         self.assertIs(response.data["card_include_options"], True)
 
+    def test_operator_order_without_nomination_is_snapshotted_as_free(self):
+        response = self._client(self.staff).post(
+            "/api/orders/",
+            self._order_payload(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["nomination_fee_name"], "フリー")
+
     def test_card_option_payment_choice_persists_on_edit_and_resets_for_paypay(self):
         order = Order.objects.create(
             store=self.store,

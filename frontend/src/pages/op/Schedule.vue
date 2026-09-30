@@ -174,12 +174,16 @@ async function openOrderModal() {
           cast_id: item.cast_id,
           cast_name: item.cast_name,
           shift_ids: [],
-          times: [],
+          shifts: [],
         })
       }
       const row = byCast.get(item.cast_id)
       row.shift_ids.push(item.shift_assignment_id)
-      row.times.push(`${String(item.start_time).slice(0, 5)}〜${item.end_time_extended || String(item.end_time).slice(0, 5)}`)
+      row.shifts.push({
+        id: item.shift_assignment_id,
+        room_name: item.room_name || 'ルーム未定',
+        time: `${String(item.start_time).slice(0, 5)}〜${item.end_time_extended || String(item.end_time).slice(0, 5)}`,
+      })
     }
     orderRows.value = Array.from(byCast.values())
   } catch (e) {
@@ -692,7 +696,12 @@ onBeforeUnmount(() => {
                 <span class="order-row__no">{{ i + 1 }}</span>
                 <div class="flex-grow-1">
                   <div class="fw-bold">{{ row.cast_name }}</div>
-                  <small class="text-muted">{{ row.times.join(' / ') }}</small>
+                  <div class="order-row__shifts">
+                    <small v-for="shift in row.shifts" :key="shift.id" class="order-row__shift">
+                      <span class="order-row__room"><i class="ti ti-door me-1"></i>{{ shift.room_name }}</span>
+                      <span class="text-muted">{{ shift.time }}</span>
+                    </small>
+                  </div>
                 </div>
                 <div class="btn-group">
                   <button
@@ -758,6 +767,24 @@ onBeforeUnmount(() => {
     text-align: center;
     color: #888;
     font-size: 0.8rem;
+  }
+
+  &__shifts {
+    display: grid;
+    gap: 0.2rem;
+    margin-top: 0.2rem;
+  }
+
+  &__shift {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+  }
+
+  &__room {
+    color: #257c70;
+    font-weight: 700;
   }
 }
 

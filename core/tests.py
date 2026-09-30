@@ -1301,6 +1301,13 @@ class WeeklyShiftAndSmsSmokeTest(TestCase):
             store=self.store, date=self.week, cast=c2, room=self.room,
             start_time=time(18, 0), end_time=time(23, 0))
 
+        order_data = self.client.get(
+            f"/api/op/schedule-cast-order/?date={self.week}"
+        )
+        self.assertEqual(order_data.status_code, 200, order_data.data)
+        self.assertTrue(order_data.data["items"])
+        self.assertEqual(order_data.data["items"][0]["room_name"], self.room.name)
+
         res = self.client.post("/api/op/schedule-cast-order/", {
             "date": self.week.isoformat(),
             "items": [
