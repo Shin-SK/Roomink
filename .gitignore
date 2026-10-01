@@ -27,3 +27,6 @@ docs/*
 !docs/20260925_clocall_twilio_byoc_activation.md
 !docs/20260928_account_identity_password_incident.md
 !docs/20260929_flagship_launch_checklist.md
+
+# Local Netlify folder
+.netlify
