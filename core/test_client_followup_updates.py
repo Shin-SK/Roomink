@@ -33,6 +33,7 @@ class ClientFollowupUpdatesTest(TestCase):
             public_booking_notice="●割引名は備考欄へご入力ください。",
             guest_contact_phone="03-0000-0000",
             guest_contact_phone_memo="クラコール開通後に本番番号へ差し替える",
+            public_booking_notification_email="old@example.com",
         )
         self.other_store = Store.objects.create(name="東京メンズエステ", slug="followup-tokyo-mens-esthe")
         self.manager = self._user("followup_manager", self.store, UserProfile.Role.MANAGER)
@@ -318,6 +319,10 @@ class ClientFollowupUpdatesTest(TestCase):
             get_response.data["guest_contact_phone_memo"],
             "クラコール開通後に本番番号へ差し替える",
         )
+        self.assertEqual(
+            get_response.data["public_booking_notification_email"],
+            "old@example.com",
+        )
         self.assertEqual(patch_response.status_code, 200, patch_response.data)
         self.assertEqual(forbidden_response.status_code, 403, forbidden_response.data)
         self.assertEqual(public_response.status_code, 200, public_response.data)
@@ -336,17 +341,26 @@ class ClientFollowupUpdatesTest(TestCase):
             {
                 "guest_contact_phone": "050-1234-5678",
                 "guest_contact_phone_memo": "開通済み。2026年9月28日に差し替え",
+                "public_booking_notification_email": "Booking@Example.com",
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data["guest_contact_phone"], "050-1234-5678")
+        self.assertEqual(
+            response.data["public_booking_notification_email"],
+            "booking@example.com",
+        )
         self.store.refresh_from_db()
         self.assertEqual(self.store.guest_contact_phone, "050-1234-5678")
         self.assertEqual(
             self.store.guest_contact_phone_memo,
             "開通済み。2026年9月28日に差し替え",
+        )
+        self.assertEqual(
+            self.store.public_booking_notification_email,
+            "booking@example.com",
         )
 
     def test_public_contact_number_rejects_invalid_value(self):
@@ -358,6 +372,16 @@ class ClientFollowupUpdatesTest(TestCase):
 
         self.assertEqual(response.status_code, 400, response.data)
         self.assertIn("10桁または11桁", response.data["detail"])
+
+    def test_public_booking_notification_email_rejects_invalid_value(self):
+        response = self._client(self.manager).patch(
+            "/api/op/public-booking-settings/",
+            {"public_booking_notification_email": "メールではありません"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("メールアドレス", response.data["detail"])
 
     def test_note_targets_and_images_are_only_returned_to_selected_cast(self):
         note = CastNote.objects.create(

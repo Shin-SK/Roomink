@@ -96,6 +96,11 @@ class Store(models.Model):
         default="",
         help_text="店舗別のWeb予約画面へ表示する注意事項",
     )
+    public_booking_notification_email = models.EmailField(
+        blank=True,
+        default="",
+        help_text="Web予約成立時の店舗向け通知先メールアドレス",
+    )
     guest_contact_phone = models.CharField(
         max_length=32,
         blank=True,
@@ -916,6 +921,71 @@ class CallLogReadReceipt(models.Model):
 
     def __str__(self):
         return f"Call#{self.call_id} seen by {self.user_id}"
+
+
+class OperatorNotification(models.Model):
+    """店舗運営画面へ残す、担当者ごとに既読管理できる通知。"""
+
+    class Kind(models.TextChoices):
+        PUBLIC_BOOKING = "PUBLIC_BOOKING", "Web予約"
+
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="operator_notifications",
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    order = models.ForeignKey(
+        Order,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="operator_notifications",
+    )
+    title = models.CharField(max_length=120)
+    message = models.TextField(blank=True, default="")
+    target_path = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["store", "created_at"],
+                name="op_notice_store_created_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.store_id} {self.kind} {self.title}"
+
+
+class OperatorNotificationReadReceipt(models.Model):
+    """通知の既読は店舗全体ではなく、確認した担当者ごとに記録する。"""
+
+    notification = models.ForeignKey(
+        OperatorNotification,
+        on_delete=models.CASCADE,
+        related_name="read_receipts",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="operator_notification_read_receipts",
+    )
+    read_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["notification", "user"],
+                name="unique_operator_notification_read_receipt",
+            ),
+        ]
+        ordering = ["read_at", "id"]
+
+    def __str__(self):
+        return f"Notification#{self.notification_id} read by {self.user_id}"
 
 
 class CallNote(models.Model):

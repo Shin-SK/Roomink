@@ -38,7 +38,8 @@ from .models import (
     CastDailyCheckout, CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer,
     CustomerMergeLog, DailySettlement, Discount, Extension, Medium,
-    LineNotificationLog, NominationFee, Option, Order, OrderOption, PointLog,
+    LineNotificationLog, NominationFee, OperatorNotification,
+    OperatorNotificationReadReceipt, Option, Order, OrderOption, PointLog,
     OrderServiceRecipientLinkLog,
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
     SipProvisioningLink, SipReceptionDevice, SmsTemplate, Store, StorePhoneNumber,
@@ -6877,6 +6878,7 @@ class StorePublicBookingSettingsView(APIView):
             "store_name": store.name,
             "store_slug": store.slug,
             "public_booking_notice": store.public_booking_notice,
+            "public_booking_notification_email": store.public_booking_notification_email,
             "guest_contact_phone": store.guest_contact_phone,
             "guest_contact_phone_memo": store.guest_contact_phone_memo,
             "public_booking_url": f"{frontend_url}/s/{store.slug}/booking",
@@ -6934,8 +6936,27 @@ class StorePublicBookingSettingsView(APIView):
                 {"detail": "問い合わせ番号のメモは500文字以内で入力してください。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        notification_email = request.data.get(
+            "public_booking_notification_email",
+            store.public_booking_notification_email,
+        )
+        if not isinstance(notification_email, str):
+            return Response(
+                {"detail": "通知先メールアドレスを文字列で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        notification_email = notification_email.strip().lower()
+        if notification_email:
+            try:
+                validate_email(notification_email)
+            except DjangoValidationError:
+                return Response(
+                    {"detail": "有効な通知先メールアドレスを入力してください。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         update_fields = [
             "public_booking_notice",
+            "public_booking_notification_email",
             "guest_contact_phone",
             "guest_contact_phone_memo",
         ]
@@ -6963,10 +6984,89 @@ class StorePublicBookingSettingsView(APIView):
                 store.slug = new_slug
                 update_fields.append("slug")
         store.public_booking_notice = notice
+        store.public_booking_notification_email = notification_email
         store.guest_contact_phone = contact_phone
         store.guest_contact_phone_memo = contact_phone_memo
         store.save(update_fields=update_fields)
         return Response(self._payload(store))
+
+
+@document_object_api_view
+class OperatorNotificationListView(APIView):
+    """GET: 通知一覧、POST: 担当者単位で既読化。"""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
+    def get(self, request):
+        store = get_user_store(request)
+        notifications = list(
+            OperatorNotification.objects.filter(store=store)
+            .select_related("order")[:50]
+        )
+        notification_ids = [item.id for item in notifications]
+        read_ids = set(
+            OperatorNotificationReadReceipt.objects.filter(
+                user=request.user,
+                notification_id__in=notification_ids,
+            ).values_list("notification_id", flat=True)
+        )
+        unread_count = (
+            OperatorNotification.objects.filter(store=store)
+            .exclude(read_receipts__user=request.user)
+            .count()
+        )
+        return Response({
+            "unread_count": unread_count,
+            "notifications": [
+                {
+                    "id": item.id,
+                    "kind": item.kind,
+                    "title": item.title,
+                    "message": item.message,
+                    "target_path": item.target_path,
+                    "created_at": item.created_at.isoformat(),
+                    "is_read": item.id in read_ids,
+                }
+                for item in notifications
+            ],
+        })
+
+    def post(self, request):
+        store = get_user_store(request)
+        mark_all = request.data.get("all") is True
+        raw_ids = request.data.get("notification_ids", [])
+        if not mark_all and not isinstance(raw_ids, list):
+            return Response(
+                {"detail": "notification_idsは配列で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        queryset = OperatorNotification.objects.filter(store=store)
+        if not mark_all:
+            try:
+                notification_ids = {int(value) for value in raw_ids}
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "通知IDが正しくありません。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(id__in=notification_ids)
+        receipts = [
+            OperatorNotificationReadReceipt(
+                notification_id=notification_id,
+                user=request.user,
+            )
+            for notification_id in queryset.values_list("id", flat=True)
+        ]
+        OperatorNotificationReadReceipt.objects.bulk_create(
+            receipts,
+            ignore_conflicts=True,
+        )
+        unread_count = (
+            OperatorNotification.objects.filter(store=store)
+            .exclude(read_receipts__user=request.user)
+            .count()
+        )
+        return Response({"unread_count": unread_count})
 
 
 # ──────────────────────────────────────

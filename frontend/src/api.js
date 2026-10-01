@@ -391,6 +391,12 @@ export const api = {
     '/public/booking/confirm/',
     { verification_id: verificationId, code },
   ),
+  getOperatorNotifications: () => request('GET', '/op/notifications/'),
+  markOperatorNotificationsRead: (notificationIds = [], all = false) => request(
+    'POST',
+    '/op/notifications/',
+    all ? { all: true } : { notification_ids: notificationIds },
+  ),
   getCustomerStores: () => request('GET', '/cu/stores/'),
   getCustomerMypage: (storeId, storeSlug = '') => request('GET', `/cu/mypage/${storeSlug ? '?store_slug=' + encodeURIComponent(storeSlug) : (storeId ? '?store=' + storeId : '')}`),
   getBookingOptions: (storeId, storeSlug = '') => request('GET', `/cu/booking/options/${storeSlug ? '?store_slug=' + encodeURIComponent(storeSlug) : (storeId ? '?store=' + storeId : '')}`),

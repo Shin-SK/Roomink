@@ -5,6 +5,7 @@ import { api } from '../api.js'
 import { resetAuthCache, getAuthIsSuperuser, getAuthRole } from '../router.js'
 import UserAvatar from './UserAvatar.vue'
 import CtiIncomingPanel from './CtiIncomingPanel.vue'
+import OperatorNotifications from './OperatorNotifications.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -189,5 +190,6 @@ onBeforeUnmount(() => {
     </div>
 
     <CtiIncomingPanel v-if="currentUser" />
+    <OperatorNotifications v-if="currentUser" />
   </div>
 </template>

@@ -114,6 +114,7 @@ def get_public_booking_slots(store, cast_id, course_id, business_date, now=None)
         store,
         cast,
         business_date,
+        slot_minutes=5,
         duration_minutes=course.duration,
         not_before=now or timezone.now(),
     )
@@ -373,6 +374,9 @@ def confirm_public_booking(verification_id, code):
     if wrong_code:
         raise PublicBookingError(INVALID_VERIFICATION_MESSAGE)
 
+    from core.services.operator_notifications import notify_public_booking_created
+
+    notify_public_booking_created(order)
     customer_sms = notify_order_confirmed(order)
     notify_cast_order(order)
     return {

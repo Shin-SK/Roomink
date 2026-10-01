@@ -230,6 +230,11 @@ urlpatterns = [
     path("op/cti/calls/<int:pk>/start/", views.CtiCallStartView.as_view(), name="cti-call-start"),
     path("op/cti/calls/<int:pk>/done/", views.CtiCallDoneView.as_view(), name="cti-call-done"),
     path("op/cti/calls/<int:pk>/notes/", views.CtiCallNoteView.as_view(), name="cti-call-notes"),
+    path(
+        "op/notifications/",
+        views.OperatorNotificationListView.as_view(),
+        name="operator-notifications",
+    ),
 
     # Roomink運営（スーパーユーザー専用）
     path("platform/dashboard/", views.PlatformDashboardView.as_view(), name="platform-dashboard"),

@@ -14,6 +14,7 @@ const notice = ref('')
 const storeSlug = ref('')
 const contactPhone = ref('')
 const contactPhoneMemo = ref('')
+const notificationEmail = ref('')
 
 async function load() {
   loading.value = true
@@ -26,6 +27,7 @@ async function load() {
     storeSlug.value = data.store_slug || ''
     contactPhone.value = data.guest_contact_phone || ''
     contactPhoneMemo.value = data.guest_contact_phone_memo || ''
+    notificationEmail.value = data.public_booking_notification_email || ''
   } catch (e) {
     error.value = e.message
   } finally {
@@ -43,12 +45,14 @@ async function save() {
       store_slug: storeSlug.value,
       guest_contact_phone: contactPhone.value,
       guest_contact_phone_memo: contactPhoneMemo.value,
+      public_booking_notification_email: notificationEmail.value,
     })
     notice.value = data.public_booking_notice || ''
     storeSlug.value = data.store_slug || ''
     bookingUrl.value = data.public_booking_url || ''
     contactPhone.value = data.guest_contact_phone || ''
     contactPhoneMemo.value = data.guest_contact_phone_memo || ''
+    notificationEmail.value = data.public_booking_notification_email || ''
     success.value = '保存しました'
   } catch (e) {
     error.value = e.message
@@ -104,6 +108,24 @@ onMounted(load)
           </div>
           <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small">
             変更すると今後発行するURLが変わります。配布済みの古いURLは新しいURLへ引き継がれますが、通常は変更しないでください。
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header"><i class="ti ti-mail"></i> Web予約のメール通知</div>
+        <div class="card-body">
+          <label class="form-label">予約通知を受け取るメールアドレス</label>
+          <input
+            v-model.trim="notificationEmail"
+            class="form-control"
+            type="email"
+            maxlength="254"
+            autocomplete="email"
+            placeholder="例：shop@example.com"
+          />
+          <div class="form-text">
+            お客様のWeb予約が確定すると、このアドレスへ予約日時・担当・コースを送ります。空欄の場合、メールは送信しません。
           </div>
         </div>
       </div>

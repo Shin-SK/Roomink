@@ -2,6 +2,8 @@ from datetime import date, datetime, time, timedelta
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from django.core import mail
+from django.core.cache import cache
 from django.contrib.auth.hashers import check_password
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
@@ -11,6 +13,7 @@ from core.models import (
     Course,
     Customer,
     Option,
+    OperatorNotification,
     Order,
     PublicBookingVerification,
     Room,
@@ -27,9 +30,12 @@ TOKYO = ZoneInfo("Asia/Tokyo")
     FRONTEND_URL="https://roomink.example",
     RESERVATION_LINK_BASE_URL="https://r.roomink.example",
     SMS_DUMMY_MODE=True,
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    DEFAULT_FROM_EMAIL="Roomink <no-reply@roomink.example>",
 )
 class PublicWebBookingTest(TestCase):
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.business_date = date(2030, 1, 15)
         self.store = Store.objects.create(name="公開予約店舗", timezone="Asia/Tokyo")
@@ -125,7 +131,14 @@ class PublicWebBookingTest(TestCase):
         })
         self.assertEqual(slots.status_code, 200, slots.data)
         starts = [slot["start"] for slot in slots.data["slots"]]
-        self.assertEqual(starts, ["12:00", "12:30", "13:00"])
+        self.assertEqual(
+            starts,
+            [
+                "12:00", "12:05", "12:10", "12:15", "12:20", "12:25",
+                "12:30", "12:35", "12:40", "12:45", "12:50", "12:55",
+                "13:00",
+            ],
+        )
         self.assertEqual(slots.data["slots"][0]["end"], "14:00")
 
     def test_sms_verification_request_creates_no_customer_or_order_and_hides_code(self):
@@ -175,6 +188,57 @@ class PublicWebBookingTest(TestCase):
             template_type=SmsLog.TemplateType.RESERVATION_CONFIRMATION,
         )
         self.assertIn("[予約リンク]", confirmation.body)
+        notification = OperatorNotification.objects.get(order=order)
+        self.assertEqual(notification.store, self.store)
+        self.assertEqual(notification.kind, OperatorNotification.Kind.PUBLIC_BOOKING)
+        self.assertEqual(
+            notification.target_path,
+            f"/op/schedule?date=2030-01-15&highlight={order.id}",
+        )
+
+    def test_confirm_sends_store_email_when_notification_address_is_configured(self):
+        self.store.public_booking_notification_email = "booking@example.com"
+        self.store.save(update_fields=["public_booking_notification_email"])
+        requested = self.request_code()
+
+        response = self.client.post(
+            "/api/public/booking/confirm/",
+            {
+                "verification_id": requested.data["verification_id"],
+                "code": "123456",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["booking@example.com"])
+        self.assertIn("Web予約が入りました", mail.outbox[0].subject)
+        self.assertIn("公開予約 太郎様", mail.outbox[0].body)
+        self.assertIn("2030年01月15日 12:30〜14:30", mail.outbox[0].body)
+
+    def test_email_failure_does_not_undo_confirmed_booking_or_in_app_notification(self):
+        self.store.public_booking_notification_email = "booking@example.com"
+        self.store.save(update_fields=["public_booking_notification_email"])
+        requested = self.request_code()
+
+        with patch(
+            "core.services.operator_notifications.send_mail",
+            side_effect=RuntimeError("mail provider unavailable"),
+        ):
+            response = self.client.post(
+                "/api/public/booking/confirm/",
+                {
+                    "verification_id": requested.data["verification_id"],
+                    "code": "123456",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        order = Order.objects.get()
+        self.assertEqual(order.status, Order.Status.CONFIRMED)
+        self.assertTrue(OperatorNotification.objects.filter(order=order).exists())
 
     def test_wrong_code_changes_nothing_and_counts_attempt(self):
         requested = self.request_code()
