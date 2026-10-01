@@ -153,6 +153,11 @@ urlpatterns = [
         views.StorePublicBookingSettingsView.as_view(),
         name="op-public-booking-settings",
     ),
+    path(
+        "op/public-booking-settings/test-email/",
+        views.StorePublicBookingNotificationEmailTestView.as_view(),
+        name="op-public-booking-settings-test-email",
+    ),
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),
     path("op/room-schedule/", views.RoomScheduleView.as_view(), name="op-room-schedule"),
     path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),

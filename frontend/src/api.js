@@ -272,6 +272,11 @@ export const api = {
   }),
   getPublicBookingSettings: () => request('GET', '/op/public-booking-settings/'),
   updatePublicBookingSettings: (body) => request('PATCH', '/op/public-booking-settings/', body),
+  testPublicBookingNotificationEmail: (email) => request(
+    'POST',
+    '/op/public-booking-settings/test-email/',
+    { email },
+  ),
   getSipProvisioningSettings: () => request('GET', '/op/sip-provisioning/settings/'),
   updateSipProvisioningSettings: (body) => request('PATCH', '/op/sip-provisioning/settings/', body),
   getSipReceptionDevices: () => request('GET', '/op/sip-reception-devices/'),

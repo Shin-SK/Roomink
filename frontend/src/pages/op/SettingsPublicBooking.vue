@@ -5,6 +5,7 @@ import { api } from '../../api.js'
 
 const loading = ref(true)
 const saving = ref(false)
+const testingEmail = ref(false)
 const copied = ref(false)
 const error = ref('')
 const success = ref('')
@@ -58,6 +59,20 @@ async function save() {
     error.value = e.message
   } finally {
     saving.value = false
+  }
+}
+
+async function sendTestEmail() {
+  testingEmail.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const data = await api.testPublicBookingNotificationEmail(notificationEmail.value)
+    success.value = data.detail || 'テストメールを送信しました'
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    testingEmail.value = false
   }
 }
 
@@ -126,6 +141,19 @@ onMounted(load)
           />
           <div class="form-text">
             お客様のWeb予約が確定すると、このアドレスへ予約日時・担当・コースを送ります。空欄の場合、メールは送信しません。
+          </div>
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+            <button
+              class="btn btn-outline-primary"
+              type="button"
+              :disabled="testingEmail || !notificationEmail"
+              @click="sendTestEmail"
+            >
+              <span v-if="testingEmail" class="spinner-border spinner-border-sm me-1"></span>
+              <i v-else class="ti ti-send"></i>
+              {{ testingEmail ? '送信中...' : 'このアドレスへテスト送信' }}
+            </button>
+            <span class="form-text m-0">予約データは作成されません。</span>
           </div>
         </div>
       </div>
