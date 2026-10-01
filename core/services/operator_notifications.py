@@ -10,6 +10,28 @@ from core.models import OperatorNotification
 logger = logging.getLogger(__name__)
 
 
+def send_public_booking_test_email(store, recipient):
+    """店舗が入力した通知先へ、予約を作らずに疎通確認メールを送る。"""
+    frontend_url = (settings.FRONTEND_URL or "").rstrip("/")
+    settings_url = f"{frontend_url}/op/settings/public-booking" if frontend_url else ""
+    body_lines = [
+        f"{store.name}のWeb予約メール通知テストです。",
+        "",
+        "このメールが届いていれば、通知先メールアドレスは利用できます。",
+        "実際の予約データは作成されていません。",
+    ]
+    if settings_url:
+        body_lines.extend(["", f"Web予約設定：{settings_url}"])
+    body_lines.extend(["", "このメールはRoominkから自動送信されています。"])
+    return send_mail(
+        subject=f"【Roomink】{store.name} Web予約メール通知テスト",
+        message="\n".join(body_lines),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[recipient],
+        fail_silently=False,
+    )
+
+
 def _public_booking_text(order):
     local_start = order.start.astimezone(ZoneInfo(order.store.timezone))
     local_end = order.end.astimezone(ZoneInfo(order.store.timezone))

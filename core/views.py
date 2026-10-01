@@ -110,6 +110,7 @@ from .services.cast_user import (
     update_or_create_cast_with_user,
 )
 from .services.customer_context import resolve_customer
+from .services.operator_notifications import send_public_booking_test_email
 from .services.pricing import recalculate_order_total
 from .services.sales import (
     get_sales_summary, get_sales_csv,
@@ -6989,6 +6990,54 @@ class StorePublicBookingSettingsView(APIView):
         store.guest_contact_phone_memo = contact_phone_memo
         store.save(update_fields=update_fields)
         return Response(self._payload(store))
+
+
+@document_object_api_view
+class StorePublicBookingNotificationEmailTestView(APIView):
+    """POST /api/op/public-booking-settings/test-email/ — 予約を作らず通知先を確認。"""
+
+    permission_classes = [IsAuthenticated, IsManager]
+
+    def post(self, request):
+        _require_manager(request)
+        recipient = request.data.get("email", "")
+        if not isinstance(recipient, str):
+            return Response(
+                {"detail": "通知先メールアドレスを文字列で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        recipient = recipient.strip().lower()
+        if not recipient:
+            return Response(
+                {"detail": "テスト送信するメールアドレスを入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            validate_email(recipient)
+        except DjangoValidationError:
+            return Response(
+                {"detail": "有効な通知先メールアドレスを入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        store = get_user_store(request)
+        try:
+            sent_count = send_public_booking_test_email(store, recipient)
+        except Exception:
+            logger.exception(
+                "Public booking test email failed: store_id=%s",
+                store.id,
+            )
+            return Response(
+                {"detail": "テストメールを送信できませんでした。時間をおいて再度お試しください。"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if sent_count != 1:
+            return Response(
+                {"detail": "テストメールを送信できませんでした。時間をおいて再度お試しください。"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"detail": f"{recipient} へテストメールを送信しました。"})
 
 
 @document_object_api_view

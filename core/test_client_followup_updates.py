@@ -1,5 +1,7 @@
 from datetime import timedelta
+from unittest.mock import patch
 
+from django.core import mail
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -382,6 +384,51 @@ class ClientFollowupUpdatesTest(TestCase):
 
         self.assertEqual(response.status_code, 400, response.data)
         self.assertIn("メールアドレス", response.data["detail"])
+
+    def test_manager_can_send_public_booking_test_email_without_saving_recipient(self):
+        response = self._client(self.manager).post(
+            "/api/op/public-booking-settings/test-email/",
+            {"email": "Test-Booking@Example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["test-booking@example.com"])
+        self.assertIn("Web予約メール通知テスト", mail.outbox[0].subject)
+        self.assertIn("実際の予約データは作成されていません", mail.outbox[0].body)
+        self.store.refresh_from_db()
+        self.assertEqual(self.store.public_booking_notification_email, "old@example.com")
+
+    def test_public_booking_test_email_requires_manager_and_valid_recipient(self):
+        invalid = self._client(self.manager).post(
+            "/api/op/public-booking-settings/test-email/",
+            {"email": "メールではありません"},
+            format="json",
+        )
+        forbidden = self._client(self.staff).post(
+            "/api/op/public-booking-settings/test-email/",
+            {"email": "booking@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(invalid.status_code, 400, invalid.data)
+        self.assertEqual(forbidden.status_code, 403, forbidden.data)
+        self.assertEqual(len(mail.outbox), 0)
+
+    @patch(
+        "core.views.send_public_booking_test_email",
+        side_effect=RuntimeError("mail provider unavailable"),
+    )
+    def test_public_booking_test_email_reports_delivery_failure(self, _send):
+        response = self._client(self.manager).post(
+            "/api/op/public-booking-settings/test-email/",
+            {"email": "booking@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 502, response.data)
+        self.assertIn("送信できませんでした", response.data["detail"])
 
     def test_note_targets_and_images_are_only_returned_to_selected_cast(self):
         note = CastNote.objects.create(
