@@ -2,6 +2,7 @@ import re
 import secrets
 from datetime import date as date_type, timedelta
 
+from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -40,6 +41,8 @@ class PublicBookingError(Exception):
 
 
 def generate_public_booking_code():
+    if settings.PUBLIC_BOOKING_TEST_CODE:
+        return settings.PUBLIC_BOOKING_TEST_CODE
     return f"{secrets.randbelow(1_000_000):06d}"
 
 

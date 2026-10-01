@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
@@ -291,6 +292,7 @@ SMS_DUMMY_MODE = os.getenv("SMS_DUMMY_MODE", "0") == "1"
 
 # Staging must be isolated and must never send a real customer SMS by accident.
 _deployment_environment = os.getenv("DJANGO_ENV", "").strip().lower()
+PUBLIC_BOOKING_TEST_CODE = os.getenv("PUBLIC_BOOKING_TEST_CODE", "").strip()
 if _deployment_environment == "staging":
     if not FRONTEND_URL or not RESERVATION_LINK_BASE_URL:
         raise ImproperlyConfigured(
@@ -304,6 +306,12 @@ if _deployment_environment == "staging":
         raise ImproperlyConfigured("staging URLs must not point to production")
     if not SMS_DUMMY_MODE:
         raise ImproperlyConfigured("SMS_DUMMY_MODE=1 is required in staging")
+    if PUBLIC_BOOKING_TEST_CODE and not re.fullmatch(r"\d{6}", PUBLIC_BOOKING_TEST_CODE):
+        raise ImproperlyConfigured("PUBLIC_BOOKING_TEST_CODE must be exactly 6 digits")
+elif PUBLIC_BOOKING_TEST_CODE:
+    raise ImproperlyConfigured(
+        "PUBLIC_BOOKING_TEST_CODE is allowed only when DJANGO_ENV=staging"
+    )
 
 # --- Roomink support assistant ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
