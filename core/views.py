@@ -13,6 +13,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email, validate_slug
+from django.middleware.csrf import get_token
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
 from django.db.models import Count, Max, ProtectedError, Q, Sum
@@ -226,7 +227,11 @@ def auth_login(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
     login(request, user)
-    return Response({"ok": True, "username": user.username})
+    return Response({
+        "ok": True,
+        "username": user.username,
+        "csrf_token": get_token(request),
+    })
 
 
 @extend_schema(operation_id="auth_logout", request=None, responses=OpenApiTypes.OBJECT)
@@ -284,6 +289,7 @@ def auth_me(request):
         "role": primary_role,
         "roles": roles,
         "is_superuser": request.user.is_superuser,
+        "csrf_token": get_token(request),
     })
 
 
@@ -323,7 +329,7 @@ def auth_profile_update(request):
 @ensure_csrf_cookie
 def csrf_token_view(request):
     """CSRF cookieを発行するだけのエンドポイント（クロスオリジン用）"""
-    return Response({"ok": True})
+    return Response({"ok": True, "csrf_token": get_token(request)})
 
 
 # ──────────────────────────────────────
