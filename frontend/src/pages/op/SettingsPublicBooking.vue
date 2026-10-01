@@ -180,7 +180,7 @@ onMounted(load)
             class="form-control"
             rows="3"
             maxlength="500"
-            placeholder="例：クラコール開通後、本番の受付番号へ差し替える"
+            placeholder="店舗内で共有したい確認事項を入力してください"
           ></textarea>
           <div class="d-flex justify-content-between form-text">
             <span>番号の差し替え予定や確認事項を残せます。</span>
