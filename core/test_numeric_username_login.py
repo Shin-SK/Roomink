@@ -194,6 +194,7 @@ class NumericUsernameLoginTest(TestCase):
         client = APIClient(enforce_csrf_checks=True)
         csrf_response = client.get("/api/auth/csrf/")
         csrf_token = csrf_response.cookies["csrftoken"].value
+        self.assertEqual(len(csrf_response.data["csrf_token"]), 64)
         login_response = client.post(
             "/api/auth/login/",
             {"username": "123456", "password": "numeric-staff-pass"},
@@ -202,8 +203,11 @@ class NumericUsernameLoginTest(TestCase):
         )
 
         self.assertEqual(login_response.status_code, 200, login_response.data)
+        self.assertEqual(len(login_response.data["csrf_token"]), 64)
         self.assertEqual(client.post("/api/auth/logout/", format="json").status_code, 403)
-        refreshed_csrf_token = client.get("/api/auth/me/").cookies["csrftoken"].value
+        me_response = client.get("/api/auth/me/")
+        refreshed_csrf_token = me_response.cookies["csrftoken"].value
+        self.assertEqual(len(me_response.data["csrf_token"]), 64)
         logout_response = client.post(
             "/api/auth/logout/",
             format="json",
