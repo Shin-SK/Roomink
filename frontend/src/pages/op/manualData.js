@@ -150,7 +150,7 @@ export const manualArticles = [
   },
   {
     slug: 'line-store-settings',
-    roles: ['setup'],
+    roles: ['platform'],
     category: 'LINE',
     order: 30,
     summary: '店舗のLINE初期設定（トークン・Webhook）',
@@ -173,7 +173,7 @@ export const manualArticles = [
       '保存後、画面にWebhook URLが表示されていればOK',
     ],
     notes: [
-      'マネージャー権限がないとこの画面は使えない',
+      '店舗側のアカウントではこの画面を操作できない',
       'チャネルシークレットとアクセストークンはLINE Developersの管理画面から取得する',
       'Webhook URLはお店ごとに違うものが自動で作られる',
       'LINE Developers側にWebhook URLを設定しないと、連携コードの送信が届かない',
@@ -182,7 +182,7 @@ export const manualArticles = [
   },
   {
     slug: 'line-notification-settings',
-    roles: ['setup'],
+    roles: ['platform'],
     category: 'LINE',
     order: 40,
     summary: 'LINE出勤通知・受付終了通知の設定',
@@ -205,7 +205,7 @@ export const manualArticles = [
       '保存後、設定した内容がそのまま画面に出ていればOK',
     ],
     notes: [
-      'マネージャー権限がないとこの画面は使えない',
+      '店舗側のアカウントではこの画面を操作できない',
       '通知が届くのは、その日シフトが入っているキャストだけ',
       'LINE連携していないキャストには届かない（先に連携を済ませる）',
       '通知は自動で定期送信されるので、設定してすぐに届くわけではない',
@@ -841,7 +841,7 @@ export const manualArticles = [
   },
   {
     slug: 'trouble-webhook-url',
-    roles: ['setup'],
+    roles: ['platform'],
     order: 40,
     summary: 'Webhook URLの確認方法',
     title: 'Webhook URLが分からない',
@@ -1443,25 +1443,21 @@ export const manualArticles = [
     order: 20,
     summary: 'LINE連携の導入手順',
     title: 'LINE連携を導入したい',
-    target: 'Roomink運営',
-    screens: [
-      { label: 'LINE連携設定', path: '/op/settings/line' },
-    ],
+    target: '店舗マネージャー / Roomink運営',
+    screens: [],
     steps: [
-      'LINE公式アカウントとMessaging APIを用意する（LINE Developers）',
-      'チャネルシークレット・チャネルアクセストークンを取得する',
-      'アプリのLINE設定画面に入力して保存する',
-      '表示されたWebhook URLを、LINE Developers側のWebhook URLに設定する',
-      'キャストにLINE連携をしてもらう',
+      '店舗でLINE通知を使うか決める',
+      '使う場合は、店舗の公式LINE管理画面へRoomink運営を招待する',
+      '接続作業はRoomink運営が行う',
+      '準備が完了したらキャストにLINE連携を案内する',
     ],
     confirm: [
-      'LINE設定画面でWebhook URLが表示され、LINE側で検証が成功すればOK',
+      '利用する店舗ではキャストのマイページにLINE連携が表示される',
+      '利用しない店舗ではLINE連携の案内が表示されない',
     ],
     notes: [
-      '詳しい入力手順は「店舗のLINE設定をしたい」を参照',
-      'Webhook URLは店舗ごとに異なる',
-      'この設定が終わるまで、キャストのLINE連携やLINE通知は動かない',
-      'LINE Developers側の操作はシステム管理者・導入担当が行う',
+      '店舗側の画面からLINE接続のON/OFFは変更できない',
+      '設定の変更が必要な場合はRoomink運営に依頼する',
     ],
   },
   {
@@ -1840,6 +1836,7 @@ export const MANUAL_ROLES = [
   { key: 'cast', label: 'キャスト' },
   { key: 'customer', label: 'お客様' },
   { key: 'setup', label: '導入・初期設定' },
+  { key: 'platform', label: 'Roomink運営' },
 ]
 
 // カテゴリ定義（一覧の表示順）
@@ -1858,6 +1855,7 @@ export const MANUAL_CATEGORIES = [
 
 // ログイン中ロールが閲覧できる記事ロール（manager は staff / setup も閲覧可）
 export const MANUAL_VISIBILITY = {
+  superuser: ['platform', 'manager', 'staff', 'setup'],
   manager: ['manager', 'staff', 'setup'],
   staff: ['staff'],
   cast: ['cast'],
