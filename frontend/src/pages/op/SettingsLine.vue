@@ -26,7 +26,7 @@ const operationsLinked = ref(false)
 const operationsRecipientType = ref('')
 const operationsLinkCode = ref('')
 
-const isManager = computed(() => getAuthRole() === 'superuser')
+const isPlatformAdmin = computed(() => getAuthRole() === 'superuser')
 
 async function load() {
   loading.value = true
@@ -130,7 +130,7 @@ onMounted(load)
       <div class="spinner-border text-secondary"></div>
     </div>
 
-    <template v-else-if="!isManager">
+    <template v-else-if="!isPlatformAdmin">
       <div class="alert alert-warning">この設定はRoomink運営のみ編集できます。</div>
     </template>
 

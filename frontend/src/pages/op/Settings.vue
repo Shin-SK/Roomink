@@ -21,6 +21,7 @@ const menuItems = [
   { to: '/op/settings/sms-templates', icon: 'ti-message', label: 'SMS文面設定', desc: '予約確認・カード決済前後のSMS文面と決済URL', managerOnly: false },
   { to: '/op/settings/public-booking', icon: 'ti-world-www', label: 'Web予約設定', desc: '店舗専用URLと予約画面の注意事項', managerOnly: true },
   { to: '/op/settings/phones', icon: 'ti-phone', label: '電話・受付端末設定', desc: 'Roomink運営専用', superuserOnly: true },
+  { to: '/op/settings/line', icon: 'ti-brand-line', label: '店舗LINE設定', desc: 'Roomink運営専用・選択中の店舗', superuserOnly: true },
   { to: '/op/settings/manual', icon: 'ti-book', label: '操作マニュアル', desc: 'Roominkの使い方ガイド' },
 ]
 
