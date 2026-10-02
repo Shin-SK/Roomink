@@ -162,8 +162,18 @@ function formatDt(iso) {
         </div>
         <div v-else-if="!loading && settlementStatus === 'LOCKED' && rows.length" class="alert alert-info small">この日は旧形式で確定されているため、売上配分は表示できません。</div>
 
-        <div v-if="!loading && rows.length" class="table-responsive">
-          <table class="table table-hover table-sm mb-0">
+        <p v-if="!loading && rows.length" class="daily-settlement-scroll-hint d-md-none mb-2">
+          <i class="ti ti-arrows-left-right" aria-hidden="true"></i>
+          表は横にスクロールして確認できます
+        </p>
+        <div
+          v-if="!loading && rows.length"
+          class="table-responsive daily-settlement-table-wrap"
+          role="region"
+          aria-label="日給一覧の明細表"
+          tabindex="0"
+        >
+          <table class="table table-hover table-sm mb-0 daily-settlement-table">
             <thead>
               <tr>
                 <th>キャスト</th>
@@ -232,3 +242,37 @@ function formatDt(iso) {
     </div>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.daily-settlement-table-wrap {
+  -webkit-overflow-scrolling: touch;
+}
+
+/*
+ * モバイルでは12列の情報量を維持する。表を無理に縮めると日本語が一文字ずつ
+ * 折り返されるため、横スクロールを明示して列の可読性を優先する。
+ */
+.daily-settlement-table {
+  min-width: 1080px;
+}
+
+.daily-settlement-table :is(th, td) {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.daily-settlement-table th:first-child,
+.daily-settlement-table td:first-child {
+  min-width: 6.5rem;
+}
+
+.daily-settlement-table th:nth-child(2),
+.daily-settlement-table td:nth-child(2) {
+  min-width: 6rem;
+}
+
+.daily-settlement-scroll-hint {
+  color: var(--bs-secondary-color);
+  font-size: 0.8rem;
+}
+</style>
