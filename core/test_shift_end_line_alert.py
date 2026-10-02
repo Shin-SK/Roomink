@@ -186,7 +186,7 @@ class ShiftEndLineAlertTest(TestCase):
         self.assertNotEqual(self.store.line_operations_link_code, original_code)
         reply.assert_called_once()
 
-    def test_manager_can_unlink_without_recipient_id_being_exposed(self):
+    def test_only_platform_admin_can_unlink_without_recipient_id_being_exposed(self):
         manager = User.objects.create_user("line-alert-manager")
         UserProfile.objects.create(
             user=manager,
@@ -195,6 +195,16 @@ class ShiftEndLineAlertTest(TestCase):
         )
         client = APIClient()
         client.force_authenticate(manager)
+
+        self.assertEqual(client.get("/api/op/line-settings/").status_code, 403)
+        self.assertEqual(client.patch(
+            "/api/op/line-settings/", {"line_operations_unlink": True}, format="json",
+        ).status_code, 403)
+        admin = User.objects.create_superuser("line-platform-admin", password="test-secret")
+        client.force_authenticate(admin)
+        session = client.session
+        session["platform_store_id"] = self.store.id
+        session.save()
 
         get_response = client.get("/api/op/line-settings/")
         old_code = get_response.data["line_operations_link_code"]

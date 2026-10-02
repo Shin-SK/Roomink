@@ -7,6 +7,7 @@ import CustomerInfoCard from '../../components/CustomerInfoCard.vue'
 import OrderForm from '../../components/OrderForm.vue'
 import UnavailableTimeModal from '../../components/UnavailableTimeModal.vue'
 import { api, normalizePhone } from '../../api.js'
+import { getAuthRole } from '../../router.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,6 +19,36 @@ const unavailableTimes = ref([])
 const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 0 })
 const loading = ref(true)
 const toolbarOpen = ref(false)
+const canViewAllocation = computed(() => ['manager', 'superuser'].includes(getAuthRole()))
+const showAllocation = ref(false)
+const allocationLoading = ref(false)
+const allocationError = ref('')
+const allocationDate = ref('')
+const allocationRows = ref([])
+const allocationTotals = ref({})
+const allocationStatus = ref('OPEN')
+
+function yen(value) {
+  return `¥${Number(value || 0).toLocaleString()}`
+}
+
+async function openAllocation() {
+  allocationDate.value = selectedDate.value
+  showAllocation.value = true
+  allocationLoading.value = true
+  allocationError.value = ''
+  try {
+    const data = await api.getDailySettlement(allocationDate.value)
+    allocationRows.value = data.rows || []
+    allocationTotals.value = data.totals || {}
+    allocationStatus.value = data.settlement_status || 'OPEN'
+  } catch (error) {
+    allocationRows.value = []
+    allocationError.value = error.message || '売上配分を読み込めませんでした'
+  } finally {
+    allocationLoading.value = false
+  }
+}
 const absenceUpdatingCastId = ref(null)
 let orderEntryWindow = null
 
@@ -589,6 +620,9 @@ onBeforeUnmount(() => {
         >
           <i class="ti ti-clock-pause me-1"></i>予約不可時間
         </button>
+        <button v-if="canViewAllocation" type="button" class="btn btn-sm btn-outline-primary" @click="openAllocation">
+          <i class="ti ti-calculator me-1"></i>売上配分
+        </button>
       </div>
 
       <!-- 検索アコーディオン -->
@@ -730,6 +764,39 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <Teleport to="body">
+      <div v-if="showAllocation" class="allocation-backdrop" @click.self="showAllocation = false">
+        <section class="allocation-panel" role="dialog" aria-modal="true" :aria-label="`${allocationDate}の売上配分`">
+          <header class="allocation-header">
+            <div><div class="fw-bold">売上配分</div><div class="small text-muted">{{ allocationDate }} <span v-if="allocationStatus === 'LOCKED'" class="badge bg-success">確定済</span><span v-else class="badge bg-secondary">見込み</span></div></div>
+            <button type="button" class="btn btn-sm btn-light" aria-label="閉じる" @click="showAllocation = false"><i class="ti ti-x"></i></button>
+          </header>
+          <div class="allocation-body">
+            <div v-if="allocationLoading" class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+            <div v-else-if="allocationError" class="alert alert-danger">{{ allocationError }}</div>
+            <div v-else-if="!allocationRows.length" class="text-center text-muted py-5">この日に出勤したセラピストはいません</div>
+            <div v-else-if="allocationRows.some(row => row.compensation === undefined)" class="alert alert-info">この日は旧形式で確定されています。日給一覧で内容を確認してください。</div>
+            <template v-else>
+              <div class="allocation-summary">
+                <div><span>売上</span><strong>{{ yen(allocationTotals.total_sales) }}</strong></div>
+                <div><span>報酬</span><strong class="text-primary">{{ yen(allocationTotals.compensation) }}</strong></div>
+                <div><span>店舗配分</span><strong>{{ yen(allocationTotals.store_allocation) }}</strong></div>
+              </div>
+              <details v-for="row in allocationRows" :key="row.cast_id" class="allocation-row">
+                <summary><strong>{{ row.cast_name }}</strong><span>売上 {{ yen(row.total_sales) }}</span><span class="text-primary">報酬 {{ yen(row.compensation) }}</span><span>店舗配分 {{ yen(row.store_allocation) }}</span><i class="ti ti-chevron-down"></i></summary>
+                <div class="allocation-details">
+                  <span>完了済み {{ row.order_count }}本</span><span>コース {{ yen(row.course_sales) }}</span><span>オプション {{ yen(row.options_sales) }}</span>
+                  <span>給与見込み {{ yen(row.back_amount) }}</span><span>固定雑費 -{{ yen(row.fixed_expense_total) }}</span><span>当日雑費 -{{ yen(row.daily_expense_total) }}</span><span>決済手数料（参考）-{{ yen(row.payment_fee_estimate) }}</span>
+                </div>
+              </details>
+              <p class="small text-muted mt-3 mb-0">報酬＝給与見込み−雑費。店舗配分＝手数料差引後売上−報酬。振込額は現金預りなどを反映するため別の金額です。</p>
+            </template>
+          </div>
+          <footer class="allocation-footer"><router-link :to="{ path: '/op/daily-settlement', query: { date: allocationDate } }" class="btn btn-outline-primary btn-sm" @click="showAllocation = false">日給一覧を見る</router-link><button class="btn btn-primary btn-sm" @click="showAllocation = false">閉じる</button></footer>
+        </section>
+      </div>
+    </Teleport>
+
     <!-- 顧客情報カード -->
     <CustomerInfoCard
       v-if="showCustomerCard"
@@ -827,4 +894,21 @@ onBeforeUnmount(() => {
 .modal-dialog.modal-lg {
   max-width: 720px;
 }
+
+.allocation-backdrop { position: fixed; inset: 0; z-index: 2100; display: flex; align-items: flex-end; justify-content: center; background: rgba(14, 32, 30, .52); }
+.allocation-panel { width: min(760px, 100%); max-height: min(90dvh, 850px); display: flex; flex-direction: column; background: #fff; border-radius: 18px 18px 0 0; box-shadow: 0 18px 60px rgba(0, 0, 0, .18); }
+.allocation-header, .allocation-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #e7eeeb; }
+.allocation-footer { justify-content: flex-end; border-top: 1px solid #e7eeeb; border-bottom: 0; }
+.allocation-body { overflow-y: auto; padding: 18px 20px 24px; }
+.allocation-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 18px; }
+.allocation-summary > div { padding: 12px; border-radius: 10px; background: #f1f7f4; text-align: center; }
+.allocation-summary span, .allocation-summary strong { display: block; }
+.allocation-summary span { color: #687873; font-size: .75rem; }
+.allocation-summary strong { font-size: clamp(.9rem, 2.5vw, 1.25rem); }
+.allocation-row { border-bottom: 1px solid #e7eeeb; }
+.allocation-row summary { display: grid; grid-template-columns: 1.1fr repeat(3, 1fr) 18px; align-items: center; gap: 8px; padding: 14px 4px; cursor: pointer; list-style: none; font-size: .82rem; }
+.allocation-row summary::-webkit-details-marker { display: none; }
+.allocation-details { display: flex; flex-wrap: wrap; gap: 5px 14px; padding: 0 8px 14px; color: #61716b; font-size: .77rem; }
+@media (min-width: 768px) { .allocation-backdrop { align-items: center; } .allocation-panel { border-radius: 18px; } }
+@media (max-width: 575px) { .rk-actions__buttons { flex-wrap: wrap; } .allocation-header, .allocation-footer { padding: 13px 15px; } .allocation-body { padding: 15px; } .allocation-row summary { grid-template-columns: 1fr 1fr; } .allocation-row summary strong { grid-column: 1 / -1; } .allocation-row summary i { display: none; } }
 </style>

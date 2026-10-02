@@ -15,6 +15,7 @@ const orders = ref([])
 const totalOrders = ref(0)
 const unconfirmedCount = ref(0)
 const lineLinked = ref(false)
+const lineEnabled = ref(false)
 const lineLinkCode = ref('')
 const lineAddFriendUrl = ref('')
 const showLineModal = ref(false)
@@ -87,12 +88,8 @@ const checkoutIsReadOnly = computed(() => {
   return !!co && co.status !== 'RETURNED'
 })
 
-// 決済手数料見込み（参考値）。提出済みならスナップショット値、未提出なら現在の見込みを表示
+// 現在の完了済み予約に基づく見込み。退勤提出の保存値は別途 checkout に保持する。
 const feeEstimate = computed(() => {
-  const co = checkoutData.value?.checkout
-  if (co) {
-    return { fee: co.payment_fee_estimate ?? 0, net: co.net_sales_after_payment_fee ?? 0 }
-  }
   return {
     fee: checkoutData.value?.payment_fee_estimate ?? 0,
     net: checkoutData.value?.net_sales_after_payment_fee ?? 0,
@@ -114,10 +111,11 @@ onMounted(async () => {
     totalOrders.value = data.total_orders
     unconfirmedCount.value = data.unconfirmed_count
     availableOptions.value = data.available_options || []
+    lineEnabled.value = data.line_enabled || false
     lineLinked.value = data.line_linked || false
     lineLinkCode.value = data.line_link_code || ''
     lineAddFriendUrl.value = data.line_add_friend_url || ''
-    if (!lineLinked.value) showLineModal.value = true
+    if (lineEnabled.value && !lineLinked.value) showLineModal.value = true
     // ポイント取得
     try {
       const pts = await api.getCastPoints()
@@ -707,7 +705,7 @@ function formatYen(n) {
         </Teleport>
 
         <!-- LINE連携カード -->
-        <div v-if="lineLinked" class="card mb-3 border-success">
+        <div v-if="lineEnabled && lineLinked" class="card mb-3 border-success">
           <div class="card-body">
             <div class="d-flex align-items-center gap-3">
               <div class="flex-shrink-0">
@@ -722,7 +720,7 @@ function formatYen(n) {
             </div>
           </div>
         </div>
-        <div v-else class="card mb-3 border-warning border-2" style="cursor: pointer;" @click="showLineModal = true">
+        <div v-else-if="lineEnabled" class="card mb-3 border-warning border-2" style="cursor: pointer;" @click="showLineModal = true">
           <div class="card-body">
             <div class="d-flex align-items-center gap-3">
               <div class="flex-shrink-0">
@@ -740,7 +738,7 @@ function formatYen(n) {
 
         <!-- LINE連携モーダル -->
         <Teleport to="body">
-          <div v-if="showLineModal && !lineLinked" class="line-modal-overlay" @click.self="showLineModal = false">
+          <div v-if="lineEnabled && showLineModal && !lineLinked" class="line-modal-overlay" @click.self="showLineModal = false">
             <div class="line-modal">
               <div class="line-modal-header">
                 <div class="d-flex align-items-center gap-2">
@@ -848,29 +846,43 @@ function formatYen(n) {
                 <div v-if="checkoutError" class="alert alert-danger py-2 small">{{ checkoutError }}</div>
 
                 <!-- 見込みサマリー -->
-                <div class="bg-light rounded p-2 mb-3">
+                <div class="bg-light rounded p-3 mb-3">
+                  <div class="small text-muted mb-2">完了済み {{ checkoutData?.done_count ?? 0 }}本 · 本日の売上配分（見込み）</div>
                   <div class="row g-2 text-center">
-                    <div class="col-4">
-                      <div class="small text-muted mb-1">完了済み</div>
-                      <div class="fw-bold">{{ checkoutData?.done_count ?? 0 }}本</div>
-                    </div>
                     <div class="col-4">
                       <div class="small text-muted mb-1">売上</div>
                       <div class="fw-bold">{{ formatYen(checkoutData?.total_sales ?? 0) }}</div>
                     </div>
                     <div class="col-4">
+                      <div class="small text-muted mb-1">報酬</div>
+                      <div class="fw-bold text-primary">{{ formatYen(checkoutData?.compensation ?? 0) }}</div>
+                    </div>
+                    <div class="col-4">
+                      <div class="small text-muted mb-1">店舗配分</div>
+                      <div class="fw-bold">{{ formatYen(checkoutData?.store_allocation ?? 0) }}</div>
+                    </div>
+                  </div>
+                  <div class="row g-2 text-center mt-2 pt-2 border-top">
+                    <div class="col-4">
                       <div class="small text-muted mb-1">給与見込み</div>
-                      <div class="fw-bold text-primary">{{ formatYen(checkoutData?.estimated_pay ?? 0) }}</div>
+                      <div class="small">{{ formatYen(checkoutData?.estimated_pay ?? 0) }}</div>
+                    </div>
+                    <div class="col-4">
+                      <div class="small text-muted mb-1">雑費</div>
+                      <div class="small text-danger">-{{ formatYen(checkoutData?.expense_total ?? 0) }}</div>
+                    </div>
+                    <div class="col-4">
+                      <div class="small text-muted mb-1">決済手数料<span class="d-block" style="font-size: 0.7rem;">(参考値)</span></div>
+                      <div class="small text-danger">-{{ formatYen(feeEstimate.fee) }}</div>
                     </div>
                   </div>
                   <div class="row g-2 text-center mt-1 pt-2 border-top">
                     <div class="col-6">
-                      <div class="small text-muted mb-1">決済手数料見込み<span class="d-block" style="font-size: 0.7rem;">(参考値)</span></div>
-                      <div class="small text-danger">-{{ formatYen(feeEstimate.fee) }}</div>
-                    </div>
-                    <div class="col-6">
                       <div class="small text-muted mb-1">手数料差引後売上<span class="d-block" style="font-size: 0.7rem;">(参考値)</span></div>
                       <div class="small">{{ formatYen(feeEstimate.net) }}</div>
+                    </div>
+                    <div class="col-6 d-flex align-items-center justify-content-center small text-muted">
+                      報酬 = 給与見込み − 雑費
                     </div>
                   </div>
                 </div>
@@ -882,6 +894,10 @@ function formatYen(n) {
                     <span>{{ t.name }}</span>
                     <span>{{ formatYen(t.amount) }}</span>
                   </div>
+                </div>
+                <div v-if="checkoutData?.daily_expense_total" class="d-flex justify-content-between small border-bottom py-1 mb-3">
+                  <span>当日雑費</span>
+                  <span>{{ formatYen(checkoutData.daily_expense_total) }}</span>
                 </div>
 
                 <!-- 読み取り専用表示（提出済み・確認済み） -->

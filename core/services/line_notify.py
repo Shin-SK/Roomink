@@ -16,9 +16,9 @@ _GLOBAL_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 
 def _resolve_token(store):
     """Store の token → グローバル env の順で解決"""
-    if store and store.line_is_enabled and store.line_channel_access_token:
-        return store.line_channel_access_token
-    return _GLOBAL_TOKEN
+    if not store or not store.line_is_enabled:
+        return ""
+    return store.line_channel_access_token or _GLOBAL_TOKEN
 
 
 def operations_push_is_configured(store):

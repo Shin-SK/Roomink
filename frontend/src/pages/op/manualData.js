@@ -89,7 +89,7 @@ export const manualArticles = [
     ],
     notes: [
       'マネージャー権限がないとこの画面は使えない',
-      '「マネージャー」権限をつけると、LINE設定・売上・CSV取込など全ての機能が使える',
+      '「マネージャー」権限では売上・CSV取込などが使える。LINE設定はRoomink運営が行う',
       '「スタッフ」権限は、予約・シフト・顧客など日常業務の操作だけ',
     ],
   },
@@ -119,7 +119,7 @@ export const manualArticles = [
     notes: [
       '連携コードはキャストごとに違うものが自動で作られる',
       'コードがうまくいかない場合は、マイページから「再生成」して新しいコードで試す',
-      '先にお店のLINE設定が終わっている必要がある（マネージャーに確認）',
+      '店舗でLINEを利用する場合のみ表示される。利用開始はRoomink運営へ相談する',
       '大文字・小文字はどちらで送っても大丈夫',
     ],
   },
@@ -150,12 +150,12 @@ export const manualArticles = [
   },
   {
     slug: 'line-store-settings',
-    roles: ['manager'],
+    roles: ['setup'],
     category: 'LINE',
     order: 30,
     summary: '店舗のLINE初期設定（トークン・Webhook）',
     title: '店舗のLINE設定をしたい',
-    target: 'マネージャーのみ',
+    target: 'Roomink運営のみ',
     screens: [
       { label: 'LINE連携設定', path: '/op/settings/line' },
     ],
@@ -182,12 +182,12 @@ export const manualArticles = [
   },
   {
     slug: 'line-notification-settings',
-    roles: ['manager'],
+    roles: ['setup'],
     category: 'LINE',
     order: 40,
     summary: 'LINE出勤通知・受付終了通知の設定',
     title: 'LINE通知の設定を変えたい',
-    target: 'マネージャーのみ',
+    target: 'Roomink運営のみ',
     screens: [
       { label: 'LINE連携設定', path: '/op/settings/line' },
     ],
@@ -457,7 +457,7 @@ export const manualArticles = [
     notes: [
       'LINE未連携のキャストには出勤通知が届かない',
       '通知失敗はLINE側のエラーが原因のことが多い（アクセストークンの期限切れ、ブロックなど）',
-      '失敗が続くときは、LINE設定画面でアクセストークンが正しいか確認する',
+      '失敗が続くときは、Roomink運営に確認を依頼する',
     ],
   },
   {
@@ -805,10 +805,10 @@ export const manualArticles = [
       'LINEに「連携が完了しました」というメッセージが届けばOK',
     ],
     notes: [
-      'お店のLINE設定が終わっていないと連携できない。マネージャーに確認する',
+      '店舗でLINEを利用していない場合は連携できない。マネージャーに利用状況を確認する',
       'LINE公式アカウントをブロックしていないか確認する',
       '連携コードは英数字6文字。大文字でも小文字でもOK',
-      'それでもダメな場合は、マネージャーにWebhook URLやアクセストークンの設定を確認してもらう',
+      'それでもダメな場合は、Roomink運営に設定の確認を依頼する',
     ],
   },
   {
@@ -820,13 +820,12 @@ export const manualArticles = [
     category: 'トラブル',
     target: 'キャスト / マネージャー / スタッフ',
     screens: [
-      { label: 'LINE連携設定（マネージャー）', path: '/op/settings/line' },
       { label: 'ダッシュボード（アラート確認）', path: '/op/dashboard' },
     ],
     steps: [
       'まずキャストのLINE連携ができているか確認する（マイページで「連携済み」になっているか）',
-      'お店のLINE通知設定がONになっているか確認する（LINE設定画面を開く）',
-      '届かない通知の種類（朝 / 2時間前 / 15分前）がONになっているか確認する',
+      '店舗でLINEを利用しているかマネージャーに確認する',
+      '通知設定の確認や変更が必要な場合はRoomink運営に依頼する',
       'ダッシュボードでLINEアラートに通知失敗が出ていないか確認する',
     ],
     confirm: [
@@ -842,12 +841,12 @@ export const manualArticles = [
   },
   {
     slug: 'trouble-webhook-url',
-    roles: ['manager'],
+    roles: ['setup'],
     order: 40,
     summary: 'Webhook URLの確認方法',
     title: 'Webhook URLが分からない',
     category: 'トラブル',
-    target: 'マネージャーのみ',
+    target: 'Roomink運営のみ',
     screens: [
       { label: 'LINE連携設定', path: '/op/settings/line' },
     ],
@@ -934,13 +933,13 @@ export const manualArticles = [
       '権限はアカウントごとに設定する',
     ],
     confirm: [
-      'マネージャー → 予約・顧客・シフトに加え、売上・日給・LINE設定・CSV取込・雑費・ポイント・顧客統合などすべて使える',
+      'マネージャー → 予約・顧客・シフトに加え、売上・日給・CSV取込・雑費・ポイント・顧客統合などが使える',
       'スタッフ → 予約・シフト・顧客・電話対応など日常業務の操作ができる',
       'キャスト → 自分のマイページ（自分の予約・シフト・ポイント・LINE連携）',
       'お客様 → 自分の予約・マイページ',
     ],
     notes: [
-      'マネージャー専用の機能（売上 / 日給一覧 / LINE設定 / CSV取込 / 雑費 / ポイント / 顧客統合）は、スタッフ権限では画面に出ない・操作できない',
+      'マネージャー専用の機能（売上 / 日給一覧 / CSV取込 / 雑費 / ポイント / 顧客統合）は、スタッフ権限では画面に出ない・操作できない。LINE設定はRoomink運営のみ',
       'キャスト・お客様は運営用の画面（/op/...）には入れない',
       '権限の付与・変更はマネージャーが行う',
     ],
@@ -970,7 +969,7 @@ export const manualArticles = [
       '「売上確定額」は当日の集計で、予約のステータス変更などにより変わることがある',
       'LINE未連携・通知失敗などのアラートも同じ画面に表示される',
       '受付終了の確認はシフト終了70分前から表示され、その先の時間帯に有効な予約が入ると解消される',
-      'LINE設定で運営通知先を登録し、受付終了通知をONにすると同じ内容が運営トークへ自動送信される',
+      '受付終了通知を運営トークへ送る設定はRoomink運営に依頼する',
     ],
   },
   {
@@ -1439,12 +1438,12 @@ export const manualArticles = [
   },
   {
     slug: 'setup-line',
-    roles: ['manager', 'setup'],
+    roles: ['setup'],
     category: '導入・初期設定',
     order: 20,
     summary: 'LINE連携の導入手順',
     title: 'LINE連携を導入したい',
-    target: '導入担当 / マネージャー',
+    target: 'Roomink運営',
     screens: [
       { label: 'LINE連携設定', path: '/op/settings/line' },
     ],

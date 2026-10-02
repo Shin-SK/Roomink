@@ -1,11 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 
 const loading = ref(true)
 const error = ref('')
-const selectedDate = ref(new Date().toISOString().slice(0, 10))
+const route = useRoute()
+const selectedDate = ref(/^\d{4}-\d{2}-\d{2}$/.test(route.query.date || '') ? route.query.date : new Date().toISOString().slice(0, 10))
 const rows = ref([])
 const totals = ref({})
 const settlementStatus = ref('OPEN')
@@ -68,6 +70,9 @@ async function doUnlock() {
 
 onMounted(fetchSettlement)
 watch(selectedDate, fetchSettlement)
+watch(() => route.query.date, date => {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date || '') && date !== selectedDate.value) selectedDate.value = date
+})
 
 function yen(n) {
   return `¥${Number(n || 0).toLocaleString()}`
@@ -142,7 +147,22 @@ function formatDt(iso) {
           この日に出勤したキャストはいません
         </div>
 
-        <div v-else class="table-responsive">
+        <div v-if="!loading && rows.some(row => row.compensation !== undefined)" class="mb-4">
+          <h6 class="fw-bold mb-2">売上配分</h6>
+          <div class="row g-2 mb-2">
+            <div class="col-4"><div class="bg-light rounded p-2 text-center"><div class="small text-muted">売上</div><strong>{{ yen(totals.total_sales) }}</strong></div></div>
+            <div class="col-4"><div class="bg-light rounded p-2 text-center"><div class="small text-muted">報酬</div><strong class="text-primary">{{ yen(totals.compensation) }}</strong></div></div>
+            <div class="col-4"><div class="bg-light rounded p-2 text-center"><div class="small text-muted">店舗配分</div><strong>{{ yen(totals.store_allocation) }}</strong></div></div>
+          </div>
+          <div v-for="row in rows" :key="'allocation-' + row.cast_id" class="d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom py-2 small">
+            <strong>{{ row.cast_name }}</strong>
+            <span>売上 {{ yen(row.total_sales) }}　報酬 <b class="text-primary">{{ yen(row.compensation) }}</b>　店舗配分 <b>{{ yen(row.store_allocation) }}</b></span>
+          </div>
+          <div class="small text-muted mt-2">報酬＝バック額−固定雑費−当日雑費。店舗配分＝手数料差引後売上−報酬。決済手数料は参考値です。</div>
+        </div>
+        <div v-else-if="!loading && settlementStatus === 'LOCKED' && rows.length" class="alert alert-info small">この日は旧形式で確定されているため、売上配分は表示できません。</div>
+
+        <div v-if="!loading && rows.length" class="table-responsive">
           <table class="table table-hover table-sm mb-0">
             <thead>
               <tr>
@@ -205,7 +225,7 @@ function formatDt(iso) {
 
         <div v-if="rows.length" class="mt-3 text-muted" style="font-size: 0.75rem;">
           <i class="ti ti-info-circle"></i>
-          振込額 = バック額 - 雑費 + ポイント - 現金預り。現金払いはキャスト預かり分として控除。マイナス = キャスト手元残。
+          振込額 = 報酬 + ポイント - 現金預り。現金払いはキャスト預かり分として控除。マイナス = キャスト手元残。
           <span v-if="settlementStatus === 'LOCKED'" class="fw-bold"> この日は確定済みのため、スナップショットを表示しています。</span>
         </div>
       </div>

@@ -26,7 +26,7 @@ const operationsLinked = ref(false)
 const operationsRecipientType = ref('')
 const operationsLinkCode = ref('')
 
-const isManager = computed(() => getAuthRole() === 'manager')
+const isManager = computed(() => getAuthRole() === 'superuser')
 
 async function load() {
   loading.value = true
@@ -131,7 +131,7 @@ onMounted(load)
     </div>
 
     <template v-else-if="!isManager">
-      <div class="alert alert-warning">この設定はマネージャーのみ編集できます。</div>
+      <div class="alert alert-warning">この設定はRoomink運営のみ編集できます。</div>
     </template>
 
     <template v-else>

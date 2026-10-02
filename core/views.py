@@ -987,9 +987,10 @@ class CastTodayView(APIView):
                 {"id": option.id, "name": option.name, "price": option.price}
                 for option in Option.objects.filter(store=cast.store).order_by("id")
             ],
-            "line_linked": cast.line_user_id is not None,
-            "line_link_code": cast.line_link_code,
-            "line_add_friend_url": cast.store.line_add_friend_url if cast.store else "",
+            "line_enabled": cast.store.line_is_enabled,
+            "line_linked": cast.store.line_is_enabled and cast.line_user_id is not None,
+            "line_link_code": cast.line_link_code if cast.store.line_is_enabled else "",
+            "line_add_friend_url": cast.store.line_add_friend_url if cast.store.line_is_enabled else "",
         })
 
 
@@ -1197,6 +1198,38 @@ def _compute_payment_fee_estimate(store, cast, d):
     }
 
 
+def _cast_expense_totals(cast, d, done_count):
+    """退勤画面と日給一覧で同じ雑費を使う。提出済み固定雑費は当時の値を維持。"""
+    checkout = CastDailyCheckout.objects.filter(cast=cast, date=d).first()
+    if checkout and checkout.status != CastDailyCheckout.Status.RETURNED:
+        fixed_expense_total = sum(
+            checkout.expense_snapshots.values_list("amount", flat=True)
+        )
+    else:
+        fixed_expense_total = sum(
+            CastExpenseTemplate.objects.filter(cast=cast, is_active=True)
+            .values_list("amount", flat=True)
+        )
+    daily_expense_total = sum(
+        exp.amount * (done_count if exp.per_order else 1)
+        for exp in CastExpense.objects.filter(store=cast.store, cast=cast, date=d)
+    )
+    return {
+        "fixed_expense_total": fixed_expense_total,
+        "daily_expense_total": daily_expense_total,
+        "expense_total": fixed_expense_total + daily_expense_total,
+    }
+
+
+def _allocation_amounts(gross_pay, net_sales_after_fee, expenses):
+    compensation = gross_pay - expenses["expense_total"]
+    return {
+        **expenses,
+        "compensation": compensation,
+        "store_allocation": net_sales_after_fee - compensation,
+    }
+
+
 @document_object_api_view
 class CastTodaySalesView(APIView):
     """GET /api/cast/today-sales/ — キャスト本人の本日の売上/給与見込み（DONEのみ）"""
@@ -1233,19 +1266,26 @@ class CastCheckoutView(APIView):
         today = business_date_for_datetime(timezone.now(), cast.store.timezone)
         sales = _compute_cast_done_sales(cast, today)
         fee = _compute_payment_fee_estimate(cast.store, cast, today)
-
-        templates = CastExpenseTemplate.objects.filter(cast=cast, is_active=True).order_by("id")
-        template_data = [
-            {"id": t.id, "name": t.name, "amount": t.amount, "memo": t.memo}
-            for t in templates
-        ]
+        expenses = _cast_expense_totals(cast, today, sales["done_count"])
+        allocation = _allocation_amounts(
+            sales["estimated_pay"], fee["net_sales_after_payment_fee"], expenses,
+        )
 
         existing = CastDailyCheckout.objects.filter(cast=cast, date=today).select_related("reviewed_by").prefetch_related("expense_snapshots").first()
+        if existing and existing.status != CastDailyCheckout.Status.RETURNED:
+            fixed_items = existing.expense_snapshots.all()
+        else:
+            fixed_items = CastExpenseTemplate.objects.filter(cast=cast, is_active=True).order_by("id")
+        template_data = [
+            {"id": item.id, "name": item.name, "amount": item.amount, "memo": item.memo}
+            for item in fixed_items
+        ]
 
         return Response({
             "date": today.isoformat(),
             **sales,
             **fee,
+            **allocation,
             "expense_templates": template_data,
             "checkout": CastDailyCheckoutSerializer(existing).data if existing else None,
             "can_submit": existing is None or existing.status == CastDailyCheckout.Status.RETURNED,
@@ -6185,12 +6225,6 @@ class DailySettlementView(APIView):
         for o in done_orders:
             orders_by_cast[o.cast_id].append(o)
 
-        # 雑費
-        expenses = CastExpense.objects.filter(store=store, date=d, cast_id__in=cast_ids)
-        expenses_by_cast = defaultdict(list)
-        for exp in expenses:
-            expenses_by_cast[exp.cast_id].append(exp)
-
         # ポイント
         from django.db.models import Sum
         point_agg = (
@@ -6202,12 +6236,20 @@ class DailySettlementView(APIView):
         points_by_cast = {row["cast_id"]: row["total"] or 0 for row in point_agg}
 
         import math
+        from .services.sales import payment_fee_rates
+        fee_rates = payment_fee_rates(store)
 
         rows = []
         total_course = 0
         total_options = 0
         total_back = 0
         total_expense = 0
+        total_fixed_expense = 0
+        total_daily_expense = 0
+        total_sales = 0
+        total_payment_fee = 0
+        total_compensation = 0
+        total_store_allocation = 0
         total_points = 0
         total_cash_count = 0
         total_cash_sales = 0
@@ -6225,13 +6267,18 @@ class DailySettlementView(APIView):
             option_back = math.floor(options_sales * cast.option_back_rate / 100)
             back_amount = course_back + option_back
 
-            # 雑費控除
-            expense_total = 0
-            for exp in expenses_by_cast.get(cast_id, []):
-                if exp.per_order:
-                    expense_total += exp.amount * order_count
-                else:
-                    expense_total += exp.amount
+            cast_sales = sum(o.total_price for o in cast_orders)
+            payment_fee_estimate = sum(
+                math.floor(o.total_price * fee_rates.get(o.payment_method, 0) / 100)
+                for o in cast_orders
+            )
+            net_sales_after_payment_fee = cast_sales - payment_fee_estimate
+            allocation = _allocation_amounts(
+                back_amount,
+                net_sales_after_payment_fee,
+                _cast_expense_totals(cast, d, order_count),
+            )
+            expense_total = allocation["expense_total"]
 
             # ポイント
             point_total = points_by_cast.get(cast_id, 0)
@@ -6256,7 +6303,14 @@ class DailySettlementView(APIView):
                 "option_back_rate": cast.option_back_rate,
                 "option_fullback_enabled": cast.option_fullback_enabled,
                 "back_amount": back_amount,
+                "total_sales": cast_sales,
+                "payment_fee_estimate": payment_fee_estimate,
+                "net_sales_after_payment_fee": net_sales_after_payment_fee,
+                "fixed_expense_total": allocation["fixed_expense_total"],
+                "daily_expense_total": allocation["daily_expense_total"],
                 "expense_total": expense_total,
+                "compensation": allocation["compensation"],
+                "store_allocation": allocation["store_allocation"],
                 "point_total": point_total,
                 "cash_order_count": cash_order_count,
                 "cash_sales_total": cash_sales_total,
@@ -6267,6 +6321,12 @@ class DailySettlementView(APIView):
             total_options += options_sales
             total_back += back_amount
             total_expense += expense_total
+            total_fixed_expense += allocation["fixed_expense_total"]
+            total_daily_expense += allocation["daily_expense_total"]
+            total_sales += cast_sales
+            total_payment_fee += payment_fee_estimate
+            total_compensation += allocation["compensation"]
+            total_store_allocation += allocation["store_allocation"]
             total_points += point_total
             total_cash_count += cash_order_count
             total_cash_sales += cash_sales_total
@@ -6282,7 +6342,14 @@ class DailySettlementView(APIView):
                 "course_sales": total_course,
                 "options_sales": total_options,
                 "back_amount": total_back,
+                "total_sales": total_sales,
+                "payment_fee_estimate": total_payment_fee,
+                "net_sales_after_payment_fee": total_sales - total_payment_fee,
+                "fixed_expense_total": total_fixed_expense,
+                "daily_expense_total": total_daily_expense,
                 "expense_total": total_expense,
+                "compensation": total_compensation,
+                "store_allocation": total_store_allocation,
                 "point_total": total_points,
                 "cash_order_count": total_cash_count,
                 "cash_sales_total": total_cash_sales,
@@ -6294,8 +6361,8 @@ class DailySettlementView(APIView):
 @document_object_api_view
 class DailySettlementLockView(APIView):
     """POST /api/op/daily-settlement/lock/ — 清算確定
-    body: { date, rows, totals }
-    フロントが表示中のスナップショットをそのまま送る。
+    body: { date }
+    確定時点の数値をサーバーで再計算し、改ざん・古い画面の値を保存しない。
     """
     permission_classes = [IsAuthenticated, IsManager]
 
@@ -6315,10 +6382,13 @@ class DailySettlementLockView(APIView):
         if existing:
             return Response({"detail": "この日は既に確定済みです"}, status=status.HTTP_400_BAD_REQUEST)
 
+        view = DailySettlementView()
+        view._parse_date = lambda req: (d, None)
+        live_data = view.get(request).data
         snapshot = {
             "date": date_str,
-            "rows": request.data.get("rows", []),
-            "totals": request.data.get("totals", {}),
+            "rows": live_data.get("rows", []),
+            "totals": live_data.get("totals", {}),
         }
 
         settlement, _ = DailySettlement.objects.get_or_create(
@@ -6407,6 +6477,7 @@ class DailySettlementExportView(APIView):
             "コースバック率(%)", "OPバック率(%)",
             "バック額", "雑費", "ポイント",
             "現金件数", "現金預り", "振込額",
+            "売上", "決済手数料見込み", "固定雑費", "当日雑費", "報酬", "店舗配分",
         ])
 
         for r in rows:
@@ -6424,6 +6495,12 @@ class DailySettlementExportView(APIView):
                 r.get("cash_order_count", 0),
                 r.get("cash_sales_total", 0),
                 r.get("net_pay", 0),
+                r.get("total_sales", ""),
+                r.get("payment_fee_estimate", ""),
+                r.get("fixed_expense_total", ""),
+                r.get("daily_expense_total", ""),
+                r.get("compensation", ""),
+                r.get("store_allocation", ""),
             ])
 
         # 合計行
@@ -6438,6 +6515,12 @@ class DailySettlementExportView(APIView):
             totals.get("cash_order_count", 0),
             totals.get("cash_sales_total", 0),
             totals.get("net_pay", 0),
+            totals.get("total_sales", ""),
+            totals.get("payment_fee_estimate", ""),
+            totals.get("fixed_expense_total", ""),
+            totals.get("daily_expense_total", ""),
+            totals.get("compensation", ""),
+            totals.get("store_allocation", ""),
         ])
 
         # 状態行
@@ -6611,6 +6694,8 @@ class CastLineLinkView(APIView):
         cast = getattr(request.user, "cast_profile", None)
         if cast is None:
             return Response({"detail": "キャストが紐づいていません"}, status=status.HTTP_403_FORBIDDEN)
+        if not cast.store.line_is_enabled:
+            return Response({"detail": "この店舗ではLINE連携を利用していません"}, status=status.HTTP_403_FORBIDDEN)
         return Response({
             "line_link_code": cast.line_link_code,
             "line_linked": cast.line_user_id is not None,
@@ -6621,6 +6706,8 @@ class CastLineLinkView(APIView):
         cast = getattr(request.user, "cast_profile", None)
         if cast is None:
             return Response({"detail": "キャストが紐づいていません"}, status=status.HTTP_403_FORBIDDEN)
+        if not cast.store.line_is_enabled:
+            return Response({"detail": "この店舗ではLINE連携を利用していません"}, status=status.HTTP_403_FORBIDDEN)
 
         action = request.data.get("action", "regenerate")
 
@@ -6651,6 +6738,23 @@ class LineAlertsView(APIView):
 
     def get(self, request):
         store = get_user_store(request)
+        if not store.line_is_enabled:
+            now_local = timezone.localtime()
+            not_clocked_in = ShiftAssignment.objects.filter(
+                store=store,
+                date=date_type.today(),
+                clocked_in_at__isnull=True,
+                start_time__lte=now_local.time(),
+            ).select_related("cast").order_by("start_time")
+            return Response({
+                "unlinked_casts": [],
+                "failed_notifications": [],
+                "not_clocked_in_casts": [
+                    {"id": s.id, "cast_id": s.cast_id, "name": s.cast.name,
+                     "start_time": str(s.start_time)[:5]}
+                    for s in not_clocked_in
+                ],
+            })
         today = date_type.today()
         now_local = timezone.localtime()
 
@@ -6743,14 +6847,14 @@ class ShiftEndAlertsView(APIView):
 
 
 # ──────────────────────────────────────
-# Store LINE設定 (manager only)
+# Store LINE設定 (Roomink運営管理者のみ)
 # ──────────────────────────────────────
 
 @document_object_api_view
 class StoreLineSettingsView(APIView):
     """GET / PATCH /api/op/line-settings/"""
 
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated, IsPlatformAdmin]
 
     @staticmethod
     def _webhook_url(request, store):
@@ -6782,12 +6886,10 @@ class StoreLineSettingsView(APIView):
         }
 
     def get(self, request):
-        _require_manager(request)
         store = get_user_store(request)
         return Response(self._response_data(request, store))
 
     def patch(self, request):
-        _require_manager(request)
         store = get_user_store(request)
         fields = []
         for key in ("line_is_enabled", "line_add_friend_url",

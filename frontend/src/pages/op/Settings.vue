@@ -17,7 +17,6 @@ const menuItems = [
   { to: '/op/settings/discounts', icon: 'ti-discount', label: '割引管理', desc: '割引の追加・編集・削除', managerOnly: true },
   { to: '/op/settings/media', icon: 'ti-antenna', label: '媒体管理', desc: '媒体の追加・編集・削除', managerOnly: true },
   { to: '/op/settings/csv-import', icon: 'ti-file-import', label: 'CSVインポート', desc: 'CSVファイルから一括登録', managerOnly: true },
-  { to: '/op/settings/line', icon: 'ti-brand-line', label: 'LINE連携設定', desc: 'Webhook・Channel設定（マネージャーのみ）', managerOnly: true },
   { to: '/op/settings/payment-fees', icon: 'ti-percentage', label: '決済手数料設定', desc: '現金/PayPay/カードの手数料率（参考値・マネージャーのみ）', managerOnly: true },
   { to: '/op/settings/sms-templates', icon: 'ti-message', label: 'SMS文面設定', desc: '予約確認・カード決済前後のSMS文面と決済URL', managerOnly: false },
   { to: '/op/settings/public-booking', icon: 'ti-world-www', label: 'Web予約設定', desc: '店舗専用URLと予約画面の注意事項', managerOnly: true },
