@@ -117,7 +117,7 @@ const routes = [
   { path: '/op/settings/discounts', name: 'settings-discounts', component: SettingsDiscounts, meta: { managerOnly: true } },
   { path: '/op/settings/media', name: 'settings-media', component: SettingsMedia, meta: { managerOnly: true } },
   { path: '/op/settings/csv-import', name: 'settings-csv-import', component: SettingsCsvImport, meta: { managerOnly: true } },
-  { path: '/op/settings/line', name: 'settings-line', component: SettingsLine, meta: { managerOnly: true } },
+  { path: '/op/settings/line', name: 'settings-line', component: SettingsLine, meta: { superuserOnly: true } },
   { path: '/op/settings/sms-templates', name: 'settings-sms-templates', component: SettingsSmsTemplates },
   { path: '/op/settings/public-booking', name: 'settings-public-booking', component: SettingsPublicBooking, meta: { managerOnly: true } },
   { path: '/op/settings/phones', name: 'settings-phones', component: SettingsPhones, meta: { superuserOnly: true } },

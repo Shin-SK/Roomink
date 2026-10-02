@@ -25,7 +25,7 @@ class Command(BaseCommand):
     help = "LINE 出勤リマインド通知を送信"
 
     def handle(self, *args, **options):
-        stores = Store.objects.all()
+        stores = Store.objects.filter(line_is_enabled=True)
         total_sent = 0
         total_shift_end_sent = 0
 
