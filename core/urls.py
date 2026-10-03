@@ -180,6 +180,7 @@ urlpatterns = [
         name="shift-confirm-notification-test",
     ),
     path("op/line-settings/", views.StoreLineSettingsView.as_view(), name="store-line-settings"),
+    path("op/line-activation/", views.StoreLineActivationView.as_view(), name="store-line-activation"),
     path("op/payment-fee-settings/", views.StorePaymentFeeSettingsView.as_view(), name="store-payment-fee-settings"),
     path(
         "op/sip-provisioning/settings/",

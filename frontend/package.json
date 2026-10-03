@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@sentry/vue": "10.69.0",
-    "@tabler/icons-webfont": "^3.37.1",
+    "@tabler/icons-webfont": "3.36.0",
     "@tiptap/extension-image": "^3.30.5",
     "@tiptap/pm": "^3.30.5",
     "@tiptap/starter-kit": "^3.30.5",
@@ -26,5 +26,8 @@
     "@vitejs/plugin-vue": "^6.0.2",
     "sass-embedded": "^1.97.3",
     "vite": "^7.3.1"
+  },
+  "overrides": {
+    "sharp": "0.35.5"
   }
 }

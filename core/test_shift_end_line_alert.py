@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from core.models import (
@@ -33,6 +34,8 @@ class ShiftEndLineAlertTest(TestCase):
             line_is_enabled=True,
             line_channel_secret="test-secret",
             line_channel_access_token="test-access-token",
+            line_setup_completed_at=timezone.now(),
+            line_started_at=timezone.now(),
             line_shift_end_alert_enabled=True,
             line_operations_recipient_id="C-operations-group",
             line_operations_recipient_type=Store.LineOperationsRecipientType.GROUP,

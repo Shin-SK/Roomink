@@ -25,6 +25,7 @@ const webhookUrl = ref('')
 const operationsLinked = ref(false)
 const operationsRecipientType = ref('')
 const operationsLinkCode = ref('')
+const activationStatus = ref('preparing')
 
 const isPlatformAdmin = computed(() => getAuthRole() === 'superuser')
 
@@ -46,6 +47,7 @@ async function load() {
     operationsLinked.value = data.line_operations_linked
     operationsRecipientType.value = data.line_operations_recipient_type
     operationsLinkCode.value = data.line_operations_link_code
+    activationStatus.value = data.line_activation_status
   } catch (e) {
     error.value = e.message
   } finally {
@@ -96,9 +98,29 @@ async function onSave() {
   error.value = ''
   success.value = ''
   try {
-    await api.updateLineSettings(form.value)
+    const data = await api.updateLineSettings(form.value)
+    activationStatus.value = data.line_activation_status
     success.value = '保存しました'
     setTimeout(() => { success.value = '' }, 3000)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    saving.value = false
+  }
+}
+
+async function markLineReady() {
+  if (
+    activationStatus.value === 'active' &&
+    !window.confirm('店舗のLINE利用を停止し、開始待ちに戻します。よろしいですか？')
+  ) return
+  saving.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const data = await api.updateLineSettings({ line_mark_ready: true })
+    activationStatus.value = data.line_activation_status
+    success.value = '接続テスト完了として、店舗の開始待ちにしました'
   } catch (e) {
     error.value = e.message
   } finally {
@@ -135,16 +157,41 @@ onMounted(load)
     </template>
 
     <template v-else>
-      <!-- LINE連携 有効/無効 + Webhook URL -->
+      <!-- 技術接続・店舗開始状態 + Webhook URL -->
       <div class="card mb-4">
         <div class="card-body">
+          <h6 class="card-title mb-3"><i class="ti ti-plug-connected"></i> 接続・開始状態</h6>
+
+          <div v-if="activationStatus === 'active'" class="alert alert-success">
+            <div class="fw-bold"><i class="ti ti-circle-check"></i> 店舗で利用中です</div>
+            <div class="small mt-1">店舗が開始操作を完了しています。</div>
+          </div>
+          <div v-else-if="activationStatus === 'ready'" class="alert alert-info">
+            <div class="fw-bold"><i class="ti ti-clock"></i> 店舗の開始待ちです</div>
+            <div class="small mt-1">接続テストは完了しています。店舗管理画面の開始ボタンが押されるまで通知は始まりません。</div>
+          </div>
+          <div v-else class="alert alert-secondary">
+            <div class="fw-bold"><i class="ti ti-tool"></i> 接続準備中です</div>
+            <div class="small mt-1">認証情報を保存し、Webhookの接続テストが成功してから開始待ちにしてください。</div>
+          </div>
+
           <div class="mb-3">
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" id="lineEnabled" v-model="form.line_is_enabled">
-              <label class="form-check-label fw-bold" for="lineEnabled">LINE連携を有効にする</label>
+              <label class="form-check-label fw-bold" for="lineEnabled">技術接続を有効にする</label>
             </div>
-            <div class="form-text">通常はONのままで問題ありません</div>
+            <div class="form-text">Roomink運営用の接続スイッチです。店舗には表示されません。</div>
           </div>
+
+          <button
+            class="btn btn-outline-primary mb-3"
+            type="button"
+            :disabled="saving"
+            @click="markLineReady"
+          >
+            <span v-if="saving" class="spinner-border spinner-border-sm me-1"></span>
+            {{ activationStatus === 'active' ? '店舗の開始待ちに戻す' : '接続テスト完了・店舗の開始待ちにする' }}
+          </button>
 
           <div>
             <label class="form-label fw-bold">Webhook URL（LINE Developers に貼り付け）</label>

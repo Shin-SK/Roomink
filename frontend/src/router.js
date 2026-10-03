@@ -28,6 +28,7 @@ const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
 const SettingsStaffs = () => import('./pages/op/SettingsStaffs.vue')
 const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
 const SettingsLine = () => import('./pages/op/SettingsLine.vue')
+const SettingsLineActivation = () => import('./pages/op/SettingsLineActivation.vue')
 const SettingsPhones = () => import('./pages/op/SettingsPhones.vue')
 const SettingsManual = () => import('./pages/op/SettingsManual.vue')
 const ManualArticle = () => import('./pages/op/ManualArticle.vue')
@@ -118,6 +119,7 @@ const routes = [
   { path: '/op/settings/media', name: 'settings-media', component: SettingsMedia, meta: { managerOnly: true } },
   { path: '/op/settings/csv-import', name: 'settings-csv-import', component: SettingsCsvImport, meta: { managerOnly: true } },
   { path: '/op/settings/line', name: 'settings-line', component: SettingsLine, meta: { superuserOnly: true } },
+  { path: '/op/settings/line-activation', name: 'settings-line-activation', component: SettingsLineActivation, meta: { managerOnly: true } },
   { path: '/op/settings/sms-templates', name: 'settings-sms-templates', component: SettingsSmsTemplates },
   { path: '/op/settings/public-booking', name: 'settings-public-booking', component: SettingsPublicBooking, meta: { managerOnly: true } },
   { path: '/op/settings/phones', name: 'settings-phones', component: SettingsPhones, meta: { superuserOnly: true } },

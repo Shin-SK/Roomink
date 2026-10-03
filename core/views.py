@@ -987,10 +987,10 @@ class CastTodayView(APIView):
                 {"id": option.id, "name": option.name, "price": option.price}
                 for option in Option.objects.filter(store=cast.store).order_by("id")
             ],
-            "line_enabled": cast.store.line_is_enabled,
-            "line_linked": cast.store.line_is_enabled and cast.line_user_id is not None,
-            "line_link_code": cast.line_link_code if cast.store.line_is_enabled else "",
-            "line_add_friend_url": cast.store.line_add_friend_url if cast.store.line_is_enabled else "",
+            "line_enabled": cast.store.line_is_operational,
+            "line_linked": cast.store.line_is_operational and cast.line_user_id is not None,
+            "line_link_code": cast.line_link_code if cast.store.line_is_operational else "",
+            "line_add_friend_url": cast.store.line_add_friend_url if cast.store.line_is_operational else "",
         })
 
 
@@ -6582,6 +6582,10 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
     body = request.data
     events = body.get("events", [])
 
+    # 接続テストは受け付けるが、店舗が開始するまではユーザーイベントを処理しない。
+    if store is not None and not store.line_is_operational:
+        return Response({"ok": True, "status": "not_started"})
+
     for event in events:
         event_type = event.get("type")
         reply_token = event.get("replyToken")
@@ -6694,7 +6698,7 @@ class CastLineLinkView(APIView):
         cast = getattr(request.user, "cast_profile", None)
         if cast is None:
             return Response({"detail": "キャストが紐づいていません"}, status=status.HTTP_403_FORBIDDEN)
-        if not cast.store.line_is_enabled:
+        if not cast.store.line_is_operational:
             return Response({"detail": "この店舗ではLINE連携を利用していません"}, status=status.HTTP_403_FORBIDDEN)
         return Response({
             "line_link_code": cast.line_link_code,
@@ -6706,7 +6710,7 @@ class CastLineLinkView(APIView):
         cast = getattr(request.user, "cast_profile", None)
         if cast is None:
             return Response({"detail": "キャストが紐づいていません"}, status=status.HTTP_403_FORBIDDEN)
-        if not cast.store.line_is_enabled:
+        if not cast.store.line_is_operational:
             return Response({"detail": "この店舗ではLINE連携を利用していません"}, status=status.HTTP_403_FORBIDDEN)
 
         action = request.data.get("action", "regenerate")
@@ -6738,7 +6742,7 @@ class LineAlertsView(APIView):
 
     def get(self, request):
         store = get_user_store(request)
-        if not store.line_is_enabled:
+        if not store.line_is_operational:
             now_local = timezone.localtime()
             not_clocked_in = ShiftAssignment.objects.filter(
                 store=store,
@@ -6870,6 +6874,13 @@ class StoreLineSettingsView(APIView):
             morning_time = str(morning_time or "09:00")[:5]
         return {
             "line_is_enabled": store.line_is_enabled,
+            "line_activation_status": (
+                "active" if store.line_is_operational
+                else "ready" if store.line_is_enabled and store.line_setup_completed_at
+                else "preparing"
+            ),
+            "line_setup_completed_at": store.line_setup_completed_at,
+            "line_started_at": store.line_started_at,
             "line_add_friend_url": store.line_add_friend_url,
             "line_channel_secret": store.line_channel_secret,
             "line_channel_access_token": store.line_channel_access_token,
@@ -6892,14 +6903,25 @@ class StoreLineSettingsView(APIView):
     def patch(self, request):
         store = get_user_store(request)
         fields = []
+        connection_changed = False
+        connection_fields = {
+            "line_is_enabled",
+            "line_add_friend_url",
+            "line_channel_secret",
+            "line_channel_access_token",
+        }
         for key in ("line_is_enabled", "line_add_friend_url",
                      "line_channel_secret", "line_channel_access_token",
                      "line_morning_enabled", "line_two_hours_enabled",
                      "line_fifteen_minutes_enabled",
                      "line_shift_end_alert_enabled"):
             if key in request.data:
-                setattr(store, key, request.data[key])
-                fields.append(key)
+                new_value = request.data[key]
+                if getattr(store, key) != new_value:
+                    setattr(store, key, new_value)
+                    fields.append(key)
+                    if key in connection_fields:
+                        connection_changed = True
         if "line_morning_time" in request.data:
             from datetime import time as dt_time
             val = request.data["line_morning_time"]
@@ -6908,6 +6930,28 @@ class StoreLineSettingsView(APIView):
                 val = dt_time(int(parts[0]), int(parts[1]))
             store.line_morning_time = val
             fields.append("line_morning_time")
+        if connection_changed:
+            store.line_setup_completed_at = None
+            store.line_started_at = None
+            fields.extend(["line_setup_completed_at", "line_started_at"])
+        if request.data.get("line_mark_ready") is True:
+            missing = []
+            if not store.line_is_enabled:
+                missing.append("技術接続")
+            if not store.line_add_friend_url:
+                missing.append("友だち追加URL")
+            if not store.line_channel_secret:
+                missing.append("Channel secret")
+            if not store.line_channel_access_token:
+                missing.append("Channel access token")
+            if missing:
+                return Response(
+                    {"detail": f"開始待ちにする前に設定してください: {', '.join(missing)}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            store.line_setup_completed_at = timezone.now()
+            store.line_started_at = None
+            fields.extend(["line_setup_completed_at", "line_started_at"])
         if request.data.get("line_operations_unlink") is True:
             store.line_operations_recipient_id = ""
             store.line_operations_recipient_type = ""
@@ -6927,6 +6971,43 @@ class StoreLineSettingsView(APIView):
         if fields:
             store.save(update_fields=list(dict.fromkeys(fields)))
         return Response(self._response_data(request, store))
+
+
+@document_object_api_view
+class StoreLineActivationView(APIView):
+    """店舗マネージャーが、接続テスト済みのLINE連携を一度だけ開始する。"""
+
+    permission_classes = [IsAuthenticated, IsManager]
+
+    @staticmethod
+    def _response_data(store):
+        if store.line_is_operational:
+            activation_status = "active"
+        elif store.line_is_enabled and store.line_setup_completed_at:
+            activation_status = "ready"
+        else:
+            activation_status = "preparing"
+        return {
+            "status": activation_status,
+            "can_start": activation_status == "ready",
+            "started_at": store.line_started_at,
+        }
+
+    def get(self, request):
+        return Response(self._response_data(get_user_store(request)))
+
+    def post(self, request):
+        store = get_user_store(request)
+        if store.line_is_operational:
+            return Response(self._response_data(store))
+        if not (store.line_is_enabled and store.line_setup_completed_at):
+            return Response(
+                {"detail": "LINE連携はまだ開始できる状態ではありません。"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        store.line_started_at = timezone.now()
+        store.save(update_fields=["line_started_at"])
+        return Response(self._response_data(store))
 
 
 @document_object_api_view

@@ -55,6 +55,8 @@ class Store(models.Model):
     line_channel_secret = models.TextField(blank=True, default="")
     line_channel_access_token = models.TextField(blank=True, default="")
     line_is_enabled = models.BooleanField(default=False)
+    line_setup_completed_at = models.DateTimeField(null=True, blank=True)
+    line_started_at = models.DateTimeField(null=True, blank=True)
     line_morning_enabled = models.BooleanField(default=True)
     line_morning_time = models.TimeField(default="09:00")
     line_two_hours_enabled = models.BooleanField(default=True)
@@ -77,6 +79,15 @@ class Store(models.Model):
         max_length=64, blank=True, default="", unique=True,
         help_text="webhook URL に埋め込む store 識別トークン",
     )
+
+    @property
+    def line_is_operational(self):
+        """技術接続だけでなく、店舗が利用開始済みのときだけ True。"""
+        return bool(
+            self.line_is_enabled
+            and self.line_setup_completed_at
+            and self.line_started_at
+        )
     # 決済手数料（参考値）。確定精算・給与確定には接続しない。
     cash_fee_rate = models.PositiveSmallIntegerField(default=0, help_text="現金決済手数料率（%・参考値）")
     paypay_fee_rate = models.PositiveSmallIntegerField(default=5, help_text="PayPay決済手数料率（%・参考値）")

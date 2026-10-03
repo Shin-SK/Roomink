@@ -447,6 +447,8 @@ export const api = {
   // LINE Settings (store)
   getLineSettings: () => request('GET', '/op/line-settings/'),
   updateLineSettings: (body) => request('PATCH', '/op/line-settings/', body),
+  getLineActivation: () => request('GET', '/op/line-activation/'),
+  startLineActivation: () => request('POST', '/op/line-activation/', {}),
 
   // Daily Settlement
   getDailySettlement: (date) => request('GET', `/op/daily-settlement/?date=${date}`),
