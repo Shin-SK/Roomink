@@ -7,6 +7,8 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny
@@ -38,6 +40,11 @@ def _active_case_for(contact):
     )
 
 
+@extend_schema(
+    operation_id="operations_line_webhook",
+    request=OpenApiTypes.OBJECT,
+    responses=OpenApiTypes.OBJECT,
+)
 @csrf_exempt
 @api_view(["POST"])
 @authentication_classes([])
