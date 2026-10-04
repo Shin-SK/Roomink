@@ -10,7 +10,8 @@ from .models import (
     CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerAccountInvitation, CustomerMergeLog,
     DailySettlement, LineNotificationLog, Option, Order, OrderServiceRecipientLinkLog, PointLog, PublicBookingVerification, Room,
     ShiftAssignment, ShiftConfirmNotificationLog, ShiftEndAlert, ShiftRequest, SmsLog, SmsTemplate, Store, StoreSlugAlias,
-    StorePhoneNumber, SupportConversation, SupportMessage, UserProfile,
+    OperationsCase, OperationsCaseMessage, OperationsLineContact, StorePhoneNumber,
+    SupportConversation, SupportMessage, UserProfile,
     generate_line_link_code,
 )
 from .services.cast_user import ensure_user_profile, create_staff_with_user
@@ -378,3 +379,31 @@ class SupportMessageAdmin(admin.ModelAdmin):
     list_filter = ("role",)
     search_fields = ("content",)
     readonly_fields = ("conversation", "role", "content", "sources", "created_at")
+
+
+@admin.register(OperationsLineContact)
+class OperationsLineContactAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "display_name", "status", "approved_at", "last_seen_at")
+    list_filter = ("store", "status")
+    search_fields = ("line_user_id", "display_name")
+    readonly_fields = ("created_at", "updated_at", "last_seen_at")
+
+
+class OperationsCaseMessageInline(admin.TabularInline):
+    model = OperationsCaseMessage
+    extra = 0
+    readonly_fields = ("role", "content", "line_event_id", "line_message_id", "withdrawn_at", "created_at")
+    can_delete = False
+
+
+@admin.register(OperationsCase)
+class OperationsCaseAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "reporter", "category", "status", "updated_at")
+    list_filter = ("store", "category", "status")
+    search_fields = ("summary", "reporter__display_name")
+    readonly_fields = (
+        "slack_channel_id", "slack_thread_ts", "slack_permalink", "slack_error",
+        "notion_page_id", "notion_error", "triage_requested_at", "triaged_at",
+        "created_at", "updated_at",
+    )
+    inlines = [OperationsCaseMessageInline]

@@ -1633,6 +1633,112 @@ class UserProfile(models.Model):
         return f"Profile({self.user.username})"
 
 
+class OperationsLineContact(models.Model):
+    """運営LINEを使うことを明示承認された店舗運営者だけの連絡先。"""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "承認待ち"
+        ACTIVE = "ACTIVE", "利用可"
+        DISABLED = "DISABLED", "停止"
+
+    store = models.ForeignKey(
+        Store,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="operations_line_contacts",
+    )
+    line_user_id = models.CharField(max_length=64, unique=True)
+    display_name = models.CharField(max_length=255, blank=True, default="")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["store", "status"], name="core_opsl_store_status_idx")]
+
+    def __str__(self):
+        return f"Operations LINE {self.store or '-'} {self.status}"
+
+
+class OperationsCase(models.Model):
+    """運営LINEから受けた、Roomink開発・運用用の案件。"""
+
+    class Status(models.TextChoices):
+        TRIAGE = "TRIAGE", "追加確認中"
+        READY = "READY", "運営判断待ち"
+        IN_PROGRESS = "IN_PROGRESS", "作業中"
+        STAGING = "STAGING", "ステージング確認待ち"
+        PRODUCTION = "PRODUCTION", "本番承認待ち"
+        COMPLETED = "COMPLETED", "完了"
+        BLOCKED = "BLOCKED", "保留"
+
+    class Category(models.TextChoices):
+        INCIDENT = "INCIDENT", "障害・緊急"
+        BUG = "BUG", "不具合"
+        CHANGE = "CHANGE", "修正・要望"
+        QUESTION = "QUESTION", "質問"
+        OTHER = "OTHER", "その他"
+
+    store = models.ForeignKey(Store, on_delete=models.PROTECT, related_name="operations_cases")
+    reporter = models.ForeignKey(
+        OperationsLineContact,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cases",
+    )
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.TRIAGE)
+    category = models.CharField(max_length=12, choices=Category.choices, default=Category.OTHER)
+    summary = models.TextField(blank=True, default="")
+    missing_information = models.JSONField(blank=True, default=list)
+    slack_channel_id = models.CharField(max_length=64, blank=True, default="")
+    slack_thread_ts = models.CharField(max_length=64, blank=True, default="")
+    slack_permalink = models.URLField(blank=True, default="")
+    slack_error = models.TextField(blank=True, default="")
+    notion_page_id = models.CharField(max_length=64, blank=True, default="")
+    notion_error = models.TextField(blank=True, default="")
+    triage_requested_at = models.DateTimeField(null=True, blank=True)
+    triaged_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["store", "status"], name="core_opsc_store_status_idx"),
+            models.Index(fields=["reporter", "updated_at"], name="core_opsc_reporter_updated_idx"),
+        ]
+        ordering = ["-updated_at", "-id"]
+
+    def __str__(self):
+        return f"Operations case #{self.pk} {self.store} {self.status}"
+
+
+class OperationsCaseMessage(models.Model):
+    """本文はPIIをマスキングして保持し、LINEの取消にも追従できるようにする。"""
+
+    class Role(models.TextChoices):
+        REPORTER = "REPORTER", "店舗運営"
+        ASSISTANT = "ASSISTANT", "受付AI"
+        OPERATOR = "OPERATOR", "Roomink運営"
+
+    case = models.ForeignKey(OperationsCase, on_delete=models.CASCADE, related_name="messages")
+    role = models.CharField(max_length=12, choices=Role.choices)
+    content = models.TextField(blank=True, default="")
+    line_event_id = models.CharField(max_length=100, blank=True, default=None, unique=True, null=True, db_index=True)
+    line_message_id = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return f"OperationsCaseMessage #{self.pk} {self.role}"
+
+
 class SupportConversation(models.Model):
     """Roomink内の操作案内と、解決しなかった問い合わせの記録。"""
 
