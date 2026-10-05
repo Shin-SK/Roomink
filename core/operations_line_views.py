@@ -237,6 +237,7 @@ def operations_line_webhook(request):
     return Response({"ok": True})
 
 
+@extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @csrf_exempt
 @api_view(["POST"])
 @authentication_classes([])
@@ -304,6 +305,7 @@ def operations_slack_interactions(request):
     return Response({})
 
 
+@extend_schema(responses=OpenApiTypes.OBJECT)
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -342,6 +344,7 @@ def operations_codex_bridge_next(request):
         })
 
 
+@extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @csrf_exempt
 @api_view(["POST"])
 @authentication_classes([])
