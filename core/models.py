@@ -1650,6 +1650,10 @@ class OperationsLineContact(models.Model):
     )
     line_user_id = models.CharField(max_length=64, unique=True)
     display_name = models.CharField(max_length=255, blank=True, default="")
+    registration_text = models.TextField(blank=True, default="")
+    registration_requested_at = models.DateTimeField(null=True, blank=True)
+    registration_slack_channel_id = models.CharField(max_length=64, blank=True, default="")
+    registration_slack_thread_ts = models.CharField(max_length=64, blank=True, default="")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     approved_at = models.DateTimeField(null=True, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
@@ -1682,6 +1686,18 @@ class OperationsCase(models.Model):
         QUESTION = "QUESTION", "質問"
         OTHER = "OTHER", "その他"
 
+    class CodexDispatchAction(models.TextChoices):
+        NONE = "NONE", "なし"
+        CREATE_THREAD = "CREATE_THREAD", "案件スレッド作成"
+        START_WORK = "START_WORK", "修正開始"
+
+    class CodexDispatchStatus(models.TextChoices):
+        NONE = "NONE", "なし"
+        PENDING = "PENDING", "起動待ち"
+        CLAIMED = "CLAIMED", "起動中"
+        SUCCEEDED = "SUCCEEDED", "完了"
+        FAILED = "FAILED", "失敗"
+
     store = models.ForeignKey(Store, on_delete=models.PROTECT, related_name="operations_cases")
     reporter = models.ForeignKey(
         OperationsLineContact,
@@ -1698,6 +1714,23 @@ class OperationsCase(models.Model):
     slack_thread_ts = models.CharField(max_length=64, blank=True, default="")
     slack_permalink = models.URLField(blank=True, default="")
     slack_error = models.TextField(blank=True, default="")
+    codex_thread_id = models.CharField(max_length=100, blank=True, default="")
+    codex_thread_url = models.URLField(blank=True, default="")
+    codex_worktree_path = models.TextField(blank=True, default="")
+    codex_dispatch_action = models.CharField(
+        max_length=20,
+        choices=CodexDispatchAction.choices,
+        default=CodexDispatchAction.NONE,
+    )
+    codex_dispatch_status = models.CharField(
+        max_length=12,
+        choices=CodexDispatchStatus.choices,
+        default=CodexDispatchStatus.NONE,
+    )
+    codex_dispatch_error = models.TextField(blank=True, default="")
+    codex_dispatch_requested_at = models.DateTimeField(null=True, blank=True)
+    codex_dispatch_claimed_at = models.DateTimeField(null=True, blank=True)
+    codex_started_at = models.DateTimeField(null=True, blank=True)
     notion_page_id = models.CharField(max_length=64, blank=True, default="")
     notion_error = models.TextField(blank=True, default="")
     triage_requested_at = models.DateTimeField(null=True, blank=True)

@@ -17,6 +17,7 @@ from .models import OperationsCase, OperationsCaseMessage, OperationsLineContact
     OPERATIONS_LINE_INTAKE_ENABLED=True,
     OPERATIONS_LINE_CHANNEL_SECRET="operations-line-test-secret",
     OPERATIONS_LINE_CHANNEL_ACCESS_TOKEN="",
+    OPERATIONS_CODEX_BRIDGE_TOKEN="bridge-test-token",
 )
 class OperationsLineIntakeWebhookTests(TestCase):
     def setUp(self):
@@ -79,6 +80,20 @@ class OperationsLineIntakeWebhookTests(TestCase):
         contact = OperationsLineContact.objects.get(line_user_id="U-not-allowed")
         self.assertEqual(contact.status, OperationsLineContact.Status.PENDING)
         self.assertIsNone(contact.store)
+        self.assertEqual(contact.registration_text, "設定画面で保存を押すとエラーになります")
+        self.assertIsNotNone(contact.registration_requested_at)
+
+    @patch("core.operations_line_views.send_line_reply")
+    def test_follow_sends_a_polite_registration_prompt(self, send_reply):
+        response = self._post([{
+            "type": "follow",
+            "replyToken": "follow-token",
+            "source": {"type": "user", "userId": "U-new-contact"},
+        }])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(OperationsLineContact.objects.filter(line_user_id="U-new-contact").exists())
+        self.assertIn("店舗名", send_reply.call_args.args[1])
 
     def test_invalid_signature_is_rejected_before_persistence(self):
         response = self._post([self._message_event()], valid=False)
@@ -99,13 +114,9 @@ class OperationsLineIntakeWebhookTests(TestCase):
         self.assertEqual(message.content, "")
         self.assertIsNotNone(message.withdrawn_at)
 
-    @patch("core.services.operations_intake.sync_case_to_notion")
-    @patch("core.services.operations_intake.create_slack_case_thread")
     @patch("core.services.operations_intake.send_line_push")
     @patch("core.services.operations_intake.triage_case")
-    def test_worker_turns_ready_case_into_a_single_slack_and_notion_case(
-        self, triage, send_line, slack, notion,
-    ):
+    def test_worker_queues_a_real_codex_task_before_slack_is_notified(self, triage, send_line):
         self._post([self._message_event(text="予約一覧を見やすく修正してほしいです")])
         case = OperationsCase.objects.get()
         case.triage_requested_at = timezone.now() - timedelta(seconds=6)
@@ -125,6 +136,49 @@ class OperationsLineIntakeWebhookTests(TestCase):
         self.assertEqual(case.category, OperationsCase.Category.CHANGE)
         self.assertEqual(case.summary, "予約一覧の視認性を改善したい要望")
         send_line.assert_called_once()
-        slack.assert_called_once_with(case)
-        notion.assert_called_once_with(case)
+        self.assertEqual(case.codex_dispatch_action, OperationsCase.CodexDispatchAction.CREATE_THREAD)
+        self.assertEqual(case.codex_dispatch_status, OperationsCase.CodexDispatchStatus.PENDING)
+        self.assertFalse(case.slack_thread_ts)
         self.assertEqual(case.messages.filter(role=OperationsCaseMessage.Role.ASSISTANT).count(), 1)
+
+    @patch("core.operations_line_views.create_slack_case_thread")
+    def test_bridge_claims_task_and_only_then_notifies_slack(self, slack):
+        case = OperationsCase.objects.create(
+            store=self.store,
+            reporter=self.contact,
+            status=OperationsCase.Status.READY,
+            summary="店舗設定の電話番号を変更したい",
+        )
+        case.codex_dispatch_action = OperationsCase.CodexDispatchAction.CREATE_THREAD
+        case.codex_dispatch_status = OperationsCase.CodexDispatchStatus.PENDING
+        case.save(update_fields=["codex_dispatch_action", "codex_dispatch_status", "updated_at"])
+
+        response = self.client.get(
+            "/api/internal/operations-line/codex/next/",
+            HTTP_AUTHORIZATION="Bearer bridge-test-token",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["case_id"], case.pk)
+        case.refresh_from_db()
+        self.assertEqual(case.codex_dispatch_status, OperationsCase.CodexDispatchStatus.CLAIMED)
+
+        response = self.client.post(
+            f"/api/internal/operations-line/codex/{case.pk}/complete/",
+            data={
+                "success": True,
+                "codex_thread_id": "thread-123",
+                "codex_thread_url": "codex://threads/thread-123",
+                "codex_worktree_path": "/tmp/roomink-case",
+            },
+            format="json",
+            HTTP_AUTHORIZATION="Bearer bridge-test-token",
+        )
+        self.assertEqual(response.status_code, 200)
+        case.refresh_from_db()
+        self.assertEqual(case.codex_thread_id, "thread-123")
+        self.assertEqual(case.codex_dispatch_status, OperationsCase.CodexDispatchStatus.SUCCEEDED)
+        slack.assert_called_once_with(case)
+
+    def test_bridge_rejects_requests_without_its_service_token(self):
+        response = self.client.get("/api/internal/operations-line/codex/next/")
+        self.assertEqual(response.status_code, 401)

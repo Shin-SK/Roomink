@@ -41,6 +41,21 @@ urlpatterns = [
         operations_line_views.operations_line_webhook,
         name="operations-line-webhook",
     ),
+    path(
+        "webhook/operations-slack/",
+        operations_line_views.operations_slack_interactions,
+        name="operations-slack-interactions",
+    ),
+    path(
+        "internal/operations-line/codex/next/",
+        operations_line_views.operations_codex_bridge_next,
+        name="operations-codex-bridge-next",
+    ),
+    path(
+        "internal/operations-line/codex/<int:case_id>/complete/",
+        operations_line_views.operations_codex_bridge_complete,
+        name="operations-codex-bridge-complete",
+    ),
     # auth
     path("auth/csrf/", views.csrf_token_view, name="auth-csrf"),
     path("auth/login/", views.auth_login, name="auth-login"),

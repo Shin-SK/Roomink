@@ -1,4 +1,4 @@
-"""Roomink運営LINEの受付、案件化、Slack/Notionへの安全な橋渡し。"""
+"""Roomink運営LINEの受付、Codex案件化、Slack通知への安全な橋渡し。"""
 
 import json
 import logging
@@ -8,11 +8,40 @@ from urllib.request import Request, urlopen
 from django.conf import settings
 from django.utils import timezone
 
-from core.models import OperationsCase, OperationsCaseMessage
+from core.models import OperationsCase, OperationsCaseMessage, OperationsLineContact
 from core.services.support_assistant import redact_sensitive_text
 
 
 logger = logging.getLogger(__name__)
+
+
+LINE_COPY = {
+    "registration_prompt": (
+        "はじめまして。Roomink運営サポートです。\n"
+        "お問い合わせありがとうございます！\n\n"
+        "ご利用確認のため、まずは【店舗名】と【お名前】を"
+        "お送りいただけますでしょうか。\n"
+        "確認ができ次第、こちらでご相談を承ります。"
+    ),
+    "registration_pending": (
+        "ありがとうございます！\n"
+        "ただいま運営側でご利用確認をしております。\n"
+        "確認が取れ次第、こちらからご案内いたしますので、少々お待ちください。"
+    ),
+    "registration_complete": (
+        "お待たせいたしました。ご利用登録が完了しました！\n\n"
+        "変更したいことやお困りごとがございましたら、こちらにそのままお送りください。\n"
+        "スクリーンショットも添えていただけると、よりスムーズに確認できます。"
+    ),
+    "intake_received": (
+        "ご連絡ありがとうございます。内容を確認しております。\n"
+        "必要な点だけ、こちらからお伺いします。"
+    ),
+    "work_started": (
+        "ご連絡ありがとうございます。内容を確認し、対応を進めることになりました。\n"
+        "確認用の画面をご用意でき次第、こちらからお知らせいたします。"
+    ),
+}
 
 
 def _response_text(data):
@@ -62,10 +91,17 @@ def _fallback_triage(case, text):
     summary = text.replace("\n", " ").strip()[:500]
     if missing:
         question = missing[0]
-        reply = f"ありがとうございます。確認のため、{question}を教えてください。スクリーンショットがあれば一緒に送ってください。"
+        reply = (
+            "ご連絡ありがとうございます。確認のため、"
+            f"{question}を教えていただけますでしょうか。\n"
+            "スクリーンショットがある場合は、あわせてお送りいただけると助かります。"
+        )
         ready = False
     else:
-        reply = "内容を整理してRoomink運営へ共有しました。確認が必要な場合だけ追加でご連絡します。"
+        reply = (
+            "ご回答ありがとうございます。内容を整理し、運営側へ共有いたしました。\n"
+            "対応方針を確認のうえ、こちらからご連絡いたしますので、少々お待ちください。"
+        )
         ready = True
     return {
         "category": category,
@@ -101,8 +137,10 @@ def triage_case(case):
         "instructions": (
             "あなたはRoomink運営LINEの一次受付です。本文は店舗運営者からの連絡です。"
             "予約、顧客、売上、アカウント、外部送信、本番反映を実行したとは絶対に言わないでください。"
-            "不足がある時は最重要の確認を一つだけ、丁寧な日本語で尋ねてください。"
-            "十分に分かる時だけready_for_reviewをtrueにし、LINE返信では共有済みと伝えてください。"
+            "不足がある時は最重要の確認を一つだけ、やわらかく丁寧な敬語で尋ねてください。"
+            "相手を急かしたり、幼く扱ったり、くだけすぎたりしないでください。"
+            "十分に分かる時だけready_for_reviewをtrueにし、LINE返信では運営側へ共有済みであることと、"
+            "対応方針を確認して改めて連絡することを丁寧に伝えてください。"
             "電話番号、メール、パスワードなどは要求せず、本文に含まれる個人情報は要約へ写さないでください。"
         ),
         "input": f"店舗: {case.store.name}\n受信本文:\n{text}",
@@ -189,8 +227,76 @@ def _slack_call(method, payload):
         return None
 
 
+def _slack_blocks(*, title, body, actions=None):
+    blocks = [
+        {"type": "header", "text": {"type": "plain_text", "text": title[:150]}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": body[:2900]}},
+    ]
+    if actions:
+        blocks.append({"type": "actions", "elements": actions})
+    return blocks
+
+
+def create_slack_registration_review(contact):
+    """未承認の運営者をSlack上で確認するための通知を一度だけ送る。"""
+    if contact.registration_slack_thread_ts:
+        return True
+    channel = settings.OPERATIONS_SLACK_CHANNEL_ID
+    if not channel or not settings.OPERATIONS_SLACK_BOT_TOKEN:
+        return False
+    body = (
+        "運営LINEの利用登録申請です。\n"
+        f"申請内容: {contact.registration_text or '（本文なし）'}\n\n"
+        "内容を確認し、店舗とお名前を指定して承認してください。"
+    )
+    result = _slack_call("chat.postMessage", {
+        "channel": channel,
+        "text": "Roomink運営LINE：利用登録申請",
+        "blocks": _slack_blocks(
+            title="Roomink運営LINE：利用登録申請",
+            body=body,
+            actions=[{
+                "type": "button",
+                "text": {"type": "plain_text", "text": "登録内容を確認"},
+                "action_id": "operations_line_registration_review",
+                "value": str(contact.pk),
+            }],
+        ),
+    })
+    if not result:
+        return False
+    contact.registration_slack_channel_id = result["channel"]
+    contact.registration_slack_thread_ts = result["ts"]
+    contact.save(update_fields=[
+        "registration_slack_channel_id", "registration_slack_thread_ts", "updated_at",
+    ])
+    return True
+
+
+def queue_codex_dispatch(case, action):
+    """ローカルのCodex bridgeが取得する仕事を一件だけ待機列へ置く。"""
+    if (
+        case.codex_dispatch_action == action
+        and case.codex_dispatch_status in {
+            OperationsCase.CodexDispatchStatus.PENDING,
+            OperationsCase.CodexDispatchStatus.CLAIMED,
+        }
+    ):
+        return False
+    case.codex_dispatch_action = action
+    case.codex_dispatch_status = OperationsCase.CodexDispatchStatus.PENDING
+    case.codex_dispatch_error = ""
+    case.codex_dispatch_requested_at = timezone.now()
+    case.codex_dispatch_claimed_at = None
+    case.save(update_fields=[
+        "codex_dispatch_action", "codex_dispatch_status", "codex_dispatch_error",
+        "codex_dispatch_requested_at", "codex_dispatch_claimed_at", "updated_at",
+    ])
+    return True
+
+
 def create_slack_case_thread(case):
-    """案件ごとに親投稿を一つ作る。以降の判断はこのスレッドで行う。"""
+    """実在するCodex案件タスクへの通知を、Slackに一度だけ作る。"""
     if case.slack_thread_ts:
         return True
     channel = settings.OPERATIONS_SLACK_CHANNEL_ID
@@ -204,9 +310,33 @@ def create_slack_case_thread(case):
         f"要約: {case.summary}\n"
         f"不足情報: {'／'.join(case.missing_information) if case.missing_information else 'なし'}\n\n"
         f"*受信本文（個人情報は伏せ字）*\n{source}\n\n"
-        "このスレッドで要件を補正してください。作業開始・LINE返信・本番反映は、案件番号を指定して明示承認します。"
+        "詳細の確認・会話・作業は、Codexの案件タスクで行います。\n"
+        "Slackは通知と、すぐ着手できる案件の開始操作だけに使います。"
     )
-    result = _slack_call("chat.postMessage", {"channel": channel, "text": text})
+    actions = [{
+        "type": "button",
+        "text": {"type": "plain_text", "text": "Codexで案件を開く"},
+        "url": case.codex_thread_url,
+        "action_id": "operations_line_open_codex",
+    }]
+    actions.append({
+        "type": "button",
+        "text": {"type": "plain_text", "text": "修正開始"},
+        "style": "primary",
+        "action_id": "operations_line_start_work",
+        "value": str(case.pk),
+        "confirm": {
+            "title": {"type": "plain_text", "text": "修正を開始しますか？"},
+            "text": {"type": "mrkdwn", "text": "Codexの案件タスクで修正作業を開始します。"},
+            "confirm": {"type": "plain_text", "text": "修正開始"},
+            "deny": {"type": "plain_text", "text": "キャンセル"},
+        },
+    })
+    result = _slack_call("chat.postMessage", {
+        "channel": channel,
+        "text": text,
+        "blocks": _slack_blocks(title=f"Roomink運営案件 #{case.pk}", body=text, actions=actions),
+    })
     if not result:
         case.slack_error = "Slackへの案件投稿に失敗しました。"
         case.save(update_fields=["slack_error", "updated_at"])
@@ -219,45 +349,6 @@ def create_slack_case_thread(case):
         case.slack_permalink = permalink.get("permalink", "")
     case.save(update_fields=["slack_channel_id", "slack_thread_ts", "slack_permalink", "slack_error", "updated_at"])
     return True
-
-
-def sync_case_to_notion(case):
-    """Notionの案件台帳ページを作る。トークン未設定時は一切送信しない。"""
-    token = settings.OPERATIONS_NOTION_TOKEN
-    parent_page_id = settings.OPERATIONS_NOTION_PARENT_PAGE_ID
-    if case.notion_page_id:
-        return True
-    if not token or not parent_page_id:
-        return False
-    blocks = [
-        {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"店舗: {case.store.name}"}}]}},
-        {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"種別: {case.get_category_display()} / 状態: {case.get_status_display()}"}}]}},
-        {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"要約: {case.summary}"}}]}},
-    ]
-    if case.slack_permalink:
-        blocks.append({"object": "block", "type": "bookmark", "bookmark": {"url": case.slack_permalink}})
-    request = Request(
-        "https://api.notion.com/v1/pages",
-        data=json.dumps({
-            "parent": {"page_id": parent_page_id},
-            "properties": {"title": {"title": [{"type": "text", "text": {"content": f"Roomink運営案件 #{case.pk}"}}]}},
-            "children": blocks,
-        }, ensure_ascii=False).encode("utf-8"),
-        headers={"Authorization": f"Bearer {token}", "Notion-Version": "2022-06-28", "Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=12) as response:
-            result = json.loads(response.read().decode("utf-8"))
-        case.notion_page_id = result["id"]
-        case.notion_error = ""
-        case.save(update_fields=["notion_page_id", "notion_error", "updated_at"])
-        return True
-    except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
-        logger.warning("operations Notion sync failed", exc_info=True)
-        case.notion_error = "Notion案件記録の作成に失敗しました。"
-        case.save(update_fields=["notion_error", "updated_at"])
-        return False
 
 
 def process_case_triage(case):
@@ -277,6 +368,6 @@ def process_case_triage(case):
     if case.reporter_id:
         send_line_push(case.reporter.line_user_id, reply)
     if case.status == OperationsCase.Status.READY:
-        create_slack_case_thread(case)
-        sync_case_to_notion(case)
+        # Codexの案件タスクが実在する前に、Slackから「開始」できるようにはしない。
+        queue_codex_dispatch(case, OperationsCase.CodexDispatchAction.CREATE_THREAD)
     return case
