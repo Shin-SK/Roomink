@@ -157,6 +157,18 @@ class PublicWebBookingTest(TestCase):
         self.assertNotIn("123456", otp_log.body)
         self.assertNotIn("09012345678", otp_log.body)
 
+    def test_same_verification_request_is_idempotent_and_sends_one_sms(self):
+        first = self.request_code()
+        second = self.request_code()
+
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertEqual(second.data["verification_id"], first.data["verification_id"])
+        self.assertGreater(second.data["expires_in_seconds"], 0)
+        self.assertLessEqual(second.data["expires_in_seconds"], 600)
+        self.assertEqual(PublicBookingVerification.objects.count(), 1)
+        self.assertEqual(SmsLog.objects.count(), 1)
+
     def test_correct_code_atomically_confirms_booking_and_issues_guest_reservation_link(self):
         requested = self.request_code()
         confirmed = self.client.post(

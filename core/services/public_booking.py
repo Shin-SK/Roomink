@@ -221,65 +221,105 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False):
     }
 
 
+def _booking_payload(selection):
+    """本人確認とひも付ける、再送判定用の予約内容を正規化する。"""
+    return {
+        "cast": selection["cast"].id,
+        "course": selection["course"].id,
+        "date": selection["business_date"].isoformat(),
+        "start": selection["start"].isoformat(),
+        "options": [option.id for option in selection["options"]],
+        "memo": selection["memo"],
+    }
+
+
 def request_public_booking_verification(data):
     store = _required_store(data.get("store"), data.get("store_slug"))
     phone = _normalize_booking_phone(data.get("phone"))
     display_name = _clean_display_name(data.get("display_name"))
     selection = _clean_booking_selection(data, store)
-    now = timezone.now()
+    requested_payload = _booking_payload(selection)
+    sms_unavailable = False
+    result = None
 
-    recent_count = PublicBookingVerification.objects.filter(
-        phone=phone,
-        created_at__gte=now - VERIFICATION_REQUEST_WINDOW,
-    ).count()
-    if recent_count >= VERIFICATION_REQUEST_LIMIT:
-        raise PublicBookingError(
-            "認証コードの送信回数が上限に達しました。しばらく待ってからお試しください。",
-            status_code=429,
+    # 同一フォームの二重送信・通信リトライでは新しいOTPを作らない。店舗行を
+    # ロックして、並行リクエストが送信回数上限をすり抜けることも防ぐ。
+    with transaction.atomic():
+        locked_store = Store.objects.select_for_update().get(pk=store.pk)
+        now = timezone.now()
+        active_challenges = (
+            PublicBookingVerification.objects
+            .select_for_update()
+            .filter(
+                store=locked_store,
+                phone=phone,
+                consumed_at__isnull=True,
+                expires_at__gt=now,
+            )
+            .order_by("-created_at")
         )
+        for challenge in active_challenges:
+            if challenge.booking_payload == requested_payload:
+                return {
+                    "verification_id": str(challenge.id),
+                    "masked_phone": f"***{phone[-4:]}",
+                    "expires_in_seconds": max(
+                        1,
+                        int((challenge.expires_at - now).total_seconds()),
+                    ),
+                }
 
-    code = generate_public_booking_code()
-    challenge = PublicBookingVerification.objects.create(
-        store=store,
-        phone=phone,
-        display_name=display_name,
-        booking_payload={
-            "cast": selection["cast"].id,
-            "course": selection["course"].id,
-            "date": selection["business_date"].isoformat(),
-            "start": selection["start"].isoformat(),
-            "options": [option.id for option in selection["options"]],
-            "memo": selection["memo"],
-        },
-        code_hash=make_password(code),
-        expires_at=now + VERIFICATION_LIFETIME,
-    )
-    sms_log = send_sms(
-        to_phone=phone,
-        body=(
-            f"【Roomink】Web予約の認証コードは {code} です。\n"
-            "10分以内に予約画面へ入力してください。"
-        ),
-        template_type=SmsLog.TemplateType.OTHER,
-        log_body="【Roomink】Web予約認証コード: [認証コード]",
-    )
-    sms_log.store = store
-    sms_log.save(update_fields=["store"])
-    challenge.sms_log = sms_log
-    challenge.save(update_fields=["sms_log"])
+        recent_count = PublicBookingVerification.objects.filter(
+            phone=phone,
+            created_at__gte=now - VERIFICATION_REQUEST_WINDOW,
+        ).count()
+        if recent_count >= VERIFICATION_REQUEST_LIMIT:
+            raise PublicBookingError(
+                "認証コードの送信回数が上限に達しました。しばらく待ってからお試しください。",
+                status_code=429,
+            )
 
-    if sms_log.status not in (SmsLog.Status.SENT, SmsLog.Status.DUMMY):
-        challenge.delete()
+        code = generate_public_booking_code()
+        challenge = PublicBookingVerification.objects.create(
+            store=locked_store,
+            phone=phone,
+            display_name=display_name,
+            booking_payload=requested_payload,
+            code_hash=make_password(code),
+            expires_at=now + VERIFICATION_LIFETIME,
+        )
+        sms_log = send_sms(
+            to_phone=phone,
+            body=(
+                f"【Roomink】Web予約の認証コードは {code} です。\n"
+                "10分以内に予約画面へ入力してください。"
+            ),
+            template_type=SmsLog.TemplateType.OTHER,
+            log_body="【Roomink】Web予約認証コード: [認証コード]",
+        )
+        sms_log.store = locked_store
+        sms_log.save(update_fields=["store"])
+        challenge.sms_log = sms_log
+        challenge.save(update_fields=["sms_log"])
+
+        if sms_log.status not in (SmsLog.Status.SENT, SmsLog.Status.DUMMY):
+            challenge.delete()
+            # SmsLog は障害調査・課金確認のため残し、予約用 challenge だけを破棄する。
+            # 例外は transaction を抜けてから返し、送信失敗ログをロールバックしない。
+            sms_unavailable = True
+        else:
+            result = {
+                "verification_id": str(challenge.id),
+                "masked_phone": f"***{phone[-4:]}",
+                "expires_in_seconds": int(VERIFICATION_LIFETIME.total_seconds()),
+            }
+
+    if sms_unavailable:
         raise PublicBookingError(
             "現在SMS認証を利用できません。時間をおいて再度お試しください。",
             status_code=503,
         )
-
-    return {
-        "verification_id": str(challenge.id),
-        "masked_phone": f"***{phone[-4:]}",
-        "expires_in_seconds": int(VERIFICATION_LIFETIME.total_seconds()),
-    }
+    return result
 
 
 def _find_or_create_verified_customer(challenge):
