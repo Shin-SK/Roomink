@@ -135,6 +135,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "PAGE_SIZE": 200,
     "DEFAULT_THROTTLE_RATES": {
+        "auth_login": "30/hour",
+        "customer_login": "30/hour",
         "public_booking_verification": "10/hour",
         "public_booking_confirm": "30/hour",
     },

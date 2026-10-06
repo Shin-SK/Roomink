@@ -22,11 +22,11 @@ from django.utils.html import escape
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import parsers, viewsets, status
-from rest_framework.decorators import action, api_view, authentication_classes, permission_classes
+from rest_framework.decorators import action, api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
@@ -38,7 +38,7 @@ from .models import (
     CastUnavailableTime,
     CastDailyCheckout, CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer,
-    CustomerMergeLog, DailySettlement, Discount, Extension, Medium,
+    CustomerMergeLog, DailySettlement, DailySettlementAuditEvent, Discount, Extension, Medium,
     LineNotificationLog, NominationFee, OperatorNotification,
     OperatorNotificationReadReceipt, Option, Order, OrderOption, PointLog,
     OrderServiceRecipientLinkLog,
@@ -219,10 +219,28 @@ def _require_daily_settlement_open(store, business_date):
 # Auth
 # ──────────────────────────────────────
 
+class _LoginIPThrottle(SimpleRateThrottle):
+    """未認証ログインをIP単位で制限する。"""
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": self.get_ident(request),
+        }
+
+
+class OperatorLoginThrottle(_LoginIPThrottle):
+    scope = "auth_login"
+
+
+class CustomerLoginThrottle(_LoginIPThrottle):
+    scope = "customer_login"
+
 @extend_schema(operation_id="auth_login", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
+@throttle_classes([OperatorLoginThrottle])
 def auth_login(request):
     # 運営・キャスト用APIでは、見た目にかかわらずDjango usernameとして扱う。
     # 顧客の電話番号認証と正規化は customer_login に限定する。
@@ -1888,6 +1906,7 @@ def customer_signup(request):
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
+@throttle_classes([CustomerLoginThrottle])
 def customer_login(request):
     phone = normalize_phone((request.data.get("phone") or "").strip())
     password = request.data.get("password", "")
@@ -2639,7 +2658,12 @@ class CastViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         try:
-            self.perform_destroy(instance)
+            with transaction.atomic():
+                locked_instance = Cast.objects.select_for_update().get(pk=instance.pk)
+                if locked_instance.user_id:
+                    locked_instance.user.is_active = False
+                    locked_instance.user.save(update_fields=["is_active"])
+                self.perform_destroy(locked_instance)
         except ProtectedError:
             return Response(
                 {"detail": "このキャストは予約やシフトで使用されているため削除できません"},
@@ -2684,21 +2708,34 @@ class StaffViewSet(viewsets.ViewSet):
         return Response(StaffSerializer(profile).data)
 
     def destroy(self, request, pk=None):
-        store = get_user_store(request)
-        try:
-            profile = UserProfile.objects.select_related("user").get(
-                pk=pk, store=store, role__in=["staff", "manager"],
-            )
-        except UserProfile.DoesNotExist:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        if profile.user == request.user:
-            return Response(
-                {"detail": "自分自身は削除できません"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        user = profile.user
-        profile.delete()
-        user.delete()
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=get_user_store(request).pk)
+            try:
+                profile = UserProfile.objects.select_for_update().select_related("user").get(
+                    pk=pk, store=store, role__in=["staff", "manager"],
+                )
+            except UserProfile.DoesNotExist:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+            if profile.user == request.user:
+                return Response(
+                    {"detail": "自分自身は削除できません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if profile.role == UserProfile.Role.MANAGER:
+                active_manager_count = UserProfile.objects.select_for_update().filter(
+                    store=store,
+                    role=UserProfile.Role.MANAGER,
+                    user__is_active=True,
+                ).count()
+                if active_manager_count <= 1:
+                    return Response(
+                        {"detail": "最後の有効なマネージャーは削除できません"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            user = profile.user
+            user.is_active = False
+            user.save(update_fields=["is_active"])
+            profile.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -6580,6 +6617,12 @@ class DailySettlementLockView(APIView):
             settlement.locked_at = timezone.now()
             settlement.locked_by = request.user
             settlement.save()
+            DailySettlementAuditEvent.objects.create(
+                settlement=settlement,
+                action=DailySettlementAuditEvent.Action.LOCK,
+                snapshot_json=snapshot,
+                acted_by=request.user,
+            )
 
         return Response({"ok": True, "status": "LOCKED", "date": date_str})
 
@@ -6594,8 +6637,11 @@ class DailySettlementUnlockView(APIView):
         store = get_user_store(request)
 
         date_str = request.data.get("date")
+        reason = (request.data.get("reason") or "").strip()
         if not date_str:
             return Response({"detail": "date は必須です"}, status=status.HTTP_400_BAD_REQUEST)
+        if not reason:
+            return Response({"detail": "解除理由は必須です"}, status=status.HTTP_400_BAD_REQUEST)
         try:
             d = date_type.fromisoformat(date_str)
         except ValueError:
@@ -6607,6 +6653,13 @@ class DailySettlementUnlockView(APIView):
             if not settlement or settlement.status != DailySettlement.Status.LOCKED:
                 return Response({"detail": "この日は確定されていません"}, status=status.HTTP_400_BAD_REQUEST)
 
+            DailySettlementAuditEvent.objects.create(
+                settlement=settlement,
+                action=DailySettlementAuditEvent.Action.UNLOCK,
+                snapshot_json=settlement.snapshot_json,
+                reason=reason,
+                acted_by=request.user,
+            )
             settlement.status = DailySettlement.Status.OPEN
             settlement.snapshot_json = {}
             settlement.locked_at = None

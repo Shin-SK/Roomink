@@ -15,6 +15,7 @@ from core.models import (
     Course,
     Customer,
     DailySettlement,
+    DailySettlementAuditEvent,
     Option,
     Order,
     PointLog,
@@ -185,6 +186,39 @@ class PrelaunchIntegrityTest(TestCase):
                     format="json",
                 )
                 self.assertEqual(response.status_code, 400, response.data)
+
+    def test_unlock_requires_reason_and_preserves_audit_snapshot(self):
+        locked = self.client.post(
+            "/api/op/daily-settlement/lock/",
+            {"date": self.day.isoformat()},
+            format="json",
+        )
+        self.assertEqual(locked.status_code, 200, locked.data)
+
+        missing_reason = self.client.post(
+            "/api/op/daily-settlement/unlock/",
+            {"date": self.day.isoformat()},
+            format="json",
+        )
+        self.assertEqual(missing_reason.status_code, 400, missing_reason.data)
+
+        unlocked = self.client.post(
+            "/api/op/daily-settlement/unlock/",
+            {"date": self.day.isoformat(), "reason": "入力漏れを訂正するため"},
+            format="json",
+        )
+        self.assertEqual(unlocked.status_code, 200, unlocked.data)
+
+        settlement = DailySettlement.objects.get(store=self.store, date=self.day)
+        events = list(settlement.audit_events.order_by("id"))
+        self.assertEqual([event.action for event in events], [
+            DailySettlementAuditEvent.Action.LOCK,
+            DailySettlementAuditEvent.Action.UNLOCK,
+        ])
+        self.assertEqual(events[0].acted_by, self.manager)
+        self.assertTrue(events[0].snapshot_json["rows"])
+        self.assertEqual(events[1].reason, "入力漏れを訂正するため")
+        self.assertEqual(events[1].snapshot_json, events[0].snapshot_json)
 
     def test_operator_cast_ack_hides_foreign_order_existence(self):
         foreign_order = Order.objects.create(

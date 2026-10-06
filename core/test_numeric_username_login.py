@@ -1,8 +1,11 @@
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from core.models import Cast, Customer, Store, UserProfile
+from core.views import CustomerLoginThrottle, OperatorLoginThrottle
 
 
 User = get_user_model()
@@ -215,3 +218,57 @@ class NumericUsernameLoginTest(TestCase):
         )
         self.assertEqual(logout_response.status_code, 200, logout_response.data)
         self.assertEqual(client.get("/api/auth/me/").status_code, 403)
+
+
+@patch.object(CustomerLoginThrottle, "THROTTLE_RATES", {"customer_login": "2/minute"})
+@patch.object(OperatorLoginThrottle, "THROTTLE_RATES", {"auth_login": "2/minute"})
+class LoginThrottleTest(TestCase):
+    def setUp(self):
+        cache.clear()
+        store = Store.objects.create(name="ログイン制限テスト店")
+        user = User.objects.create_user("throttle-user", password="correct-password")
+        UserProfile.objects.create(user=user, store=store, role=UserProfile.Role.STAFF)
+        customer_user = User.objects.create_user("throttle-customer", password="correct-password")
+        Customer.objects.create(
+            store=store,
+            user=customer_user,
+            phone="090-1111-2222",
+            display_name="ログイン制限テスト顧客",
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_operator_login_limits_repeated_failures_from_one_ip(self):
+        client = APIClient()
+        for _ in range(2):
+            response = client.post(
+                "/api/auth/login/",
+                {"username": "throttle-user", "password": "wrong-password"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 401, response.data)
+
+        blocked = client.post(
+            "/api/auth/login/",
+            {"username": "throttle-user", "password": "wrong-password"},
+            format="json",
+        )
+        self.assertEqual(blocked.status_code, 429, blocked.data)
+
+    def test_customer_login_limits_repeated_failures_from_one_ip(self):
+        client = APIClient()
+        for _ in range(2):
+            response = client.post(
+                "/api/cu/login/",
+                {"phone": "09011112222", "password": "wrong-password"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 401, response.data)
+
+        blocked = client.post(
+            "/api/cu/login/",
+            {"phone": "09011112222", "password": "wrong-password"},
+            format="json",
+        )
+        self.assertEqual(blocked.status_code, 429, blocked.data)

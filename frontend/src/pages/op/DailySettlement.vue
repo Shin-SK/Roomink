@@ -14,6 +14,7 @@ const settlementStatus = ref('OPEN')
 const lockedAt = ref(null)
 const lockedBy = ref(null)
 const locking = ref(false)
+const unlockReason = ref('')
 const csvExportUrl = computed(() => api.getDailySettlementExportUrl(selectedDate.value))
 
 async function fetchSettlement() {
@@ -55,11 +56,16 @@ async function doLock() {
 }
 
 async function doUnlock() {
+  if (!unlockReason.value.trim()) {
+    error.value = 'ロック解除の理由を入力してください。'
+    return
+  }
   if (!confirm('この日の清算確定を解除しますか？都度計算に戻ります。')) return
   locking.value = true
   error.value = ''
   try {
-    await api.unlockDailySettlement({ date: selectedDate.value })
+    await api.unlockDailySettlement({ date: selectedDate.value, reason: unlockReason.value.trim() })
+    unlockReason.value = ''
     await fetchSettlement()
   } catch (e) {
     error.value = e.message
@@ -137,6 +143,18 @@ function formatDt(iso) {
               {{ formatDt(lockedAt) }} に {{ lockedBy || '—' }} が確定
             </small>
           </div>
+        </div>
+        <div v-if="settlementStatus === 'LOCKED'" class="mb-3">
+          <label class="form-label small fw-bold" for="settlement-unlock-reason">ロック解除理由</label>
+          <textarea
+            id="settlement-unlock-reason"
+            v-model="unlockReason"
+            class="form-control"
+            rows="2"
+            maxlength="500"
+            placeholder="訂正が必要な理由を記録してください（必須）"
+          ></textarea>
+          <div class="form-text">解除前の確定内容・実行者・理由は監査記録として保存されます。</div>
         </div>
 
         <div v-if="loading" class="text-center py-3">

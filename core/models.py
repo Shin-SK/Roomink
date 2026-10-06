@@ -1277,6 +1277,38 @@ class DailySettlement(models.Model):
         return f"{self.store.name} {self.date} ({self.status})"
 
 
+class DailySettlementAuditEvent(models.Model):
+    """日締めの確定・解除を、解除操作で失われない監査記録として残す。"""
+
+    class Action(models.TextChoices):
+        LOCK = "LOCK", "確定"
+        UNLOCK = "UNLOCK", "解除"
+
+    settlement = models.ForeignKey(
+        DailySettlement,
+        on_delete=models.CASCADE,
+        related_name="audit_events",
+    )
+    action = models.CharField(max_length=10, choices=Action.choices)
+    snapshot_json = models.JSONField(default=dict, blank=True)
+    reason = models.CharField(max_length=500, blank=True, default="")
+    acted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="daily_settlement_audit_events",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [models.Index(fields=["settlement", "created_at"])]
+
+    def __str__(self):
+        return f"DailySettlement#{self.settlement_id} {self.action}"
+
+
 class PointLog(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="point_logs")
     cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="point_logs")
