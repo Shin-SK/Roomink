@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import support_views, views
+from . import operations_line_inbox_views, support_views, views
 
 router = DefaultRouter()
 router.register("orders", views.OrderViewSet)
@@ -35,6 +35,22 @@ op_sr_router.register("call-logs", views.CallLogViewSet, basename="op-call-log")
 op_sr_router.register("store-phones", views.StorePhoneNumberViewSet, basename="op-store-phone")
 
 urlpatterns = [
+    # Roomink運営公式LINE。既存の店舗LINE webhookとは完全に分離する。
+    path(
+        "webhook/operations-line-inbox/",
+        operations_line_inbox_views.operations_line_inbox_webhook,
+        name="operations-line-inbox-webhook",
+    ),
+    path(
+        "internal/operations-line-inbox/recent/",
+        operations_line_inbox_views.operations_line_inbox_recent,
+        name="operations-line-inbox-recent",
+    ),
+    path(
+        "internal/operations-line-inbox/attachments/<int:attachment_id>/",
+        operations_line_inbox_views.operations_line_inbox_attachment,
+        name="operations-line-inbox-attachment",
+    ),
     # auth
     path("auth/csrf/", views.csrf_token_view, name="auth-csrf"),
     path("auth/login/", views.auth_login, name="auth-login"),

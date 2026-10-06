@@ -1768,3 +1768,70 @@ class SupportMessage(models.Model):
 
     def __str__(self):
         return f"SupportMessage #{self.pk} {self.role}"
+
+
+class OperationsLineInboxMessage(models.Model):
+    """受信専用のRoomink運営公式LINE。店舗LINEや自動返信とは無関係。"""
+
+    class MessageType(models.TextChoices):
+        TEXT = "text", "テキスト"
+        IMAGE = "image", "画像"
+        VIDEO = "video", "動画"
+        AUDIO = "audio", "音声"
+        FILE = "file", "ファイル"
+        OTHER = "other", "その他"
+
+    line_event_id = models.CharField(max_length=100, unique=True, db_index=True)
+    line_message_id = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    source_type = models.CharField(max_length=12, blank=True, default="")
+    source_id = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    sender_user_id = models.CharField(max_length=100, blank=True, default="")
+    message_type = models.CharField(max_length=12, choices=MessageType.choices)
+    text = models.TextField(blank=True, default="")
+    received_at = models.DateTimeField()
+    expires_at = models.DateTimeField(db_index=True)
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-received_at", "-id"]
+        indexes = [
+            models.Index(fields=["source_id", "received_at"], name="core_opli_source_received_idx"),
+        ]
+
+    def __str__(self):
+        return f"Operations LINE inbox #{self.pk} {self.message_type}"
+
+
+class OperationsLineInboxAttachment(models.Model):
+    """LINEから直ちに取得した添付。外部ストレージ導入前はPostgreSQLへ限定保存する。"""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "取得待ち"
+        STORED = "STORED", "保存済み"
+        TOO_LARGE = "TOO_LARGE", "容量超過"
+        FAILED = "FAILED", "取得失敗"
+        WITHDRAWN = "WITHDRAWN", "取り消し済み"
+
+    message = models.ForeignKey(
+        OperationsLineInboxMessage,
+        on_delete=models.CASCADE,
+        related_name="attachments",
+    )
+    line_message_id = models.CharField(max_length=100, db_index=True)
+    filename = models.CharField(max_length=255, blank=True, default="")
+    content_type = models.CharField(max_length=255, blank=True, default="")
+    size_bytes = models.PositiveBigIntegerField(default=0)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    content = models.BinaryField(null=True, blank=True, editable=False)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    error = models.CharField(max_length=300, blank=True, default="")
+    fetch_attempts = models.PositiveSmallIntegerField(default=0)
+    last_attempted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["status", "created_at"], name="core_oplia_status_created_idx")]
+
+    def __str__(self):
+        return f"Operations LINE attachment #{self.pk} {self.status}"
