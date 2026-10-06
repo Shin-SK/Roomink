@@ -223,6 +223,7 @@ def _attachment_data(attachment):
     }
 
 
+@extend_schema(operation_id="operations_line_inbox_recent", responses=OpenApiTypes.OBJECT)
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -247,6 +248,7 @@ def operations_line_inbox_recent(request):
     } for message in messages]})
 
 
+@extend_schema(operation_id="operations_line_inbox_attachment", responses=OpenApiTypes.BINARY)
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([AllowAny])
