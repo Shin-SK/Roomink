@@ -244,3 +244,16 @@ class CastOrderControlsTest(TestCase):
         self.assertIn("本予約", start.data["detail"])
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, Order.Status.CONFIRMED)
+
+    def test_card_payment_pending_cannot_be_completed_by_cast(self):
+        """開始済みに見える状態でも、未確認カード売上をDONEへ入れない。"""
+        self.order.status = Order.Status.IN_PROGRESS
+        self.order.payment_method = Order.PaymentMethod.CARD
+        self.order.save(update_fields=["status", "payment_method", "updated_at"])
+
+        response = self.cast_client.post(f"/api/cast/orders/{self.order.id}/complete/")
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("カード決済が未確認", response.data["detail"])
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.IN_PROGRESS)

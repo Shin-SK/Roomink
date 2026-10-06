@@ -159,6 +159,7 @@ from .services.order_availability import (
     cast_has_unavailable_time_conflict,
     find_covering_shift,
 )
+from .services.daily_settlement_lock import is_daily_settlement_locked
 from .services.shift_end_alerts import evaluate_shift_end_alerts
 from .services.public_booking import (
     PublicBookingError,
@@ -195,9 +196,8 @@ def get_user_store(request):
                 return selected_store
     profile = getattr(request.user, "profile", None)
     if request.user.is_superuser and (profile is None or profile.store_id is None):
-        store = Store.objects.order_by("id").first()
-        if store:
-            return store
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("対象店舗を選択してから操作してください。")
     if profile is None:
         from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied("ユーザープロフィールが未作成です。管理者に連絡してください。")
@@ -205,6 +205,14 @@ def get_user_store(request):
         from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied("所属店舗が設定されていません。管理者に連絡してください。")
     return profile.store
+
+
+def _require_daily_settlement_open(store, business_date):
+    """確定済み日を変える操作は、明示解除を要求する。"""
+    if is_daily_settlement_locked(store, business_date):
+        raise ValidationError(
+            "この営業日は日締め済みです。変更するには先に日締めを解除してください。"
+        )
 
 
 # ──────────────────────────────────────
@@ -426,11 +434,27 @@ class OrderViewSet(viewsets.ModelViewSet):
             return OrderUpdateSerializer
         return OrderSerializer
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["store"] = get_user_store(self.request)
+        return context
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user, updated_by=self.request.user)
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+
+    @staticmethod
+    def _lock_order_for_mutation(order):
+        """日締めと状態遷移を同じトランザクションで直列化する。"""
+        store = Store.objects.select_for_update().get(pk=order.store_id)
+        locked_order = Order.objects.select_for_update().get(pk=order.pk, store=store)
+        _require_daily_settlement_open(
+            store,
+            business_date_for_datetime(locked_order.start, store.timezone),
+        )
+        return locked_order
 
     # --- status actions ---
 
@@ -491,14 +515,16 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
         order = self.get_object()
-        if order.status != Order.Status.REQUESTED:
-            return Response(
-                {"detail": f"ステータスが {order.get_status_display()} のため承認できません"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        order.status = Order.Status.CONFIRMED
-        order.updated_by = request.user
-        order.save(update_fields=["status", "updated_by", "updated_at"])
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(order)
+            if order.status != Order.Status.REQUESTED:
+                return Response(
+                    {"detail": f"ステータスが {order.get_status_display()} のため承認できません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order.status = Order.Status.CONFIRMED
+            order.updated_by = request.user
+            order.save(update_fields=["status", "updated_by", "updated_at"])
         notify_order_confirmed(order, created_by=request.user)
         notify_cast_order(order, created_by=request.user)
         return Response(OrderSerializer(order).data)
@@ -546,9 +572,14 @@ class OrderViewSet(viewsets.ModelViewSet):
             )
 
         with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=order.store_id)
             locked_order = (
                 Order.objects.select_for_update()
-                .get(pk=order.pk)
+                .get(pk=order.pk, store=store)
+            )
+            _require_daily_settlement_open(
+                store,
+                business_date_for_datetime(locked_order.start, store.timezone),
             )
             already_sent = locked_order.sms_logs.filter(
                 template_type=SmsLog.TemplateType.CARD_PAYMENT_CONFIRMED,
@@ -578,15 +609,17 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         order = self.get_object()
-        if order.status in (Order.Status.DONE, Order.Status.CANCELLED):
-            return Response(
-                {"detail": f"ステータスが {order.get_status_display()} のためキャンセルできません"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        order.status = Order.Status.CANCELLED
-        order.updated_by = request.user
-        order.cancelled_by = request.user
-        order.save(update_fields=["status", "updated_by", "cancelled_by", "updated_at"])
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(order)
+            if order.status in (Order.Status.DONE, Order.Status.CANCELLED):
+                return Response(
+                    {"detail": f"ステータスが {order.get_status_display()} のためキャンセルできません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order.status = Order.Status.CANCELLED
+            order.updated_by = request.user
+            order.cancelled_by = request.user
+            order.save(update_fields=["status", "updated_by", "cancelled_by", "updated_at"])
         notify_order_cancelled(order, created_by=request.user)
         return Response(OrderSerializer(order).data)
 
@@ -595,29 +628,34 @@ class OrderViewSet(viewsets.ModelViewSet):
         """1ステップずつ前進: CONFIRMED/IN_PROGRESS → PENDING_FINALIZE → DONE
         DONE化(会計確定)時は payment_method が CARD/CASH/PAYPAY のいずれかである必要がある"""
         order = self.get_object()
-        if guest_reservation_state(order) == "PAYMENT_REQUIRED":
-            return Response(
-                {"detail": "店舗でカード決済を確認し、本予約にしてから施術を進めてください。"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if order.status in (Order.Status.CONFIRMED, Order.Status.IN_PROGRESS):
-            order.status = Order.Status.PENDING_FINALIZE
-        elif order.status == Order.Status.PENDING_FINALIZE:
-            if order.payment_method not in (
-                Order.PaymentMethod.CARD, Order.PaymentMethod.CASH, Order.PaymentMethod.PAYPAY,
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(order)
+            if (
+                order.payment_method == Order.PaymentMethod.CARD
+                and order.card_payment_confirmed_at is None
             ):
                 return Response(
-                    {"detail": "支払い方法（カード/現金/PayPay）を選択してから会計確定してください"},
+                    {"detail": "店舗でカード決済を確認し、本予約にしてから施術を進めてください。"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            order.status = Order.Status.DONE
-        else:
-            return Response(
-                {"detail": f"ステータスが {order.get_status_display()} のため進められません"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        order.updated_by = request.user
-        order.save(update_fields=["status", "updated_by", "updated_at"])
+            if order.status in (Order.Status.CONFIRMED, Order.Status.IN_PROGRESS):
+                order.status = Order.Status.PENDING_FINALIZE
+            elif order.status == Order.Status.PENDING_FINALIZE:
+                if order.payment_method not in (
+                    Order.PaymentMethod.CARD, Order.PaymentMethod.CASH, Order.PaymentMethod.PAYPAY,
+                ):
+                    return Response(
+                        {"detail": "支払い方法（カード/現金/PayPay）を選択してから会計確定してください"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                order.status = Order.Status.DONE
+            else:
+                return Response(
+                    {"detail": f"ステータスが {order.get_status_display()} のため進められません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order.updated_by = request.user
+            order.save(update_fields=["status", "updated_by", "updated_at"])
         return Response(OrderSerializer(order).data)
 
     @extend_schema(request=ExtensionApplySerializer, responses=OrderSerializer)
@@ -886,6 +924,21 @@ def _get_cast_owned_order(request, pk):
             status=status.HTTP_403_FORBIDDEN,
         )
     return cast, order, None
+
+
+def _lock_cast_order_for_mutation(order, cast):
+    """キャスト画面の更新も、運営画面と同じ日締め・状態遷移境界に入れる。"""
+    store = Store.objects.select_for_update().get(pk=cast.store_id)
+    locked_order = Order.objects.select_for_update().get(
+        pk=order.pk,
+        store=store,
+        cast=cast,
+    )
+    _require_daily_settlement_open(
+        store,
+        business_date_for_datetime(locked_order.start, store.timezone),
+    )
+    return locked_order
 
 
 def _cast_order_response(order, cast):
@@ -1506,6 +1559,21 @@ class CastOrderOptionsView(APIView):
             )
 
         with transaction.atomic():
+            order = _lock_cast_order_for_mutation(order, cast)
+            if order.status in (Order.Status.DONE, Order.Status.CANCELLED):
+                return Response(
+                    {"detail": "完了またはキャンセル済みの予約は変更できません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if (
+                order.payment_method == Order.PaymentMethod.CARD
+                and order.card_include_options
+                and order.card_payment_confirmed_at is not None
+            ):
+                return Response(
+                    {"detail": "カード決済確認済みのため、店舗へオプション変更を依頼してください"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             OrderOption.objects.filter(order=order).delete()
             for option in options:
                 OrderOption.objects.create(order=order, option=option)
@@ -1526,24 +1594,26 @@ class CastOrderStartView(APIView):
         cast, order, error_response = _get_cast_owned_order(request, pk)
         if error_response is not None:
             return error_response
-        if guest_reservation_state(order) == "PAYMENT_REQUIRED":
-            return Response(
-                {"detail": "店舗でカード決済を確認し、本予約にしてから接客を開始してください。"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not CastAck.objects.filter(order=order, acked_at__isnull=False).exists():
-            return Response(
-                {"detail": "先に予約内容を確認してください"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if order.status != Order.Status.CONFIRMED:
-            return Response(
-                {"detail": f"現在の状態では接客を開始できません（{order.get_status_display()}）"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        order.status = Order.Status.IN_PROGRESS
-        order.updated_by = request.user
-        order.save(update_fields=["status", "updated_by", "updated_at"])
+        with transaction.atomic():
+            order = _lock_cast_order_for_mutation(order, cast)
+            if guest_reservation_state(order) == "PAYMENT_REQUIRED":
+                return Response(
+                    {"detail": "店舗でカード決済を確認し、本予約にしてから接客を開始してください。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not CastAck.objects.filter(order=order, acked_at__isnull=False).exists():
+                return Response(
+                    {"detail": "先に予約内容を確認してください"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if order.status != Order.Status.CONFIRMED:
+                return Response(
+                    {"detail": f"現在の状態では接客を開始できません（{order.get_status_display()}）"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order.status = Order.Status.IN_PROGRESS
+            order.updated_by = request.user
+            order.save(update_fields=["status", "updated_by", "updated_at"])
         return _cast_order_response(order, cast)
 
 
@@ -1555,23 +1625,30 @@ class CastOrderCompleteView(APIView):
         cast, order, error_response = _get_cast_owned_order(request, pk)
         if error_response is not None:
             return error_response
-        if order.status not in (Order.Status.IN_PROGRESS, Order.Status.PENDING_FINALIZE):
-            return Response(
-                {"detail": f"現在の状態では接客を終了できません（{order.get_status_display()}）"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if order.payment_method not in (
-            Order.PaymentMethod.CARD,
-            Order.PaymentMethod.CASH,
-            Order.PaymentMethod.PAYPAY,
-        ):
-            return Response(
-                {"detail": "支払い方法が未設定です。店舗へ設定を依頼してください"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        order.status = Order.Status.DONE
-        order.updated_by = request.user
-        order.save(update_fields=["status", "updated_by", "updated_at"])
+        with transaction.atomic():
+            order = _lock_cast_order_for_mutation(order, cast)
+            if order.status not in (Order.Status.IN_PROGRESS, Order.Status.PENDING_FINALIZE):
+                return Response(
+                    {"detail": f"現在の状態では接客を終了できません（{order.get_status_display()}）"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if order.payment_method == Order.PaymentMethod.CARD and order.card_payment_confirmed_at is None:
+                return Response(
+                    {"detail": "カード決済が未確認です。店舗へ確認を依頼してください"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if order.payment_method not in (
+                Order.PaymentMethod.CARD,
+                Order.PaymentMethod.CASH,
+                Order.PaymentMethod.PAYPAY,
+            ):
+                return Response(
+                    {"detail": "支払い方法が未設定です。店舗へ設定を依頼してください"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order.status = Order.Status.DONE
+            order.updated_by = request.user
+            order.save(update_fields=["status", "updated_by", "updated_at"])
         return _cast_order_response(order, cast)
 
 
@@ -2614,6 +2691,11 @@ class CourseViewSet(viewsets.ModelViewSet):
         store = get_user_store(self.request)
         return super().get_queryset().filter(store=store)
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["store"] = get_user_store(self.request)
+        return context
+
     def perform_create(self, serializer):
         serializer.save(store=get_user_store(self.request))
 
@@ -2813,6 +2895,11 @@ class CastExpenseViewSet(viewsets.ModelViewSet):
         store = get_user_store(self.request)
         return super().get_queryset().filter(store=store)
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["store"] = get_user_store(self.request)
+        return context
+
     def check_manager(self, request):
         profile = getattr(request.user, "profile", None)
         if profile is None or profile.role != "manager":
@@ -2836,7 +2923,28 @@ class CastExpenseViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        serializer.save(store=get_user_store(self.request))
+        store = get_user_store(self.request)
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=store.pk)
+            _require_daily_settlement_open(store, serializer.validated_data["date"])
+            serializer.save(store=store)
+
+    def perform_update(self, serializer):
+        store = get_user_store(self.request)
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=store.pk)
+            _require_daily_settlement_open(store, serializer.instance.date)
+            _require_daily_settlement_open(
+                store,
+                serializer.validated_data.get("date", serializer.instance.date),
+            )
+            serializer.save()
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=instance.store_id)
+            _require_daily_settlement_open(store, instance.date)
+            super().perform_destroy(instance)
 
 
 # ──────────────────────────────────────
@@ -3618,6 +3726,11 @@ class PointLogViewSet(viewsets.ModelViewSet):
         store = get_user_store(self.request)
         return super().get_queryset().filter(store=store)
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["store"] = get_user_store(self.request)
+        return context
+
     def check_manager(self, request):
         profile = getattr(request.user, "profile", None)
         if profile is None or profile.role != "manager":
@@ -3641,10 +3754,31 @@ class PointLogViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        serializer.save(
-            store=get_user_store(self.request),
-            created_by=self.request.user,
-        )
+        store = get_user_store(self.request)
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=store.pk)
+            _require_daily_settlement_open(store, serializer.validated_data["date"])
+            serializer.save(
+                store=store,
+                created_by=self.request.user,
+            )
+
+    def perform_update(self, serializer):
+        store = get_user_store(self.request)
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=store.pk)
+            _require_daily_settlement_open(store, serializer.instance.date)
+            _require_daily_settlement_open(
+                store,
+                serializer.validated_data.get("date", serializer.instance.date),
+            )
+            serializer.save()
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=instance.store_id)
+            _require_daily_settlement_open(store, instance.date)
+            super().perform_destroy(instance)
 
 
 # ──────────────────────────────────────
@@ -6378,28 +6512,36 @@ class DailySettlementLockView(APIView):
         except ValueError:
             return Response({"detail": "date の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
 
-        existing = DailySettlement.objects.filter(store=store, date=d, status=DailySettlement.Status.LOCKED).first()
-        if existing:
-            return Response({"detail": "この日は既に確定済みです"}, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            # 売上・雑費・ポイントの書込みもこの Store 行をロックする。
+            # これにより再計算から確定までの間に数字だけが変わる競合を防ぐ。
+            store = Store.objects.select_for_update().get(pk=store.pk)
+            existing = DailySettlement.objects.select_for_update().filter(
+                store=store,
+                date=d,
+                status=DailySettlement.Status.LOCKED,
+            ).first()
+            if existing:
+                return Response({"detail": "この日は既に確定済みです"}, status=status.HTTP_400_BAD_REQUEST)
 
-        view = DailySettlementView()
-        view._parse_date = lambda req: (d, None)
-        live_data = view.get(request).data
-        snapshot = {
-            "date": date_str,
-            "rows": live_data.get("rows", []),
-            "totals": live_data.get("totals", {}),
-        }
+            view = DailySettlementView()
+            view._parse_date = lambda req: (d, None)
+            live_data = view.get(request).data
+            snapshot = {
+                "date": date_str,
+                "rows": live_data.get("rows", []),
+                "totals": live_data.get("totals", {}),
+            }
 
-        settlement, _ = DailySettlement.objects.get_or_create(
-            store=store, date=d,
-            defaults={"status": DailySettlement.Status.OPEN},
-        )
-        settlement.status = DailySettlement.Status.LOCKED
-        settlement.snapshot_json = snapshot
-        settlement.locked_at = timezone.now()
-        settlement.locked_by = request.user
-        settlement.save()
+            settlement, _ = DailySettlement.objects.get_or_create(
+                store=store, date=d,
+                defaults={"status": DailySettlement.Status.OPEN},
+            )
+            settlement.status = DailySettlement.Status.LOCKED
+            settlement.snapshot_json = snapshot
+            settlement.locked_at = timezone.now()
+            settlement.locked_by = request.user
+            settlement.save()
 
         return Response({"ok": True, "status": "LOCKED", "date": date_str})
 
@@ -6421,15 +6563,17 @@ class DailySettlementUnlockView(APIView):
         except ValueError:
             return Response({"detail": "date の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
 
-        settlement = DailySettlement.objects.filter(store=store, date=d).first()
-        if not settlement or settlement.status != DailySettlement.Status.LOCKED:
-            return Response({"detail": "この日は確定されていません"}, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=store.pk)
+            settlement = DailySettlement.objects.select_for_update().filter(store=store, date=d).first()
+            if not settlement or settlement.status != DailySettlement.Status.LOCKED:
+                return Response({"detail": "この日は確定されていません"}, status=status.HTTP_400_BAD_REQUEST)
 
-        settlement.status = DailySettlement.Status.OPEN
-        settlement.snapshot_json = {}
-        settlement.locked_at = None
-        settlement.locked_by = None
-        settlement.save()
+            settlement.status = DailySettlement.Status.OPEN
+            settlement.snapshot_json = {}
+            settlement.locked_at = None
+            settlement.locked_by = None
+            settlement.save()
 
         return Response({"ok": True, "status": "OPEN", "date": date_str})
 
@@ -6566,18 +6710,25 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
     import hmac
     import base64
 
+    # 設定漏れ時に署名検証を飛ばすと、任意の第三者がイベントを偽装できる。
+    if not channel_secret:
+        logger.error("LINE webhook rejected because channel secret is not configured")
+        return Response(
+            {"detail": "LINE webhook is not configured"},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
     # 署名検証
     signature = request.headers.get("X-Line-Signature", "")
-    if channel_secret:
-        body_bytes = request.body
-        hash_val = hmac.new(
-            channel_secret.encode("utf-8"),
-            body_bytes,
-            hashlib.sha256,
-        ).digest()
-        expected = base64.b64encode(hash_val).decode("utf-8")
-        if not hmac.compare_digest(signature, expected):
-            return Response({"detail": "Invalid signature"}, status=status.HTTP_403_FORBIDDEN)
+    body_bytes = request.body
+    hash_val = hmac.new(
+        channel_secret.encode("utf-8"),
+        body_bytes,
+        hashlib.sha256,
+    ).digest()
+    expected = base64.b64encode(hash_val).decode("utf-8")
+    if not hmac.compare_digest(signature, expected):
+        return Response({"detail": "Invalid signature"}, status=status.HTTP_403_FORBIDDEN)
 
     body = request.data
     events = body.get("events", [])
@@ -6882,8 +7033,9 @@ class StoreLineSettingsView(APIView):
             "line_setup_completed_at": store.line_setup_completed_at,
             "line_started_at": store.line_started_at,
             "line_add_friend_url": store.line_add_friend_url,
-            "line_channel_secret": store.line_channel_secret,
-            "line_channel_access_token": store.line_channel_access_token,
+            # 秘密値そのものは、権限者であってもAPIから読み出せない。
+            "line_channel_secret_configured": bool(store.line_channel_secret),
+            "line_channel_access_token_configured": bool(store.line_channel_access_token),
             "line_webhook_url": cls._webhook_url(request, store),
             "line_morning_enabled": store.line_morning_enabled,
             "line_morning_time": morning_time,
@@ -6911,7 +7063,6 @@ class StoreLineSettingsView(APIView):
             "line_channel_access_token",
         }
         for key in ("line_is_enabled", "line_add_friend_url",
-                     "line_channel_secret", "line_channel_access_token",
                      "line_morning_enabled", "line_two_hours_enabled",
                      "line_fifteen_minutes_enabled",
                      "line_shift_end_alert_enabled"):
@@ -6922,6 +7073,18 @@ class StoreLineSettingsView(APIView):
                     fields.append(key)
                     if key in connection_fields:
                         connection_changed = True
+        # 空欄送信は「現在値を維持」。明示した非空文字列だけをローテーションする。
+        for key in ("line_channel_secret", "line_channel_access_token"):
+            if key not in request.data:
+                continue
+            new_value = request.data[key]
+            if not isinstance(new_value, str):
+                return Response({"detail": f"{key} の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+            new_value = new_value.strip()
+            if new_value and getattr(store, key) != new_value:
+                setattr(store, key, new_value)
+                fields.append(key)
+                connection_changed = True
         if "line_morning_time" in request.data:
             from datetime import time as dt_time
             val = request.data["line_morning_time"]

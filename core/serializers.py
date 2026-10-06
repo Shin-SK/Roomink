@@ -64,6 +64,7 @@ from .services.order_policy import (
     can_modify_order,
     is_past_business_day_order,
 )
+from .services.daily_settlement_lock import is_daily_settlement_locked
 
 User = get_user_model()
 
@@ -234,6 +235,17 @@ class CourseSerializer(serializers.ModelSerializer):
         fields = ["id", "store", "name", "duration", "price", "target_cast_ids"]
         read_only_fields = ["store"]
 
+    def validate(self, attrs):
+        store = getattr(self.instance, "store", None) or self.context.get("store")
+        target_casts = attrs.get("target_casts")
+        if store is not None and target_casts is not None:
+            foreign_casts = [cast for cast in target_casts if cast.store_id != store.id]
+            if foreign_casts:
+                raise serializers.ValidationError({
+                    "target_cast_ids": "他店舗のキャストは対象にできません。",
+                })
+        return attrs
+
 
 class OptionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -294,6 +306,13 @@ class PointLogSerializer(serializers.ModelSerializer):
             return obj.created_by.username
         return None
 
+    def validate(self, attrs):
+        store = getattr(self.instance, "store", None) or self.context.get("store")
+        cast = attrs.get("cast") or getattr(self.instance, "cast", None)
+        if store is not None and cast is not None and cast.store_id != store.id:
+            raise serializers.ValidationError({"cast": "他店舗のキャストは指定できません。"})
+        return attrs
+
 
 class CastExpenseSerializer(serializers.ModelSerializer):
     cast_name = serializers.CharField(source="cast.name", read_only=True)
@@ -302,6 +321,13 @@ class CastExpenseSerializer(serializers.ModelSerializer):
         model = CastExpense
         fields = "__all__"
         read_only_fields = ["store"]
+
+    def validate(self, attrs):
+        store = getattr(self.instance, "store", None) or self.context.get("store")
+        cast = attrs.get("cast") or getattr(self.instance, "cast", None)
+        if store is not None and cast is not None and cast.store_id != store.id:
+            raise serializers.ValidationError({"cast": "他店舗のキャストは指定できません。"})
+        return attrs
 
 
 class CastExpenseTemplateSerializer(serializers.ModelSerializer):
@@ -1243,7 +1269,26 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         store = data["customer"].store
+        expected_store = self.context.get("store")
+        if expected_store is not None and store.id != expected_store.id:
+            raise serializers.ValidationError({"customer": "他店舗の顧客は使用できません"})
         data["store"] = store
+
+        settlement_date = business_date_for_datetime(data["start"], store.timezone)
+        if is_daily_settlement_locked(store, settlement_date):
+            raise serializers.ValidationError(
+                "この営業日は日締め済みです。変更するには先に日締めを解除してください。"
+            )
+
+        for field_name in ("cast", "course", "medium"):
+            value = data.get(field_name)
+            if value is not None and value.store_id != store.id:
+                raise serializers.ValidationError({
+                    field_name: "他店舗のデータは使用できません",
+                })
+        foreign_options = [option for option in data.get("options", []) if option.store_id != store.id]
+        if foreign_options:
+            raise serializers.ValidationError({"options": "他店舗のオプションは使用できません"})
 
         request = self.context.get("request")
         if request and not can_modify_business_datetime(
@@ -1368,6 +1413,38 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         from .services.pricing import recalculate_order_total
         with transaction.atomic():
+            # 日締め確定と同じ店舗行をロックし、検証後のすり抜けを防ぐ。
+            store = Store.objects.select_for_update().get(pk=validated_data["store"].pk)
+            if is_daily_settlement_locked(
+                store,
+                business_date_for_datetime(validated_data["start"], store.timezone),
+            ):
+                raise serializers.ValidationError(
+                    "この営業日は日締め済みです。変更するには先に日締めを解除してください。"
+                )
+            # 画面での空き判定から保存までの競合を直列化し、ロック取得後に再検査する。
+            cast = Cast.objects.select_for_update().get(
+                pk=validated_data["cast"].pk,
+                store=store,
+            )
+            validated_data["cast"] = cast
+            room = validated_data.get("room")
+            if room is not None:
+                room = Room.objects.select_for_update().get(pk=room.pk, store=store)
+                validated_data["room"] = room
+            start = validated_data["start"]
+            end = validated_data["end"]
+            if cast_has_order_conflict(cast, start, end):
+                raise serializers.ValidationError(
+                    "このキャストは指定時間に予約が入っています（インターバル含む）"
+                )
+            if room is not None and Order.objects.filter(
+                room=room,
+                status__in=Order.ACTIVE_STATUSES,
+                start__lt=end,
+                end__gt=start,
+            ).exists():
+                raise serializers.ValidationError("指定ルームは使用中です")
             option_objs = validated_data.pop("options", [])
             course = validated_data["course"]
             validated_data["course_name"] = course.name
@@ -1466,6 +1543,25 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
         start = data.get("start", instance.start)
         end = data.get("end", instance.end)
 
+        for business_date in {
+            business_date_for_datetime(instance.start, instance.store.timezone),
+            business_date_for_datetime(start, instance.store.timezone),
+        }:
+            if is_daily_settlement_locked(instance.store, business_date):
+                raise serializers.ValidationError(
+                    "この営業日は日締め済みです。変更するには先に日締めを解除してください。"
+                )
+
+        for field_name in ("cast", "course"):
+            value = data.get(field_name)
+            if value is not None and value.store_id != instance.store_id:
+                raise serializers.ValidationError({
+                    field_name: "他店舗のデータは使用できません",
+                })
+        foreign_options = [option for option in data.get("options", []) if option.store_id != instance.store_id]
+        if foreign_options:
+            raise serializers.ValidationError({"options": "他店舗のオプションは使用できません"})
+
         nomination_fee = data.get("nomination_fee", instance.nomination_fee)
         if nomination_fee is not None:
             if nomination_fee.store_id != instance.store_id:
@@ -1538,6 +1634,50 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
         return data
 
     def update(self, instance, validated_data):
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=instance.store_id)
+            target_start = validated_data.get("start", instance.start)
+            for business_date in {
+                business_date_for_datetime(instance.start, store.timezone),
+                business_date_for_datetime(target_start, store.timezone),
+            }:
+                if is_daily_settlement_locked(store, business_date):
+                    raise serializers.ValidationError(
+                        "この営業日は日締め済みです。変更するには先に日締めを解除してください。"
+                    )
+            target_cast = Cast.objects.select_for_update().get(
+                pk=validated_data.get("cast", instance.cast).pk,
+                store=store,
+            )
+            target_start = validated_data.get("start", instance.start)
+            target_end = validated_data.get("end", instance.end)
+            target_room = validated_data.get("room", instance.room)
+            if target_room is not None:
+                target_room = Room.objects.select_for_update().get(
+                    pk=target_room.pk,
+                    store=store,
+                )
+                validated_data["room"] = target_room
+            if ("cast" in validated_data or "start" in validated_data or "end" in validated_data):
+                if cast_has_order_conflict(
+                    target_cast,
+                    target_start,
+                    target_end,
+                    exclude_order_id=instance.pk,
+                ):
+                    raise serializers.ValidationError(
+                        "このキャストは指定時間に予約が入っています（インターバル含む）"
+                    )
+                if target_room is not None and Order.objects.filter(
+                    room=target_room,
+                    status__in=Order.ACTIVE_STATUSES,
+                    start__lt=target_end,
+                    end__gt=target_start,
+                ).exclude(pk=instance.pk).exists():
+                    raise serializers.ValidationError("指定ルームは使用中です")
+            return self._update_unlocked(instance, validated_data)
+
+    def _update_unlocked(self, instance, validated_data):
         option_objs = validated_data.pop("options", None)
 
         if "nomination_fee" in validated_data:

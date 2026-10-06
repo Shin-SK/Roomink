@@ -3,6 +3,7 @@ import string
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -647,6 +648,44 @@ class Order(models.Model):
             models.Index(fields=["store", "room", "start"]),
         ]
 
+    def clean(self):
+        """店舗をまたぐ参照を永続化しない。
+
+        ``ForeignKey`` 単体では、別店舗のIDを指定してもDBは拒否しない。
+        API以外（admin、management command、shell）からの作成も含め、売上の
+        店舗帰属を壊さないための最後の防波堤にする。
+        """
+        if not self.store_id:
+            return
+
+        related = (
+            ("cast", Cast),
+            ("room", Room),
+            ("customer", Customer),
+            ("service_recipient_customer", Customer),
+            ("course", Course),
+            ("extension", Extension),
+            ("nomination_fee", NominationFee),
+            ("discount", Discount),
+            ("medium", Medium),
+        )
+        errors = {}
+        for field_name, model in related:
+            related_id = getattr(self, f"{field_name}_id")
+            if related_id and not model.objects.filter(
+                pk=related_id,
+                store_id=self.store_id,
+            ).exists():
+                errors[field_name] = "別店舗のデータは予約に紐付けられません。"
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        # Model.save() は通常 clean() を呼ばないため、店舗境界だけを全書込み経路で検査する。
+        # full_clean() まで呼ぶと、既存の段階保存フローまで無関係に拒否してしまう。
+        self.clean()
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"Order#{self.pk} {self.cast} {self.start:%m/%d %H:%M}"
 
@@ -773,6 +812,14 @@ class OrderOption(models.Model):
 
     class Meta:
         unique_together = ("order", "option")
+
+    def clean(self):
+        if self.order_id and self.option_id and self.order.store_id != self.option.store_id:
+            raise ValidationError({"option": "別店舗のオプションは予約に紐付けられません。"})
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        return super().save(*args, **kwargs)
 
 
 class CastAck(models.Model):

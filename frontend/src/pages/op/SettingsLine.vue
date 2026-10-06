@@ -26,6 +26,8 @@ const operationsLinked = ref(false)
 const operationsRecipientType = ref('')
 const operationsLinkCode = ref('')
 const activationStatus = ref('preparing')
+const channelSecretConfigured = ref(false)
+const channelAccessTokenConfigured = ref(false)
 
 const isPlatformAdmin = computed(() => getAuthRole() === 'superuser')
 
@@ -36,8 +38,11 @@ async function load() {
     const data = await api.getLineSettings()
     form.value.line_is_enabled = data.line_is_enabled
     form.value.line_add_friend_url = data.line_add_friend_url
-    form.value.line_channel_secret = data.line_channel_secret
-    form.value.line_channel_access_token = data.line_channel_access_token
+    // 秘密値は返却しない。空欄は保存済みの値を維持する。
+    form.value.line_channel_secret = ''
+    form.value.line_channel_access_token = ''
+    channelSecretConfigured.value = data.line_channel_secret_configured
+    channelAccessTokenConfigured.value = data.line_channel_access_token_configured
     form.value.line_morning_enabled = data.line_morning_enabled
     form.value.line_morning_time = data.line_morning_time
     form.value.line_two_hours_enabled = data.line_two_hours_enabled
@@ -98,7 +103,10 @@ async function onSave() {
   error.value = ''
   success.value = ''
   try {
-    const data = await api.updateLineSettings(form.value)
+    const payload = { ...form.value }
+    if (!payload.line_channel_secret) delete payload.line_channel_secret
+    if (!payload.line_channel_access_token) delete payload.line_channel_access_token
+    const data = await api.updateLineSettings(payload)
     activationStatus.value = data.line_activation_status
     success.value = '保存しました'
     setTimeout(() => { success.value = '' }, 3000)
@@ -317,21 +325,17 @@ onMounted(load)
           <div class="mb-3">
             <label class="form-label fw-bold">Channel secret</label>
             <div class="input-group">
-              <input type="password" class="form-control" v-model="form.line_channel_secret" placeholder="Channel secret を入力">
-              <button class="btn btn-outline-secondary" type="button" @click="copyToClipboard(form.line_channel_secret, 'secret')">
-                <i class="ti" :class="copied === 'secret' ? 'ti-check' : 'ti-copy'"></i>
-              </button>
+              <input type="password" class="form-control" v-model="form.line_channel_secret" :placeholder="channelSecretConfigured ? '設定済み。変更時のみ新しい値を入力' : 'Channel secret を入力'">
             </div>
+            <div class="form-text">保存済みの値は表示・コピーできません。</div>
           </div>
 
           <div class="mb-3">
             <label class="form-label fw-bold">Channel access token</label>
             <div class="input-group">
-              <input type="password" class="form-control" v-model="form.line_channel_access_token" placeholder="Channel access token を入力">
-              <button class="btn btn-outline-secondary" type="button" @click="copyToClipboard(form.line_channel_access_token, 'token')">
-                <i class="ti" :class="copied === 'token' ? 'ti-check' : 'ti-copy'"></i>
-              </button>
+              <input type="password" class="form-control" v-model="form.line_channel_access_token" :placeholder="channelAccessTokenConfigured ? '設定済み。変更時のみ新しい値を入力' : 'Channel access token を入力'">
             </div>
+            <div class="form-text">保存済みの値は表示・コピーできません。</div>
           </div>
 
           <button class="btn btn-primary" :disabled="saving" @click="onSave">
