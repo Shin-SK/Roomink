@@ -456,6 +456,15 @@ class OrderViewSet(viewsets.ModelViewSet):
         )
         return locked_order
 
+    @staticmethod
+    def _finalized_order_response(order):
+        if order.status in (Order.Status.DONE, Order.Status.CANCELLED):
+            return Response(
+                {"detail": "会計完了またはキャンセル済みの予約は変更できません。"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
+
     # --- status actions ---
 
     @extend_schema(request=ServiceRecipientCustomerLinkSerializer, responses=OrderSerializer)
@@ -672,101 +681,100 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": "延長を設定できるのはマネージャーまたはスタッフのみです。"},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if order.status in (Order.Status.DONE, Order.Status.CANCELLED):
-            return Response(
-                {"detail": "会計完了またはキャンセル済みの予約は延長できません。"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         input_serializer = ExtensionApplySerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
         extension_id = input_serializer.validated_data.get("extension_id")
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(order)
+            finalized_response = self._finalized_order_response(order)
+            if finalized_response is not None:
+                return finalized_response
+            if extension_id is None:
+                extension = None
+            else:
+                try:
+                    extension = Extension.objects.get(
+                        pk=extension_id,
+                        store=store,
+                        is_active=True,
+                    )
+                except Extension.DoesNotExist:
+                    return Response(
+                        {"detail": "有効な延長が見つかりません"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
-        if extension_id is None:
-            extension = None
-        else:
-            try:
-                extension = Extension.objects.get(
-                    pk=extension_id,
-                    store=store,
-                    is_active=True,
-                )
-            except Extension.DoesNotExist:
+            extension_duration = input_serializer.validated_data.get(
+                "extension_duration",
+                extension.duration if extension else 0,
+            )
+            extension_price = input_serializer.validated_data.get(
+                "extension_price",
+                extension.price if extension else 0,
+            )
+            validate_extension_duration_value(extension_duration)
+            if extension is not None and extension_duration == 0:
                 return Response(
-                    {"detail": "有効な延長が見つかりません"},
+                    {"extension_duration": ["延長時間は1分以上にしてください"]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if extension_duration == 0 and extension_price:
+                return Response(
+                    {"extension_price": ["延長時間が0分の場合、料金は0円にしてください"]},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        extension_duration = input_serializer.validated_data.get(
-            "extension_duration",
-            extension.duration if extension else 0,
-        )
-        extension_price = input_serializer.validated_data.get(
-            "extension_price",
-            extension.price if extension else 0,
-        )
-        validate_extension_duration_value(extension_duration)
-        if extension is not None and extension_duration == 0:
-            return Response(
-                {"extension_duration": ["延長時間は1分以上にしてください"]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if extension_duration == 0 and extension_price:
-            return Response(
-                {"extension_price": ["延長時間が0分の場合、料金は0円にしてください"]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            duration = order.course.duration + extension_duration
+            new_end = order.start + timedelta(minutes=duration)
+            assignment = find_covering_shift(store, order.cast, order.start, new_end)
+            if assignment is None and order.room_id is not None:
+                return Response(
+                    {"detail": "延長後の終了時刻がキャストのシフトを超えます"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if cast_has_order_conflict(
+                order.cast,
+                order.start,
+                new_end,
+                exclude_order_id=order.pk,
+            ):
+                return Response(
+                    {"detail": "延長後の時間にキャストの別予約があります"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if cast_has_unavailable_time_conflict(order.cast, order.start, new_end):
+                return Response(
+                    {"detail": "延長後の時間はキャストの予約不可時間です"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            target_room = assignment.room if assignment else None
+            if target_room is not None and Order.objects.filter(
+                room=target_room,
+                status__in=Order.ACTIVE_STATUSES,
+                start__lt=new_end,
+                end__gt=order.start,
+            ).exclude(pk=order.pk).exists():
+                return Response(
+                    {"detail": "延長後の時間はルームが使用中です"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        duration = order.course.duration + extension_duration
-        new_end = order.start + timedelta(minutes=duration)
-        assignment = find_covering_shift(store, order.cast, order.start, new_end)
-        if assignment is None and order.room_id is not None:
-            return Response(
-                {"detail": "延長後の終了時刻がキャストのシフトを超えます"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if cast_has_order_conflict(
-            order.cast,
-            order.start,
-            new_end,
-            exclude_order_id=order.pk,
-        ):
-            return Response(
-                {"detail": "延長後の時間にキャストの別予約があります"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if cast_has_unavailable_time_conflict(order.cast, order.start, new_end):
-            return Response(
-                {"detail": "延長後の時間はキャストの予約不可時間です"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        target_room = assignment.room if assignment else None
-        if target_room is not None and Order.objects.filter(
-            room=target_room,
-            status__in=Order.ACTIVE_STATUSES,
-            start__lt=new_end,
-            end__gt=order.start,
-        ).exclude(pk=order.pk).exists():
-            return Response(
-                {"detail": "延長後の時間はルームが使用中です"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        order.extension = extension
-        order.extension_name = (
-            extension.name
-            if extension and extension_duration == extension.duration
-            else f"{extension_duration}分延長"
-        ) if extension_duration else ""
-        order.extension_duration = extension_duration
-        order.extension_price = extension_price
-        order.end = new_end
-        order.room = target_room
-        order.updated_by = request.user
-        order.save(update_fields=[
-            "extension", "extension_name", "extension_duration", "extension_price",
-            "end", "room", "updated_by", "updated_at",
-        ])
-        recalculate_order_total(order)
+            order.extension = extension
+            order.extension_name = (
+                extension.name
+                if extension and extension_duration == extension.duration
+                else f"{extension_duration}分延長"
+            ) if extension_duration else ""
+            order.extension_duration = extension_duration
+            order.extension_price = extension_price
+            order.end = new_end
+            order.room = target_room
+            order.updated_by = request.user
+            order.save(update_fields=[
+                "extension", "extension_name", "extension_duration", "extension_price",
+                "end", "room", "updated_by", "updated_at",
+            ])
+            recalculate_order_total(order)
         return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=["post"])
@@ -775,25 +783,30 @@ class OrderViewSet(viewsets.ModelViewSet):
         store = get_user_store(request)
         nomination_fee_id = request.data.get("nomination_fee_id")
 
-        if nomination_fee_id is None:
-            order.nomination_fee = None
-            order.nomination_fee_name = ""
-            order.nomination_fee_price = 0
-        else:
-            try:
-                nf = NominationFee.objects.get(pk=nomination_fee_id, store=store)
-            except NominationFee.DoesNotExist:
-                return Response({"detail": "指名料が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
-            order.nomination_fee = nf
-            order.nomination_fee_name = nf.name
-            order.nomination_fee_price = nf.price
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(order)
+            finalized_response = self._finalized_order_response(order)
+            if finalized_response is not None:
+                return finalized_response
+            if nomination_fee_id is None:
+                order.nomination_fee = None
+                order.nomination_fee_name = ""
+                order.nomination_fee_price = 0
+            else:
+                try:
+                    nf = NominationFee.objects.get(pk=nomination_fee_id, store=store)
+                except NominationFee.DoesNotExist:
+                    return Response({"detail": "指名料が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
+                order.nomination_fee = nf
+                order.nomination_fee_name = nf.name
+                order.nomination_fee_price = nf.price
 
-        order.updated_by = request.user
-        order.save(update_fields=[
-            "nomination_fee", "nomination_fee_name", "nomination_fee_price",
-            "updated_by", "updated_at",
-        ])
-        recalculate_order_total(order)
+            order.updated_by = request.user
+            order.save(update_fields=[
+                "nomination_fee", "nomination_fee_name", "nomination_fee_price",
+                "updated_by", "updated_at",
+            ])
+            recalculate_order_total(order)
         return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=["post"])
@@ -802,28 +815,33 @@ class OrderViewSet(viewsets.ModelViewSet):
         store = get_user_store(request)
         discount_id = request.data.get("discount_id")
 
-        if discount_id is None:
-            order.discount = None
-            order.discount_name = ""
-            order.discount_type_snapshot = ""
-            order.discount_value_snapshot = 0
-            order.discount_amount = 0
-        else:
-            try:
-                dc = Discount.objects.get(pk=discount_id, store=store)
-            except Discount.DoesNotExist:
-                return Response({"detail": "割引が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
-            order.discount = dc
-            order.discount_name = dc.name
-            order.discount_type_snapshot = dc.discount_type
-            order.discount_value_snapshot = dc.value
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(order)
+            finalized_response = self._finalized_order_response(order)
+            if finalized_response is not None:
+                return finalized_response
+            if discount_id is None:
+                order.discount = None
+                order.discount_name = ""
+                order.discount_type_snapshot = ""
+                order.discount_value_snapshot = 0
+                order.discount_amount = 0
+            else:
+                try:
+                    dc = Discount.objects.get(pk=discount_id, store=store)
+                except Discount.DoesNotExist:
+                    return Response({"detail": "割引が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
+                order.discount = dc
+                order.discount_name = dc.name
+                order.discount_type_snapshot = dc.discount_type
+                order.discount_value_snapshot = dc.value
 
-        order.updated_by = request.user
-        order.save(update_fields=[
-            "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot",
-            "updated_by", "updated_at",
-        ])
-        recalculate_order_total(order)
+            order.updated_by = request.user
+            order.save(update_fields=[
+                "discount", "discount_name", "discount_type_snapshot", "discount_value_snapshot",
+                "updated_by", "updated_at",
+            ])
+            recalculate_order_total(order)
         return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=["post"])
@@ -832,19 +850,24 @@ class OrderViewSet(viewsets.ModelViewSet):
         store = get_user_store(request)
         medium_id = request.data.get("medium_id")
 
-        if medium_id is None:
-            order.medium = None
-            order.medium_name = ""
-        else:
-            try:
-                med = Medium.objects.get(pk=medium_id, store=store)
-            except Medium.DoesNotExist:
-                return Response({"detail": "媒体が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
-            order.medium = med
-            order.medium_name = med.name
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(order)
+            finalized_response = self._finalized_order_response(order)
+            if finalized_response is not None:
+                return finalized_response
+            if medium_id is None:
+                order.medium = None
+                order.medium_name = ""
+            else:
+                try:
+                    med = Medium.objects.get(pk=medium_id, store=store)
+                except Medium.DoesNotExist:
+                    return Response({"detail": "媒体が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
+                order.medium = med
+                order.medium_name = med.name
 
-        order.updated_by = request.user
-        order.save(update_fields=["medium", "medium_name", "updated_by", "updated_at"])
+            order.updated_by = request.user
+            order.save(update_fields=["medium", "medium_name", "updated_by", "updated_at"])
         return Response(OrderSerializer(order).data)
 
 
@@ -1661,17 +1684,14 @@ class OpOrderCastAckView(APIView):
     def post(self, request, pk):
         store = get_user_store(request)
         try:
-            order = Order.objects.select_related("room", "customer", "course").get(pk=pk)
+            order = Order.objects.select_related("room", "customer", "course").get(
+                pk=pk,
+                store=store,
+            )
         except Order.DoesNotExist:
             return Response(
                 {"detail": "予約が見つかりません"},
                 status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if order.store_id != store.id:
-            return Response(
-                {"detail": "この予約は別店舗です"},
-                status=status.HTTP_403_FORBIDDEN,
             )
 
         ack, _ = CastAck.objects.get_or_create(order=order)
@@ -6069,45 +6089,63 @@ def twilio_sms_status_webhook(request):
     if not message_sid:
         return HttpResponse("ok", content_type="text/plain")
 
-    sms_log = SmsLog.objects.filter(provider_message_id=message_sid).first()
-    if sms_log is None:
-        logger.warning("Twilio SMS status: SmsLog not found sid=%s", message_sid)
-        return HttpResponse("ok", content_type="text/plain")
+    with transaction.atomic():
+        sms_log = SmsLog.objects.select_for_update().filter(provider_message_id=message_sid).first()
+        if sms_log is None:
+            logger.warning("Twilio SMS status: SmsLog not found sid=%s", message_sid)
+            return HttpResponse("ok", content_type="text/plain")
 
-    now = timezone.now()
-    sms_log.provider_status = message_status
-    sms_log.delivery_updated_at = now
-    update_fields = ["provider_status", "delivery_updated_at"]
+        now = timezone.now()
+        current_rank = (
+            3 if sms_log.delivered_at is not None or sms_log.provider_status == "delivered"
+            else 2 if sms_log.status == SmsLog.Status.FAILED
+            else 1
+        )
+        incoming_rank = (
+            3 if message_status == "delivered"
+            else 2 if message_status in ("failed", "undelivered")
+            else 1
+        )
+        update_fields = ["delivery_updated_at"]
+        sms_log.delivery_updated_at = now
 
-    if message_status == "delivered":
-        sms_log.status = SmsLog.Status.SENT
-        sms_log.delivered_at = now
-        update_fields.extend(["status", "delivered_at"])
-    elif message_status in ("failed", "undelivered"):
-        sms_log.status = SmsLog.Status.FAILED
-        error_code = request.data.get("ErrorCode", "")
-        sms_log.error_message = f"TWILIO_{message_status.upper()}_{error_code}".rstrip("_")
-        update_fields.extend(["status", "error_message"])
+        # Twilio callbacks are at-least-once and can arrive out of order.  A terminal
+        # delivery state must never be downgraded by an older callback.
+        if incoming_rank >= current_rank:
+            sms_log.provider_status = message_status
+            update_fields.append("provider_status")
+            if message_status == "delivered":
+                sms_log.status = SmsLog.Status.SENT
+                sms_log.error_message = ""
+                update_fields.extend(["status", "error_message"])
+                if sms_log.delivered_at is None:
+                    sms_log.delivered_at = now
+                    update_fields.append("delivered_at")
+            elif message_status in ("failed", "undelivered"):
+                sms_log.status = SmsLog.Status.FAILED
+                error_code = request.data.get("ErrorCode", "")
+                sms_log.error_message = f"TWILIO_{message_status.upper()}_{error_code}".rstrip("_")
+                update_fields.extend(["status", "error_message"])
 
-    callback_segments = request.data.get("NumSegments", "")
-    if str(callback_segments).isdigit() and int(callback_segments) > 0:
-        sms_log.segment_count = int(callback_segments)
-        update_fields.append("segment_count")
-    elif message_status in ("delivered", "failed", "undelivered"):
-        try:
-            from twilio.rest import Client
+        callback_segments = request.data.get("NumSegments", "")
+        if str(callback_segments).isdigit() and int(callback_segments) > 0:
+            sms_log.segment_count = int(callback_segments)
+            update_fields.append("segment_count")
+        elif message_status in ("delivered", "failed", "undelivered"):
+            try:
+                from twilio.rest import Client
 
-            message = Client(
-                settings.TWILIO_ACCOUNT_SID,
-                settings.TWILIO_AUTH_TOKEN,
-            ).messages(message_sid).fetch()
-            if str(message.num_segments).isdigit() and int(message.num_segments) > 0:
-                sms_log.segment_count = int(message.num_segments)
-                update_fields.append("segment_count")
-        except Exception:
-            logger.exception("Twilio SMS segment fetch failed sid=%s", message_sid)
+                message = Client(
+                    settings.TWILIO_ACCOUNT_SID,
+                    settings.TWILIO_AUTH_TOKEN,
+                ).messages(message_sid).fetch()
+                if str(message.num_segments).isdigit() and int(message.num_segments) > 0:
+                    sms_log.segment_count = int(message.num_segments)
+                    update_fields.append("segment_count")
+            except Exception:
+                logger.exception("Twilio SMS segment fetch failed sid=%s", message_sid)
 
-    sms_log.save(update_fields=list(dict.fromkeys(update_fields)))
+        sms_log.save(update_fields=list(dict.fromkeys(update_fields)))
     return HttpResponse("ok", content_type="text/plain")
 
 

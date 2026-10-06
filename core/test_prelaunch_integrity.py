@@ -9,6 +9,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from core.models import (
+    CastAck,
     Cast,
     CastExpense,
     Course,
@@ -45,11 +46,17 @@ class PrelaunchIntegrityTest(TestCase):
         self.cast = Cast.objects.create(store=self.store, name="キャストA")
         self.other_cast = Cast.objects.create(store=self.other_store, name="キャストB")
         self.room = Room.objects.create(store=self.store, name="A-101")
+        self.other_room = Room.objects.create(store=self.other_store, name="B-101")
         self.course = Course.objects.create(store=self.store, name="Aコース", duration=60, price=10000)
         self.other_course = Course.objects.create(store=self.other_store, name="Bコース", duration=60, price=10000)
         self.option = Option.objects.create(store=self.store, name="Aオプション", price=1000)
         self.other_option = Option.objects.create(store=self.other_store, name="Bオプション", price=1000)
         self.customer = Customer.objects.create(store=self.store, display_name="顧客A", phone="09000000001")
+        self.other_customer = Customer.objects.create(
+            store=self.other_store,
+            display_name="顧客B",
+            phone="09000000002",
+        )
         ShiftAssignment.objects.create(
             store=self.store,
             date=self.day,
@@ -134,6 +141,69 @@ class PrelaunchIntegrityTest(TestCase):
         self.assertEqual(response.status_code, 400, response.data)
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.PENDING_FINALIZE)
+
+    def test_financial_adjustments_cannot_change_finalized_order(self):
+        for order_status in (Order.Status.DONE, Order.Status.CANCELLED):
+            for action, payload in (
+                ("apply_extension", {"extension_id": None}),
+                ("apply_nomination_fee", {"nomination_fee_id": None}),
+                ("apply_discount", {"discount_id": None}),
+                ("apply_medium", {"medium_id": None}),
+            ):
+                with self.subTest(order_status=order_status, action=action):
+                    order = self.create_order()
+                    order.status = order_status
+                    order.save(update_fields=["status", "updated_at"])
+
+                    response = self.client.post(
+                        f"/api/orders/{order.id}/{action}/",
+                        payload,
+                        format="json",
+                    )
+
+                    self.assertEqual(response.status_code, 403, response.data)
+
+    def test_locked_day_blocks_order_financial_adjustments(self):
+        order = self.create_order()
+        DailySettlement.objects.create(
+            store=self.store,
+            date=self.day,
+            status=DailySettlement.Status.LOCKED,
+            snapshot_json={"rows": [], "totals": {}},
+        )
+
+        for action, payload in (
+            ("apply_extension", {"extension_id": None}),
+            ("apply_nomination_fee", {"nomination_fee_id": None}),
+            ("apply_discount", {"discount_id": None}),
+            ("apply_medium", {"medium_id": None}),
+        ):
+            with self.subTest(action=action):
+                response = self.client.post(
+                    f"/api/orders/{order.id}/{action}/",
+                    payload,
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400, response.data)
+
+    def test_operator_cast_ack_hides_foreign_order_existence(self):
+        foreign_order = Order.objects.create(
+            store=self.other_store,
+            cast=self.other_cast,
+            room=self.other_room,
+            customer=self.other_customer,
+            course=self.other_course,
+            course_name=self.other_course.name,
+            course_price=self.other_course.price,
+            total_price=self.other_course.price,
+            start=self.start,
+            end=self.start + timedelta(hours=1),
+        )
+
+        response = self.client.post(f"/api/op/orders/{foreign_order.id}/cast-ack/")
+
+        self.assertEqual(response.status_code, 404, response.data)
+        self.assertFalse(CastAck.objects.filter(order=foreign_order).exists())
 
 
 class LineCredentialExposureTest(TestCase):

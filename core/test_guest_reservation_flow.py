@@ -243,3 +243,71 @@ class SmsDeliveryStatusWebhookTest(TestCase):
         self.assertEqual(log.provider_status, "delivered")
         self.assertEqual(log.segment_count, 2)
         self.assertIsNotNone(log.delivered_at)
+
+    def test_stale_failure_callback_cannot_downgrade_delivered_sms(self):
+        log = SmsLog.objects.create(
+            to_phone="09000000002",
+            body="[予約リンク]",
+            status=SmsLog.Status.SENT,
+            provider=SmsLog.Provider.TWILIO,
+            provider_message_id="SMdelivered",
+            provider_status="queued",
+        )
+        client = APIClient()
+        delivered = client.post(
+            "/api/webhook/twilio/sms-status/",
+            {"MessageSid": "SMdelivered", "MessageStatus": "delivered", "NumSegments": "2"},
+            format="multipart",
+        )
+        failed = client.post(
+            "/api/webhook/twilio/sms-status/",
+            {
+                "MessageSid": "SMdelivered",
+                "MessageStatus": "undelivered",
+                "ErrorCode": "30003",
+                "NumSegments": "2",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(delivered.status_code, 200)
+        self.assertEqual(failed.status_code, 200)
+        log.refresh_from_db()
+        self.assertEqual(log.status, SmsLog.Status.SENT)
+        self.assertEqual(log.provider_status, "delivered")
+        self.assertEqual(log.error_message, "")
+        self.assertIsNotNone(log.delivered_at)
+
+    def test_later_delivered_callback_recovers_from_failed_sms(self):
+        log = SmsLog.objects.create(
+            to_phone="09000000003",
+            body="[予約リンク]",
+            status=SmsLog.Status.SENT,
+            provider=SmsLog.Provider.TWILIO,
+            provider_message_id="SMrecovered",
+            provider_status="queued",
+        )
+        client = APIClient()
+        failed = client.post(
+            "/api/webhook/twilio/sms-status/",
+            {
+                "MessageSid": "SMrecovered",
+                "MessageStatus": "failed",
+                "ErrorCode": "30005",
+                "NumSegments": "1",
+            },
+            format="multipart",
+        )
+        delivered = client.post(
+            "/api/webhook/twilio/sms-status/",
+            {"MessageSid": "SMrecovered", "MessageStatus": "delivered", "NumSegments": "1"},
+            format="multipart",
+        )
+
+        self.assertEqual(failed.status_code, 200)
+        self.assertEqual(delivered.status_code, 200)
+        log.refresh_from_db()
+        self.assertEqual(log.status, SmsLog.Status.SENT)
+        self.assertEqual(log.provider_status, "delivered")
+        self.assertEqual(log.error_message, "")
+        self.assertIsNotNone(log.delivered_at)
