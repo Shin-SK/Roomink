@@ -12,7 +12,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.models import LineNotificationLog, ShiftAssignment, Store
-from core.services.line_notify import send_line_push
+from core.services.line_notify import send_line_push_once
 from core.services.shift_end_line_notifications import send_shift_end_line_alerts
 
 logger = logging.getLogger(__name__)
@@ -58,27 +58,36 @@ class Command(BaseCommand):
                     mt = store.line_morning_time
                     morning_target = now.replace(hour=mt.hour, minute=mt.minute, second=0, microsecond=0)
                     if morning_target <= now < morning_target + timedelta(minutes=WINDOW_MINUTES):
-                        if self._should_send(shift, LineNotificationLog.NotificationType.MORNING):
-                            msg = f"【Roomink】{shift.cast.name}さん、本日 {shift.start_time.strftime('%H:%M')} から出勤です。よろしくお願いします。"
-                            send_line_push(shift.cast, msg, shift, LineNotificationLog.NotificationType.MORNING)
+                        msg = f"【Roomink】{shift.cast.name}さん、本日 {shift.start_time.strftime('%H:%M')} から出勤です。よろしくお願いします。"
+                        log = send_line_push_once(
+                            store.pk, shift.pk, msg,
+                            LineNotificationLog.NotificationType.MORNING,
+                        )
+                        if log and log.status == LineNotificationLog.Status.SENT:
                             total_sent += 1
 
                 # 2時間前
                 if store.line_two_hours_enabled:
                     two_h_before = shift_start_dt - timedelta(hours=2)
                     if two_h_before <= now < two_h_before + timedelta(minutes=WINDOW_MINUTES):
-                        if self._should_send(shift, LineNotificationLog.NotificationType.TWO_HOURS_BEFORE):
-                            msg = f"【Roomink】{shift.cast.name}さん、出勤2時間前です（{shift.start_time.strftime('%H:%M')}〜）。"
-                            send_line_push(shift.cast, msg, shift, LineNotificationLog.NotificationType.TWO_HOURS_BEFORE)
+                        msg = f"【Roomink】{shift.cast.name}さん、出勤2時間前です（{shift.start_time.strftime('%H:%M')}〜）。"
+                        log = send_line_push_once(
+                            store.pk, shift.pk, msg,
+                            LineNotificationLog.NotificationType.TWO_HOURS_BEFORE,
+                        )
+                        if log and log.status == LineNotificationLog.Status.SENT:
                             total_sent += 1
 
                 # 15分前
                 if store.line_fifteen_minutes_enabled:
                     fifteen_min_before = shift_start_dt - timedelta(minutes=15)
                     if fifteen_min_before <= now < fifteen_min_before + timedelta(minutes=WINDOW_MINUTES):
-                        if self._should_send(shift, LineNotificationLog.NotificationType.FIFTEEN_MIN_BEFORE):
-                            msg = f"【Roomink】{shift.cast.name}さん、出勤15分前です（{shift.start_time.strftime('%H:%M')}〜）。準備をお願いします。"
-                            send_line_push(shift.cast, msg, shift, LineNotificationLog.NotificationType.FIFTEEN_MIN_BEFORE)
+                        msg = f"【Roomink】{shift.cast.name}さん、出勤15分前です（{shift.start_time.strftime('%H:%M')}〜）。準備をお願いします。"
+                        log = send_line_push_once(
+                            store.pk, shift.pk, msg,
+                            LineNotificationLog.NotificationType.FIFTEEN_MIN_BEFORE,
+                        )
+                        if log and log.status == LineNotificationLog.Status.SENT:
                             total_sent += 1
 
             shift_end_result = send_shift_end_line_alerts(
@@ -90,14 +99,3 @@ class Command(BaseCommand):
         self.stdout.write(
             f"送信完了: 出勤リマインド{total_sent}件 / 受付終了{total_shift_end_sent}件"
         )
-
-    def _should_send(self, shift, notification_type):
-        """既に送信済み（SENT/SKIPPED）なら False"""
-        return not LineNotificationLog.objects.filter(
-            shift_assignment=shift,
-            notification_type=notification_type,
-            status__in=[
-                LineNotificationLog.Status.SENT,
-                LineNotificationLog.Status.SKIPPED,
-            ],
-        ).exists()

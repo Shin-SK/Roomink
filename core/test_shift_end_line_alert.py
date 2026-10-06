@@ -65,6 +65,7 @@ class ShiftEndLineAlertTest(TestCase):
         self.assertEqual(second["sent"], 0)
         self.assertEqual(post.call_count, 1)
         self.assertEqual(post.call_args.kwargs["json"]["to"], "C-operations-group")
+        self.assertIn("X-Line-Retry-Key", post.call_args.kwargs["headers"])
         message = post.call_args.kwargs["json"]["messages"][0]["text"]
         self.assertIn(self.cast.name, message)
         self.assertIn("22:00", message)
@@ -76,6 +77,28 @@ class ShiftEndLineAlertTest(TestCase):
                 status=LineNotificationLog.Status.SENT,
             ).count(),
             1,
+        )
+
+    @patch("core.services.line_notify.http_requests.post")
+    def test_operations_retry_reuses_line_key_after_ambiguous_failure(self, post):
+        post.side_effect = [
+            Mock(status_code=500, text="temporary error", headers={}),
+            Mock(
+                status_code=409,
+                text="already accepted",
+                headers={"x-line-accepted-request-id": "accepted-request"},
+            ),
+        ]
+
+        first = send_shift_end_line_alerts(self.store, reference_at=self.at(20, 50))
+        second = send_shift_end_line_alerts(self.store, reference_at=self.at(20, 55))
+
+        self.assertEqual(first["failed"], 1)
+        self.assertEqual(second["sent"], 1)
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(
+            post.call_args_list[0].kwargs["headers"]["X-Line-Retry-Key"],
+            post.call_args_list[1].kwargs["headers"]["X-Line-Retry-Key"],
         )
 
     @patch("core.services.line_notify.http_requests.post")

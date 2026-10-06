@@ -1,6 +1,7 @@
+from django.db import transaction
 from django.utils import timezone
 
-from core.models import LineNotificationLog, ShiftAssignment
+from core.models import LineNotificationLog, ShiftAssignment, Store
 from core.services.business_datetime import build_business_interval
 from core.services.line_notify import (
     operations_push_is_configured,
@@ -32,38 +33,45 @@ def send_shift_end_line_alerts(store, reference_at=None):
     }
 
     for item in evaluated["open_alerts"]:
-        shift = (
-            ShiftAssignment.objects
-            .select_related("cast", "store")
-            .get(pk=item["shift_id"], store=store)
-        )
-        _, shift_end = build_business_interval(
-            shift.date,
-            shift.start_time,
-            shift.end_time,
-            end_day_offset=shift.end_day_offset,
-            timezone_name=store.timezone,
-        )
-        if reference_at >= shift_end:
-            continue
-        if LineNotificationLog.objects.filter(
-            shift_assignment=shift,
-            notification_type=LineNotificationLog.NotificationType.SHIFT_END_70,
-            status=LineNotificationLog.Status.SENT,
-        ).exists():
-            continue
+        # 外部送信まで同じシフト行をロックする。二重起動したSchedulerはここで
+        # 直列化され、後続側は確定済みの送信ログを見て何もしない。
+        with transaction.atomic():
+            locked_store = Store.objects.select_for_update().filter(pk=store.pk).first()
+            if locked_store is None or not operations_push_is_configured(locked_store):
+                result["configuration_missing"] += 1
+                continue
+            shift = (
+                ShiftAssignment.objects.select_for_update()
+                .select_related("cast")
+                .filter(pk=item["shift_id"], store=locked_store)
+                .first()
+            )
+            if shift is None:
+                continue
+            _, shift_end = build_business_interval(
+                shift.date,
+                shift.start_time,
+                shift.end_time,
+                end_day_offset=shift.end_day_offset,
+                timezone_name=locked_store.timezone,
+            )
+            if reference_at >= shift_end:
+                continue
+            if LineNotificationLog.objects.filter(
+                shift_assignment=shift,
+                notification_type=LineNotificationLog.NotificationType.SHIFT_END_70,
+                status=LineNotificationLog.Status.SENT,
+            ).exists():
+                continue
 
-        if not operations_push_is_configured(store):
-            result["configuration_missing"] += 1
-            continue
-
-        log = send_line_operations_push(
-            store,
-            shift.cast,
-            _message_for_alert(item),
-            shift,
-            LineNotificationLog.NotificationType.SHIFT_END_70,
-        )
+            shift.cast.store = locked_store
+            log = send_line_operations_push(
+                locked_store,
+                shift.cast,
+                _message_for_alert(item),
+                shift,
+                LineNotificationLog.NotificationType.SHIFT_END_70,
+            )
         if log and log.status == LineNotificationLog.Status.SENT:
             result["sent"] += 1
         elif log:
