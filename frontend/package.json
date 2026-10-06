@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/validate-env.mjs && vite build",
-    "build:staging": "ROOMINK_ENV=staging node scripts/validate-env.mjs && vite build --mode staging",
+    "build": "node scripts/validate-env.mjs && vite build && node scripts/write-netlify-redirects.mjs",
+    "build:staging": "ROOMINK_ENV=staging node scripts/validate-env.mjs && vite build --mode staging && ROOMINK_ENV=staging node scripts/write-netlify-redirects.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
