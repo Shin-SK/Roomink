@@ -39,7 +39,10 @@
 /* 1つのスクロール領域（横スクロール前提） */
 .rk-sheet-scroll {
   height: 80vh;
+  width: 100%;
+  max-width: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
   background: #fff;
 }
 
@@ -47,9 +50,12 @@
 .rk-sheet {
   position: relative;
   display: grid;
-  grid-template-columns: var(--rk-time-col-w) auto;
-  grid-template-rows: var(--rk-casthead-h, 36px) auto;
+  // 横に長いタイムラインは必ずこの要素の中でスクロールさせる。
+  // ページ全体が横スクロールになると、左のキャスト列の sticky が効かなくなる。
+  width: max-content;
   min-width: 100%;
+  grid-template-columns: var(--rk-time-col-w) max-content;
+  grid-template-rows: var(--rk-casthead-h, 36px) auto;
 }
 
 /* 左上角：固定 */
@@ -98,6 +104,9 @@
   position: sticky;
   left: 0;
   z-index: 20;
+  width: var(--rk-time-col-w);
+  min-width: var(--rk-time-col-w);
+  align-self: start;
   display: grid;
   grid-auto-flow: row;
   grid-auto-rows: var(--rk-row-hour-h);

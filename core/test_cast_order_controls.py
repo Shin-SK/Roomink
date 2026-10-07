@@ -168,6 +168,35 @@ class CastOrderControlsTest(TestCase):
         self.assertEqual(self.order.status, Order.Status.DONE)
         self.assertEqual(self.order.updated_by_id, self.cast_user.id)
 
+    def test_cast_can_ack_a_tomorrow_reservation_before_the_service_day(self):
+        """前日でも自分の予約を表示し、内容確認だけ先に完了できる。"""
+        future_start = timezone.now().replace(second=0, microsecond=0) + timedelta(days=1)
+        future_order = Order.objects.create(
+            store=self.store,
+            cast=self.cast,
+            room=self.room,
+            customer=self.customer,
+            service_recipient_name="前日確認の予約",
+            course=self.course,
+            course_name=self.course.name,
+            course_price=self.course.price,
+            total_price=self.course.price,
+            start=future_start,
+            end=future_start + timedelta(minutes=90),
+            status=Order.Status.CONFIRMED,
+            payment_method=Order.PaymentMethod.CASH,
+        )
+        future_date = business_date_for_datetime(future_start, self.store.timezone)
+
+        listing = self.cast_client.get(f"/api/cast/today/?date={future_date.isoformat()}")
+        acknowledgement = self.cast_client.post(f"/api/cast/orders/{future_order.id}/ack/")
+
+        self.assertEqual(listing.status_code, 200, listing.data)
+        self.assertEqual([item["id"] for item in listing.data["orders"]], [future_order.id])
+        self.assertTrue(listing.data["orders"][0]["is_unconfirmed"])
+        self.assertEqual(acknowledgement.status_code, 200, acknowledgement.data)
+        self.assertFalse(acknowledgement.data["is_unconfirmed"])
+
     def test_start_requires_ack_and_complete_requires_payment_method(self):
         start_response = self.cast_client.post(f"/api/cast/orders/{self.order.id}/start/")
         self.assertEqual(start_response.status_code, 400, start_response.data)

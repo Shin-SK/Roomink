@@ -14,6 +14,9 @@ const todayBusinessDate = ref('')
 const orders = ref([])
 const totalOrders = ref(0)
 const unconfirmedCount = ref(0)
+const upcomingOrders = ref([])
+const upcomingOrdersDate = ref('')
+const upcomingOrdersLoading = ref(false)
 const lineLinked = ref(false)
 const lineEnabled = ref(false)
 const lineLinkCode = ref('')
@@ -130,6 +133,8 @@ onMounted(async () => {
     await loadCheckout()
     // 出勤確認状況取得
     await loadShiftConfirm()
+    // 前日から予約内容を確認できるよう、次回出勤日の予約も表示する。
+    await loadUpcomingOrders()
     // 調整金取得
     await loadAdjustments()
     // ノート取得
@@ -153,6 +158,24 @@ async function loadShiftConfirm() {
     shiftConfirm.value = await api.getCastShiftConfirm()
   } catch (_) { /* 取得失敗は致命的でない */ } finally {
     shiftConfirmLoading.value = false
+  }
+}
+
+async function loadUpcomingOrders() {
+  const nextShiftDate = shiftConfirm.value?.shift?.date
+  upcomingOrders.value = []
+  upcomingOrdersDate.value = ''
+  if (!nextShiftDate || nextShiftDate === todayBusinessDate.value) return
+
+  upcomingOrdersLoading.value = true
+  try {
+    const data = await api.getCastToday(nextShiftDate)
+    upcomingOrders.value = data.orders || []
+    upcomingOrdersDate.value = data.date || nextShiftDate
+  } catch (_) {
+    // 次回予約の取得に失敗しても、当日のマイページ操作は妨げない。
+  } finally {
+    upcomingOrdersLoading.value = false
   }
 }
 
@@ -244,12 +267,14 @@ async function submitCheckout() {
   }
 }
 
-async function doAck(order) {
+async function doAck(order, orderList = orders) {
   try {
     const updated = await api.ackOrder(order.id)
-    const idx = orders.value.findIndex(o => o.id === order.id)
-    if (idx !== -1) orders.value[idx] = updated
-    unconfirmedCount.value = orders.value.filter(o => o.is_unconfirmed).length
+    const idx = orderList.value.findIndex(o => o.id === order.id)
+    if (idx !== -1) orderList.value[idx] = updated
+    if (orderList === orders) {
+      unconfirmedCount.value = orders.value.filter(o => o.is_unconfirmed).length
+    }
   } catch (e) {
     alert(e.message)
   }
@@ -511,6 +536,43 @@ function formatYen(n) {
         </div>
 
         <div v-if="orders.length === 0" class="text-muted text-center py-4">本日の予約はありません</div>
+
+        <!-- 次回出勤日の予約。前日でも内容確認だけは先に済ませられる。 -->
+        <template v-if="upcomingOrdersLoading || upcomingOrders.length">
+          <div class="rk-section-header ca-bookings-heading mt-4">
+            <span><i class="ti ti-calendar-forward"></i> 次回の予約</span>
+            <span v-if="upcomingOrdersDate" class="ca-bookings-count">{{ formatShiftDateLabel(upcomingOrdersDate) }}</span>
+          </div>
+          <div v-if="upcomingOrdersLoading" class="text-muted text-center py-3 small">予約を読み込み中...</div>
+          <div
+            v-for="order in upcomingOrders"
+            :key="`upcoming-${order.id}`"
+            class="card ca-booking-card mb-3 ca-booking-card--upcoming"
+          >
+            <div class="card-body ca-booking-card__body">
+              <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                <div>
+                  <div class="fw-bold">{{ displayStartTime(order) }}〜{{ displayEndTime(order) }}</div>
+                  <div class="small text-muted">{{ order.room_name }} / {{ order.course_name }}</div>
+                </div>
+                <span class="badge" :class="order.is_unconfirmed ? 'badge-unconfirmed' : 'badge-approved'">
+                  {{ order.is_unconfirmed ? '未確認' : '確認済み' }}
+                </span>
+              </div>
+              <div class="small mb-2">
+                <span class="me-3"><i class="ti ti-user"></i> {{ order.reservation_name }}</span>
+                <span><i class="ti ti-credit-card"></i> {{ order.payment_method_label }}</span>
+              </div>
+              <button
+                v-if="order.is_unconfirmed"
+                type="button"
+                class="btn btn-warning btn-sm w-100 fw-bold"
+                @click="doAck(order, upcomingOrders)"
+              ><i class="ti ti-check"></i> 予約内容を確認する</button>
+              <div v-else class="small text-success text-center"><i class="ti ti-circle-check"></i> 予約内容を確認済みです</div>
+            </div>
+          </div>
+        </template>
 
         <div class="ca-info-tabs" role="tablist" aria-label="売上・給与見込み、調整金、ノート">
           <button id="ca-info-tab-earnings" type="button" role="tab" aria-controls="ca-info-earnings" :aria-selected="activeInfoTab === 'earnings'" :tabindex="activeInfoTab === 'earnings' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'earnings' }" @click="selectInfoTab('earnings')" @keydown.right.prevent="selectInfoTab('adjustments', true)">売上・給与見込み</button>
