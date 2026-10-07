@@ -378,6 +378,7 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
         fields = [
             "id", "store", "cast", "cast_name", "date", "status",
             "done_count", "total_sales", "estimated_pay", "course_sales", "options_sales",
+            "customer_payment_surcharge", "customer_payment_total",
             "payment_fee_estimate", "net_sales_after_payment_fee",
             "actual_take_home_amount", "checklist_json", "cast_memo", "manager_memo",
             "submitted_at", "reviewed_at", "reviewed_by", "reviewed_by_name",

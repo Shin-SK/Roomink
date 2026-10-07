@@ -786,10 +786,10 @@ onBeforeUnmount(() => {
                 <summary><strong>{{ row.cast_name }}</strong><span>売上 {{ yen(row.total_sales) }}</span><span class="text-primary">報酬 {{ yen(row.compensation) }}</span><span>店舗配分 {{ yen(row.store_allocation) }}</span><i class="ti ti-chevron-down"></i></summary>
                 <div class="allocation-details">
                   <span>完了済み {{ row.order_count }}本</span><span>コース {{ yen(row.course_sales) }}</span><span>オプション {{ yen(row.options_sales) }}</span>
-                  <span>給与見込み {{ yen(row.back_amount) }}</span><span>固定雑費 -{{ yen(row.fixed_expense_total) }}</span><span>当日雑費 -{{ yen(row.daily_expense_total) }}</span><span>決済手数料（参考）-{{ yen(row.payment_fee_estimate) }}</span>
+                  <span>給与見込み {{ yen(row.back_amount) }}</span><span>固定雑費 -{{ yen(row.fixed_expense_total) }}</span><span>当日雑費 -{{ yen(row.daily_expense_total) }}</span><span>カード加算 +{{ yen(row.customer_payment_surcharge) }}</span><span>店舗側決済手数料（参考）-{{ yen(row.payment_fee_estimate) }}</span>
                 </div>
               </details>
-              <p class="small text-muted mt-3 mb-0">報酬＝給与見込み−雑費。店舗配分＝手数料差引後売上−報酬。振込額は現金預りなどを反映するため別の金額です。</p>
+              <p class="small text-muted mt-3 mb-0">報酬＝給与見込み−雑費。店舗配分＝お客様決済額−店舗側決済手数料−報酬。カードの上乗せ分は店舗配分に含まれます。振込額は現金預りなどを反映するため別の金額です。</p>
             </template>
           </div>
           <footer class="allocation-footer"><router-link :to="{ path: '/op/daily-settlement', query: { date: allocationDate } }" class="btn btn-outline-primary btn-sm" @click="showAllocation = false">日給一覧を見る</router-link><button class="btn btn-primary btn-sm" @click="showAllocation = false">閉じる</button></footer>

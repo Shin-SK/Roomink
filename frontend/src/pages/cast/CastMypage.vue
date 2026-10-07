@@ -91,13 +91,20 @@ const checkoutIsReadOnly = computed(() => {
   return !!co && co.status !== 'RETURNED'
 })
 
-// 現在の完了済み予約に基づく見込み。退勤提出の保存値は別途 checkout に保持する。
-const feeEstimate = computed(() => {
+// 現在の完了済み予約に基づく見込み。カード上乗せ分は店舗配分に含める。
+const paymentSummary = computed(() => {
   return {
-    fee: checkoutData.value?.payment_fee_estimate ?? 0,
+    surcharge: checkoutData.value?.customer_payment_surcharge ?? 0,
+    customerTotal: checkoutData.value?.customer_payment_total ?? checkoutData.value?.total_sales ?? 0,
+    storeFee: checkoutData.value?.payment_fee_estimate ?? 0,
     net: checkoutData.value?.net_sales_after_payment_fee ?? 0,
   }
 })
+
+const expectedCashShortfall = computed(() => Math.max(
+  0,
+  Number(checkoutData.value?.compensation ?? 0) - Number(checkoutForm.value.actual_take_home_amount || 0),
+))
 
 function checkoutStatusLabel(s) {
   return { SUBMITTED: '提出済み（未確認）', REVIEWED: '確認済み', RETURNED: '差戻し' }[s] || s
@@ -258,7 +265,7 @@ async function submitCheckout() {
       checklist_json: checkoutForm.value.checklist_json,
     }
     await api.submitCastCheckout(body)
-    await loadCheckout()
+    await Promise.all([loadCheckout(), loadAdjustments()])
     showCheckoutModal.value = false
   } catch (e) {
     checkoutError.value = e.message
@@ -934,19 +941,21 @@ function formatYen(n) {
                       <div class="small text-danger">-{{ formatYen(checkoutData?.expense_total ?? 0) }}</div>
                     </div>
                     <div class="col-4">
-                      <div class="small text-muted mb-1">決済手数料<span class="d-block" style="font-size: 0.7rem;">(参考値)</span></div>
-                      <div class="small text-danger">-{{ formatYen(feeEstimate.fee) }}</div>
+                      <div class="small text-muted mb-1">カード決済加算<span class="d-block" style="font-size: 0.7rem;">(お客様負担)</span></div>
+                      <div class="small text-success">+{{ formatYen(paymentSummary.surcharge) }}</div>
                     </div>
                   </div>
                   <div class="row g-2 text-center mt-1 pt-2 border-top">
                     <div class="col-6">
-                      <div class="small text-muted mb-1">手数料差引後売上<span class="d-block" style="font-size: 0.7rem;">(参考値)</span></div>
-                      <div class="small">{{ formatYen(feeEstimate.net) }}</div>
+                      <div class="small text-muted mb-1">お客様決済額</div>
+                      <div class="small">{{ formatYen(paymentSummary.customerTotal) }}</div>
                     </div>
-                    <div class="col-6 d-flex align-items-center justify-content-center small text-muted">
-                      報酬 = 給与見込み − 雑費
+                    <div class="col-6">
+                      <div class="small text-muted mb-1">店舗側決済手数料<span class="d-block" style="font-size: 0.7rem;">(参考値)</span></div>
+                      <div class="small text-danger">-{{ formatYen(paymentSummary.storeFee) }}</div>
                     </div>
                   </div>
+                  <div class="small text-muted text-center mt-2">報酬 = 給与見込み − 雑費。カードの上乗せ分は店舗配分に含まれます。</div>
                 </div>
 
                 <!-- 固定雑費テンプレ -->
@@ -965,7 +974,7 @@ function formatYen(n) {
                 <!-- 読み取り専用表示（提出済み・確認済み） -->
                 <template v-if="checkoutIsReadOnly">
                   <div class="mb-2">
-                    <div class="small text-muted mb-1">実際の持ち帰り金額</div>
+                    <div class="small text-muted mb-1">当日分として持ち帰った現金</div>
                     <div class="fw-bold">{{ formatYen(checkoutData.checkout.actual_take_home_amount) }}</div>
                   </div>
                   <div class="mb-2">
@@ -988,8 +997,11 @@ function formatYen(n) {
                 <!-- 入力フォーム（未提出 or 差戻し後） -->
                 <template v-else>
                   <div class="mb-3">
-                    <label class="form-label small fw-bold">実際の持ち帰り金額</label>
+                    <label class="form-label small fw-bold">当日分として持ち帰った現金</label>
                     <input v-model.number="checkoutForm.actual_take_home_amount" type="number" min="0" class="form-control" />
+                    <div v-if="expectedCashShortfall" class="form-text text-warning">
+                      {{ formatYen(expectedCashShortfall) }} は未払いとして記録されます。次回出勤時または事務所で受け取った後、運営が解消します。
+                    </div>
                   </div>
                   <div class="mb-3">
                     <label class="form-label small fw-bold">退勤チェックリスト</label>

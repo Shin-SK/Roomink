@@ -89,10 +89,10 @@ class Store(models.Model):
             and self.line_setup_completed_at
             and self.line_started_at
         )
-    # 決済手数料（参考値）。確定精算・給与確定には接続しない。
+    # カード率は顧客への上乗せ率。現金・PayPay は店舗側手数料の参考値。
     cash_fee_rate = models.PositiveSmallIntegerField(default=0, help_text="現金決済手数料率（%・参考値）")
     paypay_fee_rate = models.PositiveSmallIntegerField(default=5, help_text="PayPay決済手数料率（%・参考値）")
-    card_fee_rate = models.PositiveSmallIntegerField(default=10, help_text="カード決済手数料率（%・参考値）")
+    card_fee_rate = models.PositiveSmallIntegerField(default=10, help_text="カード決済時の顧客上乗せ率（%）")
     card_payment_url = models.URLField(
         max_length=500,
         blank=True,
@@ -1425,14 +1425,20 @@ class CastDailyCheckout(models.Model):
     estimated_pay = models.PositiveIntegerField(default=0)
     course_sales = models.PositiveIntegerField(default=0)
     options_sales = models.PositiveIntegerField(default=0)
+    customer_payment_surcharge = models.PositiveIntegerField(
+        default=0, help_text="カード決済時に顧客へ上乗せした金額",
+    )
+    customer_payment_total = models.PositiveIntegerField(
+        default=0, help_text="顧客決済額合計（カード上乗せ分を含む）",
+    )
     payment_fee_estimate = models.PositiveIntegerField(
-        default=0, help_text="決済手数料見込み（参考値。給与確定・支払い処理には接続しない）",
+        default=0, help_text="店舗側決済手数料見込み（参考値。給与確定・支払い処理には接続しない）",
     )
     net_sales_after_payment_fee = models.IntegerField(
-        default=0, help_text="手数料差引後売上見込み（参考値）",
+        default=0, help_text="顧客決済額から店舗側手数料を引いた売上見込み（参考値）",
     )
 
-    actual_take_home_amount = models.PositiveIntegerField(default=0, help_text="実際の持ち帰り金額（キャスト入力）")
+    actual_take_home_amount = models.PositiveIntegerField(default=0, help_text="当日分の報酬として実際に持ち帰った現金（キャスト入力）")
     checklist_json = models.JSONField(default=dict, blank=True, help_text="退勤チェックリストの回答")
     cast_memo = models.TextField(blank=True, default="")
     manager_memo = models.TextField(blank=True, default="")

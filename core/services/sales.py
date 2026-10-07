@@ -26,8 +26,11 @@ def get_done_orders_for_business_range(store, date_from, date_to):
 
 
 def payment_fee_rates(store):
-    """決済方法ごとの手数料率（%・参考値）を返す。Store設定が未設定/存在しない場合は固定値にフォールバックする。
-    現金0% / PayPay5% / カード10% / 未設定0%。給与確定・支払い処理・DailySettlementViewには一切接続しない。"""
+    """決済方法ごとの率を返す。
+
+    カード率は店舗側の原価ではなく、顧客のカード請求額へ上乗せする率として
+    使う。現金・PayPay の率だけが店舗側手数料の参考値になる。
+    """
     from ..models import Order
 
     return {
@@ -35,6 +38,44 @@ def payment_fee_rates(store):
         Order.PaymentMethod.PAYPAY: getattr(store, "paypay_fee_rate", 5),
         Order.PaymentMethod.CARD: getattr(store, "card_fee_rate", 10),
         Order.PaymentMethod.UNSET: 0,
+    }
+
+
+def payment_financial_summary(store, orders):
+    """DONE 注文の顧客決済額と店舗側の参考手数料を集計する。
+
+    ``total_sales`` はコース等の元売上、``customer_payment_surcharge`` はカード
+    利用者へ上乗せする分、``customer_payment_total`` は両者の合計である。
+    カードの上乗せ分を店舗側手数料として二重に控除しないことが重要。
+    """
+    import math
+
+    from .reservation_access import card_payment_amount
+    from ..models import Order
+
+    fee_rates = payment_fee_rates(store)
+    total_sales = 0
+    customer_payment_surcharge = 0
+    payment_fee_estimate = 0
+
+    for order in orders:
+        total_sales += order.total_price
+        if order.payment_method == Order.PaymentMethod.CARD:
+            card_charge, cash_due = card_payment_amount(order)
+            # card_charge はオプションを現金受領する場合にその分を含まないため、
+            # 現金分を戻して元売上との差額だけを上乗せ額として記録する。
+            customer_payment_surcharge += max(0, card_charge + cash_due - order.total_price)
+        else:
+            rate = fee_rates.get(order.payment_method, 0)
+            payment_fee_estimate += math.floor(order.total_price * rate / 100)
+
+    customer_payment_total = total_sales + customer_payment_surcharge
+    return {
+        "total_sales": total_sales,
+        "customer_payment_surcharge": customer_payment_surcharge,
+        "customer_payment_total": customer_payment_total,
+        "payment_fee_estimate": payment_fee_estimate,
+        "net_sales_after_payment_fee": customer_payment_total - payment_fee_estimate,
     }
 
 
@@ -158,30 +199,32 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
         discount_amount=Sum("discount_amount"),
     )
 
-    # 決済方法別（決済手数料は参考値。確定精算・給与確定には接続しない）
+    # 決済方法別。カード率は顧客への上乗せ率であり、店舗側費用としては控除しない。
     fee_rates = payment_fee_rates(store)
     payment_labels = dict(Order.PaymentMethod.choices)
-    by_payment_method = []
-    total_fee_estimate = 0
-    for row in (
-        qs.values("payment_method")
-        .annotate(sales=Sum("total_price"), orders=Count("id"))
-        .order_by("-sales")
-    ):
-        pm = row["payment_method"]
-        sales = row["sales"] or 0
-        fee_rate = fee_rates.get(pm, 0)
-        fee_estimate = math.floor(sales * fee_rate / 100)
-        total_fee_estimate += fee_estimate
-        by_payment_method.append({
-            "payment_method": pm,
-            "payment_method_label": payment_labels.get(pm, pm),
-            "sales": sales,
-            "orders": row["orders"],
-            "fee_rate": fee_rate,
-            "fee_estimate": fee_estimate,
-            "net_sales_after_fee": sales - fee_estimate,
+    payment_map = {}
+    for order in qs:
+        entry = payment_map.setdefault(order.payment_method, {
+            "payment_method": order.payment_method,
+            "payment_method_label": payment_labels.get(order.payment_method, order.payment_method),
+            "sales": 0,
+            "orders": 0,
+            "customer_payment_surcharge": 0,
+            "customer_payment_total": 0,
+            "fee_rate": 0 if order.payment_method == Order.PaymentMethod.CARD else fee_rates.get(order.payment_method, 0),
+            "fee_estimate": 0,
         })
+        order_summary = payment_financial_summary(store, [order])
+        entry["sales"] += order_summary["total_sales"]
+        entry["orders"] += 1
+        entry["customer_payment_surcharge"] += order_summary["customer_payment_surcharge"]
+        entry["customer_payment_total"] += order_summary["customer_payment_total"]
+        entry["fee_estimate"] += order_summary["payment_fee_estimate"]
+    by_payment_method = sorted(payment_map.values(), key=lambda row: -row["sales"])
+    for entry in by_payment_method:
+        entry["net_sales_after_fee"] = entry["customer_payment_total"] - entry["fee_estimate"]
+
+    payment_summary = payment_financial_summary(store, qs)
 
     # キャスト別（給与見込みは Phase 2-C / 3-A と同じ計算方針）
     cast_rows = list(
@@ -295,8 +338,10 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
         "extension_sales": agg["extension_sales"] or 0,
         "nomination_fee_sales": agg["nomination_fee_sales"] or 0,
         "discount_amount": agg["discount_amount"] or 0,
-        "payment_fee_estimate": total_fee_estimate,
-        "net_sales_after_payment_fee": (agg["total_sales"] or 0) - total_fee_estimate,
+        "customer_payment_surcharge": payment_summary["customer_payment_surcharge"],
+        "customer_payment_total": payment_summary["customer_payment_total"],
+        "payment_fee_estimate": payment_summary["payment_fee_estimate"],
+        "net_sales_after_payment_fee": payment_summary["net_sales_after_payment_fee"],
         "by_payment_method": by_payment_method,
         "by_cast": by_cast,
         "by_room": by_room,
@@ -319,21 +364,22 @@ def get_sales_dashboard_csv(store, date_from, date_to, cast_id=None, room_id=Non
     writer.writerow(["サマリー"])
     writer.writerow([
         "総売上", "DONE件数", "コース売上", "オプション売上", "延長料金", "指名料", "割引額",
-        "決済手数料見込み(参考値)", "手数料差引後売上(参考値)",
+        "カード決済加算(お客様負担)", "お客様決済額", "店舗側決済手数料見込み(参考値)", "手数料差引後売上(参考値)",
     ])
     writer.writerow([
         data["total_sales"], data["total_orders"], data["course_sales"],
         data["options_sales"], data["extension_sales"], data["nomination_fee_sales"],
-        data["discount_amount"],
+        data["discount_amount"], data.get("customer_payment_surcharge", 0), data.get("customer_payment_total", data["total_sales"]),
         data.get("payment_fee_estimate", 0), data.get("net_sales_after_payment_fee", data["total_sales"]),
     ])
     writer.writerow([])
 
-    writer.writerow(["決済方法別（手数料は参考値。確定精算・給与確定には接続しません）"])
-    writer.writerow(["決済方法", "売上", "件数", "手数料率(%)", "手数料見込み", "手数料差引後売上"])
+    writer.writerow(["決済方法別（カードの率はお客様負担の上乗せ率です）"])
+    writer.writerow(["決済方法", "売上", "件数", "カード決済加算", "お客様決済額", "店舗側手数料率(%)", "店舗側手数料見込み", "手数料差引後売上"])
     for r in data["by_payment_method"]:
         writer.writerow([
             r["payment_method_label"], r["sales"], r["orders"],
+            r.get("customer_payment_surcharge", 0), r.get("customer_payment_total", r["sales"]),
             r.get("fee_rate", 0), r.get("fee_estimate", 0), r.get("net_sales_after_fee", r["sales"]),
         ])
     writer.writerow([])

@@ -49,7 +49,7 @@ onMounted(load)
 
 <template>
   <LayoutOperator>
-    <template #title>決済手数料設定</template>
+    <template #title>決済料率設定</template>
 
     <div class="mb-3">
       <router-link to="/op/settings" class="btn btn-outline-secondary btn-sm">
@@ -59,8 +59,8 @@ onMounted(load)
 
     <div class="alert alert-info small">
       <i class="ti ti-info-circle"></i>
-      ここで設定する手数料率は、売上集計画面・退勤提出画面に表示する「参考値」の計算にのみ使用します。
-      確定精算・給与確定・日給一覧（DailySettlementView）には一切反映されません。
+      カードの率は、お客様のカード決済額へ上乗せする率です。上乗せ分は店舗配分に含まれます。
+      現金・PayPayの率は店舗側手数料の参考値として、売上集計・退勤提出・日給一覧に表示します。
     </div>
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
@@ -71,24 +71,24 @@ onMounted(load)
     </div>
 
     <div v-else class="card">
-      <div class="card-header"><i class="ti ti-percentage"></i> 決済方法別 手数料率（%）</div>
+      <div class="card-header"><i class="ti ti-percentage"></i> 決済方法別 料率（%）</div>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label">現金</label>
+          <label class="form-label">現金（店舗側手数料・参考値）</label>
           <div class="input-group" style="max-width: 200px;">
             <input v-model.number="form.cash_fee_rate" type="number" min="0" max="100" class="form-control" />
             <span class="input-group-text">%</span>
           </div>
         </div>
         <div class="mb-3">
-          <label class="form-label">PayPay</label>
+          <label class="form-label">PayPay（店舗側手数料・参考値）</label>
           <div class="input-group" style="max-width: 200px;">
             <input v-model.number="form.paypay_fee_rate" type="number" min="0" max="100" class="form-control" />
             <span class="input-group-text">%</span>
           </div>
         </div>
         <div class="mb-3">
-          <label class="form-label">カード</label>
+          <label class="form-label">カード（お客様決済への上乗せ率）</label>
           <div class="input-group" style="max-width: 200px;">
             <input v-model.number="form.card_fee_rate" type="number" min="0" max="100" class="form-control" />
             <span class="input-group-text">%</span>

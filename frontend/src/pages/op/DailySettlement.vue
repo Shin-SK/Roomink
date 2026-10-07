@@ -168,15 +168,15 @@ function formatDt(iso) {
         <div v-if="!loading && rows.some(row => row.compensation !== undefined)" class="mb-4">
           <h6 class="fw-bold mb-2">売上配分</h6>
           <div class="row g-2 mb-2">
-            <div class="col-4"><div class="bg-light rounded p-2 text-center"><div class="small text-muted">売上</div><strong>{{ yen(totals.total_sales) }}</strong></div></div>
+            <div class="col-4"><div class="bg-light rounded p-2 text-center"><div class="small text-muted">お客様決済額</div><strong>{{ yen(totals.customer_payment_total ?? totals.total_sales) }}</strong></div></div>
             <div class="col-4"><div class="bg-light rounded p-2 text-center"><div class="small text-muted">報酬</div><strong class="text-primary">{{ yen(totals.compensation) }}</strong></div></div>
             <div class="col-4"><div class="bg-light rounded p-2 text-center"><div class="small text-muted">店舗配分</div><strong>{{ yen(totals.store_allocation) }}</strong></div></div>
           </div>
           <div v-for="row in rows" :key="'allocation-' + row.cast_id" class="d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom py-2 small">
             <strong>{{ row.cast_name }}</strong>
-            <span>売上 {{ yen(row.total_sales) }}　報酬 <b class="text-primary">{{ yen(row.compensation) }}</b>　店舗配分 <b>{{ yen(row.store_allocation) }}</b></span>
+            <span>売上 {{ yen(row.total_sales) }}　お客様決済 {{ yen(row.customer_payment_total ?? row.total_sales) }}　報酬 <b class="text-primary">{{ yen(row.compensation) }}</b>　店舗配分 <b>{{ yen(row.store_allocation) }}</b></span>
           </div>
-          <div class="small text-muted mt-2">報酬＝バック額−固定雑費−当日雑費。店舗配分＝手数料差引後売上−報酬。決済手数料は参考値です。</div>
+          <div class="small text-muted mt-2">報酬＝バック額−固定雑費−当日雑費。店舗配分＝お客様決済額−店舗側決済手数料−報酬。カードの上乗せ分は店舗配分に含まれます。</div>
         </div>
         <div v-else-if="!loading && settlementStatus === 'LOCKED' && rows.length" class="alert alert-info small">この日は旧形式で確定されているため、売上配分は表示できません。</div>
 

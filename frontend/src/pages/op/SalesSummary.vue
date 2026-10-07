@@ -197,7 +197,19 @@ onMounted(async () => {
               </div>
               <div class="col-6 col-md-3">
                 <div class="stat-box">
-                  <div class="stat-label">決済手数料見込み<span class="text-muted">(参考値)</span></div>
+                  <div class="stat-label">カード決済加算<span class="text-muted">(お客様負担)</span></div>
+                  <div class="stat-value text-success">+{{ formatYen(data.customer_payment_surcharge) }}</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="stat-box">
+                  <div class="stat-label">お客様決済額</div>
+                  <div class="stat-value">{{ formatYen(data.customer_payment_total) }}</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="stat-box">
+                  <div class="stat-label">店舗側決済手数料<span class="text-muted">(参考値)</span></div>
                   <div class="stat-value text-danger">-{{ formatYen(data.payment_fee_estimate) }}</div>
                 </div>
               </div>
@@ -209,7 +221,7 @@ onMounted(async () => {
               </div>
             </div>
             <div class="small text-muted mb-3">
-              ※ 決済手数料は参考値です（現金/PayPay/カードの設定手数料率から算出）。確定精算・給与確定・日給一覧には反映されません。
+              ※ カードの設定率はお客様の決済額への上乗せ率です。現金・PayPayの手数料は店舗側の参考値で、カード上乗せ分は店舗配分に含まれます。
             </div>
 
             <!-- 日別売上 -->
@@ -321,8 +333,10 @@ onMounted(async () => {
                     <th>決済方法</th>
                     <th class="text-end">件数</th>
                     <th class="text-end">売上</th>
-                    <th class="text-end">手数料率<span class="text-muted">(参考)</span></th>
-                    <th class="text-end">手数料見込み<span class="text-muted">(参考)</span></th>
+                    <th class="text-end">カード加算<span class="text-muted">(お客様負担)</span></th>
+                    <th class="text-end">お客様決済額</th>
+                    <th class="text-end">店舗側手数料率<span class="text-muted">(参考)</span></th>
+                    <th class="text-end">店舗側手数料<span class="text-muted">(参考)</span></th>
                     <th class="text-end">手数料差引後<span class="text-muted">(参考)</span></th>
                   </tr>
                 </thead>
@@ -331,6 +345,8 @@ onMounted(async () => {
                     <td>{{ p.payment_method_label }}</td>
                     <td class="text-end">{{ p.orders }}</td>
                     <td class="text-end">{{ formatYen(p.sales) }}</td>
+                    <td class="text-end text-success">+{{ formatYen(p.customer_payment_surcharge) }}</td>
+                    <td class="text-end">{{ formatYen(p.customer_payment_total) }}</td>
                     <td class="text-end">{{ p.fee_rate }}%</td>
                     <td class="text-end text-danger">-{{ formatYen(p.fee_estimate) }}</td>
                     <td class="text-end">{{ formatYen(p.net_sales_after_fee) }}</td>

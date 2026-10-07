@@ -228,7 +228,7 @@ function castName(id) {
       </div>
       <div class="card-body">
         <div class="small text-muted mb-3">
-          給与確定・支払い処理とは接続しない、調整金台帳の未解消/解消管理のみです。
+          退勤時に現金が足りない場合は「現金不足による未払い」が自動で記録されます。次回出勤時または事務所で渡した後に「解消済みにする」を押してください。
         </div>
 
         <!-- Filters -->

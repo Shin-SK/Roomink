@@ -9,7 +9,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from core.models import (
-    Cast, CastExpense, CastExpenseTemplate, Course, Customer, Order, Room,
+    Cast, CastAdjustment, CastExpense, CastExpenseTemplate, Course, Customer, Order, Room,
     ShiftAssignment, Store, UserProfile,
 )
 
@@ -92,24 +92,44 @@ class SalesAllocationTest(TestCase):
     @patch("core.views.timezone.now", return_value=datetime(2026, 10, 2, 20, tzinfo=ZoneInfo("Asia/Tokyo")))
     def test_card_fee_and_fixed_expense_snapshot(self, _now):
         self.order.payment_method = Order.PaymentMethod.CARD
-        self.order.save(update_fields=["payment_method"])
+        self.order.card_include_options = True
+        self.order.save(update_fields=["payment_method", "card_include_options"])
         checkout = self.cast_client.get("/api/cast/checkout/")
-        self.assertEqual(checkout.data["payment_fee_estimate"], 2400)
+        # 24,000円のカード決済は、お客様の請求額が10%上乗せの26,400円になる。
+        # 上乗せ分は店舗配分に含め、店舗側手数料として二重に差し引かない。
+        self.assertEqual(checkout.data["customer_payment_surcharge"], 2400)
+        self.assertEqual(checkout.data["customer_payment_total"], 26400)
+        self.assertEqual(checkout.data["payment_fee_estimate"], 0)
         self.assertEqual(checkout.data["compensation"], 9000)
-        self.assertEqual(checkout.data["store_allocation"], 12600)
+        self.assertEqual(checkout.data["store_allocation"], 17400)
+
+        dashboard = self.manager_client.get(
+            "/api/op/sales-dashboard/?date_from=2026-10-02&date_to=2026-10-02",
+        )
+        self.assertEqual(dashboard.status_code, 200, dashboard.data)
+        self.assertEqual(dashboard.data["customer_payment_surcharge"], 2400)
+        self.assertEqual(dashboard.data["customer_payment_total"], 26400)
+        self.assertEqual(dashboard.data["payment_fee_estimate"], 0)
 
         submit = self.cast_client.post(
             "/api/cast/checkout/",
             {"actual_take_home_amount": 0, "checklist_json": {}}, format="json",
         )
         self.assertEqual(submit.status_code, 201, submit.data)
+        self.assertEqual(submit.data["customer_payment_surcharge"], 2400)
+        self.assertEqual(submit.data["customer_payment_total"], 26400)
+        unpaid = CastAdjustment.objects.get(source_checkout_id=submit.data["id"])
+        self.assertEqual(unpaid.title, "現金不足による未払い")
+        self.assertEqual(unpaid.amount, 9000)
+        self.assertEqual(unpaid.status, CastAdjustment.Status.OPEN)
         self.fixed.amount = 7000
         self.fixed.save(update_fields=["amount"])
         checkout = self.cast_client.get("/api/cast/checkout/")
         settlement = self.manager_client.get("/api/op/daily-settlement/?date=2026-10-02")
         self.assertEqual(checkout.data["fixed_expense_total"], 5000)
         self.assertEqual(settlement.data["rows"][0]["fixed_expense_total"], 5000)
-        self.assertEqual(settlement.data["rows"][0]["store_allocation"], 12600)
+        self.assertEqual(settlement.data["rows"][0]["customer_payment_total"], 26400)
+        self.assertEqual(settlement.data["rows"][0]["store_allocation"], 17400)
 
     @patch("core.views.timezone.now", return_value=datetime(2026, 10, 2, 20, tzinfo=ZoneInfo("Asia/Tokyo")))
     def test_line_disabled_hides_cast_entry_and_rejects_link(self, _now):

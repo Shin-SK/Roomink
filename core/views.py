@@ -1269,27 +1269,12 @@ def _compute_cast_done_sales(cast, d):
     }
 
 
-def _compute_payment_fee_estimate(store, cast, d):
-    """指定キャスト・指定日のDONE注文について、決済方法別の手数料率（参考値）から
-    手数料見込み/手数料差引後売上見込みを計算する。CastCheckoutView専用。
-    給与確定・支払い処理には一切接続しない参考値。"""
-    import math
-    from .services.sales import payment_fee_rates
+def _compute_payment_summary(store, cast, d):
+    """指定キャスト・指定営業日の顧客決済額と店舗側参考手数料を返す。"""
+    from .services.sales import payment_financial_summary
 
     done_orders = get_done_orders_for_business_range(store, d, d).filter(cast=cast)
-    fee_rates = payment_fee_rates(store)
-
-    total_sales = 0
-    fee_estimate = 0
-    for o in done_orders:
-        total_sales += o.total_price
-        rate = fee_rates.get(o.payment_method, 0)
-        fee_estimate += math.floor(o.total_price * rate / 100)
-
-    return {
-        "payment_fee_estimate": fee_estimate,
-        "net_sales_after_payment_fee": total_sales - fee_estimate,
-    }
+    return payment_financial_summary(store, done_orders)
 
 
 def _cast_expense_totals(cast, d, done_count):
@@ -1322,6 +1307,53 @@ def _allocation_amounts(gross_pay, net_sales_after_fee, expenses):
         "compensation": compensation,
         "store_allocation": net_sales_after_fee - compensation,
     }
+
+
+def _sync_checkout_cash_shortfall(*, checkout, compensation, actual_take_home_amount, user):
+    """退勤提出の未払いを調整金台帳へ同期する。
+
+    持ち帰る現金が当日報酬に足りないときだけ、差額を「キャストへ渡す未払い」
+    として正の金額で記録する。次回出勤・事務所での受渡し後は manager が通常の
+    調整金解消操作を行う。
+    """
+    shortfall = max(0, compensation - actual_take_home_amount)
+    open_entries = CastAdjustment.objects.filter(
+        source_checkout=checkout,
+        source_type=CastAdjustment.SourceType.CHECKOUT,
+        status=CastAdjustment.Status.OPEN,
+        title="現金不足による未払い",
+    ).order_by("id")
+
+    if shortfall:
+        entry = open_entries.first()
+        defaults = {
+            "store": checkout.store,
+            "cast": checkout.cast,
+            "date": checkout.date,
+            "amount": shortfall,
+            "memo": "退勤提出時に、当日分の報酬を現金で渡し切れなかったため自動記録。"
+                    "次回出勤時または事務所での受渡し後に解消してください。",
+        }
+        if entry:
+            for field, value in defaults.items():
+                setattr(entry, field, value)
+            entry.save(update_fields=[*defaults.keys(), "updated_at"])
+        else:
+            CastAdjustment.objects.create(
+                **defaults,
+                title="現金不足による未払い",
+                source_type=CastAdjustment.SourceType.CHECKOUT,
+                source_checkout=checkout,
+                created_by=user,
+            )
+    else:
+        open_entries.update(
+            status=CastAdjustment.Status.VOID,
+            resolved_by=user,
+            resolved_at=timezone.now(),
+            resolved_memo="退勤提出の再提出により未払いなしとなったため自動で無効化。",
+        )
+    return shortfall
 
 
 @document_object_api_view
@@ -1359,7 +1391,7 @@ class CastCheckoutView(APIView):
 
         today = business_date_for_datetime(timezone.now(), cast.store.timezone)
         sales = _compute_cast_done_sales(cast, today)
-        fee = _compute_payment_fee_estimate(cast.store, cast, today)
+        fee = _compute_payment_summary(cast.store, cast, today)
         expenses = _cast_expense_totals(cast, today, sales["done_count"])
         allocation = _allocation_amounts(
             sales["estimated_pay"], fee["net_sales_after_payment_fee"], expenses,
@@ -1424,8 +1456,12 @@ class CastCheckoutView(APIView):
         cast_memo = request.data.get("cast_memo", "") or ""
 
         sales = _compute_cast_done_sales(cast, today)
-        fee = _compute_payment_fee_estimate(cast.store, cast, today)
+        fee = _compute_payment_summary(cast.store, cast, today)
         templates = list(CastExpenseTemplate.objects.filter(cast=cast, is_active=True).order_by("id"))
+        expenses = _cast_expense_totals(cast, today, sales["done_count"])
+        allocation = _allocation_amounts(
+            sales["estimated_pay"], fee["net_sales_after_payment_fee"], expenses,
+        )
 
         with transaction.atomic():
             if existing is not None:
@@ -1439,6 +1475,8 @@ class CastCheckoutView(APIView):
             instance.estimated_pay = sales["estimated_pay"]
             instance.course_sales = sales["course_sales"]
             instance.options_sales = sales["options_sales"]
+            instance.customer_payment_surcharge = fee["customer_payment_surcharge"]
+            instance.customer_payment_total = fee["customer_payment_total"]
             instance.payment_fee_estimate = fee["payment_fee_estimate"]
             instance.net_sales_after_payment_fee = fee["net_sales_after_payment_fee"]
             instance.actual_take_home_amount = actual_take_home_amount
@@ -1454,6 +1492,12 @@ class CastCheckoutView(APIView):
                 )
                 for t in templates
             ])
+            _sync_checkout_cash_shortfall(
+                checkout=instance,
+                compensation=allocation["compensation"],
+                actual_take_home_amount=actual_take_home_amount,
+                user=request.user,
+            )
 
         instance.refresh_from_db()
         return Response(
@@ -6445,8 +6489,7 @@ class DailySettlementView(APIView):
         points_by_cast = {row["cast_id"]: row["total"] or 0 for row in point_agg}
 
         import math
-        from .services.sales import payment_fee_rates
-        fee_rates = payment_fee_rates(store)
+        from .services.sales import payment_financial_summary
 
         rows = []
         total_course = 0
@@ -6456,6 +6499,8 @@ class DailySettlementView(APIView):
         total_fixed_expense = 0
         total_daily_expense = 0
         total_sales = 0
+        total_customer_payment_surcharge = 0
+        total_customer_payment = 0
         total_payment_fee = 0
         total_compensation = 0
         total_store_allocation = 0
@@ -6476,12 +6521,12 @@ class DailySettlementView(APIView):
             option_back = math.floor(options_sales * cast.option_back_rate / 100)
             back_amount = course_back + option_back
 
-            cast_sales = sum(o.total_price for o in cast_orders)
-            payment_fee_estimate = sum(
-                math.floor(o.total_price * fee_rates.get(o.payment_method, 0) / 100)
-                for o in cast_orders
-            )
-            net_sales_after_payment_fee = cast_sales - payment_fee_estimate
+            payment_summary = payment_financial_summary(store, cast_orders)
+            cast_sales = payment_summary["total_sales"]
+            customer_payment_surcharge = payment_summary["customer_payment_surcharge"]
+            customer_payment_total = payment_summary["customer_payment_total"]
+            payment_fee_estimate = payment_summary["payment_fee_estimate"]
+            net_sales_after_payment_fee = payment_summary["net_sales_after_payment_fee"]
             allocation = _allocation_amounts(
                 back_amount,
                 net_sales_after_payment_fee,
@@ -6513,6 +6558,8 @@ class DailySettlementView(APIView):
                 "option_fullback_enabled": cast.option_fullback_enabled,
                 "back_amount": back_amount,
                 "total_sales": cast_sales,
+                "customer_payment_surcharge": customer_payment_surcharge,
+                "customer_payment_total": customer_payment_total,
                 "payment_fee_estimate": payment_fee_estimate,
                 "net_sales_after_payment_fee": net_sales_after_payment_fee,
                 "fixed_expense_total": allocation["fixed_expense_total"],
@@ -6533,6 +6580,8 @@ class DailySettlementView(APIView):
             total_fixed_expense += allocation["fixed_expense_total"]
             total_daily_expense += allocation["daily_expense_total"]
             total_sales += cast_sales
+            total_customer_payment_surcharge += customer_payment_surcharge
+            total_customer_payment += customer_payment_total
             total_payment_fee += payment_fee_estimate
             total_compensation += allocation["compensation"]
             total_store_allocation += allocation["store_allocation"]
@@ -6552,8 +6601,10 @@ class DailySettlementView(APIView):
                 "options_sales": total_options,
                 "back_amount": total_back,
                 "total_sales": total_sales,
+                "customer_payment_surcharge": total_customer_payment_surcharge,
+                "customer_payment_total": total_customer_payment,
                 "payment_fee_estimate": total_payment_fee,
-                "net_sales_after_payment_fee": total_sales - total_payment_fee,
+                "net_sales_after_payment_fee": total_customer_payment - total_payment_fee,
                 "fixed_expense_total": total_fixed_expense,
                 "daily_expense_total": total_daily_expense,
                 "expense_total": total_expense,
@@ -6712,7 +6763,7 @@ class DailySettlementExportView(APIView):
             "コースバック率(%)", "OPバック率(%)",
             "バック額", "雑費", "ポイント",
             "現金件数", "現金預り", "振込額",
-            "売上", "決済手数料見込み", "固定雑費", "当日雑費", "報酬", "店舗配分",
+            "売上", "カード決済加算", "お客様決済額", "店舗側決済手数料見込み", "固定雑費", "当日雑費", "報酬", "店舗配分",
         ])
 
         for r in rows:
@@ -6731,6 +6782,8 @@ class DailySettlementExportView(APIView):
                 r.get("cash_sales_total", 0),
                 r.get("net_pay", 0),
                 r.get("total_sales", ""),
+                r.get("customer_payment_surcharge", ""),
+                r.get("customer_payment_total", ""),
                 r.get("payment_fee_estimate", ""),
                 r.get("fixed_expense_total", ""),
                 r.get("daily_expense_total", ""),
@@ -6751,6 +6804,8 @@ class DailySettlementExportView(APIView):
             totals.get("cash_sales_total", 0),
             totals.get("net_pay", 0),
             totals.get("total_sales", ""),
+            totals.get("customer_payment_surcharge", ""),
+            totals.get("customer_payment_total", ""),
             totals.get("payment_fee_estimate", ""),
             totals.get("fixed_expense_total", ""),
             totals.get("daily_expense_total", ""),
@@ -7266,10 +7321,9 @@ class StoreLineActivationView(APIView):
 
 @document_object_api_view
 class StorePaymentFeeSettingsView(APIView):
-    """GET / PATCH /api/op/payment-fee-settings/ — 決済手数料率（参考値）の設定。
+    """GET / PATCH /api/op/payment-fee-settings/ — 決済料率の設定。
     GETは運営スタッフも参照可、PATCHはmanagerのみ。
-    ここで設定した値は予約画面の請求目安・売上集計(/op/sales-dashboard/)・退勤提出の手数料見込み計算に使用し、
-    確定精算・給与確定・DailySettlementViewには一切接続しない。"""
+    カード率は予約画面の請求額への上乗せ、現金・PayPay率は店舗側手数料の参考値に使用する。"""
 
     permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
 
