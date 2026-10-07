@@ -32,6 +32,8 @@ const error = ref('')
 const selectedCastDetail = ref(null)
 const detailLoading = ref(false)
 const detailError = ref('')
+let dashboardRequestId = 0
+let detailRequestId = 0
 
 const isToday = computed(() => (
   range.value === 'today'
@@ -86,27 +88,36 @@ async function loadMasters() {
 }
 
 async function fetchDashboard() {
+  const requestId = ++dashboardRequestId
+  detailRequestId += 1
   const params = buildParams()
-  if (!params) return
+  if (!params) {
+    loading.value = false
+    return
+  }
   error.value = ''
   selectedCastDetail.value = null
   detailError.value = ''
   loading.value = true
   try {
-    data.value = await api.getSalesDashboard(params)
+    const response = await api.getSalesDashboard(params)
+    if (requestId !== dashboardRequestId) return
+    data.value = response
     if (range.value === 'today' && data.value?.date_from) {
       currentBusinessDate.value = data.value.date_from
       selectedDate.value = data.value.date_from
     }
   } catch (e) {
+    if (requestId !== dashboardRequestId) return
     error.value = e.message || '売上集計の取得に失敗しました'
     data.value = null
   } finally {
-    loading.value = false
+    if (requestId === dashboardRequestId) loading.value = false
   }
 }
 
 async function openCastDetail(castRow) {
+  const requestId = ++detailRequestId
   if (selectedCastDetail.value?.cast_id === castRow.cast_id) {
     selectedCastDetail.value = null
     return
@@ -120,11 +131,14 @@ async function openCastDetail(castRow) {
   detailError.value = ''
   selectedCastDetail.value = null
   try {
-    selectedCastDetail.value = await api.getSalesDashboardCastDetail(params)
+    const response = await api.getSalesDashboardCastDetail(params)
+    if (requestId !== detailRequestId) return
+    selectedCastDetail.value = response
   } catch (e) {
+    if (requestId !== detailRequestId) return
     detailError.value = e.message || 'キャスト明細の取得に失敗しました'
   } finally {
-    detailLoading.value = false
+    if (requestId === detailRequestId) detailLoading.value = false
   }
 }
 
