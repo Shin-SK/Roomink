@@ -324,6 +324,10 @@ export const api = {
   reviewCastCheckout: (id, managerMemo) => request('POST', `/cast-checkouts/${id}/review/`, managerMemo !== undefined ? { manager_memo: managerMemo } : {}),
   returnCastCheckout: (id, managerMemo) => request('POST', `/cast-checkouts/${id}/return_to_cast/`, managerMemo !== undefined ? { manager_memo: managerMemo } : {}),
   resetCastCheckout: (id) => request('POST', `/cast-checkouts/${id}/reset_to_submitted/`),
+  updateCastCheckoutCashSettlement: (id, body) => request('PATCH', `/cast-checkouts/${id}/cash-settlement/`, body),
+  recordCastCheckoutOfficePayment: (id, body) => request('POST', `/cast-checkouts/${id}/office-payment/`, body),
+  getRoomCashSummary: (date) => request('GET', `/cast-checkouts/room-cash/?date=${encodeURIComponent(date)}`),
+  saveRoomCashCount: (body) => request('POST', '/cast-checkouts/room-cash/', body),
   getCastCheckoutsExportUrl: (params = '') => `${BASE}/cast-checkouts/export_csv/${params ? '?' + params : ''}`,
 
   // Cast Adjustments（調整金台帳, Phase 3-E / manager側）

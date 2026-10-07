@@ -1128,7 +1128,7 @@ class ExistingFeatureNotBrokenSmokeTest(RoomankOpsSmokeTestBase):
         checkout_date = date.fromisoformat(data["date"])
 
         res = cast_client.post("/api/cast/checkout/", {
-            "actual_take_home_amount": 1000,
+            "actual_take_home_amount": 0,
             "cast_memo": "スモークテスト退勤",
             "checklist_json": {},
         }, format="json")

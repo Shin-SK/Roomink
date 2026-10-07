@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 import { sanitizeNoteHtml } from '../../noteContent.js'
@@ -74,13 +74,17 @@ const CHECKLIST_ITEMS = [
 
 const checkoutData = ref(null)
 const showCheckoutModal = ref(false)
+const showCheckoutSales = ref(false)
+const showCheckoutCalculation = ref(false)
+const showReceiptHistory = ref(false)
 const checkoutForm = ref(emptyCheckoutForm())
 const checkoutSaving = ref(false)
 const checkoutError = ref('')
+let checkoutRefreshTimer = null
 
 function emptyCheckoutForm() {
   return {
-    actual_take_home_amount: 0,
+    room_cash_taken_amount: 0,
     cast_memo: '',
     checklist_json: Object.fromEntries(CHECKLIST_ITEMS.map(i => [i.key, false])),
   }
@@ -91,23 +95,21 @@ const checkoutIsReadOnly = computed(() => {
   return !!co && co.status !== 'RETURNED'
 })
 
-// 現在の完了済み予約に基づく見込み。カード上乗せ分は店舗配分に含める。
-const paymentSummary = computed(() => {
-  return {
-    surcharge: checkoutData.value?.customer_payment_surcharge ?? 0,
-    customerTotal: checkoutData.value?.customer_payment_total ?? checkoutData.value?.total_sales ?? 0,
-    storeFee: checkoutData.value?.payment_fee_estimate ?? 0,
-    net: checkoutData.value?.net_sales_after_payment_fee ?? 0,
-  }
+const checkoutCarryover = computed(() => {
+  const opening = Number(checkoutData.value?.checkout?.carryover_opening_amount ?? checkoutData.value?.carryover_opening_amount ?? 0)
+  const compensation = Number(checkoutData.value?.checkout?.compensation_amount ?? checkoutData.value?.compensation ?? 0)
+  const roomCash = Number(checkoutData.value?.checkout?.room_cash_taken_amount ?? checkoutForm.value.room_cash_taken_amount ?? 0)
+  const officeCash = Number(checkoutData.value?.checkout?.office_cash_paid_amount ?? 0)
+  const available = opening + compensation
+  return { opening, compensation, available, roomCash, officeCash, closing: available - roomCash - officeCash }
 })
 
-const expectedCashShortfall = computed(() => Math.max(
-  0,
-  Number(checkoutData.value?.compensation ?? 0) - Number(checkoutForm.value.actual_take_home_amount || 0),
+const checkoutReadyToSubmit = computed(() => (
+  CHECKLIST_ITEMS.every(item => checkoutForm.value.checklist_json?.[item.key])
 ))
 
 function checkoutStatusLabel(s) {
-  return { SUBMITTED: '提出済み（未確認）', REVIEWED: '確認済み', RETURNED: '差戻し' }[s] || s
+  return { SUBMITTED: '店舗確認待ち', REVIEWED: '確認済み', RETURNED: '要修正' }[s] || s
 }
 
 onMounted(async () => {
@@ -138,6 +140,7 @@ onMounted(async () => {
     } catch (_) { /* 取得失敗は致命的でない */ }
     // 退勤状況取得
     await loadCheckout()
+    checkoutRefreshTimer = window.setInterval(loadCheckout, 30000)
     // 出勤確認状況取得
     await loadShiftConfirm()
     // 前日から予約内容を確認できるよう、次回出勤日の予約も表示する。
@@ -151,6 +154,10 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+})
+
+onUnmounted(() => {
+  if (checkoutRefreshTimer !== null) window.clearInterval(checkoutRefreshTimer)
 })
 
 async function loadCheckout() {
@@ -244,7 +251,7 @@ function openCheckoutModal() {
   const co = checkoutData.value?.checkout
   if (co && co.status === 'RETURNED') {
     checkoutForm.value = {
-      actual_take_home_amount: co.actual_take_home_amount,
+      room_cash_taken_amount: co.room_cash_taken_amount,
       cast_memo: co.cast_memo,
       checklist_json: { ...emptyCheckoutForm().checklist_json, ...(co.checklist_json || {}) },
     }
@@ -252,15 +259,22 @@ function openCheckoutModal() {
     checkoutForm.value = emptyCheckoutForm()
   }
   checkoutError.value = ''
+  showCheckoutSales.value = false
+  showCheckoutCalculation.value = false
+  showReceiptHistory.value = false
   showCheckoutModal.value = true
 }
 
 async function submitCheckout() {
+  if (!checkoutReadyToSubmit.value) {
+    checkoutError.value = '退勤チェックをすべて完了してください。'
+    return
+  }
   checkoutSaving.value = true
   checkoutError.value = ''
   try {
     const body = {
-      actual_take_home_amount: Number(checkoutForm.value.actual_take_home_amount) || 0,
+      room_cash_taken_amount: Number(checkoutForm.value.room_cash_taken_amount) || 0,
       cast_memo: checkoutForm.value.cast_memo,
       checklist_json: checkoutForm.value.checklist_json,
     }
@@ -387,6 +401,12 @@ function openLineFriend() {
 
 function formatYen(n) {
   return `¥${Number(n).toLocaleString()}`
+}
+
+function formatMonthDay(dateStr) {
+  if (!dateStr) return ''
+  const [, month, day] = dateStr.split('-').map(Number)
+  return `${month}月${day}日`
 }
 
 </script>
@@ -581,17 +601,17 @@ function formatYen(n) {
           </div>
         </template>
 
-        <div class="ca-info-tabs" role="tablist" aria-label="売上・給与見込み、調整金、ノート">
-          <button id="ca-info-tab-earnings" type="button" role="tab" aria-controls="ca-info-earnings" :aria-selected="activeInfoTab === 'earnings'" :tabindex="activeInfoTab === 'earnings' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'earnings' }" @click="selectInfoTab('earnings')" @keydown.right.prevent="selectInfoTab('adjustments', true)">売上・給与見込み</button>
+        <div class="ca-info-tabs" role="tablist" aria-label="売上・報酬、調整金、ノート">
+          <button id="ca-info-tab-earnings" type="button" role="tab" aria-controls="ca-info-earnings" :aria-selected="activeInfoTab === 'earnings'" :tabindex="activeInfoTab === 'earnings' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'earnings' }" @click="selectInfoTab('earnings')" @keydown.right.prevent="selectInfoTab('adjustments', true)">売上・報酬</button>
           <button id="ca-info-tab-adjustments" type="button" role="tab" aria-controls="ca-info-adjustments" :aria-selected="activeInfoTab === 'adjustments'" :tabindex="activeInfoTab === 'adjustments' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'adjustments' }" @click="selectInfoTab('adjustments')" @keydown.left.prevent="selectInfoTab('earnings', true)" @keydown.right.prevent="selectInfoTab('notes', true)">調整金</button>
           <button id="ca-info-tab-notes" type="button" role="tab" aria-controls="ca-info-notes" :aria-selected="activeInfoTab === 'notes'" :tabindex="activeInfoTab === 'notes' ? 0 : -1" :class="{ 'is-active': activeInfoTab === 'notes' }" @click="selectInfoTab('notes')" @keydown.left.prevent="selectInfoTab('adjustments', true)">ノート</button>
         </div>
 
         <section id="ca-info-earnings" v-show="activeInfoTab === 'earnings'" role="tabpanel" aria-labelledby="ca-info-tab-earnings" tabindex="0" class="ca-info-panel">
-        <!-- 本日の売上/給与見込みカード -->
+        <!-- 本日の売上/報酬カード -->
         <div v-if="todaySales" class="card mb-3">
           <div class="card-body">
-            <div class="fw-bold mb-2"><i class="ti ti-currency-yen text-primary"></i> 本日の売上/給与見込み</div>
+            <div class="fw-bold mb-2"><i class="ti ti-currency-yen text-primary"></i> 本日の売上/報酬</div>
             <div class="row g-2 text-center mb-2">
               <div class="col-4">
                 <div class="small text-muted mb-1">完了済み</div>
@@ -602,7 +622,7 @@ function formatYen(n) {
                 <div class="fw-bold">{{ formatYen(todaySales.total_sales) }}</div>
               </div>
               <div class="col-4">
-                <div class="small text-muted mb-1">給与見込み</div>
+                <div class="small text-muted mb-1">報酬</div>
                 <div class="fw-bold text-primary">{{ formatYen(todaySales.estimated_pay) }}</div>
               </div>
             </div>
@@ -875,7 +895,7 @@ function formatYen(n) {
         <div v-if="checkoutData?.checkout" class="card mb-3">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-              <span class="fw-bold"><i class="ti ti-clipboard-check text-primary"></i> 本日の退勤提出</span>
+              <span class="fw-bold"><i class="ti ti-circle-check text-primary"></i> 退勤処理済み</span>
               <span
                 class="badge"
                 :class="{
@@ -885,27 +905,27 @@ function formatYen(n) {
                 }[checkoutData.checkout.status]"
               >{{ checkoutStatusLabel(checkoutData.checkout.status) }}</span>
             </div>
-            <div class="small text-muted mb-2">提出日時: {{ formatTime(checkoutData.checkout.submitted_at) }}</div>
+            <div class="small text-muted mb-2">送信日時: {{ formatTime(checkoutData.checkout.submitted_at) }}</div>
             <div v-if="checkoutData.checkout.status === 'RETURNED'" class="alert alert-warning py-2 px-3 small mb-2">
               運営から差戻しされました。内容を確認して再提出してください。
               <div v-if="checkoutData.checkout.manager_memo" class="mt-1">「{{ checkoutData.checkout.manager_memo }}」</div>
             </div>
             <button class="btn btn-sm w-100" :class="checkoutIsReadOnly ? 'btn-outline-primary' : 'btn-warning'" @click="openCheckoutModal">
-              <i class="ti ti-eye"></i> {{ checkoutIsReadOnly ? '提出内容を見る' : '内容を確認して再提出する' }}
+              <i :class="checkoutIsReadOnly ? 'ti ti-eye' : 'ti ti-edit'"></i> {{ checkoutIsReadOnly ? '精算内容を確認' : '内容を修正して再送する' }}
             </button>
           </div>
         </div>
 
         <button v-else class="btn btn-primary w-100 mb-3" @click="openCheckoutModal">
-          <i class="ti ti-door-exit"></i> 退勤する
+          <i class="ti ti-door-exit"></i> 退勤処理をする
         </button>
 
         <!-- 退勤モーダル -->
         <Teleport to="body">
-          <div v-if="showCheckoutModal" class="line-modal-overlay" @click.self="showCheckoutModal = false">
-            <div class="line-modal" style="max-width: 520px;">
+          <div v-if="showCheckoutModal" class="line-modal-overlay checkout-modal-overlay" @click.self="showCheckoutModal = false">
+            <div class="line-modal checkout-modal" style="max-width: 520px;">
               <div class="line-modal-header">
-                <span class="fw-bold fs-5"><i class="ti ti-door-exit"></i> 退勤{{ checkoutIsReadOnly ? '内容' : '' }}</span>
+                <span class="fw-bold fs-5"><i class="ti ti-door-exit"></i> {{ checkoutIsReadOnly ? '精算内容' : '退勤処理' }}</span>
                 <button class="btn btn-sm btn-light rounded-circle" @click="showCheckoutModal = false" style="width: 32px; height: 32px; padding: 0;">
                   <i class="ti ti-x"></i>
                 </button>
@@ -914,69 +934,72 @@ function formatYen(n) {
               <div class="line-modal-body">
                 <div v-if="checkoutError" class="alert alert-danger py-2 small">{{ checkoutError }}</div>
 
-                <!-- 見込みサマリー -->
                 <div class="bg-light rounded p-3 mb-3">
-                  <div class="small text-muted mb-2">完了済み {{ checkoutData?.done_count ?? 0 }}本 · 本日の売上配分（見込み）</div>
-                  <div class="row g-2 text-center">
-                    <div class="col-4">
-                      <div class="small text-muted mb-1">売上</div>
-                      <div class="fw-bold">{{ formatYen(checkoutData?.total_sales ?? 0) }}</div>
-                    </div>
-                    <div class="col-4">
-                      <div class="small text-muted mb-1">報酬</div>
-                      <div class="fw-bold text-primary">{{ formatYen(checkoutData?.compensation ?? 0) }}</div>
-                    </div>
-                    <div class="col-4">
-                      <div class="small text-muted mb-1">店舗配分</div>
-                      <div class="fw-bold">{{ formatYen(checkoutData?.store_allocation ?? 0) }}</div>
-                    </div>
+                  <div class="small text-muted mb-1">今日の受取可能額</div>
+                  <div class="fs-2 fw-bold text-primary">{{ formatYen(checkoutCarryover.available) }}</div>
+                  <div class="d-flex justify-content-between align-items-end border-top mt-3 pt-3">
+                    <span class="small text-muted">今回の受取残</span>
+                    <strong class="fs-5 text-warning">{{ formatYen(checkoutCarryover.closing) }}</strong>
                   </div>
-                  <div class="row g-2 text-center mt-2 pt-2 border-top">
-                    <div class="col-4">
-                      <div class="small text-muted mb-1">給与見込み</div>
-                      <div class="small">{{ formatYen(checkoutData?.estimated_pay ?? 0) }}</div>
-                    </div>
-                    <div class="col-4">
-                      <div class="small text-muted mb-1">雑費</div>
-                      <div class="small text-danger">-{{ formatYen(checkoutData?.expense_total ?? 0) }}</div>
-                    </div>
-                    <div class="col-4">
-                      <div class="small text-muted mb-1">カード決済加算<span class="d-block" style="font-size: 0.7rem;">(お客様負担)</span></div>
-                      <div class="small text-success">+{{ formatYen(paymentSummary.surcharge) }}</div>
-                    </div>
-                  </div>
-                  <div class="row g-2 text-center mt-1 pt-2 border-top">
-                    <div class="col-6">
-                      <div class="small text-muted mb-1">お客様決済額</div>
-                      <div class="small">{{ formatYen(paymentSummary.customerTotal) }}</div>
-                    </div>
-                    <div class="col-6">
-                      <div class="small text-muted mb-1">店舗側決済手数料<span class="d-block" style="font-size: 0.7rem;">(参考値)</span></div>
-                      <div class="small text-danger">-{{ formatYen(paymentSummary.storeFee) }}</div>
-                    </div>
-                  </div>
-                  <div class="small text-muted text-center mt-2">報酬 = 給与見込み − 雑費。カードの上乗せ分は店舗配分に含まれます。</div>
+                  <div v-if="checkoutCarryover.closing > 0" class="text-muted mt-2" style="font-size: .75rem;">どうしても今日受け取りたい場合は、運営に相談してください。</div>
                 </div>
 
-                <!-- 固定雑費テンプレ -->
-                <div v-if="checkoutData?.expense_templates?.length" class="mb-3">
-                  <div class="fw-bold small mb-1"><i class="ti ti-receipt"></i> 固定雑費</div>
-                  <div v-for="t in checkoutData.expense_templates" :key="t.id" class="d-flex justify-content-between small border-bottom py-1">
-                    <span>{{ t.name }}</span>
-                    <span>{{ formatYen(t.amount) }}</span>
+                <div v-if="checkoutData?.sales_items?.length" class="mb-3">
+                  <button type="button" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between" @click="showCheckoutSales = !showCheckoutSales">
+                    <span><i class="ti ti-list-details"></i> 本日の売上一覧（{{ checkoutData.sales_items.length }}件）</span>
+                    <i :class="showCheckoutSales ? 'ti ti-chevron-up' : 'ti ti-chevron-down'"></i>
+                  </button>
+                  <div v-if="showCheckoutSales" class="d-flex gap-2 overflow-auto pt-2 pb-1" aria-label="本日の売上一覧">
+                    <div v-for="sale in checkoutData.sales_items" :key="sale.id" class="border rounded p-2 flex-shrink-0" style="width: 210px;">
+                      <div class="d-flex justify-content-between small mb-1">
+                        <strong>{{ sale.start_time }}</strong>
+                        <span class="text-muted">{{ sale.room_name }}</span>
+                      </div>
+                      <div class="small text-truncate">{{ sale.course_name }}</div>
+                      <div v-if="sale.option_names?.length" class="small text-muted text-truncate">{{ sale.option_names.join(' / ') }}</div>
+                      <div class="d-flex justify-content-between align-items-end mt-2">
+                        <span class="small text-muted">{{ sale.payment_method_label }}</span>
+                        <strong>{{ formatYen(sale.total_price) }}</strong>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div v-if="checkoutData?.daily_expense_total" class="d-flex justify-content-between small border-bottom py-1 mb-3">
-                  <span>当日雑費</span>
-                  <span>{{ formatYen(checkoutData.daily_expense_total) }}</span>
+
+                <div class="mb-3">
+                  <button type="button" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between" @click="showCheckoutCalculation = !showCheckoutCalculation">
+                    <span><i class="ti ti-calculator"></i> 売上・精算の計算を見る</span>
+                    <i :class="showCheckoutCalculation ? 'ti ti-chevron-up' : 'ti ti-chevron-down'"></i>
+                  </button>
+                  <div v-if="showCheckoutCalculation" class="border rounded p-3 mt-2 small">
+                    <div class="d-flex justify-content-between"><span>今日の売上</span><strong>{{ formatYen(checkoutData?.total_sales ?? 0) }}</strong></div>
+                    <div class="text-muted py-1"><i class="ti ti-arrow-down"></i></div>
+                    <div class="d-flex justify-content-between"><span>今日の報酬</span><strong>{{ formatYen(checkoutCarryover.compensation) }}</strong></div>
+                    <div class="d-flex justify-content-between"><span>前回からの繰越</span><strong>+{{ formatYen(checkoutCarryover.opening) }}</strong></div>
+                    <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">今日の受取可能額</span><strong class="text-primary">{{ formatYen(checkoutCarryover.available) }}</strong></div>
+                    <div class="d-flex justify-content-between mt-2"><span>今回ルームで受け取る額</span><strong>-{{ formatYen(checkoutCarryover.roomCash) }}</strong></div>
+                    <div v-if="checkoutCarryover.officeCash" class="d-flex justify-content-between"><span>事務所で受け取った額</span><strong>-{{ formatYen(checkoutCarryover.officeCash) }}</strong></div>
+                    <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">今回の受取残</span><strong class="text-warning">{{ formatYen(checkoutCarryover.closing) }}</strong></div>
+                  </div>
+                </div>
+
+                <div class="mb-3">
+                  <button type="button" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between" @click="showReceiptHistory = !showReceiptHistory">
+                    <span><i class="ti ti-receipt"></i> 事務所で受け取った履歴を見る</span>
+                    <i :class="showReceiptHistory ? 'ti ti-chevron-up' : 'ti ti-chevron-down'"></i>
+                  </button>
+                  <div v-if="showReceiptHistory" class="border rounded p-3 mt-2 small">
+                    <template v-if="checkoutData?.receipt_history?.length">
+                      <div v-for="receipt in checkoutData.receipt_history" :key="receipt.id" class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                        <span>{{ formatMonthDay(receipt.received_on) }}　事務所で受け取りました</span>
+                        <strong>{{ formatYen(receipt.amount) }}</strong>
+                      </div>
+                    </template>
+                    <div v-else class="text-muted">事務所で受け取った履歴はまだありません。</div>
+                  </div>
                 </div>
 
                 <!-- 読み取り専用表示（提出済み・確認済み） -->
                 <template v-if="checkoutIsReadOnly">
-                  <div class="mb-2">
-                    <div class="small text-muted mb-1">当日分として持ち帰った現金</div>
-                    <div class="fw-bold">{{ formatYen(checkoutData.checkout.actual_take_home_amount) }}</div>
-                  </div>
                   <div class="mb-2">
                     <div class="small text-muted mb-1">チェックリスト</div>
                     <div v-for="item in CHECKLIST_ITEMS" :key="item.key" class="small">
@@ -997,14 +1020,12 @@ function formatYen(n) {
                 <!-- 入力フォーム（未提出 or 差戻し後） -->
                 <template v-else>
                   <div class="mb-3">
-                    <label class="form-label small fw-bold">当日分として持ち帰った現金</label>
-                    <input v-model.number="checkoutForm.actual_take_home_amount" type="number" min="0" class="form-control" />
-                    <div v-if="expectedCashShortfall" class="form-text text-warning">
-                      {{ formatYen(expectedCashShortfall) }} は未払いとして記録されます。次回出勤時または事務所で受け取った後、運営が解消します。
-                    </div>
+                    <label class="form-label small fw-bold">受取可能額</label>
+                    <input v-model.number="checkoutForm.room_cash_taken_amount" type="number" min="0" :max="Math.max(0, checkoutCarryover.available)" class="form-control" />
+                    <div class="form-text">ルーム内の現金に合わせて入力してください。受け取らなかった分は、次回以降に受け取れます。</div>
                   </div>
                   <div class="mb-3">
-                    <label class="form-label small fw-bold">退勤チェックリスト</label>
+                    <label class="form-label small fw-bold">退勤チェック <span class="text-danger">（すべて確認してください）</span></label>
                     <div v-for="item in CHECKLIST_ITEMS" :key="item.key" class="form-check">
                       <input
                         v-model="checkoutForm.checklist_json[item.key]"
@@ -1016,22 +1037,22 @@ function formatYen(n) {
                     </div>
                   </div>
                   <div class="mb-2">
-                    <label class="form-label small fw-bold">メモ</label>
+                    <label class="form-label small fw-bold">メモ（任意）</label>
                     <textarea v-model="checkoutForm.cast_memo" class="form-control" rows="3" placeholder="運営への連絡事項があれば入力してください"></textarea>
                   </div>
                 </template>
-
-                <div class="small text-muted mt-2">表示金額は完了済み予約を元にした見込みです。最終精算額とは異なる場合があります。</div>
               </div>
 
               <div class="line-modal-footer">
-                <div v-if="!checkoutIsReadOnly" class="d-flex gap-2">
-                  <button class="btn btn-outline-secondary flex-grow-1" @click="showCheckoutModal = false">キャンセル</button>
-                  <button class="btn btn-primary flex-grow-1" :disabled="checkoutSaving" @click="submitCheckout">
-                    {{ checkoutSaving ? '送信中...' : '退勤提出する' }}
-                  </button>
-                </div>
-                <button v-else class="btn btn-outline-secondary w-100" @click="showCheckoutModal = false">閉じる</button>
+                <button
+                  v-if="!checkoutIsReadOnly"
+                  class="btn w-100"
+                  :class="checkoutReadyToSubmit ? 'btn-primary' : 'btn-outline-secondary'"
+                  :disabled="checkoutSaving"
+                  @click="checkoutReadyToSubmit ? submitCheckout() : (showCheckoutModal = false)"
+                >{{ checkoutSaving ? '送信中...' : (checkoutReadyToSubmit ? '退勤連絡をする' : '閉じる') }}</button>
+                <div v-if="!checkoutIsReadOnly && !checkoutReadyToSubmit" class="small text-muted text-center mt-2">退勤チェックをすべて完了すると送信できます。</div>
+                <button v-if="checkoutIsReadOnly" class="btn btn-outline-secondary w-100" @click="showCheckoutModal = false">閉じる</button>
               </div>
             </div>
           </div>
@@ -1138,9 +1159,22 @@ function formatYen(n) {
   overflow-y: auto;
   animation: slideUp 0.25s ease-out;
 }
+.checkout-modal-overlay {
+  align-items: center;
+  padding: 16px;
+}
+.checkout-modal {
+  border-radius: 20px;
+  max-height: calc(100vh - 32px);
+  animation: checkoutModalIn 0.2s ease-out;
+}
 @keyframes slideUp {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
+}
+@keyframes checkoutModalIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .line-modal-header {
   display: flex;

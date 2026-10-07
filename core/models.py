@@ -1438,7 +1438,23 @@ class CastDailyCheckout(models.Model):
         default=0, help_text="顧客決済額から店舗側手数料を引いた売上見込み（参考値）",
     )
 
-    actual_take_home_amount = models.PositiveIntegerField(default=0, help_text="当日分の報酬として実際に持ち帰った現金（キャスト入力）")
+    # 現金精算は退勤提出に紐づける。独立した「未払い台帳」は作らず、
+    # キャストが次回いくら持ち帰れるかをこの履歴から再計算する。
+    room = models.ForeignKey(
+        Room, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="cash_checkouts", help_text="当日の現金を管理する主なルーム",
+    )
+    room_cash_taken_amount = models.PositiveIntegerField(
+        default=0, help_text="ルーム内の現金からキャストが持ち帰った額",
+    )
+    office_cash_paid_amount = models.PositiveIntegerField(
+        default=0, help_text="事務所からキャストへ別途渡した額（manager記録）",
+    )
+    cash_returned_to_room_amount = models.PositiveIntegerField(
+        default=0, help_text="キャストがルームへ戻した現金（manager記録）",
+    )
+    # 既存データ/APIとの互換用。新規では room_cash_taken_amount と同じ値を保存する。
+    actual_take_home_amount = models.PositiveIntegerField(default=0, help_text="旧形式の持ち帰り金額（ルーム現金持ち帰り額と同期）")
     checklist_json = models.JSONField(default=dict, blank=True, help_text="退勤チェックリストの回答")
     cast_memo = models.TextField(blank=True, default="")
     manager_memo = models.TextField(blank=True, default="")
@@ -1461,6 +1477,51 @@ class CastDailyCheckout(models.Model):
 
     def __str__(self):
         return f"{self.cast.name} {self.date} ({self.status})"
+
+
+class CastOfficeCashReceipt(models.Model):
+    """事務所でキャストへ渡した現金の、消さない受取履歴。"""
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="cast_office_cash_receipts")
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="office_cash_receipts")
+    checkout = models.ForeignKey(
+        CastDailyCheckout, on_delete=models.CASCADE, related_name="office_cash_receipts",
+    )
+    amount = models.PositiveIntegerField()
+    received_on = models.DateField()
+    memo = models.TextField(blank=True, default="")
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="recorded_cast_office_cash_receipts",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-received_on", "-id"]
+        indexes = [models.Index(fields=["store", "cast", "received_on"])]
+
+    def __str__(self):
+        return f"{self.cast.name} 事務所受取 ¥{self.amount} ({self.received_on})"
+
+
+class RoomCashCount(models.Model):
+    """ルームの閉店時現金カウント。予定額は売上・精算履歴から都度算出する。"""
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="room_cash_counts")
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name="cash_counts")
+    date = models.DateField()
+    actual_cash_amount = models.PositiveIntegerField(default=0)
+    memo = models.TextField(blank=True, default="")
+    counted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="room_cash_counts",
+    )
+    counted_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("store", "room", "date")
+        ordering = ["-date", "room"]
+
+    def __str__(self):
+        return f"{self.room.name} {self.date} ¥{self.actual_cash_amount}"
 
 
 class CastCheckoutExpenseSnapshot(models.Model):

@@ -372,6 +372,10 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
     cast_name = serializers.CharField(source="cast.name", read_only=True)
     reviewed_by_name = serializers.SerializerMethodField()
     expense_snapshots = CastCheckoutExpenseSnapshotSerializer(many=True, read_only=True)
+    room_name = serializers.CharField(source="room.name", read_only=True)
+    compensation_amount = serializers.SerializerMethodField()
+    carryover_opening_amount = serializers.SerializerMethodField()
+    carryover_closing_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = CastDailyCheckout
@@ -380,7 +384,10 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
             "done_count", "total_sales", "estimated_pay", "course_sales", "options_sales",
             "customer_payment_surcharge", "customer_payment_total",
             "payment_fee_estimate", "net_sales_after_payment_fee",
-            "actual_take_home_amount", "checklist_json", "cast_memo", "manager_memo",
+            "room", "room_name", "room_cash_taken_amount", "office_cash_paid_amount",
+            "cash_returned_to_room_amount", "actual_take_home_amount",
+            "compensation_amount", "carryover_opening_amount", "carryover_closing_amount",
+            "checklist_json", "cast_memo", "manager_memo",
             "submitted_at", "reviewed_at", "reviewed_by", "reviewed_by_name",
             "expense_snapshots", "created_at", "updated_at",
         ]
@@ -388,6 +395,29 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
 
     def get_reviewed_by_name(self, obj) -> Optional[str]:
         return obj.reviewed_by.username if obj.reviewed_by else None
+
+    def get_compensation_amount(self, obj) -> int:
+        return obj.estimated_pay - sum(obj.expense_snapshots.values_list("amount", flat=True))
+
+    def get_carryover_opening_amount(self, obj) -> int:
+        previous = (
+            CastDailyCheckout.objects.filter(cast=obj.cast, date__lt=obj.date)
+            .exclude(status=CastDailyCheckout.Status.RETURNED)
+            .prefetch_related("expense_snapshots")
+        )
+        return sum(
+            item.estimated_pay - sum(item.expense_snapshots.values_list("amount", flat=True))
+            - item.room_cash_taken_amount - item.office_cash_paid_amount
+            for item in previous
+        )
+
+    def get_carryover_closing_amount(self, obj) -> int:
+        return (
+            self.get_carryover_opening_amount(obj)
+            + self.get_compensation_amount(obj)
+            - obj.room_cash_taken_amount
+            - obj.office_cash_paid_amount
+        )
 
 
 class CastAdjustmentSerializer(serializers.ModelSerializer):

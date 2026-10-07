@@ -23,7 +23,7 @@ from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import parsers, viewsets, status
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes, throttle_classes
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
@@ -36,7 +36,7 @@ from twilio.twiml.voice_response import Dial, VoiceResponse
 from .models import (
     CallLog, CallLogReadReceipt, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
     CastUnavailableTime,
-    CastDailyCheckout, CastExpense, CastExpenseTemplate,
+    CastDailyCheckout, CastExpense, CastExpenseTemplate, CastOfficeCashReceipt, RoomCashCount,
     CastExpenseTemplateHistory, CastNote, Course, Customer,
     CustomerMergeLog, DailySettlement, DailySettlementAuditEvent, Discount, Extension, Medium,
     LineNotificationLog, NominationFee, OperatorNotification,
@@ -1269,6 +1269,29 @@ def _compute_cast_done_sales(cast, d):
     }
 
 
+def _checkout_sales_items(cast, d):
+    """キャスト本人が退勤時に確認する、当日の完了済み売上の簡潔な一覧。"""
+    orders = (
+        get_done_orders_for_business_range(cast.store, d, d)
+        .filter(cast=cast)
+        .select_related("room")
+        .prefetch_related("options")
+        .order_by("start", "id")
+    )
+    return [
+        {
+            "id": order.id,
+            "start_time": format_business_time(order.start, d, cast.store.timezone),
+            "room_name": order.room.name if order.room_id else "",
+            "course_name": order.course_name,
+            "option_names": [option.name for option in order.options.all()],
+            "total_price": order.total_price,
+            "payment_method_label": order.get_payment_method_display(),
+        }
+        for order in orders
+    ]
+
+
 def _compute_payment_summary(store, cast, d):
     """指定キャスト・指定営業日の顧客決済額と店舗側参考手数料を返す。"""
     from .services.sales import payment_financial_summary
@@ -1309,51 +1332,100 @@ def _allocation_amounts(gross_pay, net_sales_after_fee, expenses):
     }
 
 
-def _sync_checkout_cash_shortfall(*, checkout, compensation, actual_take_home_amount, user):
-    """退勤提出の未払いを調整金台帳へ同期する。
+def _checkout_compensation(checkout):
+    """退勤提出に固定された売上・雑費から、当日の報酬を算出する。"""
+    return checkout.estimated_pay - sum(checkout.expense_snapshots.values_list("amount", flat=True))
 
-    持ち帰る現金が当日報酬に足りないときだけ、差額を「キャストへ渡す未払い」
-    として正の金額で記録する。次回出勤・事務所での受渡し後は manager が通常の
-    調整金解消操作を行う。
-    """
-    shortfall = max(0, compensation - actual_take_home_amount)
-    open_entries = CastAdjustment.objects.filter(
-        source_checkout=checkout,
-        source_type=CastAdjustment.SourceType.CHECKOUT,
-        status=CastAdjustment.Status.OPEN,
-        title="現金不足による未払い",
-    ).order_by("id")
 
-    if shortfall:
-        entry = open_entries.first()
-        defaults = {
-            "store": checkout.store,
-            "cast": checkout.cast,
-            "date": checkout.date,
-            "amount": shortfall,
-            "memo": "退勤提出時に、当日分の報酬を現金で渡し切れなかったため自動記録。"
-                    "次回出勤時または事務所での受渡し後に解消してください。",
+def _cast_carryover_before(cast, d):
+    """指定日の開始時点でキャストがまだ持ち帰れる金額。"""
+    checkouts = (
+        CastDailyCheckout.objects.filter(cast=cast, date__lt=d)
+        .exclude(status=CastDailyCheckout.Status.RETURNED)
+        .prefetch_related("expense_snapshots")
+        .order_by("date", "id")
+    )
+    return sum(
+        _checkout_compensation(item)
+        - item.room_cash_taken_amount
+        - item.office_cash_paid_amount
+        for item in checkouts
+    )
+
+
+def _checkout_settlement(checkout):
+    opening = _cast_carryover_before(checkout.cast, checkout.date)
+    compensation = _checkout_compensation(checkout)
+    return {
+        "carryover_opening_amount": opening,
+        "compensation_amount": compensation,
+        "room_cash_taken_amount": checkout.room_cash_taken_amount,
+        "office_cash_paid_amount": checkout.office_cash_paid_amount,
+        "cash_returned_to_room_amount": checkout.cash_returned_to_room_amount,
+        "carryover_closing_amount": (
+            opening + compensation - checkout.room_cash_taken_amount - checkout.office_cash_paid_amount
+        ),
+    }
+
+
+def _cast_office_receipt_history(cast):
+    """キャスト本人に見せる、事務所受取の消さない履歴。"""
+    return [
+        {
+            "id": receipt.id,
+            "received_on": receipt.received_on.isoformat(),
+            "amount": receipt.amount,
         }
-        if entry:
-            for field, value in defaults.items():
-                setattr(entry, field, value)
-            entry.save(update_fields=[*defaults.keys(), "updated_at"])
-        else:
-            CastAdjustment.objects.create(
-                **defaults,
-                title="現金不足による未払い",
-                source_type=CastAdjustment.SourceType.CHECKOUT,
-                source_checkout=checkout,
-                created_by=user,
-            )
-    else:
-        open_entries.update(
-            status=CastAdjustment.Status.VOID,
-            resolved_by=user,
-            resolved_at=timezone.now(),
-            resolved_memo="退勤提出の再提出により未払いなしとなったため自動で無効化。",
+        for receipt in CastOfficeCashReceipt.objects.filter(cast=cast).order_by("-received_on", "-id")
+    ]
+
+
+def _suggest_checkout_room(cast, d):
+    room_id = (
+        get_done_orders_for_business_range(cast.store, d, d)
+        .filter(cast=cast, room__isnull=False)
+        .order_by("start", "id")
+        .values_list("room_id", flat=True)
+        .first()
+    )
+    if room_id:
+        return Room.objects.filter(id=room_id, store=cast.store).first()
+    shift = ShiftAssignment.objects.filter(cast=cast, date=d, room__isnull=False).select_related("room").first()
+    return shift.room if shift else None
+
+
+def _room_cash_summary(store, d):
+    """ルームの実残高と、売上・日次精算から導く予定残を返す。"""
+    summaries = []
+    for room in Room.objects.filter(store=store).order_by("sort_order", "id"):
+        previous_count = RoomCashCount.objects.filter(store=store, room=room, date__lt=d).order_by("-date").first()
+        opening = previous_count.actual_cash_amount if previous_count else 0
+        cash_sales = sum(
+            get_done_orders_for_business_range(store, d, d)
+            .filter(room=room, payment_method=Order.PaymentMethod.CASH)
+            .values_list("total_price", flat=True)
         )
-    return shortfall
+        checkouts = CastDailyCheckout.objects.filter(store=store, room=room, date=d).exclude(
+            status=CastDailyCheckout.Status.RETURNED,
+        )
+        cash_taken = sum(checkouts.values_list("room_cash_taken_amount", flat=True))
+        cash_returned = sum(checkouts.values_list("cash_returned_to_room_amount", flat=True))
+        expected = opening + cash_sales - cash_taken + cash_returned
+        count = RoomCashCount.objects.filter(store=store, room=room, date=d).first()
+        actual = count.actual_cash_amount if count else None
+        summaries.append({
+            "room": room.id,
+            "room_name": room.name,
+            "opening_cash_amount": opening,
+            "cash_sales_amount": cash_sales,
+            "room_cash_taken_amount": cash_taken,
+            "cash_returned_amount": cash_returned,
+            "expected_cash_amount": expected,
+            "actual_cash_amount": actual,
+            "difference_amount": actual - expected if actual is not None else None,
+            "memo": count.memo if count else "",
+        })
+    return summaries
 
 
 @document_object_api_view
@@ -1410,8 +1482,11 @@ class CastCheckoutView(APIView):
         return Response({
             "date": today.isoformat(),
             **sales,
+            "sales_items": _checkout_sales_items(cast, today),
             **fee,
             **allocation,
+            "carryover_opening_amount": _cast_carryover_before(cast, today),
+            "receipt_history": _cast_office_receipt_history(cast),
             "expense_templates": template_data,
             "checkout": CastDailyCheckoutSerializer(existing).data if existing else None,
             "can_submit": existing is None or existing.status == CastDailyCheckout.Status.RETURNED,
@@ -1434,15 +1509,17 @@ class CastCheckoutView(APIView):
             )
 
         try:
-            actual_take_home_amount = int(request.data.get("actual_take_home_amount") or 0)
+            room_cash_taken_amount = int(
+                request.data.get("room_cash_taken_amount", request.data.get("actual_take_home_amount", 0)) or 0
+            )
         except (TypeError, ValueError):
             return Response(
-                {"detail": "実際の持ち帰り金額の形式が不正です"},
+                {"detail": "ルームから持ち帰った現金の形式が不正です"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if actual_take_home_amount < 0:
+        if room_cash_taken_amount < 0:
             return Response(
-                {"detail": "実際の持ち帰り金額は0以上で入力してください"},
+                {"detail": "ルームから持ち帰った現金は0以上で入力してください"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1462,6 +1539,12 @@ class CastCheckoutView(APIView):
         allocation = _allocation_amounts(
             sales["estimated_pay"], fee["net_sales_after_payment_fee"], expenses,
         )
+        available_amount = _cast_carryover_before(cast, today) + allocation["compensation"]
+        if room_cash_taken_amount > max(0, available_amount):
+            return Response(
+                {"detail": "受取可能額を超える金額は入力できません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         with transaction.atomic():
             if existing is not None:
@@ -1479,7 +1562,12 @@ class CastCheckoutView(APIView):
             instance.customer_payment_total = fee["customer_payment_total"]
             instance.payment_fee_estimate = fee["payment_fee_estimate"]
             instance.net_sales_after_payment_fee = fee["net_sales_after_payment_fee"]
-            instance.actual_take_home_amount = actual_take_home_amount
+            instance.room = _suggest_checkout_room(cast, today)
+            instance.room_cash_taken_amount = room_cash_taken_amount
+            # 既存の出力/APIを壊さないため、旧フィールドにも同じ値を保存する。
+            instance.actual_take_home_amount = room_cash_taken_amount
+            instance.office_cash_paid_amount = 0
+            instance.cash_returned_to_room_amount = 0
             instance.checklist_json = checklist_json
             instance.cast_memo = cast_memo
             instance.status = CastDailyCheckout.Status.SUBMITTED
@@ -1492,13 +1580,6 @@ class CastCheckoutView(APIView):
                 )
                 for t in templates
             ])
-            _sync_checkout_cash_shortfall(
-                checkout=instance,
-                compensation=allocation["compensation"],
-                actual_take_home_amount=actual_take_home_amount,
-                user=request.user,
-            )
-
         instance.refresh_from_db()
         return Response(
             CastDailyCheckoutSerializer(instance).data,
@@ -3152,10 +3233,10 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
     """退勤提出一覧/詳細の閲覧 + manager_memo編集 + 確認/差戻し/未確認に戻す — manager のみ。
     提出自体はキャスト側 CastCheckoutView からのみ行う（create/delete はここでは提供しない）。"""
     permission_classes = [IsAuthenticated, IsManager]
-    http_method_names = ["get", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "head", "options"]
     queryset = (
         CastDailyCheckout.objects
-        .select_related("cast", "reviewed_by")
+        .select_related("cast", "room", "reviewed_by")
         .prefetch_related("expense_snapshots")
         .order_by("-date", "cast")
     )
@@ -3181,6 +3262,10 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         # manager_memo以外はserializerのread_only_fieldsで書き込み不可
         self.check_manager(request)
         return super().partial_update(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        # POST は detail action（確認・事務所払い）のみ。空の退勤提出は作らせない。
+        raise MethodNotAllowed("POST")
 
     @action(detail=True, methods=["post"])
     def review(self, request, pk=None):
@@ -3220,6 +3305,139 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         instance.reviewed_by = None
         instance.save(update_fields=["status", "reviewed_at", "reviewed_by", "updated_at"])
         return Response(CastDailyCheckoutSerializer(instance).data)
+
+    @action(detail=True, methods=["patch"], url_path="cash-settlement")
+    def cash_settlement(self, request, pk=None):
+        """運営だけが、ルーム現金・返金・メモを退勤精算に追記する。"""
+        self.check_manager(request)
+        instance = self.get_object()
+        numeric_fields = (
+            "room_cash_taken_amount",
+            "cash_returned_to_room_amount",
+        )
+        updates = []
+        for field in numeric_fields:
+            if field not in request.data:
+                continue
+            try:
+                value = int(request.data[field] or 0)
+            except (TypeError, ValueError):
+                return Response({"detail": f"{field} の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+            if value < 0:
+                return Response({"detail": "金額は0以上で入力してください"}, status=status.HTTP_400_BAD_REQUEST)
+            setattr(instance, field, value)
+            updates.append(field)
+        if "room_cash_taken_amount" in updates:
+            settlement = _checkout_settlement(instance)
+            available_amount = (
+                settlement["carryover_opening_amount"]
+                + settlement["compensation_amount"]
+                - instance.office_cash_paid_amount
+            )
+            if instance.room_cash_taken_amount > max(0, available_amount):
+                return Response(
+                    {"detail": "受取可能額を超える金額は入力できません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if "room" in request.data:
+            room_id = request.data["room"]
+            if room_id in (None, ""):
+                instance.room = None
+            else:
+                room = Room.objects.filter(id=room_id, store=instance.store).first()
+                if room is None:
+                    return Response({"detail": "対象ルームが見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
+                instance.room = room
+            updates.append("room")
+        if "manager_memo" in request.data:
+            instance.manager_memo = request.data.get("manager_memo") or ""
+            updates.append("manager_memo")
+        if not updates:
+            return Response({"detail": "更新する精算項目を指定してください"}, status=status.HTTP_400_BAD_REQUEST)
+        if "room_cash_taken_amount" in updates:
+            instance.actual_take_home_amount = instance.room_cash_taken_amount
+            updates.append("actual_take_home_amount")
+        instance.save(update_fields=[*updates, "updated_at"])
+        return Response(CastDailyCheckoutSerializer(instance).data)
+
+    @action(detail=True, methods=["post"], url_path="office-payment")
+    def office_payment(self, request, pk=None):
+        """事務所で渡した現金を、後から消えない受取履歴として記録する。"""
+        self.check_manager(request)
+        instance = self.get_object()
+        try:
+            amount = int(request.data.get("amount") or 0)
+        except (TypeError, ValueError):
+            return Response({"detail": "金額の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+        if amount <= 0:
+            return Response({"detail": "金額は1円以上で入力してください"}, status=status.HTTP_400_BAD_REQUEST)
+        raw_date = request.data.get("received_on")
+        if raw_date:
+            try:
+                received_on = date_type.fromisoformat(raw_date)
+            except ValueError:
+                return Response({"detail": "受取日の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            received_on = business_date_for_datetime(timezone.now(), instance.store.timezone)
+
+        with transaction.atomic():
+            instance = (
+                CastDailyCheckout.objects.select_for_update()
+                .select_related("cast")
+                .prefetch_related("expense_snapshots")
+                .get(pk=instance.pk)
+            )
+            if amount > max(0, _checkout_settlement(instance)["carryover_closing_amount"]):
+                return Response(
+                    {"detail": "未受取残を超える金額は記録できません"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            CastOfficeCashReceipt.objects.create(
+                store=instance.store,
+                cast=instance.cast,
+                checkout=instance,
+                amount=amount,
+                received_on=received_on,
+                memo=request.data.get("memo", "") or "",
+                recorded_by=request.user,
+            )
+            instance.office_cash_paid_amount += amount
+            instance.save(update_fields=["office_cash_paid_amount", "updated_at"])
+
+        return Response(CastDailyCheckoutSerializer(instance).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get", "post"], url_path="room-cash")
+    def room_cash(self, request):
+        """ルーム現金状況の参照と実残カウントの記録。"""
+        self.check_manager(request)
+        raw_date = request.data.get("date") if request.method == "POST" else request.query_params.get("date")
+        try:
+            target_date = date_type.fromisoformat(raw_date) if raw_date else business_date_for_datetime(
+                timezone.now(), get_user_store(request).timezone,
+            )
+        except ValueError:
+            return Response({"detail": "日付の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+        store = get_user_store(request)
+        if request.method == "POST":
+            try:
+                room_id = int(request.data.get("room"))
+                actual_amount = int(request.data.get("actual_cash_amount"))
+            except (TypeError, ValueError):
+                return Response({"detail": "ルームまたは実残高の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+            if actual_amount < 0:
+                return Response({"detail": "実残高は0以上で入力してください"}, status=status.HTTP_400_BAD_REQUEST)
+            room = Room.objects.filter(id=room_id, store=store).first()
+            if room is None:
+                return Response({"detail": "対象ルームが見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
+            RoomCashCount.objects.update_or_create(
+                store=store, room=room, date=target_date,
+                defaults={
+                    "actual_cash_amount": actual_amount,
+                    "memo": request.data.get("memo", "") or "",
+                    "counted_by": request.user,
+                },
+            )
+        return Response({"date": target_date.isoformat(), "rooms": _room_cash_summary(store, target_date)})
 
     @action(detail=False, methods=["get"])
     def export_csv(self, request):

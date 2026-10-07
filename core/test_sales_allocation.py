@@ -55,6 +55,16 @@ class SalesAllocationTest(TestCase):
         settlement = self.manager_client.get("/api/op/daily-settlement/?date=2026-10-02")
         self.assertEqual(checkout.status_code, 200, checkout.data)
         self.assertEqual(settlement.status_code, 200, settlement.data)
+        self.assertEqual(len(checkout.data["sales_items"]), 1)
+        self.assertEqual(checkout.data["sales_items"][0], {
+            "id": self.order.id,
+            "start_time": "18:00",
+            "room_name": "101",
+            "course_name": "60分",
+            "option_names": [],
+            "total_price": 24000,
+            "payment_method_label": "現金",
+        })
         for values in (checkout.data, settlement.data["rows"][0], settlement.data["totals"]):
             self.assertEqual(values["fixed_expense_total"], 5000)
             self.assertEqual(values["daily_expense_total"], 0)
@@ -90,6 +100,20 @@ class SalesAllocationTest(TestCase):
         self.assertEqual(locked.data["totals"]["store_allocation"], 15000)
 
     @patch("core.views.timezone.now", return_value=datetime(2026, 10, 2, 20, tzinfo=ZoneInfo("Asia/Tokyo")))
+    def test_negative_compensation_can_still_be_submitted_with_zero_cash(self, _now):
+        self.fixed.amount = 20000
+        self.fixed.save(update_fields=["amount"])
+
+        submit = self.cast_client.post(
+            "/api/cast/checkout/",
+            {"room_cash_taken_amount": 0, "checklist_json": {}}, format="json",
+        )
+
+        self.assertEqual(submit.status_code, 201, submit.data)
+        self.assertEqual(submit.data["compensation_amount"], -6000)
+        self.assertEqual(submit.data["carryover_closing_amount"], -6000)
+
+    @patch("core.views.timezone.now", return_value=datetime(2026, 10, 2, 20, tzinfo=ZoneInfo("Asia/Tokyo")))
     def test_card_fee_and_fixed_expense_snapshot(self, _now):
         self.order.payment_method = Order.PaymentMethod.CARD
         self.order.card_include_options = True
@@ -111,6 +135,11 @@ class SalesAllocationTest(TestCase):
         self.assertEqual(dashboard.data["customer_payment_total"], 26400)
         self.assertEqual(dashboard.data["payment_fee_estimate"], 0)
 
+        over_submit = self.cast_client.post(
+            "/api/cast/checkout/",
+            {"room_cash_taken_amount": 9001, "checklist_json": {}}, format="json",
+        )
+        self.assertEqual(over_submit.status_code, 400, over_submit.data)
         submit = self.cast_client.post(
             "/api/cast/checkout/",
             {"actual_take_home_amount": 0, "checklist_json": {}}, format="json",
@@ -118,10 +147,49 @@ class SalesAllocationTest(TestCase):
         self.assertEqual(submit.status_code, 201, submit.data)
         self.assertEqual(submit.data["customer_payment_surcharge"], 2400)
         self.assertEqual(submit.data["customer_payment_total"], 26400)
-        unpaid = CastAdjustment.objects.get(source_checkout_id=submit.data["id"])
-        self.assertEqual(unpaid.title, "現金不足による未払い")
-        self.assertEqual(unpaid.amount, 9000)
-        self.assertEqual(unpaid.status, CastAdjustment.Status.OPEN)
+        # カードだけの日は調整金を自動作成せず、次回に持ち帰れる残として退勤精算へ残す。
+        self.assertEqual(submit.data["room_cash_taken_amount"], 0)
+        self.assertEqual(submit.data["carryover_closing_amount"], 9000)
+        self.assertFalse(CastAdjustment.objects.filter(source_checkout_id=submit.data["id"]).exists())
+        denied = self.cast_client.patch(
+            f"/api/cast-checkouts/{submit.data['id']}/cash-settlement/",
+            {"office_cash_paid_amount": 4000}, format="json",
+        )
+        self.assertEqual(denied.status_code, 403)
+        office_payment = self.manager_client.post(
+            f"/api/cast-checkouts/{submit.data['id']}/office-payment/",
+            {"amount": 4000, "received_on": "2026-10-02"}, format="json",
+        )
+        self.assertEqual(office_payment.status_code, 201, office_payment.data)
+        self.assertEqual(office_payment.data["carryover_closing_amount"], 5000)
+        overpayment = self.manager_client.post(
+            f"/api/cast-checkouts/{submit.data['id']}/office-payment/",
+            {"amount": 5001, "received_on": "2026-10-02"}, format="json",
+        )
+        self.assertEqual(overpayment.status_code, 400, overpayment.data)
+        saved_detail = self.manager_client.patch(
+            f"/api/cast-checkouts/{submit.data['id']}/cash-settlement/",
+            {
+                "room_cash_taken_amount": 3000,
+                "cash_returned_to_room_amount": 0,
+                "manager_memo": "ルーム精算を確認済み",
+            },
+            format="json",
+        )
+        self.assertEqual(saved_detail.status_code, 200, saved_detail.data)
+        self.assertEqual(saved_detail.data["carryover_closing_amount"], 2000)
+        self.assertEqual(saved_detail.data["manager_memo"], "ルーム精算を確認済み")
+        over_settlement = self.manager_client.patch(
+            f"/api/cast-checkouts/{submit.data['id']}/cash-settlement/",
+            {"room_cash_taken_amount": 5001}, format="json",
+        )
+        self.assertEqual(over_settlement.status_code, 400, over_settlement.data)
+        saved_detail = self.manager_client.get(f"/api/cast-checkouts/{submit.data['id']}/")
+        self.assertEqual(saved_detail.data["carryover_closing_amount"], 2000)
+        receipt_history = self.cast_client.get("/api/cast/checkout/")
+        self.assertEqual(len(receipt_history.data["receipt_history"]), 1)
+        self.assertEqual(receipt_history.data["receipt_history"][0]["received_on"], "2026-10-02")
+        self.assertEqual(receipt_history.data["receipt_history"][0]["amount"], 4000)
         self.fixed.amount = 7000
         self.fixed.save(update_fields=["amount"])
         checkout = self.cast_client.get("/api/cast/checkout/")

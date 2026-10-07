@@ -14,6 +14,9 @@ const error = ref('')
 const checkouts = ref([])
 const totalCount = ref(0)
 const casts = ref([])
+const roomCashSummary = ref([])
+const roomCashDrafts = ref({})
+const roomCashSaving = ref({})
 
 // Filters
 const filterDate = ref(new Date().toISOString().slice(0, 10))
@@ -27,6 +30,8 @@ const detailLoading = ref(false)
 const detailError = ref('')
 const managerMemoDraft = ref('')
 const actionSaving = ref(false)
+const settlementForm = ref({ room_cash_taken_amount: 0 })
+const officePaymentForm = ref({ amount: 0, received_on: '', memo: '' })
 
 const CHECKLIST_ITEMS = [
   { key: 'room_cleaned', label: '部屋の片付け・清掃をした' },
@@ -86,6 +91,35 @@ async function loadCheckouts() {
   }
 }
 
+async function loadRoomCash() {
+  try {
+    const data = await api.getRoomCashSummary(filterDate.value)
+    roomCashSummary.value = data.rooms || []
+    roomCashDrafts.value = Object.fromEntries(roomCashSummary.value.map(row => [row.room, {
+      actual_cash_amount: row.actual_cash_amount ?? '', memo: row.memo || '',
+    }]))
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function saveRoomCash(row) {
+  const draft = roomCashDrafts.value[row.room]
+  if (!draft || draft.actual_cash_amount === '') return
+  roomCashSaving.value[row.room] = true
+  try {
+    const data = await api.saveRoomCashCount({
+      date: filterDate.value, room: row.room,
+      actual_cash_amount: Number(draft.actual_cash_amount), memo: draft.memo,
+    })
+    roomCashSummary.value = data.rooms || []
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    roomCashSaving.value[row.room] = false
+  }
+}
+
 async function loadMoreCheckouts() {
   loadingMore.value = true
   error.value = ''
@@ -111,9 +145,11 @@ onMounted(async () => {
     error.value = e.message
   }
   await loadCheckouts()
+  await loadRoomCash()
 })
 
 watch([filterDate, filterCast, filterStatus], () => loadCheckouts())
+watch(filterDate, () => loadRoomCash())
 
 async function openDetail(row) {
   showDetail.value = true
@@ -123,6 +159,14 @@ async function openDetail(row) {
   try {
     detail.value = await api.getCastCheckoutDetail(row.id)
     managerMemoDraft.value = detail.value.manager_memo || ''
+    settlementForm.value = {
+      room_cash_taken_amount: detail.value.room_cash_taken_amount || 0,
+    }
+    officePaymentForm.value = {
+      amount: 0,
+      received_on: new Date().toISOString().slice(0, 10),
+      memo: '',
+    }
   } catch (e) {
     detailError.value = e.message
   } finally {
@@ -130,12 +174,38 @@ async function openDetail(row) {
   }
 }
 
-async function saveManagerMemo() {
+async function saveDetail() {
   if (!detail.value) return
   actionSaving.value = true
   detailError.value = ''
   try {
-    detail.value = await api.updateCastCheckoutManagerMemo(detail.value.id, managerMemoDraft.value)
+    detail.value = await api.updateCastCheckoutCashSettlement(detail.value.id, {
+      ...settlementForm.value,
+      manager_memo: managerMemoDraft.value,
+    })
+    await Promise.all([loadCheckouts(), loadRoomCash()])
+  } catch (e) {
+    detailError.value = e.message
+  } finally {
+    actionSaving.value = false
+  }
+}
+
+async function recordOfficePayment() {
+  if (!detail.value || !officePaymentForm.value.amount) return
+  actionSaving.value = true
+  detailError.value = ''
+  try {
+    detail.value = await api.recordCastCheckoutOfficePayment(detail.value.id, {
+      amount: Number(officePaymentForm.value.amount),
+      received_on: officePaymentForm.value.received_on,
+      memo: officePaymentForm.value.memo,
+    })
+    officePaymentForm.value = {
+      amount: 0,
+      received_on: new Date().toISOString().slice(0, 10),
+      memo: '',
+    }
     await loadCheckouts()
   } catch (e) {
     detailError.value = e.message
@@ -237,6 +307,31 @@ function createAdjustmentFromCheckout() {
           </div>
         </div>
 
+        <div class="border rounded p-3 mb-4 bg-light">
+          <div class="fw-bold mb-2"><i class="ti ti-building-bank"></i> ルーム現金状況</div>
+          <div class="small text-muted mb-3">予定残高 = 前回の実残高 + 当日の現金売上 − キャスト持ち帰り + ルームへの返金</div>
+          <div v-if="!roomCashSummary.length" class="small text-muted">ルームが登録されていません</div>
+          <div v-for="row in roomCashSummary" :key="row.room" class="bg-white border rounded p-3 mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <strong>{{ row.room_name }}</strong>
+              <span class="badge" :class="row.difference_amount === 0 ? 'bg-success' : row.difference_amount === null ? 'bg-secondary' : 'bg-warning text-dark'">
+                {{ row.difference_amount === null ? '未カウント' : `差額 ${formatYen(row.difference_amount)}` }}
+              </span>
+            </div>
+            <div class="row small g-2 mb-2">
+              <div class="col-6 col-md-3"><span class="text-muted">前回実残</span><div class="fw-bold">{{ formatYen(row.opening_cash_amount) }}</div></div>
+              <div class="col-6 col-md-3"><span class="text-muted">現金売上</span><div class="fw-bold">+{{ formatYen(row.cash_sales_amount) }}</div></div>
+              <div class="col-6 col-md-3"><span class="text-muted">持ち帰り</span><div class="fw-bold text-danger">-{{ formatYen(row.room_cash_taken_amount) }}</div></div>
+              <div class="col-6 col-md-3"><span class="text-muted">予定残</span><div class="fw-bold text-primary">{{ formatYen(row.expected_cash_amount) }}</div></div>
+            </div>
+            <div class="row g-2 align-items-end">
+              <div class="col-sm-4"><label class="form-label small mb-1">実際に数えた現金</label><input v-model.number="roomCashDrafts[row.room].actual_cash_amount" type="number" min="0" class="form-control form-control-sm" /></div>
+              <div class="col-sm-5"><label class="form-label small mb-1">メモ</label><input v-model="roomCashDrafts[row.room].memo" class="form-control form-control-sm" placeholder="差額の理由など" /></div>
+              <div class="col-sm-3"><button class="btn btn-outline-primary btn-sm w-100" :disabled="roomCashSaving[row.room]" @click="saveRoomCash(row)">実残を保存</button></div>
+            </div>
+          </div>
+        </div>
+
         <div v-if="loading" class="text-center py-3">
           <div class="spinner-border text-primary"></div>
         </div>
@@ -253,7 +348,7 @@ function createAdjustmentFromCheckout() {
               <th>ステータス</th>
               <th style="width: 100px;">売上</th>
               <th style="width: 100px;">給与見込み</th>
-              <th style="width: 110px;">持ち帰り金額</th>
+              <th style="width: 110px;">未受取残</th>
               <th>提出日時</th>
               <th>確認者</th>
               <th>確認日時</th>
@@ -267,7 +362,7 @@ function createAdjustmentFromCheckout() {
               <td><span class="badge" :class="statusBadgeClass(row.status)">{{ statusLabel(row.status) }}</span></td>
               <td>{{ formatYen(row.total_sales) }}</td>
               <td>{{ formatYen(row.estimated_pay) }}</td>
-              <td>{{ formatYen(row.actual_take_home_amount) }}</td>
+              <td :class="row.carryover_closing_amount ? 'text-warning fw-bold' : 'text-success fw-bold'">{{ formatYen(row.carryover_closing_amount) }}</td>
               <td>{{ formatDateTime(row.submitted_at) }}</td>
               <td>{{ row.reviewed_by_name || '—' }}</td>
               <td>{{ formatDateTime(row.reviewed_at) }}</td>
@@ -330,8 +425,8 @@ function createAdjustmentFromCheckout() {
                   <div class="fw-bold text-primary">{{ formatYen(detail.estimated_pay) }}</div>
                 </div>
                 <div class="col-6 col-md-3">
-                  <div class="small text-muted">実際の持ち帰り金額</div>
-                  <div class="fw-bold">{{ formatYen(detail.actual_take_home_amount) }}</div>
+                  <div class="small text-muted">未受取残</div>
+                  <div class="fw-bold" :class="detail.carryover_closing_amount ? 'text-warning' : 'text-success'">{{ formatYen(detail.carryover_closing_amount) }}</div>
                 </div>
                 <div class="col-6 col-md-3">
                   <div class="small text-muted">提出日時</div>
@@ -340,6 +435,51 @@ function createAdjustmentFromCheckout() {
                 <div class="col-6 col-md-3">
                   <div class="small text-muted">確認者 / 確認日時</div>
                   <div>{{ detail.reviewed_by_name || '—' }} / {{ formatDateTime(detail.reviewed_at) }}</div>
+                </div>
+              </div>
+
+              <div class="border rounded p-3 mb-3 bg-light">
+                <div class="fw-bold small mb-2"><i class="ti ti-wallet"></i> 現金精算</div>
+                <div class="row g-2 small mb-3">
+                  <div class="col-4">
+                    <div class="bg-white border rounded-3 p-3 h-100">
+                      <span class="text-muted d-block mb-1">ルーム</span>
+                      <strong>{{ detail.room_name || '未設定' }}</strong>
+                    </div>
+                  </div>
+                  <div class="col-4">
+                    <div class="bg-white border rounded-3 p-3 h-100">
+                      <span class="text-muted d-block mb-1">本日の報酬</span>
+                      <strong>{{ formatYen(detail.compensation_amount) }}</strong>
+                    </div>
+                  </div>
+                  <div class="col-4">
+                    <div class="bg-white border rounded-3 p-3 h-100">
+                      <span class="text-muted d-block mb-1">前回までの残</span>
+                      <strong>{{ formatYen(detail.carryover_opening_amount) }}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div class="row g-2">
+                  <div class="col-md-4">
+                    <label for="cast-settlement-amount" class="form-label small mb-1">キャスト精算額</label>
+                    <div class="input-group input-group-sm">
+                      <input id="cast-settlement-amount" v-model.number="settlementForm.room_cash_taken_amount" type="number" min="0" :max="Math.max(0, detail.carryover_opening_amount + detail.compensation_amount - detail.office_cash_paid_amount)" class="form-control" />
+                      <span class="input-group-text">円</span>
+                    </div>
+                    <div class="form-text">今回キャストへ精算する金額</div>
+                  </div>
+                </div>
+
+                <div class="border-top mt-3 pt-3">
+                  <div class="fw-bold small mb-2">事務所で渡した現金を記録</div>
+                  <div class="row g-2">
+                    <div class="col-md-4"><label class="form-label small mb-1">金額</label><input v-model.number="officePaymentForm.amount" type="number" min="1" :max="detail.carryover_closing_amount" class="form-control form-control-sm" /></div>
+                    <div class="col-md-4"><label class="form-label small mb-1">受取日</label><input v-model="officePaymentForm.received_on" type="date" class="form-control form-control-sm" /></div>
+                    <div class="col-md-4"><label class="form-label small mb-1">メモ（任意）</label><input v-model="officePaymentForm.memo" type="text" class="form-control form-control-sm" /></div>
+                  </div>
+                  <div class="small text-muted mt-2">記録後は削除せず、キャスト側の受取履歴にも表示されます。ルームの現金残高には影響しません。</div>
+                  <button class="btn btn-outline-primary btn-sm mt-2" :disabled="actionSaving || !officePaymentForm.amount" @click="recordOfficePayment">事務所で渡した現金を記録</button>
                 </div>
               </div>
 
@@ -370,27 +510,24 @@ function createAdjustmentFromCheckout() {
               </div>
 
               <div class="mb-3">
-                <label class="form-label fw-bold small">マネージャーメモ</label>
+                <label class="form-label fw-bold small">メモ</label>
                 <textarea v-model="managerMemoDraft" class="form-control" rows="3"></textarea>
-                <button class="btn btn-outline-secondary btn-sm mt-2" :disabled="actionSaving" @click="saveManagerMemo">
-                  メモを保存
-                </button>
               </div>
             </template>
           </div>
           <div class="modal-footer" v-if="detail">
             <button class="btn btn-secondary" @click="closeDetail">閉じる</button>
-            <button class="btn btn-outline-primary" @click="createAdjustmentFromCheckout">
-              <i class="ti ti-cash-banknote"></i> 調整金を作成
-            </button>
             <button v-if="detail.status !== 'SUBMITTED'" class="btn btn-outline-warning" :disabled="actionSaving" @click="resetToSubmitted">
               未確認に戻す
             </button>
             <button v-if="detail.status !== 'RETURNED'" class="btn btn-outline-danger" :disabled="actionSaving" @click="markReturned">
               差戻し
             </button>
-            <button v-if="detail.status !== 'REVIEWED'" class="btn btn-primary" :disabled="actionSaving" @click="markReviewed">
+            <button v-if="detail.status !== 'REVIEWED'" class="btn btn-success" :disabled="actionSaving" @click="markReviewed">
               確認済みにする
+            </button>
+            <button class="btn btn-primary" :disabled="actionSaving" @click="saveDetail">
+              {{ actionSaving ? '保存中...' : '保存' }}
             </button>
           </div>
         </div>
