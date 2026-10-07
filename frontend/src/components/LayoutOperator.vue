@@ -10,9 +10,11 @@ import OperatorNotifications from './OperatorNotifications.vue'
 const route = useRoute()
 const router = useRouter()
 const sidebarOpen = ref(false)
+const sidebarCollapsed = ref(false)
 const currentUser = ref(null)
 const pendingShiftRequests = ref(0)
 let shiftReqTimer = null
+const SIDEBAR_COLLAPSED_KEY = 'roomink-operator-sidebar-collapsed'
 
 async function loadPendingShiftRequests() {
   try {
@@ -22,6 +24,9 @@ async function loadPendingShiftRequests() {
 }
 
 onMounted(async () => {
+  try {
+    sidebarCollapsed.value = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'
+  } catch { /* ignore unavailable storage */ }
   try { currentUser.value = await api.me() } catch { /* ignore */ }
   await loadPendingShiftRequests()
   shiftReqTimer = setInterval(loadPendingShiftRequests, 60000)
@@ -82,6 +87,18 @@ function closeSidebar() {
   sidebarOpen.value = false
 }
 
+function toggleDesktopSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed.value))
+  } catch { /* ignore unavailable storage */ }
+}
+
+function openSupport() {
+  closeSidebar()
+  window.dispatchEvent(new CustomEvent('roomink-support-open'))
+}
+
 async function onLogout() {
   try { await api.logout() } catch { /* ignore */ }
   resetAuthCache()
@@ -112,13 +129,23 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-wrapper">
+  <div class="app-wrapper operator-layout" :class="{ 'is-sidebar-collapsed': sidebarCollapsed }">
     <!-- Sidebar (matches sidebar-operator.html) -->
-    <aside class="sidebar" :class="{ show: sidebarOpen }">
+    <aside class="sidebar operator-sidebar" :class="{ show: sidebarOpen }">
       <div class="sidebar-header">
         <router-link to="/op/dashboard" class="sidebar-brand" @click="closeSidebar">
-          <img style="height: 40px;" src="/logo.svg" alt="Roomink Logo">
+          <img class="sidebar-logo sidebar-logo-full" src="/logo.svg" alt="Roomink">
+          <img class="sidebar-logo sidebar-logo-mark" src="/icon.svg" alt="Roomink">
         </router-link>
+        <button
+          type="button"
+          class="sidebar-collapse-toggle"
+          :aria-label="sidebarCollapsed ? 'サイドバーを広げる' : 'サイドバーを小さくする'"
+          :aria-expanded="!sidebarCollapsed"
+          @click="toggleDesktopSidebar"
+        >
+          <i class="ti" :class="sidebarCollapsed ? 'ti-chevron-right' : 'ti-chevron-left'"></i>
+        </button>
       </div>
       <nav class="sidebar-nav">
         <ul class="nav-item">
@@ -127,20 +154,38 @@ onBeforeUnmount(() => {
               :to="item.to"
               class="nav-link"
               :class="{ active: item.to === '/op/settings' ? route.path.startsWith('/op/settings') : route.path === item.to }"
+              :title="sidebarCollapsed ? item.label : undefined"
               @click="closeSidebar"
             >
-              <i class="ti" :class="item.icon"></i>{{ item.label }}
+              <i class="ti" :class="item.icon"></i>
+              <span class="nav-label">{{ item.label }}</span>
               <span
                 v-if="item.page === 'op-shift-requests' && pendingShiftRequests > 0"
-                class="badge bg-danger rounded-pill ms-2"
+                class="sidebar-nav-badge badge bg-danger rounded-pill ms-2"
               >{{ pendingShiftRequests }}</span>
             </router-link>
+          </li>
+          <li>
+            <button
+              type="button"
+              class="nav-link sidebar-help-button"
+              :title="sidebarCollapsed ? 'ヘルプ・使い方' : undefined"
+              @click="openSupport"
+            >
+              <i class="ti ti-help-circle"></i>
+              <span class="nav-label">ヘルプ・使い方</span>
+            </button>
           </li>
         </ul>
       </nav>
       <div class="sidebar-footer">
-        <button class="btn btn-outline-primary btn-block" @click="onLogout">
-          <i class="ti ti-logout"></i> ログアウト
+        <button
+          class="btn btn-outline-primary btn-block"
+          :title="sidebarCollapsed ? 'ログアウト' : undefined"
+          aria-label="ログアウト"
+          @click="onLogout"
+        >
+          <i class="ti ti-logout"></i><span class="logout-label">ログアウト</span>
         </button>
       </div>
     </aside>
@@ -193,3 +238,128 @@ onBeforeUnmount(() => {
     <OperatorNotifications v-if="currentUser" />
   </div>
 </template>
+
+<style scoped>
+.operator-sidebar,
+.operator-layout > .main-content {
+  transition: width 0.24s ease, margin-left 0.24s ease;
+}
+
+.sidebar-header {
+  position: relative;
+}
+
+.sidebar-logo {
+  height: 40px;
+}
+
+.sidebar-logo-mark,
+.sidebar-collapse-toggle {
+  display: none;
+}
+
+.sidebar-help-button {
+  width: calc(100% - 1rem);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.sidebar-footer .btn {
+  width: 100%;
+}
+
+.logout-label {
+  margin-left: 0.35rem;
+}
+
+@media (min-width: 992px) {
+  .sidebar-collapse-toggle {
+    position: absolute;
+    right: -15px;
+    top: 50%;
+    z-index: 2;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transform: translateY(-50%);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 50%;
+    color: var(--bs-secondary);
+    background: var(--bs-white);
+    box-shadow: 0 3px 10px rgb(15 23 42 / 12%);
+    transition: color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .sidebar-collapse-toggle:hover,
+  .sidebar-collapse-toggle:focus-visible {
+    border-color: var(--rk-primary);
+    color: var(--rk-primary);
+    box-shadow: 0 4px 14px rgb(42 157 143 / 20%);
+  }
+
+  .operator-layout.is-sidebar-collapsed .operator-sidebar {
+    width: 76px;
+  }
+
+  .operator-layout.is-sidebar-collapsed > .main-content {
+    margin-left: 76px;
+  }
+
+  .operator-layout.is-sidebar-collapsed .sidebar-header {
+    justify-content: center;
+    padding-left: 0;
+  }
+
+  .operator-layout.is-sidebar-collapsed .sidebar-logo-full {
+    display: none;
+  }
+
+  .operator-layout.is-sidebar-collapsed .sidebar-logo-mark {
+    display: block;
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+  }
+
+  .operator-layout.is-sidebar-collapsed :deep(.nav-link) {
+    position: relative;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0.7rem;
+  }
+
+  .operator-layout.is-sidebar-collapsed :deep(.nav-link i) {
+    margin-right: 0;
+    font-size: 1.25rem;
+  }
+
+  .operator-layout.is-sidebar-collapsed .nav-label,
+  .operator-layout.is-sidebar-collapsed .logout-label {
+    display: none;
+  }
+
+  .operator-layout.is-sidebar-collapsed .sidebar-nav-badge {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    min-width: 18px;
+    margin-left: 0 !important;
+    padding: 0.2rem 0.35rem;
+    font-size: 0.62rem;
+  }
+
+  .operator-layout.is-sidebar-collapsed .sidebar-footer {
+    padding-inline: 0.7rem;
+  }
+
+  .operator-layout.is-sidebar-collapsed .sidebar-footer .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-inline: 0;
+  }
+}
+</style>

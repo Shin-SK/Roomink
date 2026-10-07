@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api.js'
 
@@ -31,6 +31,8 @@ const isSupportedRoute = computed(() => {
     route.path.startsWith('/cu/') ||
     (route.path.startsWith('/s/') && route.path.includes('/mypage'))
 })
+
+const isOperatorRoute = computed(() => route.path.startsWith('/op/'))
 
 const suggestions = computed(() => {
   const role = currentUser.value?.role
@@ -242,6 +244,13 @@ function startNewConversation() {
   open.value = true
 }
 
+function openFromNavigation() {
+  if (isSupportedRoute.value) open.value = true
+}
+
+onMounted(() => window.addEventListener('roomink-support-open', openFromNavigation))
+onBeforeUnmount(() => window.removeEventListener('roomink-support-open', openFromNavigation))
+
 function formatHistoryDate(value) {
   if (!value) return ''
   return new Intl.DateTimeFormat('ja-JP', {
@@ -253,7 +262,7 @@ function formatHistoryDate(value) {
 <template>
   <div v-if="isSupportedRoute" class="support-assistant">
     <button
-      v-if="!open"
+      v-if="!open && !isOperatorRoute"
       class="support-launcher"
       type="button"
       aria-label="Roominkサポートを開く"
