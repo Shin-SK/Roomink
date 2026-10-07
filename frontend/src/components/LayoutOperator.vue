@@ -240,9 +240,21 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+@font-face {
+  font-family: "roomink-operator-icons-outline";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("@tabler/icons-webfont/dist/fonts/tabler-icons-200-outline.woff2?v3.36.0") format("woff2");
+}
+
 .operator-sidebar,
 .operator-layout > .main-content {
   transition: width 0.24s ease, margin-left 0.24s ease;
+}
+
+.operator-sidebar :deep(.ti) {
+  font-family: "roomink-operator-icons-outline" !important;
 }
 
 .sidebar-header {
