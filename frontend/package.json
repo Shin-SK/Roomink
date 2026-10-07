@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@sentry/vue": "10.69.0",
+    "@tabler/icons": "3.36.0",
     "@tabler/icons-webfont": "3.36.0",
     "@tiptap/extension-image": "^3.30.5",
     "@tiptap/pm": "^3.30.5",

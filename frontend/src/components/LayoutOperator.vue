@@ -6,6 +6,7 @@ import { resetAuthCache, getAuthIsSuperuser, getAuthRole } from '../router.js'
 import UserAvatar from './UserAvatar.vue'
 import CtiIncomingPanel from './CtiIncomingPanel.vue'
 import OperatorNotifications from './OperatorNotifications.vue'
+import OperatorSidebarIcon from './OperatorSidebarIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,32 +42,32 @@ const isSuperuser = computed(() => currentUser.value?.is_superuser || getAuthIsS
 
 const navItems = computed(() => {
   const items = [
-    { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
-    { to: '/op/schedule', icon: 'ti-calendar', label: '予約タイムライン', page: 'schedule' },
-    { to: '/op/rooms', icon: 'ti-door', label: 'ルーム', page: 'room-schedule' },
-    { to: '/op/phone', icon: 'ti-clipboard-plus', label: '予約作成', page: 'phone' },
-    { to: '/op/customers', icon: 'ti-users', label: '顧客管理', page: 'customer-list' },
-    { to: '/op/shifts', icon: 'ti-clock', label: 'シフト管理', page: 'shift-list' },
-    { to: '/op/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
-    { to: '/op/cast-expenses', icon: 'ti-receipt', label: '雑費管理', page: 'cast-expenses' },
-    { to: '/op/cast-notes', icon: 'ti-notebook', label: 'ノート', page: 'cast-notes' },
+    { to: '/op/dashboard', icon: 'home', label: 'ホーム', page: 'dashboard' },
+    { to: '/op/schedule', icon: 'calendar', label: '予約タイムライン', page: 'schedule' },
+    { to: '/op/rooms', icon: 'door', label: 'ルーム', page: 'room-schedule' },
+    { to: '/op/phone', icon: 'clipboard-plus', label: '予約作成', page: 'phone' },
+    { to: '/op/customers', icon: 'users', label: '顧客管理', page: 'customer-list' },
+    { to: '/op/shifts', icon: 'clock', label: 'シフト管理', page: 'shift-list' },
+    { to: '/op/shift-requests', icon: 'calendar-check', label: 'シフト申請', page: 'op-shift-requests' },
+    { to: '/op/cast-expenses', icon: 'receipt', label: '雑費管理', page: 'cast-expenses' },
+    { to: '/op/cast-notes', icon: 'notebook', label: 'ノート', page: 'cast-notes' },
   ]
   if (isSuperuser.value) {
-    items.unshift({ to: '/platform', icon: 'ti-building-community', label: 'Roomink運営', page: 'platform' })
+    items.unshift({ to: '/platform', icon: 'building-community', label: 'Roomink運営', page: 'platform' })
   }
   if (isManager.value) {
     items.push(
-      { to: '/op/sales', icon: 'ti-chart-bar', label: '売上確認', page: 'sales' },
-      { to: '/op/sales-summary', icon: 'ti-report-money', label: '売上集計', page: 'sales-summary' },
-      { to: '/op/daily-settlement', icon: 'ti-calculator', label: '日給一覧', page: 'daily-settlement' },
-      { to: '/op/cast-checkouts', icon: 'ti-door-exit', label: '退勤提出', page: 'cast-checkouts' },
-      { to: '/op/cast-adjustments', icon: 'ti-cash-banknote', label: '調整金', page: 'cast-adjustments' },
-      { to: '/op/support', icon: 'ti-lifebuoy', label: '問い合わせ', page: 'support-inbox' },
+      { to: '/op/sales', icon: 'chart-bar', label: '売上確認', page: 'sales' },
+      { to: '/op/sales-summary', icon: 'report-money', label: '売上集計', page: 'sales-summary' },
+      { to: '/op/daily-settlement', icon: 'calculator', label: '日給一覧', page: 'daily-settlement' },
+      { to: '/op/cast-checkouts', icon: 'door-exit', label: '退勤提出', page: 'cast-checkouts' },
+      { to: '/op/cast-adjustments', icon: 'cash-banknote', label: '調整金', page: 'cast-adjustments' },
+      { to: '/op/support', icon: 'lifebuoy', label: '問い合わせ', page: 'support-inbox' },
     )
   }
   items.push(
-    { to: '/op/point-logs', icon: 'ti-star', label: 'ポイント', page: 'point-logs' },
-    { to: '/op/settings', icon: 'ti-settings', label: '設定', page: 'settings' },
+    { to: '/op/point-logs', icon: 'star', label: 'ポイント', page: 'point-logs' },
+    { to: '/op/settings', icon: 'settings', label: '設定', page: 'settings' },
   )
   return items
 })
@@ -144,7 +145,7 @@ onBeforeUnmount(() => {
           :aria-expanded="!sidebarCollapsed"
           @click="toggleDesktopSidebar"
         >
-          <i class="ti" :class="sidebarCollapsed ? 'ti-chevron-right' : 'ti-chevron-left'"></i>
+          <OperatorSidebarIcon :name="sidebarCollapsed ? 'chevron-right' : 'chevron-left'" />
         </button>
       </div>
       <nav class="sidebar-nav">
@@ -157,7 +158,7 @@ onBeforeUnmount(() => {
               :title="sidebarCollapsed ? item.label : undefined"
               @click="closeSidebar"
             >
-              <i class="ti" :class="item.icon"></i>
+              <OperatorSidebarIcon :name="item.icon" />
               <span class="nav-label">{{ item.label }}</span>
               <span
                 v-if="item.page === 'op-shift-requests' && pendingShiftRequests > 0"
@@ -172,7 +173,7 @@ onBeforeUnmount(() => {
               :title="sidebarCollapsed ? 'ヘルプ・使い方' : undefined"
               @click="openSupport"
             >
-              <i class="ti ti-help-circle"></i>
+              <OperatorSidebarIcon name="help-circle" />
               <span class="nav-label">ヘルプ・使い方</span>
             </button>
           </li>
@@ -185,7 +186,7 @@ onBeforeUnmount(() => {
           aria-label="ログアウト"
           @click="onLogout"
         >
-          <i class="ti ti-logout"></i><span class="logout-label">ログアウト</span>
+          <OperatorSidebarIcon name="logout" /><span class="logout-label">ログアウト</span>
         </button>
       </div>
     </aside>
@@ -240,21 +241,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-@font-face {
-  font-family: "roomink-operator-icons-outline";
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-  src: url("@tabler/icons-webfont/dist/fonts/tabler-icons-200-outline.woff2?v3.36.0") format("woff2");
-}
-
 .operator-sidebar,
 .operator-layout > .main-content {
   transition: width 0.24s ease, margin-left 0.24s ease;
 }
 
-.operator-sidebar :deep(.ti) {
-  font-family: "roomink-operator-icons-outline" !important;
+.operator-sidebar :deep(.operator-sidebar-icon) {
+  margin-right: 0.75rem;
 }
 
 .sidebar-header {
@@ -312,6 +305,12 @@ onBeforeUnmount(() => {
     box-shadow: 0 4px 14px rgb(42 157 143 / 20%);
   }
 
+  .sidebar-collapse-toggle :deep(.operator-sidebar-icon) {
+    width: 16px;
+    height: 16px;
+    margin-right: 0;
+  }
+
   .operator-layout.is-sidebar-collapsed .operator-sidebar {
     width: 76px;
   }
@@ -343,9 +342,10 @@ onBeforeUnmount(() => {
     padding: 0.7rem;
   }
 
-  .operator-layout.is-sidebar-collapsed :deep(.nav-link i) {
+  .operator-layout.is-sidebar-collapsed :deep(.nav-link .operator-sidebar-icon) {
     margin-right: 0;
-    font-size: 1.25rem;
+    width: 22px;
+    height: 22px;
   }
 
   .operator-layout.is-sidebar-collapsed .nav-label,
