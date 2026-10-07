@@ -135,6 +135,14 @@ class SalesBusinessDateTimeTest(TestCase):
         self.assertEqual(response.data["by_room"][0]["sales"], 10000)
         self.assertEqual(response.data["by_area"][0]["sales"], 10000)
 
+        detail_response = self.manager_client.get(
+            "/api/op/sales-dashboard/cast-detail/"
+            f"?date_from=2026-07-31&date_to=2026-07-31&cast={self.cast.id}"
+        )
+        self.assertEqual(detail_response.status_code, 200, detail_response.data)
+        self.assertEqual(detail_response.data["orders"][0]["date"], "2026-07-31")
+        self.assertEqual(detail_response.data["orders"][0]["start_time"], "27:00")
+
     def test_sales_csv_outputs_business_date_and_extended_time(self):
         response = self.manager_client.get(
             "/api/op/sales-export.csv?date_from=2026-07-31&date_to=2026-07-31"

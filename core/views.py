@@ -14,6 +14,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email, validate_slug
 from django.middleware.csrf import get_token
+from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import transaction
 from django.db.models import Count, Max, ProtectedError, Q, Sum
@@ -116,6 +117,7 @@ from .services.pricing import recalculate_order_total
 from .services.sales import (
     get_sales_summary, get_sales_csv,
     get_sales_dashboard, get_sales_dashboard_csv,
+    get_sales_cast_detail,
     get_done_orders_for_business_range,
 )
 from .services.notify import (
@@ -6560,6 +6562,39 @@ class SalesDashboardView(APIView):
             )
         cast_id, room_id, payment_method = _parse_sales_dashboard_filters(request)
         return Response(get_sales_dashboard(store, date_from, date_to, cast_id, room_id, payment_method))
+
+
+@document_object_api_view
+class SalesDashboardCastDetailView(APIView):
+    """GET /api/op/sales-dashboard/cast-detail/?date_from=&date_to=&cast="""
+    permission_classes = [IsAuthenticated, IsManager]
+
+    def get(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        date_from, date_to = _parse_sales_range(request, store)
+        if date_from is None:
+            return Response(
+                {"detail": "range (today/week/month) または date_from, date_to を指定してください"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cast_id, room_id, payment_method = _parse_sales_dashboard_filters(request)
+        if cast_id is None:
+            return Response(
+                {"detail": "cast は必須です"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cast = get_object_or_404(Cast, pk=cast_id, store=store)
+        return Response(
+            get_sales_cast_detail(
+                store,
+                date_from,
+                date_to,
+                cast,
+                room_id=room_id,
+                payment_method=payment_method,
+            )
+        )
 
 
 @document_object_api_view

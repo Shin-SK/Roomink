@@ -350,6 +350,163 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
     }
 
 
+def get_sales_cast_detail(
+    store,
+    date_from,
+    date_to,
+    cast,
+    room_id=None,
+    payment_method=None,
+):
+    """マネージャー向けのキャスト別売上明細を返す。
+
+    売上集計と同じ DONE 注文・営業日判定を使い、予約ごとの売上、報酬見込み、
+    店舗配分見込みと、会計項目ごとの小計をまとめる。報酬は日次集計と一致する
+    よう、累計額にバック率を掛けた差分を各予約へ配賦する。
+    """
+    import math
+
+    queryset = get_done_orders_for_business_range(store, date_from, date_to).filter(cast=cast)
+    if room_id:
+        queryset = queryset.filter(room_id=room_id)
+    if payment_method:
+        queryset = queryset.filter(payment_method=payment_method)
+    orders = list(
+        queryset.select_related("room", "customer")
+        .prefetch_related("options")
+        .order_by("start", "id")
+    )
+
+    course_map = {}
+    option_map = {}
+    extension_map = {}
+    nomination_map = {}
+    discount_map = {}
+    medium_map = {}
+
+    def add_amount(target, key, name, amount):
+        entry = target.setdefault(
+            key,
+            {"name": name, "count": 0, "amount": 0},
+        )
+        entry["count"] += 1
+        entry["amount"] += amount
+
+    def add_sales(target, key, name, amount):
+        entry = target.setdefault(
+            key,
+            {"name": name, "count": 0, "sales": 0},
+        )
+        entry["count"] += 1
+        entry["sales"] += amount
+
+    rows = []
+    cumulative_course_sales = 0
+    cumulative_options_sales = 0
+    allocated_course_pay = 0
+    allocated_option_pay = 0
+
+    for order in orders:
+        business_date = business_date_for_datetime(order.start, store.timezone)
+        option_names = [option.name for option in order.options.all()]
+        option_label = " / ".join(option_names) if option_names else "なし"
+
+        cumulative_course_sales += order.course_price
+        cumulative_options_sales += order.options_price
+        course_pay_total = math.floor(
+            cumulative_course_sales * cast.course_back_rate / 100
+        )
+        option_pay_total = math.floor(
+            cumulative_options_sales * cast.option_back_rate / 100
+        )
+        order_pay = (
+            course_pay_total - allocated_course_pay
+            + option_pay_total - allocated_option_pay
+        )
+        allocated_course_pay = course_pay_total
+        allocated_option_pay = option_pay_total
+
+        financials = payment_financial_summary(store, [order])
+        store_allocation = financials["net_sales_after_payment_fee"] - order_pay
+
+        customer_name = order.customer.display_name or order.customer.phone or f"顧客#{order.customer_id}"
+        rows.append({
+            "order_id": order.id,
+            "date": business_date.isoformat(),
+            "start_time": format_business_time(order.start, business_date, store.timezone),
+            "end_time": format_business_time(order.end, business_date, store.timezone),
+            "customer_name": customer_name,
+            "room_name": order.room.name if order.room else "未定",
+            "course_name": order.course_name,
+            "course_price": order.course_price,
+            "option_names": option_names,
+            "options_price": order.options_price,
+            "extension_name": order.extension_name,
+            "extension_price": order.extension_price,
+            "nomination_fee_name": order.nomination_fee_name,
+            "nomination_fee_price": order.nomination_fee_price,
+            "discount_name": order.discount_name,
+            "discount_amount": order.discount_amount,
+            "medium_name": order.medium_name or "未設定",
+            "payment_method": order.payment_method,
+            "payment_method_label": order.get_payment_method_display(),
+            "sales": order.total_price,
+            "customer_payment_surcharge": financials["customer_payment_surcharge"],
+            "customer_payment_total": financials["customer_payment_total"],
+            "estimated_pay": order_pay,
+            "store_allocation_estimate": store_allocation,
+        })
+
+        add_amount(course_map, order.course_name, order.course_name, order.course_price)
+        if order.options_price or option_names:
+            add_amount(option_map, option_label, option_label, order.options_price)
+        if order.extension_price or order.extension_name:
+            name = order.extension_name or "延長"
+            add_amount(extension_map, name, name, order.extension_price)
+        if order.nomination_fee_price or order.nomination_fee_name:
+            name = order.nomination_fee_name or "指名料"
+            add_amount(nomination_map, name, name, order.nomination_fee_price)
+        if order.discount_amount or order.discount_name:
+            name = order.discount_name or "割引"
+            add_amount(discount_map, name, name, order.discount_amount)
+        add_sales(medium_map, order.medium_name or "未設定", order.medium_name or "未設定", order.total_price)
+
+    payment_summary = payment_financial_summary(store, orders)
+    estimated_pay = allocated_course_pay + allocated_option_pay
+
+    def amount_rows(values):
+        return sorted(values.values(), key=lambda row: (-row["amount"], row["name"]))
+
+    return {
+        "cast_id": cast.id,
+        "cast_name": cast.name,
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "totals": {
+            "orders": len(orders),
+            "sales": payment_summary["total_sales"],
+            "customer_payment_surcharge": payment_summary["customer_payment_surcharge"],
+            "customer_payment_total": payment_summary["customer_payment_total"],
+            "estimated_pay": estimated_pay,
+            "store_allocation_estimate": (
+                payment_summary["net_sales_after_payment_fee"] - estimated_pay
+            ),
+        },
+        "orders": rows,
+        "breakdowns": {
+            "courses": amount_rows(course_map),
+            "options": amount_rows(option_map),
+            "extensions": amount_rows(extension_map),
+            "nominations": amount_rows(nomination_map),
+            "discounts": amount_rows(discount_map),
+            "media": sorted(
+                medium_map.values(),
+                key=lambda row: (-row["sales"], row["name"]),
+            ),
+        },
+    }
+
+
 def get_sales_dashboard_csv(store, date_from, date_to, cast_id=None, room_id=None, payment_method=None):
     """get_sales_dashboard() と同じ集計を、セクション区切りのCSV（集計値のみ）で出力する。"""
     data = get_sales_dashboard(store, date_from, date_to, cast_id, room_id, payment_method)

@@ -467,6 +467,7 @@ export const api = {
 
   // Sales Dashboard (Phase 3-D)
   getSalesDashboard: (params) => request('GET', `/op/sales-dashboard/?${params}`),
+  getSalesDashboardCastDetail: (params) => request('GET', `/op/sales-dashboard/cast-detail/?${params}`),
   getSalesDashboardExportUrl: (params) => `${BASE}/op/sales-dashboard-export.csv?${params}`,
 
   // CSV Import

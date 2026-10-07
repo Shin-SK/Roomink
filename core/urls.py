@@ -185,6 +185,11 @@ urlpatterns = [
     path("op/sales-summary/", views.SalesSummaryView.as_view(), name="sales-summary"),
     path("op/sales-export.csv", views.SalesExportView.as_view(), name="sales-export"),
     path("op/sales-dashboard/", views.SalesDashboardView.as_view(), name="sales-dashboard"),
+    path(
+        "op/sales-dashboard/cast-detail/",
+        views.SalesDashboardCastDetailView.as_view(),
+        name="sales-dashboard-cast-detail",
+    ),
     path("op/sales-dashboard-export.csv", views.SalesDashboardExportView.as_view(), name="sales-dashboard-export"),
     path("op/customers-export.csv", views.CustomerExportView.as_view(), name="customers-export"),
     path("op/line-alerts/", views.LineAlertsView.as_view(), name="line-alerts"),

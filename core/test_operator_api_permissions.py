@@ -79,6 +79,7 @@ class OperatorApiPermissionTest(TestCase):
             ("get", "/api/op/room-schedule/?date=2026-08-12"),
             ("get", "/api/op/shifts/weekly/?start=2026-08-10"),
             ("get", "/api/op/sales-summary/?date_from=2026-08-12&date_to=2026-08-12"),
+            ("get", "/api/op/sales-dashboard/cast-detail/?date_from=2026-08-12&date_to=2026-08-12&cast=1"),
             ("get", "/api/op/customers-export.csv"),
             ("get", "/api/op/csv-import/template/?model=customer"),
             ("get", "/api/op/line-alerts/"),
