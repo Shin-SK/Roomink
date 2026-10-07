@@ -73,5 +73,6 @@ const markup = computed(() => icons[props.name] || helpCircle)
   display: block;
   width: 100%;
   height: 100%;
+  margin-right: 0 !important;
 }
 </style>
