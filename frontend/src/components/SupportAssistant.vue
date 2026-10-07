@@ -272,7 +272,7 @@ function formatHistoryDate(value) {
       <span>お困りですか？</span>
     </button>
 
-    <section v-else class="support-panel" aria-label="Roomink操作サポート">
+    <section v-if="open" class="support-panel" aria-label="Roomink操作サポート">
       <header class="support-header">
         <div>
           <strong>Roominkサポート</strong>
