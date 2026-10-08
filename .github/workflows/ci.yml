@@ -144,6 +144,9 @@ jobs:
       - name: Audit frontend dependencies
         run: npm audit --audit-level=high
 
+      - name: Test store selection isolation
+        run: npm run test:unit
+
       - name: Build frontend
         run: npm run build
 

@@ -1769,7 +1769,7 @@ class UserProfile(models.Model):
         related_name="profile",
     )
     store = models.ForeignKey(
-        Store, on_delete=models.CASCADE, related_name="user_profiles",
+        Store, on_delete=models.SET_NULL, null=True, blank=True, related_name="user_profiles",
     )
     role = models.CharField(
         max_length=10, choices=Role.choices, default=Role.STAFF,
@@ -1778,6 +1778,58 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"Profile({self.user.username})"
+
+
+class StoreMembership(models.Model):
+    """Operator authorization. UserProfile.store is only the legacy default."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="store_memberships")
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="memberships")
+    role = models.CharField(max_length=10, choices=[("staff", "スタッフ"), ("manager", "マネージャー")])
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "store"], name="unique_store_membership"),
+            models.CheckConstraint(condition=models.Q(role__in=["staff", "manager"]), name="operator_membership_role"),
+        ]
+
+
+class StoreInvitation(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "承認待ち"
+        ACCEPTED = "accepted", "承認済み"
+        DECLINED = "declined", "辞退"
+        REVOKED = "revoked", "取消済み"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="invitations")
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="store_invitations")
+    invited_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="sent_store_invitations")
+    role = models.CharField(max_length=10, choices=[("staff", "スタッフ"), ("manager", "マネージャー")])
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["store", "recipient"], condition=models.Q(status="pending"), name="unique_pending_store_invite"),
+            models.CheckConstraint(condition=models.Q(role__in=["staff", "manager"]), name="operator_invitation_role"),
+        ]
+
+
+class StoreMembershipEvent(models.Model):
+    """Minimal authorization audit trail; never store passwords or tokens."""
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="membership_events")
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="membership_actions")
+    action = models.CharField(max_length=32)
+    role = models.CharField(max_length=10, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class SystemAnnouncement(models.Model):

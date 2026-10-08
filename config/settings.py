@@ -105,6 +105,7 @@ CORS_ALLOW_HEADERS = [
     "origin",
     "x-csrftoken",
     "x-requested-with",
+    "x-roomink-store",
 ]
 
 # --- CSRF ---

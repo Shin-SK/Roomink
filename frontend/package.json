@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:unit": "node --test tests/*.test.mjs",
     "dev": "vite",
     "build": "node scripts/validate-env.mjs && vite build && node scripts/write-netlify-redirects.mjs",
     "build:staging": "ROOMINK_ENV=staging node scripts/validate-env.mjs && vite build --mode staging && ROOMINK_ENV=staging node scripts/write-netlify-redirects.mjs",

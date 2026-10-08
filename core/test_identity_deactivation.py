@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from core.models import Cast, DailySettlement, Store, UserProfile
+from core.models import Cast, DailySettlement, Store, StoreMembership, UserProfile
 
 
 User = get_user_model()
@@ -22,7 +22,7 @@ class IdentityDeactivationTest(TestCase):
         UserProfile.objects.create(user=user, store=self.store, role=role)
         return user
 
-    def test_staff_removal_disables_login_and_preserves_historical_user(self):
+    def test_staff_removal_revokes_store_access_and_preserves_identity(self):
         profile = self.staff.profile
         settlement = DailySettlement.objects.create(
             store=self.store,
@@ -36,16 +36,20 @@ class IdentityDeactivationTest(TestCase):
         self.assertEqual(response.status_code, 204, response.data)
         self.staff.refresh_from_db()
         settlement.refresh_from_db()
-        self.assertFalse(self.staff.is_active)
+        self.assertTrue(self.staff.is_active)
         self.assertEqual(settlement.locked_by, self.staff)
-        self.assertFalse(UserProfile.objects.filter(user=self.staff).exists())
+        self.assertTrue(UserProfile.objects.filter(user=self.staff).exists())
+        self.assertFalse(StoreMembership.objects.filter(user=self.staff, store=self.store, is_active=True).exists())
 
-        login = APIClient().post(
+        removed_client = APIClient()
+        login = removed_client.post(
             "/api/auth/login/",
             {"username": "departing-staff", "password": "test-pass-123"},
             format="json",
         )
-        self.assertEqual(login.status_code, 401, login.data)
+        self.assertEqual(login.status_code, 200, login.data)
+        self.assertEqual(removed_client.get("/api/customers/").status_code, 403)
+        self.assertEqual(removed_client.get("/api/auth/me/").data["role"], "unassigned")
 
     def test_last_active_manager_cannot_be_removed(self):
         response = self.client.delete(f"/api/staffs/{self.other_manager.profile.pk}/")

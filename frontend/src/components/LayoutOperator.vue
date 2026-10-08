@@ -8,6 +8,7 @@ import CtiIncomingPanel from './CtiIncomingPanel.vue'
 import OperatorNotifications from './OperatorNotifications.vue'
 import OperatorSidebarIcon from './OperatorSidebarIcon.vue'
 import SystemAnnouncements from './SystemAnnouncements.vue'
+import { openStore } from '../storeSelection.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +18,13 @@ const currentUser = ref(null)
 const pendingShiftRequests = ref(0)
 let shiftReqTimer = null
 const SIDEBAR_COLLAPSED_KEY = 'roomink-operator-sidebar-collapsed'
+
+function switchStore(event) {
+  const id = event.target.value
+  if (String(currentUser.value?.store_id) === id) return
+  if (window.confirm('店舗を切り替えます。入力中の内容は保存されません。よろしいですか？')) openStore(id)
+  else event.target.value = currentUser.value?.store_id
+}
 
 async function loadPendingShiftRequests() {
   try {
@@ -69,6 +77,7 @@ const navItems = computed(() => {
   items.push(
     { to: '/op/point-logs', icon: 'star', label: 'ポイント', page: 'point-logs' },
     { to: '/account/security', icon: 'shield-lock', label: 'ログインと安全', page: 'account-security' },
+    { to: '/account/stores', icon: 'building-community', label: '所属店舗・招待', page: 'account-stores' },
     { to: '/op/settings', icon: 'settings', label: '設定', page: 'settings' },
   )
   return items
@@ -213,6 +222,18 @@ onBeforeUnmount(() => {
       </header>
 
       <main class="container">
+        <div v-if="currentUser?.store_name" class="d-flex flex-wrap align-items-center gap-2 mb-3 pt-2">
+          <label for="active-store" class="small text-muted mb-0">操作中の店舗</label>
+          <select v-if="currentUser.memberships?.length > 1" id="active-store"
+            class="form-select form-select-sm w-auto" style="max-width: 100%"
+            :value="currentUser.store_id" @change="switchStore">
+            <option v-for="member in currentUser.memberships" :key="member.store_id" :value="member.store_id">
+              {{ member.store_name }}（{{ member.role === 'manager' ? 'マネージャー' : 'スタッフ' }}）
+            </option>
+          </select>
+          <strong v-else>{{ currentUser.store_name }}</strong>
+          <router-link to="/account/stores" class="small ms-auto">所属店舗・招待</router-link>
+        </div>
         <SystemAnnouncements v-if="currentUser" />
         <slot></slot>
       </main>

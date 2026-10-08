@@ -11,6 +11,7 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError as Django
 from django.db import transaction
 
 from .security import validate_password_for_role
+from .store_access import get_request_profile
 
 from .models import (
     CallLog,
@@ -42,6 +43,7 @@ from .models import (
     SmsLog,
     SmsTemplate,
     Store,
+    StoreMembership,
     StorePhoneNumber,
     UserProfile,
 )
@@ -172,7 +174,7 @@ class CastSerializer(serializers.ModelSerializer):
         ]
         if submitted_fields:
             request = self.context.get("request")
-            profile = getattr(getattr(request, "user", None), "profile", None)
+            profile = get_request_profile(request)
             if profile is None or profile.role != UserProfile.Role.MANAGER:
                 raise PermissionDenied("希望エリアを変更できるのはマネージャーのみです。")
 
@@ -517,7 +519,7 @@ class CastNoteSerializer(serializers.ModelSerializer):
 
     def validate_target_cast_ids(self, casts):
         request = self.context.get("request")
-        profile = getattr(getattr(request, "user", None), "profile", None)
+        profile = get_request_profile(request)
         if profile is None or any(cast.store_id != profile.store_id for cast in casts):
             raise serializers.ValidationError("同じ店舗のキャストだけを指定してください。")
         return casts
@@ -568,12 +570,19 @@ class ShiftConfirmNotificationLogSerializer(serializers.ModelSerializer):
 
 
 class StaffSerializer(serializers.ModelSerializer):
+    # Preserve existing staff URLs: ID identifies the user's profile, scoped by store.
+    id = serializers.IntegerField(source="user.profile.pk", read_only=True)
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.CharField(source="user.email", read_only=True)
+    avatar_url = serializers.CharField(source="user.profile.avatar_url", read_only=True)
+    account_editable = serializers.SerializerMethodField()
+
+    def get_account_editable(self, obj) -> bool:
+        return not obj.user.is_superuser and not StoreMembership.objects.filter(user=obj.user).exclude(store=obj.store).exists()
 
     class Meta:
-        model = UserProfile
-        fields = ["id", "username", "email", "role", "avatar_url", "store"]
+        model = StoreMembership
+        fields = ["id", "username", "email", "role", "avatar_url", "store", "account_editable"]
         read_only_fields = ["store"]
 
 
@@ -618,7 +627,7 @@ class StaffCreateSerializer(serializers.Serializer):
             role=validated_data.pop("role", "staff"),
             avatar_url=validated_data.pop("avatar_url", ""),
         )
-        return profile
+        return StoreMembership.objects.get(user=profile.user, store=store)
 
 
 class StaffUpdateSerializer(serializers.Serializer):
@@ -631,6 +640,17 @@ class StaffUpdateSerializer(serializers.Serializer):
     password = serializers.CharField(max_length=128, write_only=True, required=False)
 
     def validate(self, attrs):
+        profile = self.instance.user.profile
+        global_changes = (
+            bool(attrs.get("password"))
+            or ("email" in attrs and attrs["email"] != self.instance.user.email)
+            or ("avatar_url" in attrs and attrs["avatar_url"] != profile.avatar_url)
+        )
+        if global_changes and (
+            self.instance.user.is_superuser
+            or StoreMembership.objects.filter(user=self.instance.user).exclude(store=self.instance.store).exists()
+        ):
+            raise serializers.ValidationError("複数店舗を利用するアカウントの個人情報・パスワードは、本人が変更してください。")
         password = attrs.get("password")
         if password:
             try:
@@ -648,9 +668,15 @@ class StaffUpdateSerializer(serializers.Serializer):
         email = validated_data.pop("email", None)
         if "role" in validated_data:
             instance.role = validated_data["role"]
-        if "avatar_url" in validated_data:
-            instance.avatar_url = validated_data["avatar_url"]
         instance.save()
+        profile = instance.user.profile
+        updates = {}
+        if "avatar_url" in validated_data:
+            updates["avatar_url"] = validated_data["avatar_url"]
+        if profile.store_id == instance.store_id:
+            updates["role"] = instance.role
+        if updates:
+            UserProfile.objects.filter(pk=profile.pk).update(**updates)
         if email is not None:
             instance.user.email = email
             instance.user.save(update_fields=["email"])
@@ -1396,7 +1422,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         )
         validate_extension_duration_value(extension_duration)
         request = self.context.get("request")
-        profile = getattr(request.user, "profile", None) if request else None
+        profile = get_request_profile(request) if request else None
         if extension_duration and (
             profile is None
             or profile.role not in (UserProfile.Role.MANAGER, UserProfile.Role.STAFF)
@@ -1435,7 +1461,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         end = data["end"]
         assignment = find_covering_shift(store, data["cast"], start, end)
         if assignment is None:
-            profile = getattr(request.user, "profile", None) if request else None
+            profile = get_request_profile(request) if request else None
             if profile is None or profile.role not in (
                 UserProfile.Role.MANAGER,
                 UserProfile.Role.STAFF,
@@ -1474,7 +1500,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     def validate_service_recipient_name(self, value):
         request = self.context.get("request")
         if request:
-            profile = getattr(request.user, "profile", None)
+            profile = get_request_profile(request)
             if profile is None or profile.role not in (
                 UserProfile.Role.MANAGER,
                 UserProfile.Role.STAFF,
@@ -1539,7 +1565,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
                 validated_data["nomination_fee_price"] = nomination_fee.price
             else:
                 request = self.context.get("request")
-                profile = getattr(request.user, "profile", None) if request else None
+                profile = get_request_profile(request) if request else None
                 if profile and profile.role in (
                     UserProfile.Role.MANAGER,
                     UserProfile.Role.STAFF,
@@ -1601,7 +1627,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
     def validate_service_recipient_name(self, value):
         request = self.context.get("request")
-        profile = getattr(request.user, "profile", None) if request else None
+        profile = get_request_profile(request) if request else None
         if profile is None or profile.role not in (
             UserProfile.Role.MANAGER,
             UserProfile.Role.STAFF,
@@ -1672,7 +1698,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
             # ShiftAssignment → room auto-assign
             assignment = find_covering_shift(store, cast, start, end)
             if assignment is None:
-                profile = getattr(request.user, "profile", None) if request else None
+                profile = get_request_profile(request) if request else None
                 if profile is None or profile.role not in (
                     UserProfile.Role.MANAGER,
                     UserProfile.Role.STAFF,

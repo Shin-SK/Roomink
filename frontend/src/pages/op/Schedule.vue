@@ -8,6 +8,7 @@ import OrderForm from '../../components/OrderForm.vue'
 import UnavailableTimeModal from '../../components/UnavailableTimeModal.vue'
 import { api, normalizePhone } from '../../api.js'
 import { getAuthRole } from '../../router.js'
+import { selectedStoreId } from '../../storeSelection.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -262,6 +263,7 @@ function openCreateModal({ cast = '', customer = '', startTime = '', startDate =
   modalStartTime.value = startTime || '15:00'
   modalStartDate.value = startDate || selectedDate.value
   const query = {
+    store: selectedStoreId(),
     popup: '1',
     date: modalStartDate.value,
     start: modalStartTime.value,
@@ -315,6 +317,7 @@ function onOrderWindowMessage(event) {
   if (event.origin !== window.location.origin) return
   if (event.data?.type !== 'roomink-order-created') return
   const order = event.data.order
+  if (String(event.data.storeId) !== selectedStoreId()) return
   const startDate = event.data.startDate || selectedDate.value
   if (!order?.id) return
   highlightId.value = order.id

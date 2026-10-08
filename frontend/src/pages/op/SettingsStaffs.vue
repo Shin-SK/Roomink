@@ -8,6 +8,36 @@ import { generateTemporaryPassword } from '../../password.js'
 const loading = ref(true)
 const error = ref('')
 const staffs = ref([])
+const invitations = ref([])
+const inviteUsername = ref('')
+const inviteRole = ref('staff')
+const inviting = ref(false)
+const inviteMessage = ref('')
+const accountEditable = ref(true)
+
+async function loadInvitations() {
+  try { invitations.value = (await api.getStoreInvitations()).results }
+  catch (e) { error.value = e.message }
+}
+
+async function invite() {
+  inviting.value = true
+  error.value = ''
+  inviteMessage.value = ''
+  try {
+    const result = await api.inviteToStore({ username: inviteUsername.value.trim(), role: inviteRole.value })
+    inviteMessage.value = result.detail
+    inviteUsername.value = ''
+    await loadInvitations()
+  } catch (e) { error.value = e.message }
+  finally { inviting.value = false }
+}
+
+async function revoke(invitation) {
+  if (!confirm('この招待を取り消しますか？')) return
+  try { await api.revokeStoreInvitation(invitation.id); await loadInvitations() }
+  catch (e) { error.value = e.message }
+}
 
 // Form
 const showForm = ref(false)
@@ -35,9 +65,10 @@ async function loadStaffs() {
   }
 }
 
-onMounted(() => loadStaffs())
+onMounted(() => { loadStaffs(); loadInvitations() })
 
 function openCreate() {
+  accountEditable.value = true
   editingId.value = null
   form.value = emptyForm()
   formError.value = ''
@@ -46,6 +77,7 @@ function openCreate() {
 }
 
 function openEdit(s) {
+  accountEditable.value = s.account_editable !== false
   editingId.value = s.id
   form.value = {
     username: s.username,
@@ -105,6 +137,7 @@ async function onSave() {
   try {
     if (editingId.value) {
       const payload = { email: form.value.email, role: form.value.role, avatar_url: form.value.avatar_url }
+      if (!accountEditable.value) { delete payload.email; delete payload.avatar_url }
       if (form.value.password) payload.password = form.value.password
       await api.updateStaff(editingId.value, payload)
     } else {
@@ -126,10 +159,11 @@ async function onSave() {
 }
 
 async function onDelete(s) {
-  if (!confirm(`「${s.username}」を削除しますか？`)) return
+  if (!confirm(`「${s.username}」のこの店舗への所属を解除しますか？他店舗の所属と本人のログインは維持されます。`)) return
   error.value = ''
   try {
     await api.deleteStaff(s.id)
+    showForm.value = false
     await loadStaffs()
   } catch (e) {
     error.value = e.message
@@ -150,6 +184,27 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
     </div>
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
+
+    <section class="card mb-4">
+      <div class="card-body">
+        <h2 class="h5">既存のスタッフをこの店舗へ招待</h2>
+        <p class="small text-muted">相手が今使っているユーザー名を入力してください。本人が「所属店舗・招待」で承認すると参加できます。有効期限は7日間です。</p>
+        <div v-if="inviteMessage" class="alert alert-info" role="status">{{ inviteMessage }}</div>
+        <form class="d-flex flex-wrap gap-2" @submit.prevent="invite">
+          <input v-model="inviteUsername" class="form-control flex-grow-1" style="flex-basis: 220px; width: auto"
+            aria-label="招待するユーザー名" placeholder="既存のユーザー名" maxlength="150" required>
+          <select v-model="inviteRole" class="form-select w-auto" aria-label="招待する権限">
+            <option value="staff">スタッフ</option><option value="manager">マネージャー</option>
+          </select>
+          <button class="btn btn-primary" :disabled="inviting || !inviteUsername.trim()">{{ inviting ? '処理中...' : '招待する' }}</button>
+        </form>
+        <div v-for="invitation in invitations" :key="invitation.id" class="d-flex flex-wrap gap-2 align-items-center mt-3">
+          <span>{{ invitation.username }}（{{ roleLabel(invitation.role) }}）</span>
+          <span class="small text-muted">承認待ち</span>
+          <button class="btn btn-outline-secondary btn-sm ms-auto" @click="revoke(invitation)">招待を取り消す</button>
+        </div>
+      </div>
+    </section>
 
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
@@ -216,8 +271,9 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
           </div>
           <div class="modal-body">
             <div v-if="formError" class="alert alert-danger">{{ formError }}</div>
+            <p v-if="!accountEditable" class="alert alert-info small">このアカウントは他店舗でも利用されています。変更できるのは、この店舗での権限だけです。パスワードなどは本人が変更してください。</p>
 
-            <div class="mb-3 text-center position-relative">
+            <div v-if="accountEditable" class="mb-3 text-center position-relative">
               <div class="avatar-tap" @click="onAvatarTap" style="cursor: pointer; display: inline-block; position: relative;">
                 <img
                   v-if="form.avatar_url"
@@ -269,7 +325,7 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
             </div>
 
             <div class="mb-3">
-              <label class="form-label">パスワード <span v-if="!editingId" class="text-danger">*</span></label>
+              <label v-if="accountEditable" class="form-label">パスワード <span v-if="!editingId" class="text-danger">*</span></label>
               <div class="input-group">
                 <input
                   v-model="form.password"
@@ -278,6 +334,7 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
                   :placeholder="editingId ? '変更する場合のみ入力' : '10文字以上'"
                   minlength="10"
                   autocomplete="new-password"
+                  :disabled="!accountEditable"
                 >
                 <button type="button" class="btn btn-outline-secondary" @click="showPassword = !showPassword">
                   {{ showPassword ? '隠す' : '表示' }}
@@ -285,7 +342,7 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
               </div>
               <div class="d-flex justify-content-between align-items-center gap-2 mt-1">
                 <small class="text-muted">10文字以上。大文字や記号は必須ではありません。</small>
-                <button type="button" class="btn btn-link btn-sm p-0 text-nowrap" @click="generatePassword">
+                <button type="button" class="btn btn-link btn-sm p-0 text-nowrap" :disabled="!accountEditable" @click="generatePassword">
                   安全な仮パスワードを作る
                 </button>
               </div>
@@ -293,7 +350,7 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
 
             <div class="mb-3">
               <label class="form-label">メールアドレス</label>
-              <input v-model="form.email" type="email" class="form-control" placeholder="メールアドレス（任意）" />
+              <input v-model="form.email" type="email" class="form-control" placeholder="メールアドレス（任意）" :disabled="!accountEditable" />
             </div>
 
             <div class="mb-3">
@@ -306,7 +363,7 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
           </div>
           <div class="modal-footer d-flex">
             <button v-if="editingId" class="btn btn-outline-danger me-auto" @click="onDelete({ id: editingId, username: form.username })">
-              <i class="ti ti-trash"></i> 削除
+              <i class="ti ti-trash"></i> この店舗の所属を解除
             </button>
             <button class="btn btn-secondary" @click="showForm = false">キャンセル</button>
             <button

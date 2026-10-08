@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import OrderForm from '../../components/OrderForm.vue'
+import { selectedStoreId } from '../../storeSelection.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,6 +19,7 @@ function onCreated({ order, startDate }) {
   if (isPopup.value && window.opener) {
     window.opener.postMessage({
       type: 'roomink-order-created',
+      storeId: selectedStoreId(),
       order,
       startDate,
     }, window.location.origin)

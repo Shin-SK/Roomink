@@ -11,6 +11,7 @@ from drf_spectacular.utils import extend_schema
 
 from .models import Customer, SupportConversation, SupportMessage, UserProfile
 from .permissions import IsManager
+from .store_access import get_request_profile, get_user_store
 from .services.support_assistant import (
     answer_support_followup,
     answer_support_question,
@@ -22,7 +23,7 @@ from .services.support_assistant import (
 
 
 def _support_context(request):
-    profile = getattr(request.user, "profile", None)
+    profile = get_request_profile(request)
     if profile is not None:
         return profile.store, profile.role
 
@@ -92,7 +93,7 @@ def _accessible_conversation(request, conversation_id):
     )
     if conversation.user_id == request.user.id:
         return conversation
-    profile = getattr(request.user, "profile", None)
+    profile = get_request_profile(request)
     if (
         profile is not None
         and profile.role == UserProfile.Role.MANAGER
@@ -430,7 +431,7 @@ class SupportConversationListView(APIView):
         responses=OpenApiTypes.OBJECT,
     )
     def get(self, request):
-        profile = request.user.profile
+        profile = get_request_profile(request)
         conversations = SupportConversation.objects.filter(store=profile.store).select_related("store")
         requested_status = (request.query_params.get("status") or "").strip().upper()
         if requested_status in SupportConversation.Status.values:
@@ -451,7 +452,7 @@ class SupportConversationDetailView(APIView):
         conversation = get_object_or_404(
             SupportConversation.objects.select_related("store").prefetch_related("messages"),
             pk=conversation_id,
-            store=request.user.profile.store,
+            store=get_user_store(request),
         )
         return Response(_serialize_conversation(conversation, include_messages=True))
 
@@ -468,7 +469,7 @@ class SupportConversationReplyView(APIView):
         conversation = get_object_or_404(
             SupportConversation,
             pk=conversation_id,
-            store=request.user.profile.store,
+            store=get_user_store(request),
         )
         message = redact_sensitive_text(request.data.get("message") or "")
         if len(message) < 2:
@@ -501,7 +502,7 @@ class SupportConversationCancelAutoReplyView(APIView):
         conversation = get_object_or_404(
             SupportConversation,
             pk=conversation_id,
-            store=request.user.profile.store,
+            store=get_user_store(request),
         )
         conversation.auto_reply_cancelled_at = timezone.now()
         conversation.auto_reply_scheduled_at = None

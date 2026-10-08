@@ -1,3 +1,5 @@
+import { selectedStoreId, setSelectedStoreId, scopedExportUrl } from './storeSelection.js'
+
 const API_ORIGIN = import.meta.env.VITE_API_BASE_URL || ''
 const BASE = `${API_ORIGIN}/api`
 let csrfToken = ''
@@ -29,6 +31,9 @@ async function request(method, path, body) {
   if (method !== 'GET') {
     opts.headers['X-CSRFToken'] = csrfToken || getCookie('csrftoken')
   }
+  if (selectedStoreId() && !path.startsWith('/auth/store-') && !path.startsWith('/cu/') && !path.startsWith('/cast/') && !path.startsWith('/public/')) {
+    opts.headers['X-Roomink-Store'] = selectedStoreId()
+  }
   if (body !== undefined) opts.body = JSON.stringify(body)
 
   const res = await fetch(`${BASE}${path}`, opts)
@@ -51,6 +56,7 @@ async function request(method, path, body) {
     err.status = res.status
     throw err
   }
+  if (['/auth/login/', '/cu/login/', '/cu/activate/'].includes(path)) setSelectedStoreId(null)
   return data
 }
 
@@ -61,6 +67,7 @@ async function upload(path, formData) {
     credentials: API_ORIGIN ? 'include' : 'same-origin',
     body: formData,
   }
+  if (selectedStoreId()) opts.headers['X-Roomink-Store'] = selectedStoreId()
   const res = await fetch(`${BASE}${path}`, opts)
   const data = await res.json().catch(() => null)
   if (!res.ok) {
@@ -82,9 +89,26 @@ async function listRequest(method, path) {
 export const api = {
   // Auth
   csrf: () => request('GET', '/auth/csrf/'),
-  login: (username, password) => request('POST', '/auth/login/', { username, password }),
-  logout: () => request('POST', '/auth/logout/'),
-  me: () => request('GET', '/auth/me/'),
+  login: async (username, password) => {
+    const data = await request('POST', '/auth/login/', { username, password })
+    setSelectedStoreId(null)
+    return data
+  },
+  logout: async () => {
+    const data = await request('POST', '/auth/logout/')
+    setSelectedStoreId(null)
+    return data
+  },
+  me: async () => {
+    const data = await request('GET', '/auth/me/')
+    if (['staff', 'manager'].includes(data.role)) setSelectedStoreId(data.store_id)
+    return data
+  },
+  getStoreAccess: () => request('GET', '/auth/store-access/'),
+  getStoreInvitations: () => request('GET', '/op/store-invitations/'),
+  inviteToStore: (body) => request('POST', '/op/store-invitations/', body),
+  revokeStoreInvitation: (id) => request('POST', `/op/store-invitations/${id}/revoke/`, {}),
+  respondStoreInvitation: (id, action) => request('POST', `/auth/store-invitations/${id}/respond/`, { action }),
   updateProfile: (body) => request('PATCH', '/auth/profile/', body),
   changePassword: (body) => request('POST', '/auth/change-password/', body),
   getSystemAnnouncements: () => request('GET', '/auth/announcements/'),
@@ -335,7 +359,7 @@ export const api = {
   recordCastCheckoutOfficePayment: (id, body) => request('POST', `/cast-checkouts/${id}/office-payment/`, body),
   getRoomCashSummary: (date) => request('GET', `/cast-checkouts/room-cash/?date=${encodeURIComponent(date)}`),
   saveRoomCashCount: (body) => request('POST', '/cast-checkouts/room-cash/', body),
-  getCastCheckoutsExportUrl: (params = '') => `${BASE}/cast-checkouts/export_csv/${params ? '?' + params : ''}`,
+  getCastCheckoutsExportUrl: (params = '') => scopedExportUrl(`${BASE}/cast-checkouts/export_csv/${params ? '?' + params : ''}`),
 
   // Cast Adjustments（調整金台帳, Phase 3-E / manager側）
   getCastAdjustments: (params = '') => listRequest('GET', `/cast-adjustments/${params ? '?' + params : '?limit=500'}`),
@@ -343,7 +367,7 @@ export const api = {
   updateCastAdjustment: (id, body) => request('PATCH', `/cast-adjustments/${id}/`, body),
   resolveCastAdjustment: (id, resolvedMemo) => request('POST', `/cast-adjustments/${id}/resolve/`, resolvedMemo !== undefined ? { resolved_memo: resolvedMemo } : {}),
   voidCastAdjustment: (id, resolvedMemo) => request('POST', `/cast-adjustments/${id}/void/`, resolvedMemo !== undefined ? { resolved_memo: resolvedMemo } : {}),
-  getCastAdjustmentsExportUrl: (params = '') => `${BASE}/cast-adjustments/export_csv/${params ? '?' + params : ''}`,
+  getCastAdjustmentsExportUrl: (params = '') => scopedExportUrl(`${BASE}/cast-adjustments/export_csv/${params ? '?' + params : ''}`),
 
   // Cast Adjustments（cast本人側）
   getCastAdjustmentsMypage: () => request('GET', '/cast/adjustments/'),
@@ -385,7 +409,7 @@ export const api = {
   rejectShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/reject/`, body),
 
   // Op ShiftRequests CSV戻し承認の土台（v1: export → preview → apply）
-  getOpShiftRequestsExportUrl: (params = '') => `${BASE}/op/shift-requests/export_csv/${params ? '?' + params : ''}`,
+  getOpShiftRequestsExportUrl: (params = '') => scopedExportUrl(`${BASE}/op/shift-requests/export_csv/${params ? '?' + params : ''}`),
   importShiftRequestsPreview: (file) => {
     const fd = new FormData()
     fd.append('file', file)
@@ -434,7 +458,11 @@ export const api = {
 
   // Roomink運営（スーパーユーザー専用）
   getPlatformDashboard: (month = '') => request('GET', `/platform/dashboard/${month ? `?month=${encodeURIComponent(month)}` : ''}`),
-  setPlatformActiveStore: (storeId) => request('POST', '/platform/active-store/', { store_id: storeId }),
+  setPlatformActiveStore: async (storeId) => {
+    const data = await request('POST', '/platform/active-store/', { store_id: storeId })
+    setSelectedStoreId(storeId)
+    return data
+  },
 
   // Op CallLogs (Phase 3: 手動架電履歴)
   getCallLogs: (params = '') => {
@@ -465,17 +493,17 @@ export const api = {
   getDailySettlement: (date) => request('GET', `/op/daily-settlement/?date=${date}`),
   lockDailySettlement: (body) => request('POST', '/op/daily-settlement/lock/', body),
   unlockDailySettlement: (body) => request('POST', '/op/daily-settlement/unlock/', body),
-  getDailySettlementExportUrl: (date) => `${BASE}/op/daily-settlement/export/?date=${date}`,
+  getDailySettlementExportUrl: (date) => scopedExportUrl(`${BASE}/op/daily-settlement/export/?date=${date}`),
 
   // Sales
   getSalesSummary: (params) => request('GET', `/op/sales-summary/?${params}`),
-  getSalesExportUrl: (params) => `${BASE}/op/sales-export.csv?${params}`,
-  getCustomersExportUrl: () => `${BASE}/op/customers-export.csv`,
+  getSalesExportUrl: (params) => scopedExportUrl(`${BASE}/op/sales-export.csv?${params}`),
+  getCustomersExportUrl: () => scopedExportUrl(`${BASE}/op/customers-export.csv`),
 
   // Sales Dashboard (Phase 3-D)
   getSalesDashboard: (params) => request('GET', `/op/sales-dashboard/?${params}`),
   getSalesDashboardCastDetail: (params) => request('GET', `/op/sales-dashboard/cast-detail/?${params}`),
-  getSalesDashboardExportUrl: (params) => `${BASE}/op/sales-dashboard-export.csv?${params}`,
+  getSalesDashboardExportUrl: (params) => scopedExportUrl(`${BASE}/op/sales-dashboard-export.csv?${params}`),
 
   // CSV Import
   csvPreview: (model, file) => {
@@ -488,5 +516,5 @@ export const api = {
     fd.append('file', file)
     return upload(`/op/csv-import/?model=${model}`, fd)
   },
-  getCsvTemplateUrl: (model) => `${BASE}/op/csv-import/template/?model=${model}`,
+  getCsvTemplateUrl: (model) => scopedExportUrl(`${BASE}/op/csv-import/template/?model=${model}`),
 }

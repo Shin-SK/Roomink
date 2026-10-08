@@ -5,6 +5,7 @@ from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 from .services.order_policy import can_modify_order, is_past_business_day_order
 from .models import UserProfile
+from .store_access import get_request_profile
 
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ class IsManagerOrStaff(BasePermission):
     def has_permission(self, request, view):
         if request.user.is_authenticated and request.user.is_superuser:
             return True
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         return profile is not None and profile.role in (
             UserProfile.Role.MANAGER,
             UserProfile.Role.STAFF,
@@ -33,7 +34,7 @@ class IsManager(BasePermission):
     def has_permission(self, request, view):
         if request.user.is_authenticated and request.user.is_superuser:
             return True
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         return profile is not None and profile.role == UserProfile.Role.MANAGER
 
 
@@ -45,7 +46,7 @@ class IsManagerOrStaffReadOnlyManagerWrite(BasePermission):
     def has_permission(self, request, view):
         if request.user.is_authenticated and request.user.is_superuser:
             return True
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None:
             return False
         if profile.role == UserProfile.Role.MANAGER:
@@ -61,7 +62,7 @@ class IsOperatorOrCastReadOnlyManagerWrite(BasePermission):
     def has_permission(self, request, view):
         if request.user.is_authenticated and request.user.is_superuser:
             return True
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None:
             return False
         if profile.role == UserProfile.Role.MANAGER:

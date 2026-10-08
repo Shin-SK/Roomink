@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import date as date_type, datetime, timedelta
 
 from django.conf import settings
-from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
+from django.contrib.auth import authenticate, get_user_model, login, logout, update_session_auth_hash
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email, validate_slug
 from django.middleware.csrf import get_token
@@ -34,8 +34,11 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Dial, VoiceResponse
+from .store_access import get_request_profile, get_user_store, operator_memberships
+from .membership_views import audit_membership, require_manager
 
 from .models import (
+    StoreMembership, StoreInvitation,
     CallLog, CallLogReadReceipt, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
     CastUnavailableTime,
     CastDailyCheckout, CastExpense, CastExpenseTemplate, CastOfficeCashReceipt, RoomCashCount,
@@ -194,27 +197,6 @@ def document_object_api_view(cls):
     return cls
 
 
-def get_user_store(request):
-    """request.user の所属 Store を返す。未設定なら明示エラー。"""
-    if request.user.is_superuser:
-        selected_store_id = request.session.get("platform_store_id")
-        if selected_store_id:
-            selected_store = Store.objects.filter(pk=selected_store_id).first()
-            if selected_store:
-                return selected_store
-    profile = getattr(request.user, "profile", None)
-    if request.user.is_superuser and (profile is None or profile.store_id is None):
-        from rest_framework.exceptions import PermissionDenied
-        raise PermissionDenied("対象店舗を選択してから操作してください。")
-    if profile is None:
-        from rest_framework.exceptions import PermissionDenied
-        raise PermissionDenied("ユーザープロフィールが未作成です。管理者に連絡してください。")
-    if not hasattr(profile, "store") or profile.store_id is None:
-        from rest_framework.exceptions import PermissionDenied
-        raise PermissionDenied("所属店舗が設定されていません。管理者に連絡してください。")
-    return profile.store
-
-
 def _require_daily_settlement_open(store, business_date):
     """確定済み日を変える操作は、明示解除を要求する。"""
     if is_daily_settlement_locked(store, business_date):
@@ -340,11 +322,12 @@ def auth_password_reset(request):
 @api_view(["GET"])
 @ensure_csrf_cookie
 def auth_me(request):
-    profile = UserProfile.objects.select_related("store").filter(user=request.user).first()
+    profile = get_request_profile(request)
     customer_profiles = list(
         Customer.objects.filter(user=request.user).select_related("store").order_by("id")
     )
-    if profile is None and not customer_profiles and not request.user.is_superuser:
+    legacy_profile = getattr(request.user, "profile", None)
+    if profile is None and not legacy_profile and not customer_profiles and not request.user.is_superuser:
         return Response(
             {"detail": "プロフィールが未作成です。管理者に連絡してください。"},
             status=status.HTTP_403_FORBIDDEN,
@@ -360,18 +343,22 @@ def auth_me(request):
         store = get_user_store(request)
         primary_role = "superuser"
     else:
-        store = profile.store if profile else customer_profiles[0].store
-        primary_role = profile.role if profile else "customer"
+        store = profile.store if profile else (customer_profiles[0].store if customer_profiles else None)
+        primary_role = profile.role if profile else ("customer" if customer_profiles else "unassigned")
     return Response({
         "id": request.user.id,
         "username": request.user.username,
         "display_name": request.user.first_name or request.user.username,
         "avatar_url": profile.avatar_url if profile else "",
-        "store_id": store.id,
-        "store_name": store.name,
+        "store_id": store.id if store else None,
+        "store_name": store.name if store else "",
         "role": primary_role,
         "roles": roles,
         "is_superuser": request.user.is_superuser,
+        "memberships": [
+            {"store_id": member.store_id, "store_name": member.store.name, "role": member.role}
+            for member in operator_memberships(request.user).order_by("store__name", "id")
+        ],
         "password_policy": password_policy_for_user(request.user),
         "csrf_token": get_token(request),
     })
@@ -394,7 +381,8 @@ def auth_profile_update(request):
     if "avatar_url" in request.data:
         profile.avatar_url = request.data["avatar_url"]
         profile.save(update_fields=["avatar_url"])
-    store = profile.store
+    access = get_request_profile(request)
+    store = access.store if access else profile.store
     return Response({
         "id": user.id,
         "username": user.username,
@@ -402,7 +390,7 @@ def auth_profile_update(request):
         "avatar_url": profile.avatar_url,
         "store_id": store.id,
         "store_name": store.name,
-        "role": profile.role,
+        "role": access.role if access else profile.role,
     })
 
 
@@ -416,7 +404,7 @@ def csrf_token_view(request):
     return Response({"ok": True, "csrf_token": get_token(request)})
 
 
-def _visible_system_announcements(user):
+def _visible_system_announcements(user, request=None):
     now = timezone.now()
     queryset = SystemAnnouncement.objects.filter(
         is_active=True,
@@ -429,7 +417,7 @@ def _visible_system_announcements(user):
 
     audiences = {SystemAnnouncement.Audience.ALL}
     store_ids = set()
-    profile = getattr(user, "profile", None)
+    profile = get_request_profile(request) if request else getattr(user, "profile", None)
     if profile is not None:
         store_ids.add(profile.store_id)
         if profile.role in (UserProfile.Role.MANAGER, UserProfile.Role.STAFF):
@@ -465,7 +453,7 @@ class SystemAnnouncementListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        announcements = list(_visible_system_announcements(request.user)[:50])
+        announcements = list(_visible_system_announcements(request.user, request)[:50])
         announcement_ids = [item.id for item in announcements]
         read_ids = set(
             SystemAnnouncementReadReceipt.objects.filter(
@@ -502,7 +490,7 @@ class SystemAnnouncementListView(APIView):
                 {"detail": "announcement_idsは配列で指定してください。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        queryset = _visible_system_announcements(request.user)
+        queryset = _visible_system_announcements(request.user, request)
         if not mark_all:
             try:
                 announcement_ids = {int(value) for value in raw_ids}
@@ -524,7 +512,7 @@ class SystemAnnouncementListView(APIView):
             ignore_conflicts=True,
         )
         unread_count = (
-            _visible_system_announcements(request.user)
+            _visible_system_announcements(request.user, request)
             .exclude(read_receipts__user=request.user)
             .count()
         )
@@ -662,7 +650,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="link-service-recipient")
     def link_service_recipient(self, request, pk=None):
         """managerが確認した実利用者顧客を予約へ手動で紐付ける。"""
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != UserProfile.Role.MANAGER:
             return Response(
                 {"detail": "実利用者アカウントを紐付けできるのはマネージャーのみです。"},
@@ -863,7 +851,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     def apply_extension(self, request, pk=None):
         order = self.get_object()
         store = get_user_store(request)
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role not in (
             UserProfile.Role.MANAGER,
             UserProfile.Role.STAFF,
@@ -2811,7 +2799,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
         """POST /api/customers/{keep_id}/merge/ { merge_id }
         keep_id を残し、merge_id の参照を keep_id に寄せてから merge_id を削除する。
         """
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != "manager":
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
@@ -2982,45 +2970,55 @@ class StaffViewSet(viewsets.ViewSet):
     """スタッフ (role=staff/manager) の CRUD"""
 
     permission_classes = [IsAuthenticated, IsManager]
-    queryset = UserProfile.objects.none()
+    queryset = StoreMembership.objects.none()
     serializer_class = StaffSerializer
 
     def list(self, request):
         store = get_user_store(request)
-        qs = UserProfile.objects.filter(
-            store=store, role__in=["staff", "manager"],
-        ).select_related("user").order_by("user__username")
+        qs = StoreMembership.objects.filter(
+            store=store, is_active=True,
+        ).select_related("user__profile").order_by("user__username")
         serializer = StaffSerializer(qs, many=True)
         return Response(serializer.data)
 
     def create(self, request):
-        store = get_user_store(request)
-        serializer = StaffCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        profile = serializer.save(store=store)
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=get_user_store(request).pk)
+            require_manager(request.user, store)
+            serializer = StaffCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            profile = serializer.save(store=store)
+            audit_membership(store, profile.user, request.user, "created", profile.role)
         return Response(StaffSerializer(profile).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, pk=None):
-        store = get_user_store(request)
-        try:
-            profile = UserProfile.objects.select_related("user").get(
-                pk=pk, store=store, role__in=["staff", "manager"],
+        with transaction.atomic():
+            store = Store.objects.select_for_update().get(pk=get_user_store(request).pk)
+            require_manager(request.user, store)
+            profile = get_object_or_404(
+                StoreMembership.objects.select_related("user__profile"),
+                user__profile__pk=pk, store=store, is_active=True,
             )
-        except UserProfile.DoesNotExist:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        serializer = StaffUpdateSerializer(profile, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        profile = serializer.save()
+            serializer = StaffUpdateSerializer(profile, data=request.data, partial=True)
+            get_user_model().objects.select_for_update().get(pk=profile.user_id)
+            serializer.is_valid(raise_exception=True)
+            if profile.role == "manager" and serializer.validated_data.get("role") == "staff":
+                if not StoreMembership.objects.filter(store=store, role="manager", is_active=True, user__is_active=True).exclude(pk=profile.pk).exists():
+                    raise ValidationError("最後の有効なマネージャーの権限は変更できません。")
+                StoreInvitation.objects.filter(store=store, invited_by=profile.user, status="pending").update(status="revoked", responded_at=timezone.now())
+            profile = serializer.save()
+            audit_membership(store, profile.user, request.user, "updated", profile.role)
         return Response(StaffSerializer(profile).data)
 
     def destroy(self, request, pk=None):
         with transaction.atomic():
             store = Store.objects.select_for_update().get(pk=get_user_store(request).pk)
+            require_manager(request.user, store)
             try:
-                profile = UserProfile.objects.select_for_update().select_related("user").get(
-                    pk=pk, store=store, role__in=["staff", "manager"],
+                profile = StoreMembership.objects.select_related("user").get(
+                    user__profile__pk=pk, store=store, is_active=True,
                 )
-            except UserProfile.DoesNotExist:
+            except StoreMembership.DoesNotExist:
                 return Response(status=status.HTTP_404_NOT_FOUND)
             if profile.user == request.user:
                 return Response(
@@ -3028,9 +3026,10 @@ class StaffViewSet(viewsets.ViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             if profile.role == UserProfile.Role.MANAGER:
-                active_manager_count = UserProfile.objects.select_for_update().filter(
+                active_manager_count = StoreMembership.objects.filter(
                     store=store,
                     role=UserProfile.Role.MANAGER,
+                    is_active=True,
                     user__is_active=True,
                 ).count()
                 if active_manager_count <= 1:
@@ -3038,10 +3037,12 @@ class StaffViewSet(viewsets.ViewSet):
                         {"detail": "最後の有効なマネージャーは削除できません"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-            user = profile.user
-            user.is_active = False
-            user.save(update_fields=["is_active"])
-            profile.delete()
+            profile.is_active = False
+            profile.save(update_fields=["is_active", "updated_at"])
+            StoreInvitation.objects.filter(store=store, recipient=profile.user, status="pending").update(status="revoked", responded_at=timezone.now())
+            # Invitations issued by a removed manager must not become grants later.
+            StoreInvitation.objects.filter(store=store, invited_by=profile.user, status="pending").update(status="revoked", responded_at=timezone.now())
+            audit_membership(store, profile.user, request.user, "removed", profile.role)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -3264,7 +3265,7 @@ class CastExpenseViewSet(viewsets.ModelViewSet):
         return context
 
     def check_manager(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != "manager":
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
@@ -3330,7 +3331,7 @@ class CastExpenseTemplateViewSet(viewsets.ModelViewSet):
         return super().get_queryset().filter(store=store)
 
     def check_manager(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != "manager":
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
@@ -3400,7 +3401,7 @@ class CastExpenseTemplateHistoryViewSet(viewsets.ReadOnlyModelViewSet):
         return super().retrieve(request, *args, **kwargs)
 
     def check_manager(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != "manager":
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
@@ -3434,7 +3435,7 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         return super().get_queryset().filter(store=store)
 
     def check_manager(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != "manager":
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
@@ -3685,7 +3686,7 @@ class CastAdjustmentViewSet(viewsets.ModelViewSet):
         return super().get_queryset().filter(store=store)
 
     def check_manager(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != "manager":
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
@@ -3839,7 +3840,7 @@ class CastNoteViewSet(viewsets.ModelViewSet):
         return super().get_queryset().filter(store=store)
 
     def check_manager(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != "manager":
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
@@ -4232,7 +4233,7 @@ class PointLogViewSet(viewsets.ModelViewSet):
         return context
 
     def check_manager(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != "manager":
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
@@ -4523,7 +4524,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
     def check_manager(self, request):
         """CSVエクスポート/インポートはmanagerのみ（staff/castによる操作は非対象）。
         既存の approve/reject はこれまで通りstaff/managerともに利用可能（変更しない）。"""
-        profile = getattr(request.user, "profile", None)
+        profile = get_request_profile(request)
         if profile is None or profile.role != "manager":
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
@@ -6659,7 +6660,7 @@ def _parse_sales_range(request, store):
 
 def _require_manager(request):
     """manager でなければ PermissionDenied を返す。OK なら None。"""
-    profile = getattr(request.user, "profile", None)
+    profile = get_request_profile(request)
     if profile is None or profile.role != "manager":
         from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied("この機能はマネージャーのみ利用できます。")
@@ -8053,7 +8054,7 @@ class OperatorNotificationListView(APIView):
 
 def _require_staff_or_manager(request):
     """staff / manager 以外（cast・customer）は PermissionDenied。"""
-    profile = getattr(request.user, "profile", None)
+    profile = get_request_profile(request)
     if profile is None or profile.role not in (UserProfile.Role.STAFF, UserProfile.Role.MANAGER):
         from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied("この機能はスタッフ／マネージャーのみ利用できます。")

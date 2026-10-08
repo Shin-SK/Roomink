@@ -68,12 +68,14 @@ const PublicBookingComplete = () => import('./pages/public/PublicBookingComplete
 const GuestReservation = () => import('./pages/public/GuestReservation.vue')
 const PasswordReset = () => import('./pages/PasswordReset.vue')
 const AccountSecurity = () => import('./pages/AccountSecurity.vue')
+const StoreAccess = () => import('./pages/StoreAccess.vue')
 
 const routes = [
   { path: '/', redirect: '/op/dashboard' },
   { path: '/login', name: 'login', component: Login, meta: { public: true } },
   { path: '/password-reset', name: 'password-reset', component: PasswordReset, meta: { public: true } },
   { path: '/account/security', name: 'account-security', component: AccountSecurity, meta: { requiresAuth: true } },
+  { path: '/account/stores', name: 'account-stores', component: StoreAccess, meta: { requiresAuth: true } },
   { path: '/booking', name: 'public-booking', component: PublicBooking, meta: { public: true } },
   { path: '/r/:token', name: 'guest-reservation', component: GuestReservation, meta: { public: true } },
   {
@@ -187,12 +189,18 @@ async function ensureAuth() {
     const me = await api.me()
     authCache = { authed: true, role: me.role, roles: me.roles || [me.role], isSuperuser: Boolean(me.is_superuser) }
   } catch {
-    authCache = { authed: false, role: null }
+    try {
+      await api.getStoreAccess()
+      authCache = { authed: true, role: 'unassigned', roles: [], isSuperuser: false }
+    } catch {
+      authCache = { authed: false, role: null }
+    }
   }
   return authCache
 }
 
 function homeForRole(role) {
+  if (role === 'unassigned') return '/account/stores'
   if (role === 'superuser') return '/platform'
   if (role === 'cast') return '/cast/mypage'
   if (role === 'customer') return '/cu/mypage'
