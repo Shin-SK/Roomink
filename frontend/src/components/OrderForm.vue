@@ -521,7 +521,7 @@ function formatYen(n) {
               </div>
               <div class="text-muted small">{{ selectedCustomer.phone }}</div>
             </div>
-            <button v-if="!callBound" type="button" class="btn btn-sm btn-outline-secondary" @click="clearCustomer">
+            <button v-if="!callBound || (!initialCustomerId && !initialPhone)" type="button" class="btn btn-sm btn-outline-secondary" @click="clearCustomer">
               <i class="ti ti-x"></i> 変更
             </button>
           </div>
@@ -659,8 +659,13 @@ function formatYen(n) {
                   v-for="c in filteredCasts"
                   :key="c.id"
                   class="cast-chip"
+                  role="button"
+                  tabindex="0"
+                  :aria-pressed="form.cast === c.id"
                   :class="{ active: form.cast === c.id, 'is-off-shift': isCastOffShift(c) }"
                   @click="form.cast = c.id"
+                  @keydown.enter.prevent="form.cast = c.id"
+                  @keydown.space.prevent="form.cast = c.id"
                 >
                   <img
                     v-if="c.avatar_url"
