@@ -199,7 +199,7 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
           <button class="btn btn-primary" :disabled="inviting || !inviteUsername.trim()">{{ inviting ? '処理中...' : '招待する' }}</button>
         </form>
         <div v-for="invitation in invitations" :key="invitation.id" class="d-flex flex-wrap gap-2 align-items-center mt-3">
-          <span>{{ invitation.username }}（{{ roleLabel(invitation.role) }}）</span>
+          <span class="text-break">{{ invitation.username }}（{{ roleLabel(invitation.role) }}）</span>
           <span class="small text-muted">承認待ち</span>
           <button class="btn btn-outline-secondary btn-sm ms-auto" @click="revoke(invitation)">招待を取り消す</button>
         </div>
@@ -222,7 +222,8 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
           スタッフが登録されていません
         </div>
 
-        <table v-else class="table table-hover mb-0">
+        <div v-else class="table-responsive">
+        <table class="table table-hover mb-0">
           <thead>
             <tr>
               <th style="width: 50px;"></th>
@@ -258,6 +259,7 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 

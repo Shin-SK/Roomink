@@ -52,7 +52,7 @@ onMounted(load)
           <h2 class="h5">所属している店舗</h2>
           <p v-if="!data.memberships.length" class="text-muted mb-0">現在、利用できる店舗はありません。店舗の管理者に招待を依頼してください。</p>
           <div v-for="member in data.memberships" :key="member.store_id" class="d-flex flex-wrap align-items-center justify-content-between gap-2 py-3 border-bottom">
-            <div><strong>{{ member.store_name }}</strong><div class="small text-muted">{{ roleLabel(member.role) }}</div></div>
+            <div class="text-break" style="min-width: 0"><strong>{{ member.store_name }}</strong><div class="small text-muted">{{ roleLabel(member.role) }}</div></div>
             <button class="btn btn-primary btn-sm" @click="openStore(member.store_id)">この店舗を開く</button>
           </div>
         </div>
@@ -61,7 +61,7 @@ onMounted(load)
         <div class="card-body">
           <h2 class="h5">届いている招待</h2>
           <p v-if="!data.invitations.length" class="text-muted mb-0">承認待ちの招待はありません。</p>
-          <article v-for="invite in data.invitations" :key="invite.id" class="py-3 border-bottom">
+          <article v-for="invite in data.invitations" :key="invite.id" class="py-3 border-bottom text-break">
             <h3 class="h6">{{ invite.store_name }}</h3>
             <p class="small mb-2">招待者：{{ invite.invited_by_name }} ／ 権限：{{ roleLabel(invite.role) }}<br>
               有効期限：{{ new Date(invite.expires_at).toLocaleString('ja-JP') }}</p>
