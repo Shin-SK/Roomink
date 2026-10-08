@@ -188,6 +188,24 @@ class StoreMembershipTest(TestCase):
         response = self.b_client.patch(f"/api/staffs/{self.manager.profile.pk}/", {"role": "staff"})
         self.assertEqual(response.status_code, 400)
 
+    def test_single_store_avatar_update_response_matches_saved_value(self):
+        response = self.client_for(self.staff, self.c)
+        manager = self.user("manager-c", self.c, "manager")
+        changed = self.client_for(manager, self.c).patch(
+            f"/api/staffs/{self.staff.profile.pk}/", {"avatar_url": "https://example.com/avatar.png"},
+        )
+        self.assertEqual(changed.status_code, 200, changed.data)
+        self.assertEqual(changed.data["avatar_url"], "https://example.com/avatar.png")
+        self.staff.refresh_from_db()  # force_authenticate reuses the in-memory user.
+        self.assertEqual(response.get("/api/auth/me/").data["avatar_url"], changed.data["avatar_url"])
+
+    def test_invalid_store_cannot_mutate_profile_before_access_check(self):
+        client = self.client_for(self.owner, self.c)
+        response = client.patch("/api/auth/profile/", {"display_name": "must-not-save"})
+        self.assertEqual(response.status_code, 403)
+        self.owner.refresh_from_db()
+        self.assertNotEqual(self.owner.first_name, "must-not-save")
+
     def test_deleting_original_store_preserves_membership_in_other_store(self):
         self.respond(self.invite())
         self.a.delete()

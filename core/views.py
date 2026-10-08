@@ -368,6 +368,7 @@ def auth_me(request):
 @api_view(["PATCH"])
 def auth_profile_update(request):
     user = request.user
+    access = get_request_profile(request)
     try:
         profile = UserProfile.objects.select_related("store").get(user=user)
     except UserProfile.DoesNotExist:
@@ -381,15 +382,14 @@ def auth_profile_update(request):
     if "avatar_url" in request.data:
         profile.avatar_url = request.data["avatar_url"]
         profile.save(update_fields=["avatar_url"])
-    access = get_request_profile(request)
     store = access.store if access else profile.store
     return Response({
         "id": user.id,
         "username": user.username,
         "display_name": user.first_name or user.username,
         "avatar_url": profile.avatar_url,
-        "store_id": store.id,
-        "store_name": store.name,
+        "store_id": store.id if store else None,
+        "store_name": store.name if store else "",
         "role": access.role if access else profile.role,
     })
 

@@ -677,6 +677,8 @@ class StaffUpdateSerializer(serializers.Serializer):
             updates["role"] = instance.role
         if updates:
             UserProfile.objects.filter(pk=profile.pk).update(**updates)
+            for field, value in updates.items():
+                setattr(profile, field, value)
         if email is not None:
             instance.user.email = email
             instance.user.save(update_fields=["email"])
