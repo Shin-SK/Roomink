@@ -7,7 +7,6 @@ import UserAvatar from './UserAvatar.vue'
 import CtiIncomingPanel from './CtiIncomingPanel.vue'
 import OperatorNotifications from './OperatorNotifications.vue'
 import OperatorSidebarIcon from './OperatorSidebarIcon.vue'
-import SystemAnnouncements from './SystemAnnouncements.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -136,7 +135,9 @@ onBeforeUnmount(() => {
     <!-- Sidebar (matches sidebar-operator.html) -->
     <aside class="sidebar operator-sidebar" :class="{ show: sidebarOpen }">
       <div class="sidebar-header">
-        <OperatorNotifications v-if="currentUser" />
+        <router-link to="/op/dashboard" class="sidebar-brand" @click="closeSidebar">
+          <img class="sidebar-logo" src="/logo.svg" alt="Roomink">
+        </router-link>
         <button
           type="button"
           class="sidebar-collapse-toggle"
@@ -189,6 +190,18 @@ onBeforeUnmount(() => {
           <OperatorSidebarIcon name="building-community" />
           <span class="sidebar-store-copy"><small>操作中</small><strong>{{ currentUser.store_name }}</strong></span>
         </router-link>
+        <router-link
+          to="/op/profile"
+          class="sidebar-profile-link"
+          :title="sidebarCollapsed ? 'プロフィール' : undefined"
+          @click="closeSidebar"
+        >
+          <UserAvatar :name="currentUser?.display_name" :avatar-url="currentUser?.avatar_url" :size="34" />
+          <span class="sidebar-profile-link__copy">
+            <strong>{{ currentUser?.display_name || 'プロフィール' }}</strong>
+            <small>プロフィール</small>
+          </span>
+        </router-link>
         <button
           class="btn btn-outline-primary btn-block"
           :title="sidebarCollapsed ? 'ログアウト' : undefined"
@@ -204,19 +217,21 @@ onBeforeUnmount(() => {
     <div class="main-content">
       <!-- Header (matches header.html) -->
       <header class="app-header position-relative">
-        <button class="mobile-menu-btn" @click.stop="toggleSidebar">
-          <i class="ti ti-menu-2"></i>
-        </button>
+        <div class="mobile-header-start">
+          <button class="mobile-menu-btn" aria-label="メニューを開く" :aria-expanded="sidebarOpen" @click.stop="toggleSidebar">
+            <i class="ti" :class="sidebarOpen ? 'ti-x' : 'ti-menu-2'"></i>
+          </button>
+          <router-link to="/op/dashboard" class="mobile-header-brand" aria-label="Roomink ホーム">
+            <img src="/logo.svg" alt="Roomink">
+          </router-link>
+        </div>
         <div class="header-actions">
           <slot name="actions"></slot>
+          <OperatorNotifications v-if="currentUser" />
         </div>
-        <router-link to="/op/profile" class="header-avator">
-          <UserAvatar :name="currentUser?.display_name" :avatar-url="currentUser?.avatar_url" :size="32" />
-        </router-link>
       </header>
 
       <main class="container">
-        <SystemAnnouncements v-if="currentUser" />
         <slot></slot>
       </main>
 
@@ -259,6 +274,12 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
+/* The compact-sidebar control is desktop-only. On mobile, the hamburger is
+   the single clear menu affordance. */
+.sidebar-collapse-toggle {
+  display: none;
+}
+
 .sidebar-logo {
   width: 32px;
   height: 32px;
@@ -275,6 +296,33 @@ onBeforeUnmount(() => {
 .sidebar-footer .btn {
   width: 100%;
 }
+
+.sidebar-profile-link {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  margin-bottom: .75rem;
+  padding: .65rem;
+  border: 1px solid #dbe6e3;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar-profile-link:hover,
+.sidebar-profile-link:focus-visible {
+  color: inherit;
+  background: #f5fbf9;
+  border-color: var(--rk-primary);
+}
+
+.sidebar-profile-link__copy { display: grid; min-width: 0; line-height: 1.2; }
+.sidebar-profile-link__copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
+.sidebar-profile-link__copy small { margin-top: .15rem; color: var(--bs-secondary-color); font-size: .68rem; }
+
+.mobile-header-start,
+.mobile-header-brand { display: flex; align-items: center; }
+.mobile-header-brand img { width: 104px; height: 30px; object-fit: contain; object-position: left center; }
 
 .sidebar-store-switch {
   display: flex;
@@ -421,5 +469,12 @@ onBeforeUnmount(() => {
     justify-content: center;
     padding-inline: 0;
   }
+
+  .operator-layout.is-sidebar-collapsed .sidebar-profile-link {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .operator-layout.is-sidebar-collapsed .sidebar-profile-link__copy { display: none; }
 }
 </style>

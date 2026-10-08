@@ -7,6 +7,9 @@ const router = useRouter()
 const open = ref(false)
 const notifications = ref([])
 const unreadCount = ref(0)
+const announcements = ref([])
+const announcementUnreadCount = ref(0)
+const expandedAnnouncementId = ref(null)
 const toastNotification = ref(null)
 const root = ref(null)
 let pollTimer = null
@@ -26,8 +29,8 @@ const previewNotifications = ref([
 ])
 const visibleNotifications = computed(() => previewMode ? previewNotifications.value : notifications.value)
 const displayUnreadCount = computed(() => previewMode
-  ? previewNotifications.value.filter(item => !item.is_read).length
-  : unreadCount.value)
+  ? previewNotifications.value.filter(item => !item.is_read).length + announcementUnreadCount.value
+  : unreadCount.value + announcementUnreadCount.value)
 
 function shownIds() {
   try {
@@ -81,6 +84,16 @@ async function loadNotifications() {
   }
 }
 
+async function loadAnnouncements() {
+  try {
+    const data = await api.getSystemAnnouncements()
+    announcements.value = Array.isArray(data.announcements) ? data.announcements : []
+    announcementUnreadCount.value = Number(data.unread_count) || 0
+  } catch {
+    // 通知取得の一時的な失敗で、通常の操作は止めない。
+  }
+}
+
 async function markRead(item) {
   if (!item.is_read) {
     if (previewMode) {
@@ -105,13 +118,46 @@ async function openNotification(item) {
 async function markAllRead() {
   if (previewMode) {
     previewNotifications.value.forEach(item => { item.is_read = true })
-    return
+  } else {
+    try {
+      const data = await api.markOperatorNotificationsRead([], true)
+      notifications.value = notifications.value.map(item => ({ ...item, is_read: true }))
+      unreadCount.value = Number(data.unread_count) || 0
+    } catch { /* keep the existing unread state */ }
   }
   try {
-    const data = await api.markOperatorNotificationsRead([], true)
-    notifications.value = notifications.value.map(item => ({ ...item, is_read: true }))
-    unreadCount.value = Number(data.unread_count) || 0
-  } catch { /* keep the existing unread state */ }
+    const data = await api.markSystemAnnouncementsRead([], true)
+    announcements.value = announcements.value.map(item => ({ ...item, is_read: true }))
+    announcementUnreadCount.value = Number(data.unread_count) || 0
+  } catch { /* keep the existing unread announcement state */ }
+}
+
+async function toggleAnnouncement(item) {
+  expandedAnnouncementId.value = expandedAnnouncementId.value === item.id ? null : item.id
+  if (item.is_read) return
+  try {
+    const data = await api.markSystemAnnouncementsRead([item.id])
+    item.is_read = true
+    announcementUnreadCount.value = Number(data.unread_count) || 0
+  } catch { /* 次回開いたときに再試行 */ }
+}
+
+async function followAnnouncement(item) {
+  await toggleAnnouncement(item)
+  open.value = false
+  if (item.target_path) await router.push(item.target_path)
+}
+
+function announcementIcon(kind) {
+  if (kind === 'IMPORTANT') return 'ti-alert-circle'
+  if (kind === 'MAINTENANCE') return 'ti-tools'
+  return 'ti-sparkles'
+}
+
+function formatDate(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric' }).format(date)
 }
 
 function formatTime(value) {
@@ -131,8 +177,11 @@ function onDocumentClick(event) {
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
-  await loadNotifications()
-  pollTimer = setInterval(loadNotifications, 10000)
+  await Promise.all([loadNotifications(), loadAnnouncements()])
+  pollTimer = setInterval(() => {
+    loadNotifications()
+    loadAnnouncements()
+  }, 10000)
 })
 
 onBeforeUnmount(() => {
@@ -151,7 +200,7 @@ onBeforeUnmount(() => {
       :aria-expanded="open"
       @click.stop="open = !open"
     >
-      <img src="/icon.svg" alt="">
+      <i class="ti ti-bell"></i>
       <span v-if="displayUnreadCount" class="operator-notifications__count">
         {{ displayUnreadCount > 99 ? '99+' : displayUnreadCount }}
       </span>
@@ -162,6 +211,28 @@ onBeforeUnmount(() => {
         <strong>通知</strong>
         <button v-if="displayUnreadCount" type="button" @click="markAllRead">すべて既読</button>
       </header>
+      <section v-if="announcements.length" class="operator-announcements">
+        <div class="operator-announcements__heading">
+          <i class="ti ti-sparkles"></i> Roominkからのお知らせ
+        </div>
+        <article
+          v-for="item in announcements"
+          :key="`announcement-${item.id}`"
+          class="operator-announcements__item"
+          :class="{ unread: !item.is_read }"
+        >
+          <button type="button" @click="toggleAnnouncement(item)">
+            <span><i class="ti" :class="announcementIcon(item.kind)"></i>{{ item.title }}</span>
+            <small>{{ formatDate(item.published_at) }}</small>
+          </button>
+          <div v-if="expandedAnnouncementId === item.id" class="operator-announcements__detail">
+            <p>{{ item.body }}</p>
+            <button v-if="item.target_path" type="button" @click="followAnnouncement(item)">
+              詳細を開く <i class="ti ti-arrow-right"></i>
+            </button>
+          </div>
+        </article>
+      </section>
       <div v-if="visibleNotifications.length" class="operator-notifications__list">
         <button
           v-for="item in visibleNotifications"
@@ -200,26 +271,23 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .operator-notifications {
-  position: absolute;
-  top: 50%;
-  left: 14px;
-  z-index: 3;
-  transform: translateY(-50%);
+  position: relative;
+  z-index: 1080;
 }
 
 .operator-notifications__bell {
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #dbe6e3;
+  border-radius: 50%;
+  background: #fff;
   color: #334155;
   display: grid;
   place-items: center;
   position: relative;
 }
 
-.operator-notifications__bell img { width: 28px; height: 28px; object-fit: contain; }
+.operator-notifications__bell .ti { font-size: 21px; }
 
 .operator-notifications__count {
   position: absolute;
@@ -241,7 +309,8 @@ onBeforeUnmount(() => {
 .operator-notifications__panel {
   position: absolute;
   top: 42px;
-  left: 0;
+  right: 0;
+  left: auto;
   width: min(380px, calc(100vw - 24px));
   max-height: min(560px, calc(100vh - 90px));
   overflow: hidden;
@@ -302,6 +371,17 @@ onBeforeUnmount(() => {
 .operator-notifications__body small { color: #94a3b8; font-size: 11px; }
 .operator-notifications__empty { padding: 28px 16px; text-align: center; color: #64748b; }
 
+.operator-announcements { border-bottom: 1px solid #e2e8f0; }
+.operator-announcements__heading { padding: .7rem .9rem; color: #177f70; background: #f5fbf9; font-size: .78rem; font-weight: 700; }
+.operator-announcements__item { border-top: 1px solid #eef2f1; }
+.operator-announcements__item.unread { background: #f4fbf9; }
+.operator-announcements__item > button { width: 100%; padding: .7rem .9rem; border: 0; background: transparent; display: flex; justify-content: space-between; gap: .75rem; text-align: left; }
+.operator-announcements__item > button span { display: flex; align-items: center; gap: .4rem; font-size: .83rem; font-weight: 600; }
+.operator-announcements__item > button small { color: #94a3b8; white-space: nowrap; font-size: .7rem; }
+.operator-announcements__detail { padding: 0 .9rem .8rem 2rem; }
+.operator-announcements__detail p { margin: 0 0 .55rem; color: #475569; white-space: pre-line; font-size: .78rem; line-height: 1.6; }
+.operator-announcements__detail button { border: 0; background: transparent; color: #177f70; padding: 0; font-size: .78rem; font-weight: 700; }
+
 .operator-booking-toast {
   position: fixed;
   right: 22px;
@@ -324,8 +404,7 @@ onBeforeUnmount(() => {
 .operator-booking-toast small { color: #475569; line-height: 1.45; }
 
 @media (max-width: 991.98px) {
-  .operator-notifications { position: fixed; top: 8px; left: 54px; transform: none; }
-  .operator-notifications__panel { top: 50px; }
+  .operator-notifications__panel { top: 48px; }
   .operator-booking-toast { top: 64px; right: 12px; }
 }
 </style>
