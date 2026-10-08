@@ -53,6 +53,30 @@ class StoreMembershipTest(TestCase):
         self.assertTrue(self.owner.check_password("Membership-test-pass-77"))
         self.assertEqual(self.client.get("/api/auth/me/").data["store_id"], self.a.pk)
 
+    def test_legacy_profile_admin_cannot_change_membership_defaults_or_delete(self):
+        from django.contrib import admin
+        from django.test import RequestFactory
+        model_admin = admin.site._registry[UserProfile]
+        request = RequestFactory().get("/admin/")
+        request.user = self.owner
+        form = model_admin.get_form(request, self.owner.profile)
+        self.assertTrue({"user", "store", "role"}.isdisjoint(form.base_fields))
+        self.assertFalse(model_admin.has_delete_permission(request, self.owner.profile))
+        self.assertFalse(model_admin.has_delete_permission(request))
+
+    def test_legacy_profile_admin_can_save_avatar_after_original_store_is_deleted(self):
+        from django.contrib import admin
+        from django.test import RequestFactory
+        StoreMembership.objects.create(user=self.owner, store=self.b, role="staff")
+        self.a.delete()
+        profile = UserProfile.objects.get(user=self.owner)
+        profile.avatar_url = "https://example.invalid/avatar.png"
+        model_admin = admin.site._registry[UserProfile]
+        model_admin.save_model(RequestFactory().post("/admin/"), profile, None, True)
+        profile.refresh_from_db()
+        self.assertIsNone(profile.store_id)
+        self.assertEqual(profile.avatar_url, "https://example.invalid/avatar.png")
+
     def test_invitation_does_not_grant_access_until_recipient_accepts(self):
         invite = self.invite()
         b = self.client_for(self.owner, self.b)

@@ -359,10 +359,15 @@ class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "store", "role")
     list_filter = ("store", "role")
 
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        if obj.user:
-            ensure_user_profile(obj.user, obj.store, role=obj.role)
+    def get_readonly_fields(self, request, obj=None):
+        # These are legacy defaults, not store-specific authorization. Existing
+        # identities must be managed through the membership-aware staff screen.
+        return ("user", "store", "role") if obj else ()
+
+    def has_delete_permission(self, request, obj=None):
+        # Removing a profile would strand live memberships and bypass the last
+        # manager guard. Revoke store membership through the staff API instead.
+        return False
 
 
 @admin.register(SystemAnnouncement)
