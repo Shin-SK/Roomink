@@ -26,6 +26,7 @@ const SettingsNominationFees = () => import('./pages/op/SettingsNominationFees.v
 const SettingsDiscounts = () => import('./pages/op/SettingsDiscounts.vue')
 const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
 const SettingsStaffs = () => import('./pages/op/SettingsStaffs.vue')
+const SettingsOperationGroup = () => import('./pages/op/SettingsOperationGroup.vue')
 const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
 const SettingsLine = () => import('./pages/op/SettingsLine.vue')
 const SettingsLineActivation = () => import('./pages/op/SettingsLineActivation.vue')
@@ -114,6 +115,7 @@ const routes = [
   { path: '/op/settings', name: 'settings', component: Settings },
   { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts, meta: { managerOnly: true } },
   { path: '/op/settings/staffs', name: 'settings-staffs', component: SettingsStaffs, meta: { managerOnly: true } },
+  { path: '/op/settings/operation-group', name: 'settings-operation-group', component: SettingsOperationGroup, meta: { operationGroupManagerOnly: true } },
   { path: '/op/settings/rooms', name: 'settings-rooms', component: SettingsRooms, meta: { managerOnly: true } },
   { path: '/op/settings/courses', name: 'settings-courses', component: SettingsCourses, meta: { managerOnly: true } },
   { path: '/op/settings/options', name: 'settings-options', component: SettingsOptions, meta: { managerOnly: true } },
@@ -187,11 +189,17 @@ async function ensureAuth() {
   if (authCache) return authCache
   try {
     const me = await api.me()
-    authCache = { authed: true, role: me.role, roles: me.roles || [me.role], isSuperuser: Boolean(me.is_superuser) }
+    authCache = {
+      authed: true,
+      role: me.role,
+      roles: me.roles || [me.role],
+      isSuperuser: Boolean(me.is_superuser),
+      isOperationGroupManager: Boolean(me.is_operation_group_manager),
+    }
   } catch {
     try {
       await api.getStoreAccess()
-      authCache = { authed: true, role: 'unassigned', roles: [], isSuperuser: false }
+      authCache = { authed: true, role: 'unassigned', roles: [], isSuperuser: false, isOperationGroupManager: false }
     } catch {
       authCache = { authed: false, role: null }
     }
@@ -242,6 +250,9 @@ router.beforeEach(async (to) => {
 
   // role 別アクセス制御
   if (to.meta.superuserOnly && !auth.isSuperuser) return { path: homeForRole(auth.role) }
+  if (to.meta.operationGroupManagerOnly && !auth.isSuperuser && !auth.isOperationGroupManager) {
+    return { path: '/op/settings' }
+  }
 
   if (requiresAuth) return
 
@@ -271,6 +282,10 @@ export function getAuthRole() {
 
 export function getAuthIsSuperuser() {
   return Boolean(authCache?.isSuperuser)
+}
+
+export function getAuthIsOperationGroupManager() {
+  return Boolean(authCache?.isOperationGroupManager)
 }
 
 export default router

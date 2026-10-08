@@ -1,7 +1,13 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import membership_views, operations_line_inbox_views, support_views, views
+from . import (
+    membership_views,
+    operation_group_views,
+    operations_line_inbox_views,
+    support_views,
+    views,
+)
 
 router = DefaultRouter()
 router.register("orders", views.OrderViewSet)
@@ -56,6 +62,10 @@ urlpatterns = [
     path("auth/store-invitations/<uuid:invitation_id>/respond/", membership_views.MyStoreInvitationRespondView.as_view()),
     path("op/store-invitations/", membership_views.StoreInvitationView.as_view()),
     path("op/store-invitations/<uuid:invitation_id>/revoke/", membership_views.StoreInvitationRevokeView.as_view()),
+    path("op/operation-group/", operation_group_views.OperationGroupSettingsView.as_view()),
+    path("op/operation-group/staff/", operation_group_views.OperationGroupStaffCreateView.as_view()),
+    path("op/operation-group/invitations/", operation_group_views.OperationGroupInvitationView.as_view()),
+    path("op/operation-group/managers/", operation_group_views.OperationGroupManagerView.as_view()),
     path("auth/csrf/", views.csrf_token_view, name="auth-csrf"),
     path("auth/login/", views.auth_login, name="auth-login"),
     path("auth/logout/", views.auth_logout, name="auth-logout"),

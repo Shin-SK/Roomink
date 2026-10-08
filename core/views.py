@@ -34,7 +34,12 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Dial, VoiceResponse
-from .store_access import get_request_profile, get_user_store, operator_memberships
+from .store_access import (
+    get_request_profile,
+    get_user_store,
+    is_operation_group_manager,
+    operator_memberships,
+)
 from .membership_views import audit_membership, require_manager
 
 from .models import (
@@ -355,6 +360,11 @@ def auth_me(request):
         "role": primary_role,
         "roles": roles,
         "is_superuser": request.user.is_superuser,
+        "is_operation_group_manager": bool(
+            store
+            and store.operation_group_id
+            and is_operation_group_manager(request.user, store.operation_group_id)
+        ),
         "memberships": [
             {"store_id": member.store_id, "store_name": member.store.name, "role": member.role}
             for member in operator_memberships(request.user).order_by("store__name", "id")

@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 
 from .models import Store, StoreInvitation, StoreMembership, StoreMembershipEvent
 from .permissions import IsManager
-from .store_access import get_user_store, role_in_store
+from .store_access import get_user_store, is_operation_group_manager, role_in_store
 
 
 def audit_membership(store, user, actor, action, role=""):
@@ -151,7 +151,13 @@ class MyStoreInvitationRespondView(APIView):
             if invitation.status != "pending" or invitation.expires_at <= timezone.now():
                 raise ValidationError("この招待は有効ではありません。管理者に再招待を依頼してください。")
             if action == "accept":
-                require_manager(invitation.invited_by, store)
+                inviter_is_store_manager = role_in_store(invitation.invited_by, store.pk) == "manager"
+                inviter_is_group_manager = bool(
+                    store.operation_group_id
+                    and is_operation_group_manager(invitation.invited_by, store.operation_group_id)
+                )
+                if not inviter_is_store_manager and not inviter_is_group_manager:
+                    raise PermissionDenied("この招待を出した管理権限は現在有効ではありません。")
                 get_user_model().objects.select_for_update().get(pk=request.user.pk)
                 profile = getattr(request.user, "profile", None)
                 if not profile or profile.role not in ("manager", "staff"):

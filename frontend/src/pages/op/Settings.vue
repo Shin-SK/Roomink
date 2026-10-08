@@ -1,14 +1,16 @@
 <script setup>
 import { computed } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
-import { getAuthIsSuperuser, getAuthRole } from '../../router.js'
+import { getAuthIsOperationGroupManager, getAuthIsSuperuser, getAuthRole } from '../../router.js'
 
 const isManager = computed(() => getAuthRole() === 'manager')
 const isSuperuser = computed(() => getAuthIsSuperuser())
+const isOperationGroupManager = computed(() => getAuthIsOperationGroupManager())
 
 const menuItems = [
   { to: '/op/settings/casts', icon: 'ti-users', label: 'キャスト管理', desc: 'キャストの追加・編集・削除', managerOnly: true },
   { to: '/op/settings/staffs', icon: 'ti-user-shield', label: 'スタッフ管理', desc: 'スタッフの追加・編集・削除', managerOnly: true },
+  { to: '/op/settings/operation-group', icon: 'ti-building-community', label: '運営管理', desc: '同じ契約内の店舗とスタッフの所属設定', operationGroupManagerOnly: true },
   { to: '/op/settings/rooms', icon: 'ti-door', label: 'ルーム管理', desc: 'ルームの追加・編集・削除', managerOnly: true },
   { to: '/op/settings/courses', icon: 'ti-list', label: 'コース管理', desc: 'コースの追加・編集・削除', managerOnly: true },
   { to: '/op/settings/options', icon: 'ti-puzzle', label: 'オプション管理', desc: 'オプションの追加・編集・削除', managerOnly: true },
@@ -29,7 +31,8 @@ const menuItems = [
 const visibleItems = computed(() =>
   menuItems.filter((item) =>
     (!item.managerOnly || isManager.value || isSuperuser.value) &&
-    (!item.superuserOnly || isSuperuser.value)
+    (!item.superuserOnly || isSuperuser.value) &&
+    (!item.operationGroupManagerOnly || isOperationGroupManager.value || isSuperuser.value)
   )
 )
 </script>

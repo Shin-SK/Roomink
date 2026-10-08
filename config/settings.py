@@ -188,6 +188,8 @@ SPECTACULAR_SETTINGS = {
         "CastAdjustmentStatusEnum": "core.models.CastAdjustment.Status",
         "CastNoteStatusEnum": "core.models.CastNote.Status",
         "ShiftConfirmNotificationStatusEnum": "core.models.ShiftConfirmNotificationLog.Status",
+        "OperatorRoleEnum": [("staff", "スタッフ"), ("manager", "マネージャー")],
+        "OperatorRoleInputEnum": ["staff", "manager"],
     },
 }
 
