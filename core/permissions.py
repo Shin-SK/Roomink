@@ -5,10 +5,20 @@ from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 from .services.order_policy import can_modify_order, is_past_business_day_order
 from .models import UserProfile
-from .store_access import get_request_profile
+from .store_access import get_request_profile, operator_memberships
 
 
 logger = logging.getLogger(__name__)
+
+
+class IsCtiOperator(BasePermission):
+    """A cross-store inbox must not depend on an unrelated selected store."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user.is_authenticated and user.is_active and (
+            user.is_superuser or operator_memberships(user).filter(role__in=("manager", "staff")).exists()
+        ))
 
 
 class IsManagerOrStaff(BasePermission):

@@ -64,6 +64,7 @@ from .security import (
     validate_password_for_role,
 )
 from .permissions import (
+    IsCtiOperator,
     IsManager,
     IsManagerOrStaff,
     IsManagerOrStaffReadOnlyManagerWrite,
@@ -5298,39 +5299,29 @@ def _record_inbound_call(*, contact_id, store_phone, from_phone):
     involved in the decision.
     """
     with transaction.atomic():
-        existing = (
-            CallLog.objects.select_for_update()
-            .filter(contact_id=contact_id)
-            .first()
-        )
-        if existing:
-            matches_original_route = (
-                existing.store_id == store_phone.store_id
-                and existing.to_phone == store_phone.phone
-                and existing.from_phone == from_phone
-            )
-            return existing, False, matches_original_route
-
         store = store_phone.store
-        customer = Customer.objects.filter(store=store, phone=from_phone).first()
+        customer = Customer.objects.filter(store=store, phone=from_phone).first() if from_phone.isascii() and from_phone.isdigit() else None
         threshold = timezone.now() - timedelta(minutes=10)
         is_repeat = CallLog.objects.filter(
             store=store, from_phone=from_phone, created_at__gte=threshold,
-        ).exists()
-        call = CallLog.objects.create(
+        ).exclude(contact_id=contact_id).exists()
+        # get_or_create resolves a concurrent first delivery using the unique
+        # contact_id constraint; a lock on a missing row alone cannot do that.
+        call, created = CallLog.objects.select_for_update().get_or_create(
             contact_id=contact_id,
-            store=store,
-            from_phone=from_phone,
-            to_phone=store_phone.phone,
-            customer=customer,
-            is_repeat=is_repeat,
-            status=CallLog.Status.NEW,
+            defaults=dict(store=store, from_phone=from_phone,
+                          to_phone=store_phone.phone, customer=customer,
+                          is_repeat=is_repeat, status=CallLog.Status.NEW),
         )
-        return call, True, True
+        matches = (call.store_id == store.pk and call.to_phone == store_phone.phone
+                   and call.from_phone == from_phone)
+        return call, created, matches
 
 
 def _cti_call_payload(call, *, include_attention=False):
     customer = call.customer
+    if customer and customer.store_id != call.store_id:
+        customer = None
     payload = {
         "id": call.id,
         "contact_id": call.contact_id,
@@ -5338,7 +5329,7 @@ def _cti_call_payload(call, *, include_attention=False):
         "store_name": call.store.name,
         "from_phone": call.from_phone,
         "to_phone": call.to_phone,
-        "customer_id": call.customer_id,
+        "customer_id": customer.pk if customer else None,
         "customer_name": str(customer) if customer else None,
         "is_repeat": call.is_repeat,
         "status": call.status,
@@ -5362,7 +5353,7 @@ def _cti_call_payload(call, *, include_attention=False):
             "call_id": call.id,
             "store_id": call.store_id,
             "store_name": call.store.name,
-            "customer_id": call.customer_id,
+            "customer_id": customer.pk if customer else None,
             "phone": call.from_phone,
         }
     return payload
@@ -5372,7 +5363,7 @@ def _accessible_cti_calls(request):
     """Return only calls for stores the authenticated operator belongs to."""
     if request.user.is_superuser:
         return CallLog.objects.all()
-    store_ids = operator_memberships(request.user).values("store_id")
+    store_ids = operator_memberships(request.user).filter(role__in=("manager", "staff")).values("store_id")
     return CallLog.objects.filter(store_id__in=store_ids)
 
 
@@ -5490,23 +5481,31 @@ class CtiWorkQueueView(APIView):
     chosen store ID.
     """
 
-    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+    permission_classes = [IsAuthenticated, IsCtiOperator]
 
     def get(self, request):
         calls = (
             _accessible_cti_calls(request)
             .filter(status__in=[CallLog.Status.NEW, CallLog.Status.IN_PROGRESS])
             .select_related("store", "customer", "assigned_to")
+            .prefetch_related("read_receipts__user")
             .order_by("-created_at")
         )
-        return Response({"calls": [_cti_call_payload(call, include_attention=True) for call in calls]})
+        data = []
+        for call in calls[:100]:
+            payload = _cti_call_payload(call, include_attention=True)
+            receipts = list(call.read_receipts.all())
+            payload["seen_by_me"] = any(r.user_id == request.user.id for r in receipts)
+            payload["seen_by"] = [r.user.first_name or r.user.username for r in receipts]
+            data.append(payload)
+        return Response({"calls": data})
 
 
 @document_object_api_view
 class CtiCallContextView(APIView):
     """GET /api/op/cti/calls/{id}/context/ — one immutable call context."""
 
-    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+    permission_classes = [IsAuthenticated, IsCtiOperator]
 
     def get(self, request, pk):
         try:

@@ -1,6 +1,6 @@
 import { selectedStoreId, setSelectedStoreId, scopedExportUrl } from './storeSelection.js'
 
-const API_ORIGIN = import.meta.env.VITE_API_BASE_URL || ''
+const API_ORIGIN = import.meta.env?.VITE_API_BASE_URL || ''
 const BASE = `${API_ORIGIN}/api`
 let csrfToken = ''
 
@@ -22,7 +22,7 @@ export function normalizePhone(raw) {
   return s
 }
 
-async function request(method, path, body) {
+async function request(method, path, body, callId = null) {
   const opts = {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -31,7 +31,9 @@ async function request(method, path, body) {
   if (method !== 'GET') {
     opts.headers['X-CSRFToken'] = csrfToken || getCookie('csrftoken')
   }
-  if (selectedStoreId() && !path.startsWith('/auth/store-') && !path.startsWith('/cu/') && !path.startsWith('/cast/') && !path.startsWith('/public/')) {
+  if (callId) {
+    opts.headers['X-Roomink-Call'] = String(callId)
+  } else if (selectedStoreId() && !path.startsWith('/op/cti/work-queue/') && !path.match(/^\/op\/cti\/calls\/\d+\/context\//) && !path.startsWith('/auth/store-') && !path.startsWith('/cu/') && !path.startsWith('/cast/') && !path.startsWith('/public/')) {
     opts.headers['X-Roomink-Store'] = selectedStoreId()
   }
   if (body !== undefined) opts.body = JSON.stringify(body)
@@ -84,6 +86,33 @@ async function listRequest(method, path) {
     return data.results
   }
   return data
+}
+
+// A separate immutable client for each open call. Never mutates the dashboard's
+// selection; the server resolves the store from the persisted call on every request.
+export function callApi(callId) {
+  if (!/^[1-9]\d*$/.test(String(callId))) throw new Error('着信の指定が正しくありません')
+  const send = (method, path, body) => request(method, path, body, callId)
+  const list = async (path) => { const data = await send('GET', path); return data?.results || data }
+  return Object.freeze({
+    getCustomers: () => list('/customers/?limit=1000'),
+    getCasts: () => list('/casts/?limit=200'),
+    getCourses: () => list('/courses/?limit=200'),
+    getOptions: () => list('/options/?limit=200'),
+    getExtensions: () => list('/extensions/?limit=200'),
+    getNominationFees: () => list('/nomination-fees/?limit=200'),
+    getMedia: () => list('/media/?limit=200'),
+    getDiscounts: () => list('/discounts/?limit=200'),
+    getPaymentFeeSettings: () => send('GET', '/op/payment-fee-settings/'),
+    getSchedule: (date) => send('GET', `/op/schedule/?date=${encodeURIComponent(date)}`),
+    getCustomer: (id) => send('GET', `/customers/${id}/`),
+    createCustomer: (body) => send('POST', '/customers/', body),
+    createOrder: (body) => send('POST', '/orders/', body),
+    confirmOrder: (id) => send('POST', `/orders/${id}/confirm/`),
+    markSeen: () => send('POST', '/op/cti/calls/mark-seen/', { call_ids: [callId] }),
+    start: () => send('POST', `/op/cti/calls/${callId}/start/`, {}),
+    done: () => send('POST', `/op/cti/calls/${callId}/done/`, {}),
+  })
 }
 
 export const api = {
@@ -454,6 +483,8 @@ export const api = {
 
   // CTI
   getCtiQueue: () => request('GET', '/op/cti/queue/'),
+  getCtiWorkQueue: () => request('GET', '/op/cti/work-queue/'),
+  getCtiCallContext: (id) => request('GET', `/op/cti/calls/${id}/context/`),
   markCtiCallsSeen: (callIds) => request('POST', '/op/cti/calls/mark-seen/', { call_ids: callIds }),
   ctiCallStart: (id) => request('POST', `/op/cti/calls/${id}/start/`),
   ctiCallDone: (id) => request('POST', `/op/cti/calls/${id}/done/`),

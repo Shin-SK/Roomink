@@ -1,8 +1,10 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { api } from '../api.js'
+import { api as defaultApi } from '../api.js'
 
 const props = defineProps({
+  apiClient: { type: Object, default: null },
+  callBound: { type: Boolean, default: false },
   mode: { type: String, default: 'create' }, // 'create' | 'edit'
   orderId: { type: [Number, String], default: '' },
   initialOrder: { type: Object, default: null },
@@ -19,6 +21,22 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['created', 'updated', 'cancel'])
+const api = props.apiClient || defaultApi
+const loadError = ref('')
+const newCustomerName = ref('')
+const creatingCustomer = ref(false)
+
+async function registerCaller() {
+  if (creatingCustomer.value || !newCustomerName.value.trim()) return
+  creatingCustomer.value = true
+  errorMsg.value = ''
+  try {
+    const customer = await api.createCustomer({ display_name: newCustomerName.value.trim(), phone: props.initialPhone })
+    customers.value.push(customer)
+    selectCustomer(customer)
+  } catch (e) { errorMsg.value = e.message }
+  finally { creatingCustomer.value = false }
+}
 
 const isEdit = computed(() => props.mode === 'edit')
 
@@ -229,6 +247,7 @@ function applyInitialOrder() {
 
 async function loadMasters() {
   loading.value = true
+  loadError.value = ''
   try {
     const [custData, castData, courseData, optData, extData, nfData, mdData, dcData, feeData] = await Promise.all([
       api.getCustomers(),
@@ -239,9 +258,12 @@ async function loadMasters() {
       api.getNominationFees(),
       api.getMedia(),
       api.getDiscounts(),
-      api.getPaymentFeeSettings().catch(() => paymentFeeRates.value),
+      api.getPaymentFeeSettings(),
     ])
     customers.value = Array.isArray(custData) ? custData : []
+    if (props.initialCustomerId && !customers.value.some(c => c.id === Number(props.initialCustomerId))) {
+      customers.value.push(await api.getCustomer(props.initialCustomerId))
+    }
     casts.value = Array.isArray(castData) ? castData : []
     courses.value = Array.isArray(courseData) ? courseData : []
     options.value = Array.isArray(optData) ? optData : []
@@ -270,7 +292,7 @@ async function loadMasters() {
       }
     }
   } catch (e) {
-    console.error(e)
+    loadError.value = e.message || '予約情報を読み込めませんでした。'
   } finally {
     loading.value = false
   }
@@ -348,6 +370,7 @@ function setExtensionDuration(minutes) {
 }
 
 async function submit() {
+  if (submitting.value || loading.value || loadError.value) return
   errorMsg.value = ''
   if (isEdit.value) {
     return submitEdit()
@@ -390,12 +413,13 @@ async function submitCreate() {
   submitting.value = true
   try {
     const order = await api.createOrder(body)
+    let confirmationError = ''
     if (props.autoConfirm) {
       try {
         await api.confirmOrder(order.id)
-      } catch (_) { /* 詳細画面で手動承認できる */ }
+      } catch (e) { confirmationError = e.message || 'タイムラインから予約の確定状況をご確認ください。' }
     }
-    emit('created', { order, startDate: form.value.startDate })
+    emit('created', { order, startDate: form.value.startDate, confirmationError })
   } catch (e) {
     errorMsg.value = e.message
   } finally {
@@ -451,7 +475,12 @@ function formatYen(n) {
       <div class="spinner-border text-primary"></div>
     </div>
 
+    <div v-else-if="loadError" class="alert alert-danger" role="alert">
+      {{ loadError }}
+      <button type="button" class="btn btn-outline-danger mt-2" @click="loadMasters">再読み込み</button>
+    </div>
     <div v-else>
+      <div v-if="callBound && errorMsg" class="alert alert-danger" role="alert">{{ errorMsg }}</div>
       <div v-if="isEdit" class="d-flex align-items-center mb-3">
         <span class="badge order-form__edit-badge">
           <i class="ti ti-edit me-1"></i>編集中
@@ -466,7 +495,7 @@ function formatYen(n) {
         1. 連絡者を選択 → 2. 日時・利用者・キャスト・コースを選択 → 3. 予約を作成
       </div>
 
-      <div v-if="!isEdit && phoneHint && !form.customer" class="alert alert-warning d-flex justify-content-between align-items-center">
+      <div v-if="!callBound && !isEdit && phoneHint && !form.customer" class="alert alert-warning d-flex justify-content-between align-items-center">
         <div>
           <i class="ti ti-phone-incoming"></i>
           着信番号 <strong>{{ phoneHint }}</strong> に一致する顧客が見つかりませんでした。
@@ -492,11 +521,17 @@ function formatYen(n) {
               </div>
               <div class="text-muted small">{{ selectedCustomer.phone }}</div>
             </div>
-            <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearCustomer">
+            <button v-if="!callBound" type="button" class="btn btn-sm btn-outline-secondary" @click="clearCustomer">
               <i class="ti ti-x"></i> 変更
             </button>
           </div>
 
+          <form v-else-if="callBound && /^\d{10,15}$/.test(initialPhone)" @submit.prevent="registerCaller">
+            <p class="text-muted small">この店舗では初めてのお電話です。お名前を登録すると、そのまま予約を入力できます。</p>
+            <p class="fw-bold">{{ initialPhone }}</p>
+            <label class="form-label">お名前<input v-model="newCustomerName" class="form-control mt-1" maxlength="100" required autocomplete="off"></label>
+            <button class="btn btn-primary d-block mt-2" :disabled="creatingCustomer || !newCustomerName.trim()">{{ creatingCustomer ? '登録中…' : 'この店舗に顧客を登録' }}</button>
+          </form>
           <div v-else>
             <label class="form-label">電話番号 / 名前で検索</label>
             <input
@@ -527,7 +562,7 @@ function formatYen(n) {
               </div>
             </div>
 
-            <div v-if="customerSearch.trim() && !hasExactPhoneMatch" class="mt-3">
+            <div v-if="!callBound && customerSearch.trim() && !hasExactPhoneMatch" class="mt-3">
               <router-link
                 :to="`/op/customers/new?phone=${encodeURIComponent(normalizedQuery)}&return=${encodeURIComponent('/op/phone?phone=' + normalizedQuery)}`"
                 class="btn btn-primary w-100"
@@ -537,7 +572,7 @@ function formatYen(n) {
               </router-link>
             </div>
 
-            <div v-if="!customerSearch.trim()" class="mt-3 text-end">
+            <div v-if="!callBound && !customerSearch.trim()" class="mt-3 text-end">
               <router-link to="/op/customers/new?return=/op/phone" class="btn btn-outline-primary btn-sm">
                 <i class="ti ti-user-plus"></i> 新規顧客を作成
               </router-link>

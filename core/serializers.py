@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import List, Optional
@@ -304,12 +305,20 @@ class MediumSerializer(serializers.ModelSerializer):
 
 class StorePhoneNumberSerializer(serializers.ModelSerializer):
     def validate_phone(self, value):
+        if not re.fullmatch(r"[+0-9０-９\s()－−ー―‐-]+", value):
+            raise serializers.ValidationError("電話番号のみを入力してください。")
+        value = value.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
         phone = normalize_phone(value)
         # A routing identifier must be a real numeric destination.  Do not
         # accept labels or SIP addresses here: the webhook normalizes its
         # called party to this same numeric form before lookup.
         if not phone or not phone.isdigit() or not 10 <= len(phone) <= 15:
             raise serializers.ValidationError("着信先番号は10〜15桁の数字で入力してください。")
+        duplicates = StorePhoneNumber.objects.filter(phone=phone)
+        if self.instance:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise serializers.ValidationError("この番号は既に登録されています。")
         return phone
 
     class Meta:
@@ -1383,6 +1392,10 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         expected_store = self.context.get("store")
         if expected_store is not None and store.id != expected_store.id:
             raise serializers.ValidationError({"customer": "他店舗の顧客は使用できません"})
+        call = getattr(self.context.get("request"), "_roomink_call", None)
+        if call and call.from_phone.isascii() and call.from_phone.isdigit():
+            if data["customer"].phone != call.from_phone:
+                raise serializers.ValidationError({"customer": "着信元の顧客を選択してください。"})
         data["store"] = store
 
         settlement_date = business_date_for_datetime(data["start"], store.timezone)

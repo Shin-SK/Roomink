@@ -404,6 +404,65 @@ class CtiWorkQueueTest(RoomankOpsSmokeTestBase):
         )
         self.assertEqual(forbidden_context.status_code, 404)
 
+    def test_queue_does_not_depend_on_stale_selected_store(self):
+        res = self.client_as(self.manager_a).get(self.endpoint, HTTP_X_ROOMINK_STORE="999999")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.data["calls"]), 2)
+
+    def test_call_header_resolves_store_and_rejects_conflicting_selection(self):
+        client = self.client_as(self.manager_a)
+        scoped = {"HTTP_X_ROOMINK_CALL": str(self.call_b.pk)}
+        res = client.get("/api/customers/", **scoped)
+        self.assertEqual(res.status_code, 200)
+        self.assertNotContains(res, self.customer.display_name)
+        self.assertEqual(client.get("/api/customers/", **scoped, HTTP_X_ROOMINK_STORE=str(self.store_a.pk)).status_code, 403)
+        self.assertEqual(client.get("/api/customers/", {"_store": self.store_a.pk}, **scoped).status_code, 403)
+
+    def test_call_context_revocation_denies_reads_and_mutations(self):
+        self.manager_a.store_memberships.filter(store=self.store_b).update(is_active=False)
+        client = self.client_as(self.manager_a)
+        self.assertEqual(client.get(f"/api/op/cti/calls/{self.call_b.pk}/context/").status_code, 404)
+        self.assertEqual(client.get("/api/customers/", HTTP_X_ROOMINK_CALL=str(self.call_b.pk)).status_code, 403)
+        res = client.post(f"/api/op/cti/calls/{self.call_b.pk}/start/", {}, HTTP_X_ROOMINK_CALL=str(self.call_b.pk))
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(self.client_as(self.cast_user_a).get(self.endpoint).status_code, 403)
+
+    def test_scoped_status_action_leaves_other_call_untouched(self):
+        client = self.client_as(self.manager_a)
+        res = client.post(f"/api/op/cti/calls/{self.call_b.pk}/start/", {}, HTTP_X_ROOMINK_CALL=str(self.call_b.pk))
+        self.assertEqual(res.status_code, 200)
+        self.call_a.refresh_from_db(); self.call_b.refresh_from_db()
+        self.assertEqual(self.call_a.status, "NEW")
+        self.assertEqual(self.call_b.status, "IN_PROGRESS")
+
+    def test_corrupt_cross_store_customer_is_not_disclosed(self):
+        self.call_b.customer = self.customer
+        self.call_b.save()
+        res = self.client_as(self.manager_b).get(f"/api/op/cti/calls/{self.call_b.pk}/context/")
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.data["customer_id"])
+        self.assertIsNone(res.data["customer_attention"])
+        self.assertNotContains(res, self.customer.display_name)
+
+    def test_order_creation_is_bound_to_call_store(self):
+        client = self.client_as(self.manager_a)
+        body = {"customer": self.customer.pk, "cast": self.cast_a.pk, "course": self.course.pk,
+                "start": (timezone.now() + timedelta(days=2)).isoformat()}
+        denied = client.post("/api/orders/", body, format="json", HTTP_X_ROOMINK_CALL=str(self.call_b.pk))
+        self.assertEqual(denied.status_code, 400)
+        self.assertEqual(Order.objects.count(), 0)
+        allowed = client.post("/api/orders/", body, format="json", HTTP_X_ROOMINK_CALL=str(self.call_a.pk))
+        self.assertEqual(allowed.status_code, 201, allowed.data)
+        self.assertEqual(Order.objects.get().store_id, self.store_a.pk)
+
+    def test_normalized_phone_duplicates_and_sip_input_are_validation_errors(self):
+        from core.serializers import StorePhoneNumberSerializer
+        StorePhoneNumber.objects.create(store=self.store_a, phone="05012345678")
+        for raw in ["+81 50-1234-5678", "sip:05012345678@example.test"]:
+            serializer = StorePhoneNumberSerializer(data={"phone": raw})
+            self.assertFalse(serializer.is_valid())
+            self.assertIn("phone", serializer.errors)
+
 
 @override_settings(
     TWILIO_AUTH_TOKEN="twilio-webhook-test-token",

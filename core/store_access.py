@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from rest_framework.exceptions import PermissionDenied
 
-from .models import OperationGroupMembership, Store, StoreMembership, UserProfile
+from .models import CallLog, OperationGroupMembership, Store, StoreMembership, UserProfile
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,21 @@ def get_request_profile(request):
     profile = getattr(user, "profile", None)
     # Query selection is for CSV links, whose navigation cannot send a header.
     raw = request.headers.get("X-Roomink-Store")
+    call_id = request.headers.get("X-Roomink-Call")
+    if call_id:
+        if not call_id.isascii() or not call_id.isdigit() or len(call_id) > 18:
+            raise PermissionDenied("着信の指定が正しくありません。")
+        call = CallLog.objects.select_related("store").filter(pk=call_id).first()
+        if not call or role_in_store(user, call.store_id) not in ("manager", "staff"):
+            raise PermissionDenied("この着信を利用する権限がありません。")
+        if raw and raw != str(call.store_id):
+            raise PermissionDenied("着信店舗と保存先が一致しません。")
+        query_store = request.GET.get("_store")
+        if query_store and query_store != str(call.store_id):
+            raise PermissionDenied("着信店舗と保存先が一致しません。")
+        request._roomink_call = call
+        request._roomink_store_access = StoreAccess(call.store, role_in_store(user, call.store_id))
+        return request._roomink_store_access
     query_store = request.GET.get("_store") if request.method in ("GET", "HEAD") else None
     if raw and query_store and raw != query_store:
         raise PermissionDenied("店舗の指定が一致しません。画面を開き直してください。")
