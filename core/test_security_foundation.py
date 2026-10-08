@@ -191,6 +191,32 @@ class LoginLockoutTest(TestCase):
         )
         self.assertEqual(still_locked.status_code, 429, still_locked.content)
 
+    @override_settings(AXES_FAILURE_LIMIT=3)
+    def test_forwarded_client_ip_is_stable_across_heroku_router_changes(self):
+        client = APIClient()
+        wrong = {"username": "locked-user", "password": "wrong-pass"}
+
+        for router_ip in ("10.1.20.233", "10.1.38.76"):
+            response = client.post(
+                "/api/auth/login/",
+                wrong,
+                format="json",
+                REMOTE_ADDR=router_ip,
+                # Heroku appends the address it observed on the right. The
+                # left value simulates an untrusted caller-supplied header.
+                HTTP_X_FORWARDED_FOR="203.0.113.55, 198.51.100.10",
+            )
+            self.assertEqual(response.status_code, 401, response.content)
+
+        locked = client.post(
+            "/api/auth/login/",
+            wrong,
+            format="json",
+            REMOTE_ADDR="10.1.51.6",
+            HTTP_X_FORWARDED_FOR="203.0.113.55, 198.51.100.10",
+        )
+        self.assertEqual(locked.status_code, 429, locked.content)
+
 
 class SystemAnnouncementTest(TestCase):
     def setUp(self):

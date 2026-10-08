@@ -1,5 +1,7 @@
 """Roomink account security policy shared by every password-setting path."""
 
+from ipaddress import ip_address
+
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
@@ -70,6 +72,25 @@ def password_policy_for_user(user):
 def apply_session_expiry(request, user):
     role = security_role_for_user(user)
     request.session.set_expiry(ROLE_SESSION_AGE.get(role, 14 * 24 * 60 * 60))
+
+
+def axes_client_ip_address(request):
+    """Resolve the stable client address from Heroku's forwarding chain.
+
+    Heroku appends the address it observed to the right of any caller-supplied
+    X-Forwarded-For values. Dynos are only reachable through the router, so the
+    validated right-most entry is the value suitable for login lockout keys.
+    """
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    candidate = forwarded_for.rsplit(",", 1)[-1].strip() if forwarded_for else ""
+    try:
+        return str(ip_address(candidate))
+    except ValueError:
+        remote_addr = (request.META.get("REMOTE_ADDR") or "").strip()
+        try:
+            return str(ip_address(remote_addr))
+        except ValueError:
+            return None
 
 
 def axes_lockout_response(request, response, credentials, *args, **kwargs):

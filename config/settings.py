@@ -164,7 +164,11 @@ AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = timedelta(minutes=15)
 AXES_RESET_ON_SUCCESS = True
 AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]
-AXES_IPWARE_PROXY_COUNT = 1
+# Heroku appends the address it observed to the right side of
+# X-Forwarded-For. Prefer that value over the dyno-facing REMOTE_ADDR; the
+# latter changes between routers and would let repeated failures evade the
+# lockout. A caller-supplied X-Forwarded-For value can only appear to its left.
+AXES_CLIENT_IP_CALLABLE = "core.security.axes_client_ip_address"
 AXES_COOLOFF_MESSAGE = "ログイン試行が多すぎます。15分後にもう一度お試しください。"
 AXES_LOCKOUT_CALLABLE = "core.security.axes_lockout_response"
 
