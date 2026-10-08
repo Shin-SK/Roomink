@@ -484,6 +484,7 @@ export const api = {
   // CTI
   getCtiQueue: () => request('GET', '/op/cti/queue/'),
   getCtiWorkQueue: () => request('GET', '/op/cti/work-queue/'),
+  getCtiCallHistory: () => request('GET', '/op/cti/history/'),
   getCtiCallContext: (id) => request('GET', `/op/cti/calls/${id}/context/`),
   markCtiCallsSeen: (callIds) => request('POST', '/op/cti/calls/mark-seen/', { call_ids: callIds }),
   ctiCallStart: (id) => request('POST', `/op/cti/calls/${id}/start/`),

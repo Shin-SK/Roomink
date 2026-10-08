@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
 
@@ -13,6 +13,21 @@ let pollTimer = null
 let toastTimer = null
 let initialized = false
 let highestKnownId = 0
+// ローカルの画面確認では常に通知の量とスクロールを確認できるようにする。
+// 本番ビルドでは DEV が false のため、実際の通知だけを表示する。
+const previewMode = import.meta.env.DEV
+const previewNotifications = ref([
+  { id: 'preview-1', title: 'Web予約が入りました', message: '本日 15:00　田中 花子', target_path: '/op/schedule', created_at: new Date().toISOString(), is_read: false },
+  { id: 'preview-2', title: 'Web予約が入りました', message: '本日 16:30　鈴木 美咲', target_path: '/op/schedule', created_at: new Date().toISOString(), is_read: false },
+  { id: 'preview-3', title: '予約リクエストがあります', message: '本日 18:00　高橋 玲奈', target_path: '/op/dashboard', created_at: new Date().toISOString(), is_read: false },
+  { id: 'preview-4', title: 'Web予約が入りました', message: '明日 12:00　井上 優', target_path: '/op/schedule', created_at: new Date().toISOString(), is_read: false },
+  { id: 'preview-5', title: 'Web予約が入りました', message: '明日 14:00　加藤 愛', target_path: '/op/schedule', created_at: new Date().toISOString(), is_read: false },
+  { id: 'preview-6', title: '予約リクエストがあります', message: '明日 16:00　山本 由佳', target_path: '/op/dashboard', created_at: new Date().toISOString(), is_read: false },
+])
+const visibleNotifications = computed(() => previewMode ? previewNotifications.value : notifications.value)
+const displayUnreadCount = computed(() => previewMode
+  ? previewNotifications.value.filter(item => !item.is_read).length
+  : unreadCount.value)
 
 function shownIds() {
   try {
@@ -68,6 +83,10 @@ async function loadNotifications() {
 
 async function markRead(item) {
   if (!item.is_read) {
+    if (previewMode) {
+      item.is_read = true
+      return
+    }
     try {
       const data = await api.markOperatorNotificationsRead([item.id])
       item.is_read = true
@@ -84,6 +103,10 @@ async function openNotification(item) {
 }
 
 async function markAllRead() {
+  if (previewMode) {
+    previewNotifications.value.forEach(item => { item.is_read = true })
+    return
+  }
   try {
     const data = await api.markOperatorNotificationsRead([], true)
     notifications.value = notifications.value.map(item => ({ ...item, is_read: true }))
@@ -124,24 +147,24 @@ onBeforeUnmount(() => {
     <button
       type="button"
       class="operator-notifications__bell"
-      aria-label="通知"
+      aria-label="通知を開く"
       :aria-expanded="open"
       @click.stop="open = !open"
     >
-      <i class="ti ti-bell"></i>
-      <span v-if="unreadCount" class="operator-notifications__count">
-        {{ unreadCount > 99 ? '99+' : unreadCount }}
+      <img src="/icon.svg" alt="">
+      <span v-if="displayUnreadCount" class="operator-notifications__count">
+        {{ displayUnreadCount > 99 ? '99+' : displayUnreadCount }}
       </span>
     </button>
 
     <section v-if="open" class="operator-notifications__panel">
       <header>
         <strong>通知</strong>
-        <button v-if="unreadCount" type="button" @click="markAllRead">すべて既読</button>
+        <button v-if="displayUnreadCount" type="button" @click="markAllRead">すべて既読</button>
       </header>
-      <div v-if="notifications.length" class="operator-notifications__list">
+      <div v-if="visibleNotifications.length" class="operator-notifications__list">
         <button
-          v-for="item in notifications"
+          v-for="item in visibleNotifications"
           :key="item.id"
           type="button"
           class="operator-notifications__item"
@@ -177,26 +200,26 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .operator-notifications {
-  position: fixed;
-  top: 14px;
-  right: 22px;
-  z-index: 1080;
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  z-index: 3;
+  transform: translateY(-50%);
 }
 
 .operator-notifications__bell {
-  width: 44px;
-  height: 44px;
-  border: 1px solid #dbe6e3;
-  border-radius: 50%;
-  background: #fff;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: #334155;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, .12);
   display: grid;
   place-items: center;
   position: relative;
 }
 
-.operator-notifications__bell .ti { font-size: 22px; }
+.operator-notifications__bell img { width: 28px; height: 28px; object-fit: contain; }
 
 .operator-notifications__count {
   position: absolute;
@@ -217,8 +240,8 @@ onBeforeUnmount(() => {
 
 .operator-notifications__panel {
   position: absolute;
-  top: 52px;
-  right: 0;
+  top: 42px;
+  left: 0;
   width: min(380px, calc(100vw - 24px));
   max-height: min(560px, calc(100vh - 90px));
   overflow: hidden;
@@ -300,9 +323,9 @@ onBeforeUnmount(() => {
 .operator-booking-toast strong { font-size: 15px; }
 .operator-booking-toast small { color: #475569; line-height: 1.45; }
 
-@media (max-width: 767.98px) {
-  .operator-notifications { top: 68px; right: 12px; }
+@media (max-width: 991.98px) {
+  .operator-notifications { position: fixed; top: 8px; left: 54px; transform: none; }
   .operator-notifications__panel { top: 50px; }
-  .operator-booking-toast { top: 124px; right: 12px; }
+  .operator-booking-toast { top: 64px; right: 12px; }
 }
 </style>

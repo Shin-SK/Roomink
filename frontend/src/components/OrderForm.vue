@@ -369,6 +369,12 @@ function setExtensionDuration(minutes) {
   }
 }
 
+function selectQuickExtension(minutes) {
+  form.value.extension = ''
+  form.value.extension_duration = minutes
+  form.value.extension_price = 0
+}
+
 async function submit() {
   if (submitting.value || loading.value || loadError.value) return
   errorMsg.value = ''
@@ -509,7 +515,7 @@ function formatYen(n) {
       </div>
 
       <!-- STEP 1: 連絡者検索（create時のみ） -->
-      <div v-if="!isEdit" class="card">
+      <div v-if="!isEdit && !(callBound && selectedCustomer)" class="card">
         <div class="card-header">STEP 1: 連絡者検索</div>
         <div class="card-body">
           <div v-if="selectedCustomer" class="selected-customer">
@@ -527,10 +533,10 @@ function formatYen(n) {
           </div>
 
           <form v-else-if="callBound && /^\d{10,15}$/.test(initialPhone)" @submit.prevent="registerCaller">
-            <p class="text-muted small">この店舗では初めてのお電話です。お名前を登録すると、そのまま予約を入力できます。</p>
+            <p class="text-muted small">初めてのお電話です。お名前を登録すると、そのまま予約を入力できます。</p>
             <p class="fw-bold">{{ initialPhone }}</p>
             <label class="form-label">お名前<input v-model="newCustomerName" class="form-control mt-1" maxlength="100" required autocomplete="off"></label>
-            <button class="btn btn-primary d-block mt-2" :disabled="creatingCustomer || !newCustomerName.trim()">{{ creatingCustomer ? '登録中…' : 'この店舗に顧客を登録' }}</button>
+            <button class="btn btn-primary d-block mt-2" :disabled="creatingCustomer || !newCustomerName.trim()">{{ creatingCustomer ? '登録中…' : '顧客を登録' }}</button>
           </form>
           <div v-else>
             <label class="form-label">電話番号 / 名前で検索</label>
@@ -582,7 +588,7 @@ function formatYen(n) {
       </div>
 
       <!-- 連絡者（edit時の読み取り専用カード） -->
-      <div v-else class="card">
+      <div v-else-if="isEdit" class="card">
         <div class="card-header">連絡者</div>
         <div class="card-body">
           <div class="selected-customer">
@@ -599,22 +605,9 @@ function formatYen(n) {
 
       <!-- 予約内容入力 -->
       <div class="card" v-show="isEdit || form.customer">
-        <div class="card-header">{{ isEdit ? '予約内容' : 'STEP 2: 予約内容入力' }}</div>
+        <div class="card-header">{{ isEdit || callBound ? '予約内容' : 'STEP 2: 予約内容入力' }}</div>
         <div class="card-body">
           <form @submit.prevent="submit">
-            <div class="mb-3">
-              <label class="form-label">実際に利用する方のお名前（任意）</label>
-              <input
-                v-model="form.service_recipient_name"
-                type="text"
-                maxlength="50"
-                autocomplete="name"
-                class="form-control"
-                placeholder="例: 山田 花子"
-              >
-              <div class="form-text">予約者ご本人の場合は空欄で構いません</div>
-            </div>
-
             <!-- create: 日付＋開始時刻 / edit: 開始日時＋終了日時 -->
             <div v-if="!isEdit" class="row">
               <div class="col-md-6">
@@ -707,6 +700,37 @@ function formatYen(n) {
               </div>
             </div>
 
+            <div class="mb-3">
+              <label class="form-label">支払い方法</label>
+              <div class="select-grid select-grid--3">
+                <button
+                  v-for="pm in paymentMethods"
+                  :key="pm.value"
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.payment_method === pm.value ? 'active' : ''"
+                  @click="selectPaymentMethod(pm.value)"
+                >
+                  <i :class="['ti', pm.icon, 'me-1']"></i>{{ pm.label }}
+                </button>
+              </div>
+            </div>
+
+            <component :is="callBound ? 'details' : 'div'" class="reservation-extras">
+              <summary v-if="callBound">その他の項目</summary>
+            <div class="mb-3">
+              <label class="form-label">実際に利用する方のお名前（任意）</label>
+              <input
+                v-model="form.service_recipient_name"
+                type="text"
+                maxlength="50"
+                autocomplete="name"
+                class="form-control"
+                placeholder="例: 山田 花子"
+              >
+              <div class="form-text">予約者ご本人の場合は空欄で構いません</div>
+            </div>
+
             <div class="mb-3" v-if="nominationFees.length">
               <label class="form-label">指名</label>
               <div class="select-grid">
@@ -747,7 +771,23 @@ function formatYen(n) {
               </div>
             </div>
 
-            <div class="mb-3" v-if="!isEdit">
+            <div v-if="callBound && !isEdit" class="mb-3">
+              <label class="form-label">延長（任意）</label>
+              <div class="extension-quick-grid">
+                <button
+                  v-for="minutes in [0, 15, 30, 60]"
+                  :key="minutes"
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="Number(form.extension_duration) === minutes ? 'active' : ''"
+                  @click="selectQuickExtension(minutes)"
+                >
+                  {{ minutes === 0 ? 'なし' : `${minutes}分` }}
+                </button>
+              </div>
+            </div>
+
+            <div class="mb-3" v-else-if="!isEdit">
               <label class="form-label">延長（任意）</label>
               <div class="form-text mt-0 mb-2">候補を選ぶか、時間と料金を直接入力できます。</div>
               <div class="select-grid">
@@ -807,22 +847,6 @@ function formatYen(n) {
               </div>
             </div>
 
-            <div class="mb-3">
-              <label class="form-label">支払い方法</label>
-              <div class="select-grid select-grid--3">
-                <button
-                  v-for="pm in paymentMethods"
-                  :key="pm.value"
-                  type="button"
-                  class="btn btn-sm select-btn"
-                  :class="form.payment_method === pm.value ? 'active' : ''"
-                  @click="selectPaymentMethod(pm.value)"
-                >
-                  <i :class="['ti', pm.icon, 'me-1']"></i>{{ pm.label }}
-                </button>
-              </div>
-            </div>
-
             <div v-if="isCardPayment && selectedOptionsPrice > 0" class="mb-3">
               <label class="form-label">オプション代の支払い</label>
               <div class="select-grid select-grid--2">
@@ -875,6 +899,8 @@ function formatYen(n) {
               <textarea class="form-control" rows="3" placeholder="備考やメモ..." v-model="form.memo"></textarea>
             </div>
 
+            </component>
+
             <hr>
 
             <div class="text-center mb-3">
@@ -924,6 +950,9 @@ function formatYen(n) {
 </template>
 
 <style scoped lang="scss">
+.reservation-extras:is(details) { margin: 16px 0; border-top: 1px solid #e4ece7; }
+.reservation-extras summary { padding: 12px 0; cursor: pointer; color: #497668; font-size: 13px; font-weight: 600; }
+
 .form-label {
   font-weight: bold;
 }
@@ -1047,6 +1076,12 @@ function formatYen(n) {
   &--2 {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+.extension-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
 }
 
 .selected-customer {

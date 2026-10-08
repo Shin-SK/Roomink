@@ -5502,6 +5502,29 @@ class CtiWorkQueueView(APIView):
 
 
 @document_object_api_view
+class CtiCallHistoryView(APIView):
+    """GET /api/op/cti/history/ — 所属店舗の受電履歴。
+
+    手動で作成した架電メモは混ぜず、CTI 経由の受電だけを返す。作業キューと
+    同じく、選択中店舗ヘッダーではなく CallLog の店舗権限で絞り込む。
+    """
+
+    permission_classes = [IsAuthenticated, IsCtiOperator]
+
+    def get(self, request):
+        calls = (
+            _accessible_cti_calls(request)
+            .exclude(contact_id__startswith="manual-")
+            .filter(status__in=[CallLog.Status.DONE, CallLog.Status.MISSED])
+            .select_related("store", "customer", "assigned_to")
+            .order_by("-updated_at", "-id")
+        )
+        return Response({
+            "calls": [_cti_call_payload(call) for call in calls[:100]],
+        })
+
+
+@document_object_api_view
 class CtiCallContextView(APIView):
     """GET /api/op/cti/calls/{id}/context/ — one immutable call context."""
 

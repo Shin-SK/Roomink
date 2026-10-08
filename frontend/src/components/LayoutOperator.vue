@@ -8,7 +8,6 @@ import CtiIncomingPanel from './CtiIncomingPanel.vue'
 import OperatorNotifications from './OperatorNotifications.vue'
 import OperatorSidebarIcon from './OperatorSidebarIcon.vue'
 import SystemAnnouncements from './SystemAnnouncements.vue'
-import { openStore } from '../storeSelection.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,13 +17,6 @@ const currentUser = ref(null)
 const pendingShiftRequests = ref(0)
 let shiftReqTimer = null
 const SIDEBAR_COLLAPSED_KEY = 'roomink-operator-sidebar-collapsed'
-
-function switchStore(event) {
-  const id = event.target.value
-  if (String(currentUser.value?.store_id) === id) return
-  if (window.confirm('店舗を切り替えます。入力中の内容は保存されません。よろしいですか？')) openStore(id)
-  else event.target.value = currentUser.value?.store_id
-}
 
 async function loadPendingShiftRequests() {
   try {
@@ -77,7 +69,6 @@ const navItems = computed(() => {
   items.push(
     { to: '/op/point-logs', icon: 'star', label: 'ポイント', page: 'point-logs' },
     { to: '/account/security', icon: 'shield-lock', label: 'ログインと安全', page: 'account-security' },
-    { to: '/account/stores', icon: 'building-community', label: '所属店舗・招待', page: 'account-stores' },
     { to: '/op/settings', icon: 'settings', label: '設定', page: 'settings' },
   )
   return items
@@ -145,10 +136,7 @@ onBeforeUnmount(() => {
     <!-- Sidebar (matches sidebar-operator.html) -->
     <aside class="sidebar operator-sidebar" :class="{ show: sidebarOpen }">
       <div class="sidebar-header">
-        <router-link to="/op/dashboard" class="sidebar-brand" @click="closeSidebar">
-          <img class="sidebar-logo sidebar-logo-full" src="/logo.svg" alt="Roomink">
-          <img class="sidebar-logo sidebar-logo-mark" src="/icon.svg" alt="Roomink">
-        </router-link>
+        <OperatorNotifications v-if="currentUser" />
         <button
           type="button"
           class="sidebar-collapse-toggle"
@@ -191,6 +179,16 @@ onBeforeUnmount(() => {
         </ul>
       </nav>
       <div class="sidebar-footer">
+        <router-link
+          v-if="currentUser?.store_name"
+          to="/account/stores"
+          class="sidebar-store-switch"
+          :title="sidebarCollapsed ? `操作中：${currentUser.store_name}` : undefined"
+          @click="closeSidebar"
+        >
+          <OperatorSidebarIcon name="building-community" />
+          <span class="sidebar-store-copy"><small>操作中</small><strong>{{ currentUser.store_name }}</strong></span>
+        </router-link>
         <button
           class="btn btn-outline-primary btn-block"
           :title="sidebarCollapsed ? 'ログアウト' : undefined"
@@ -209,10 +207,6 @@ onBeforeUnmount(() => {
         <button class="mobile-menu-btn" @click.stop="toggleSidebar">
           <i class="ti ti-menu-2"></i>
         </button>
-        <h1 class="position-absolute top-50 start-50 translate-middle m-0 d-flex align-items-center gap-2">
-          <img src="/icon.svg" alt="ホーム" style="height: 32px;">
-          <!-- <span v-if="currentUser?.store_name" class="store-name">{{ currentUser.store_name }}</span> -->
-        </h1>
         <div class="header-actions">
           <slot name="actions"></slot>
         </div>
@@ -222,18 +216,6 @@ onBeforeUnmount(() => {
       </header>
 
       <main class="container">
-        <div v-if="currentUser?.store_name" class="d-flex flex-wrap align-items-center gap-2 mb-3 pt-2">
-          <label for="active-store" class="small text-muted mb-0">操作中の店舗</label>
-          <select v-if="currentUser.memberships?.length > 1" id="active-store"
-            class="form-select form-select-sm w-auto" style="max-width: 100%"
-            :value="currentUser.store_id" @change="switchStore">
-            <option v-for="member in currentUser.memberships" :key="member.store_id" :value="member.store_id">
-              {{ member.store_name }}（{{ member.role === 'manager' ? 'マネージャー' : 'スタッフ' }}）
-            </option>
-          </select>
-          <strong v-else>{{ currentUser.store_name }}</strong>
-          <router-link to="/account/stores" class="small ms-auto">所属店舗・招待</router-link>
-        </div>
         <SystemAnnouncements v-if="currentUser" />
         <slot></slot>
       </main>
@@ -260,7 +242,6 @@ onBeforeUnmount(() => {
     </div>
 
     <CtiIncomingPanel v-if="currentUser" />
-    <OperatorNotifications v-if="currentUser" />
   </div>
 </template>
 
@@ -279,12 +260,9 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-logo {
-  height: 40px;
-}
-
-.sidebar-logo-mark,
-.sidebar-collapse-toggle {
-  display: none;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
 .sidebar-help-button {
@@ -298,24 +276,69 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+.sidebar-store-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  margin-bottom: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(var(--bs-primary-rgb), 0.2);
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar-store-switch:hover {
+  color: inherit;
+  background: rgba(var(--bs-primary-rgb), 0.06);
+}
+
+.sidebar-store-switch :deep(.operator-sidebar-icon) {
+  flex: 0 0 auto;
+  margin-right: 0;
+}
+
+.sidebar-store-copy {
+  min-width: 0;
+  display: grid;
+  line-height: 1.2;
+}
+
+.sidebar-store-copy small {
+  color: var(--bs-secondary-color);
+  font-size: 0.68rem;
+}
+
+.sidebar-store-copy strong {
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .logout-label {
   margin-left: 0.35rem;
 }
 
 @media (min-width: 992px) {
+  .operator-layout > .main-content {
+    margin-left: calc(var(--rk-sidebar-width) + 28px);
+  }
+
   .sidebar-collapse-toggle {
     position: absolute;
-    right: -15px;
+    right: -26px;
     top: 50%;
-    z-index: 2;
-    width: 30px;
-    height: 30px;
+    z-index: 4;
+    width: 24px;
+    height: 48px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     transform: translateY(-50%);
     border: 1px solid var(--bs-border-color);
-    border-radius: 50%;
+    border-radius: 999px;
     color: var(--bs-secondary);
     background: var(--bs-white);
     box-shadow: 0 3px 10px rgb(15 23 42 / 12%);
@@ -340,7 +363,7 @@ onBeforeUnmount(() => {
   }
 
   .operator-layout.is-sidebar-collapsed > .main-content {
-    margin-left: 76px;
+    margin-left: 104px;
   }
 
   .operator-layout.is-sidebar-collapsed .sidebar-header {
@@ -348,15 +371,10 @@ onBeforeUnmount(() => {
     padding-left: 0;
   }
 
-  .operator-layout.is-sidebar-collapsed .sidebar-logo-full {
-    display: none;
-  }
-
-  .operator-layout.is-sidebar-collapsed .sidebar-logo-mark {
-    display: block;
-    width: 36px;
-    height: 36px;
-    object-fit: contain;
+  .operator-layout.is-sidebar-collapsed :deep(.operator-notifications) {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
   }
 
   .operator-layout.is-sidebar-collapsed :deep(.nav-link) {
@@ -373,7 +391,8 @@ onBeforeUnmount(() => {
   }
 
   .operator-layout.is-sidebar-collapsed .nav-label,
-  .operator-layout.is-sidebar-collapsed .logout-label {
+  .operator-layout.is-sidebar-collapsed .logout-label,
+  .operator-layout.is-sidebar-collapsed .sidebar-store-copy {
     display: none;
   }
 
@@ -394,6 +413,11 @@ onBeforeUnmount(() => {
   .operator-layout.is-sidebar-collapsed .sidebar-footer .btn {
     display: flex;
     align-items: center;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .operator-layout.is-sidebar-collapsed .sidebar-store-switch {
     justify-content: center;
     padding-inline: 0;
   }

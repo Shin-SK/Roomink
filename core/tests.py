@@ -404,6 +404,29 @@ class CtiWorkQueueTest(RoomankOpsSmokeTestBase):
         )
         self.assertEqual(forbidden_context.status_code, 404)
 
+    def test_history_returns_only_authorised_completed_inbound_calls(self):
+        self.call_a.status = CallLog.Status.DONE
+        self.call_a.save(update_fields=["status"])
+        self.call_b.status = CallLog.Status.MISSED
+        self.call_b.save(update_fields=["status"])
+        manual = CallLog.objects.create(
+            store=self.store_a,
+            contact_id="manual-history-entry",
+            from_phone="09000000009",
+            to_phone="",
+            status=CallLog.Status.DONE,
+        )
+
+        response = self.client_as(self.manager_a).get("/api/op/cti/history/")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual({call["id"] for call in response.data["calls"]}, {self.call_a.id, self.call_b.id})
+        self.assertNotIn(manual.id, {call["id"] for call in response.data["calls"]})
+
+        other_store_response = self.client_as(self.manager_b).get("/api/op/cti/history/")
+        self.assertEqual(other_store_response.status_code, 200, other_store_response.data)
+        self.assertEqual([call["id"] for call in other_store_response.data["calls"]], [self.call_b.id])
+
     def test_queue_does_not_depend_on_stale_selected_store(self):
         res = self.client_as(self.manager_a).get(self.endpoint, HTTP_X_ROOMINK_STORE="999999")
         self.assertEqual(res.status_code, 200)

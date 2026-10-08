@@ -42,6 +42,92 @@ const shiftEndAlerts = ref([])
 let lineAlertTimer = null
 let shiftEndAlertTimer = null
 
+const attentionPreviewEnabled = import.meta.env.DEV
+  && new URLSearchParams(window.location.search).get('attention-preview') === 'full'
+
+function makeAttentionGroup(key, label, tone, icon, to, entries) {
+  return { key, label, tone, icon, to, entries }
+}
+
+const attentionGroups = computed(() => {
+  const current = [
+    ...(unconfirmedOrders.value.length ? [makeAttentionGroup('cast-unconfirmed', 'キャスト未確認', 'warning', 'user-question', '/op/schedule', unconfirmedOrders.value.map(order => ({
+      id: order.id,
+      time: formatTime(order.start),
+      title: orderPartyLabel(order),
+      detail: order.cast_name || 'キャストの確認待ち',
+      to: `/op/orders/${order.id}`,
+    })))] : []),
+    ...(requestedOrders.value.length ? [makeAttentionGroup('reservation-request', '予約リクエスト', 'warning', 'calendar-plus', '/op/schedule', requestedOrders.value.map(order => ({
+      id: order.id,
+      time: formatTime(order.start),
+      title: orderPartyLabel(order),
+      detail: order.cast_name || '内容を確認',
+      to: `/op/orders/${order.id}`,
+    })))] : []),
+    ...(pendingFinalizeOrders.value.length ? [makeAttentionGroup('pending-finalize', '会計待ち', 'warning', 'cash-register', '/op/schedule', pendingFinalizeOrders.value.map(order => ({
+      id: order.id,
+      time: formatTime(order.start),
+      title: orderPartyLabel(order),
+      detail: order.cast_name || '会計を確認',
+      to: `/op/orders/${order.id}`,
+    })))] : []),
+    ...(notClockedIn.value.length ? [makeAttentionGroup('not-clocked-in', '未出勤', 'danger', 'alert-triangle', '/op/shifts', notClockedIn.value.map(cast => ({
+      id: cast.id,
+      time: cast.start_time ? `${cast.start_time}〜` : '',
+      title: cast.name,
+      detail: '出勤予定',
+    })))] : []),
+    ...(roomPendingOrders.value.length ? [makeAttentionGroup('room-pending', 'ルーム未定', 'warning', 'door-off', '/op/schedule', roomPendingOrders.value.map(order => ({
+      id: order.id,
+      time: formatTime(order.start),
+      title: order.cast_name || 'キャスト未定',
+      detail: orderPartyLabel(order),
+    })))] : []),
+    ...(shiftEndAlerts.value.length ? [makeAttentionGroup('shift-end', '受付終了の確認', 'warning', 'clock-exclamation', '/op/schedule', shiftEndAlerts.value.map(alert => ({
+      id: alert.id,
+      time: alert.shift_end_time_extended ? `終了 ${alert.shift_end_time_extended}` : '',
+      title: alert.cast_name,
+      detail: `本日 ${alert.valid_order_count}件 / ${formatYen(alert.done_sales)}`,
+    })))] : []),
+    ...(lineFailed.value.length ? [makeAttentionGroup('line-failed', 'LINE送信失敗', 'danger', 'brand-line', '/op/settings/line', lineFailed.value.map(item => ({
+      id: item.id,
+      time: item.created_at ? formatTime(item.created_at) : '',
+      title: item.cast_name || '通知送信',
+      detail: item.notification_type || 'LINE通知',
+    })))] : []),
+    ...(lineUnlinked.value.length ? [makeAttentionGroup('line-unlinked', 'LINE未連携', 'warning', 'brand-line', '/op/settings/line', lineUnlinked.value.map(cast => ({
+      id: cast.id,
+      time: cast.start_time ? `${cast.start_time}〜` : '',
+      title: cast.name,
+      detail: '本日出勤予定',
+    })))] : []),
+  ]
+  if (!attentionPreviewEnabled) return current
+  const samples = [
+    makeAttentionGroup('room-pending', 'ルーム未定', 'warning', 'door-off', '/op/schedule', [
+      { id: 'room-1', time: '15:00', title: '田中 花子', detail: '担当：山本' },
+      { id: 'room-2', time: '16:30', title: '鈴木 美咲', detail: '担当：高橋' },
+    ]),
+    makeAttentionGroup('shift-end', '受付終了の確認', 'warning', 'clock-exclamation', '/op/schedule', [
+      { id: 'shift-end-1', time: '終了 20:00', title: '佐藤', detail: '本日 2件 / ¥27,000' },
+    ]),
+    makeAttentionGroup('line-failed', 'LINE送信失敗', 'danger', 'brand-line', '/op/settings/line', [
+      { id: 'line-1', time: '14:10', title: '山本', detail: '予約確認' },
+      { id: 'line-2', time: '14:25', title: '高橋', detail: '出勤確認' },
+    ]),
+    makeAttentionGroup('line-unlinked', 'LINE未連携', 'warning', 'brand-line', '/op/settings/line', [
+      { id: 'unlinked-1', time: '12:00〜', title: '井上', detail: '本日出勤予定' },
+      { id: 'unlinked-2', time: '13:00〜', title: '加藤', detail: '本日出勤予定' },
+      { id: 'unlinked-3', time: '15:00〜', title: '中村', detail: '本日出勤予定' },
+      { id: 'unlinked-4', time: '17:00〜', title: '小林', detail: '本日出勤予定' },
+    ]),
+  ]
+  return [...current, ...samples.filter(sample => !current.some(item => item.key === sample.key))]
+})
+
+const attentionCount = computed(() => attentionGroups.value.reduce((sum, group) => sum + group.entries.length, 0))
+
 function today() {
   const d = new Date()
   return d.toISOString().slice(0, 10)
@@ -202,93 +288,19 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
     </div>
 
     <template v-else>
-      <div v-if="roomPendingOrders.length" class="alert alert-warning mb-3 py-2 px-3">
-        <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
-          <div class="d-flex align-items-center gap-2">
-            <i class="ti ti-door-off"></i>
-            <strong>本日、ルーム未定の予約が {{ roomPendingOrders.length }}件あります</strong>
-          </div>
-          <router-link to="/op/schedule" class="btn btn-sm btn-outline-warning py-0">
-            予約タイムラインへ
-          </router-link>
+      <section v-if="attentionGroups.length" class="dashboard-attention" aria-label="要対応">
+        <header class="dashboard-attention__header"><strong>要対応</strong><span>{{ attentionCount }}件</span></header>
+        <div class="dashboard-attention__groups">
+          <section v-for="group in attentionGroups" :key="group.key" class="dashboard-attention__group" :class="`is-${group.tone}`">
+            <header><i class="dashboard-attention__dot" aria-hidden="true"></i><i class="ti" :class="`ti-${group.icon}`"></i><strong>{{ group.label }}</strong><span>{{ group.entries.length }}{{ group.key === 'not-clocked-in' || group.key === 'shift-end' || group.key === 'line-unlinked' ? '名' : '件' }}</span></header>
+            <router-link v-for="entry in group.entries" :key="entry.id" :to="entry.to || group.to" class="dashboard-attention__row">
+              <time>{{ entry.time }}</time>
+              <span><strong>{{ entry.title }}</strong><small>{{ entry.detail }}</small></span>
+              <i class="ti ti-chevron-right" aria-hidden="true"></i>
+            </router-link>
+          </section>
         </div>
-        <div v-for="order in roomPendingOrders" :key="'room-pending-'+order.id" class="small">
-          {{ formatTime(order.start) }} {{ order.cast_name }} / {{ orderPartyLabel(order) }}
-        </div>
-      </div>
-
-      <div v-if="shiftEndAlerts.length" class="alert alert-warning mb-3 py-2 px-3">
-        <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
-          <div class="d-flex align-items-center gap-2">
-            <i class="ti ti-clock-exclamation"></i>
-            <strong>受付終了の確認が必要なキャストがいます</strong>
-          </div>
-          <router-link to="/op/schedule" class="btn btn-sm btn-outline-warning py-0">
-            予約タイムラインへ
-          </router-link>
-        </div>
-        <div v-for="alert in shiftEndAlerts" :key="'shift-end-'+alert.id" class="small">
-          {{ alert.cast_name }} — 終了 {{ alert.shift_end_time_extended }} / 本日 {{ alert.valid_order_count }}件 / 売上 {{ formatYen(alert.done_sales) }}
-        </div>
-        <div class="small mt-1">終了70分前以降の時間帯に有効な予約がありません。</div>
-      </div>
-
-      <!-- 未出勤アラート -->
-      <div v-if="notClockedIn.length" class="alert alert-danger mb-3 py-2 px-3">
-        <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
-          <div class="d-flex align-items-center gap-2">
-            <i class="ti ti-alert-triangle"></i>
-            <strong>未出勤のキャストがいます</strong>
-          </div>
-          <router-link to="/op/shifts" class="btn btn-sm btn-outline-danger py-0">
-            シフト管理へ
-          </router-link>
-        </div>
-        <div v-for="c in notClockedIn" :key="'nc-'+c.id" class="small">
-          {{ c.name }}（{{ c.start_time }}〜）
-        </div>
-      </div>
-
-      <!-- LINE アラート -->
-      <div v-if="lineUnlinked.length" class="alert alert-warning mb-3 py-2 px-3">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <i class="ti ti-brand-line"></i>
-          <strong>LINE未連携キャストが本日出勤予定</strong>
-        </div>
-        <div v-for="c in lineUnlinked" :key="'lu-'+c.id" class="small">
-          {{ c.name }}（{{ c.start_time }}〜）
-        </div>
-      </div>
-      <div v-if="lineFailed.length" class="alert alert-danger mb-3 py-2 px-3">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <i class="ti ti-brand-line"></i>
-          <strong>LINE通知の送信失敗</strong>
-        </div>
-        <div v-for="f in lineFailed" :key="'lf-'+f.id" class="small">
-          {{ f.cast_name }} — {{ f.notification_type }}（{{ f.error_message }}）
-        </div>
-      </div>
-
-      <!-- 通知エリア -->
-      <div class="wrap bg-white overflow-y-auto mb-4" style="max-height: 20vh;">
-        <ul class="d-flex flex-column gap-2">
-          <li v-if="unconfirmedOrders.length">
-            <a href="#" @click.prevent="activeTab = 'mikakunin'" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
-              <div class="badge badge-attention">キャスト未確認</div><small>{{ unconfirmedOrders.length }}件</small>
-            </a>
-          </li>
-          <li v-if="requestedOrders.length">
-            <a href="#" @click.prevent="activeTab = 'request'" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
-              <div class="badge badge-pending">予約リクエスト</div><small>{{ requestedOrders.length }}件</small>
-            </a>
-          </li>
-          <li v-if="pendingFinalizeOrders.length">
-            <a href="#" @click.prevent="activeTab = 'finalize'" class="d-flex align-items-center gap-2 border-bottom w-100 pb-2 text-decoration-none">
-              <div class="badge badge-attention">会計待ち</div><small>{{ pendingFinalizeOrders.length }}件</small>
-            </a>
-          </li>
-        </ul>
-      </div>
+      </section>
 
       <!-- 統計カード -->
       <div class="row g-2 mb-5">
@@ -551,3 +563,76 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
     </template>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.dashboard-attention {
+  margin-bottom: 0.85rem;
+  border-top: 1px solid #e4ece7;
+  border-bottom: 1px solid #e4ece7;
+}
+
+.dashboard-attention__header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.55rem 0;
+}
+
+.dashboard-attention__header strong { font-size: 0.88rem; }
+.dashboard-attention__header span {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.dashboard-attention__groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 1rem;
+}
+
+.dashboard-attention__group {
+  padding-bottom: 0.45rem;
+}
+
+.dashboard-attention__group > header {
+  display: grid;
+  grid-template-columns: 8px 16px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.3rem;
+  min-height: 28px;
+  color: #475569;
+  font-size: 0.78rem;
+}
+
+.dashboard-attention__group > header span { font-weight: 600; }
+
+.dashboard-attention__row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 12px;
+  align-items: center;
+  column-gap: 0.45rem;
+  min-height: 38px;
+  border-top: 1px solid #edf2f1;
+  color: #334155;
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
+.dashboard-attention__row time { color: #64748b; font-variant-numeric: tabular-nums; }
+.dashboard-attention__row span { min-width: 0; display: flex; align-items: baseline; gap: 0.4rem; }
+.dashboard-attention__row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-attention__row small { overflow: hidden; color: #64748b; font-size: 0.72rem; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-attention__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #b88722;
+}
+.dashboard-attention__group.is-danger > header { color: #b4233b; }
+.dashboard-attention__group.is-danger .dashboard-attention__dot { background: #d92d4c; }
+.dashboard-attention__row .ti-chevron-right { color: #94a3b8; font-size: 0.72rem; }
+
+@media (max-width: 575.98px) {
+  .dashboard-attention__groups { grid-template-columns: 1fr; }
+}
+</style>
