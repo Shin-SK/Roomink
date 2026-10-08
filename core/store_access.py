@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from rest_framework.exceptions import PermissionDenied
 
-from .models import Store, StoreMembership, UserProfile
+from .models import OperationGroupMembership, Store, StoreMembership, UserProfile
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,24 @@ class StoreAccess:
 
 def operator_memberships(user):
     return StoreMembership.objects.filter(user=user, is_active=True, user__is_active=True).select_related("store")
+
+
+def is_operation_group_manager(user, operation_group_id):
+    """Return only explicit contract-side manager authority.
+
+    A store manager is not implicitly a manager for another store in the same
+    group. Platform administrators retain their existing all-store authority.
+    """
+    if user is None or not user.is_authenticated or not user.is_active:
+        return False
+    if user.is_superuser:
+        return True
+    return OperationGroupMembership.objects.filter(
+        user=user,
+        operation_group_id=operation_group_id,
+        role=OperationGroupMembership.Role.MANAGER,
+        is_active=True,
+    ).exists()
 
 
 def role_in_store(user, store_id):

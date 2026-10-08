@@ -39,6 +39,21 @@ def generate_order_guest_token():
     return secrets.token_urlsafe(16)
 
 
+class OperationGroup(models.Model):
+    """Internal contract boundary for safely managing multiple stores.
+
+    This model never combines customer, billing, phone, SMS, or sales data.
+    It only limits which stores a contract-side administrator may manage.
+    """
+
+    internal_label = models.CharField(max_length=120)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.internal_label
+
+
 class Store(models.Model):
     class LineOperationsRecipientType(models.TextChoices):
         USER = "user", "個人トーク"
@@ -46,6 +61,14 @@ class Store(models.Model):
         ROOM = "room", "複数人トーク"
 
     name = models.CharField(max_length=100)
+    operation_group = models.ForeignKey(
+        OperationGroup,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stores",
+        help_text="契約上の運営グループ。店舗利用者へ一覧表示しない。",
+    )
     slug = models.SlugField(
         max_length=80,
         unique=True,
@@ -151,6 +174,17 @@ class Store(models.Model):
         if not self.line_webhook_token:
             self.line_webhook_token = generate_line_webhook_token()
         super().save(*args, **kwargs)
+        # Stores created by the internal contract process begin in an isolated
+        # group. Joining a second store remains an audited Roomink operation.
+        if self.operation_group_id is None:
+            group = OperationGroup.objects.create(
+                internal_label=f"契約グループ {self.pk}",
+            )
+            type(self).objects.filter(
+                pk=self.pk,
+                operation_group__isnull=True,
+            ).update(operation_group=group)
+            self.operation_group_id = group.pk
 
     @classmethod
     def resolve_slug(cls, slug):
@@ -1829,6 +1863,59 @@ class StoreMembershipEvent(models.Model):
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="membership_actions")
     action = models.CharField(max_length=32)
     role = models.CharField(max_length=10, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class OperationGroupMembership(models.Model):
+    """A contract-side manager, separate from a store-specific manager."""
+
+    class Role(models.TextChoices):
+        MANAGER = "manager", "運営管理者"
+
+    operation_group = models.ForeignKey(
+        OperationGroup,
+        on_delete=models.PROTECT,
+        related_name="manager_memberships",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="operation_group_memberships",
+    )
+    role = models.CharField(max_length=10, choices=Role.choices, default=Role.MANAGER)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["operation_group", "user"],
+                name="unique_operation_group_membership",
+            ),
+        ]
+
+
+class OperationGroupEvent(models.Model):
+    """Audit trail for group creation, manager changes, and store reassignment."""
+
+    operation_group = models.ForeignKey(OperationGroup, on_delete=models.PROTECT)
+    store = models.ForeignKey(Store, on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="operation_group_events",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="operation_group_actions",
+    )
+    action = models.CharField(max_length=32)
     created_at = models.DateTimeField(auto_now_add=True)
 
 

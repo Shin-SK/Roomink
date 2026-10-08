@@ -11,7 +11,17 @@ from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from core.models import Customer, Store, StoreInvitation, StoreMembership, StoreMembershipEvent, UserProfile
+from core.models import (
+    Customer,
+    OperationGroupEvent,
+    OperationGroupMembership,
+    Store,
+    StoreInvitation,
+    StoreMembership,
+    StoreMembershipEvent,
+    UserProfile,
+)
+from core.store_access import is_operation_group_manager
 from core.services.order_policy import can_modify_business_datetime
 
 User = get_user_model()
@@ -52,6 +62,32 @@ class StoreMembershipTest(TestCase):
         self.assertEqual(StoreMembership.objects.get(user=self.owner, store=self.a).role, "manager")
         self.assertTrue(self.owner.check_password("Membership-test-pass-77"))
         self.assertEqual(self.client.get("/api/auth/me/").data["store_id"], self.a.pk)
+
+    def test_new_stores_start_in_isolated_operation_groups(self):
+        self.a.refresh_from_db()
+        self.b.refresh_from_db()
+        self.c.refresh_from_db()
+
+        self.assertIsNotNone(self.a.operation_group_id)
+        self.assertNotEqual(self.a.operation_group_id, self.b.operation_group_id)
+        self.assertNotEqual(self.b.operation_group_id, self.c.operation_group_id)
+
+    def test_group_manager_authority_is_explicit_and_never_grants_store_access(self):
+        self.a.refresh_from_db()
+        OperationGroupMembership.objects.create(
+            operation_group=self.a.operation_group,
+            user=self.owner,
+        )
+        OperationGroupEvent.objects.create(
+            operation_group=self.a.operation_group,
+            user=self.owner,
+            actor=self.owner,
+            action="manager_granted",
+        )
+
+        self.assertTrue(is_operation_group_manager(self.owner, self.a.operation_group_id))
+        self.assertFalse(is_operation_group_manager(self.owner, self.b.operation_group_id))
+        self.assertEqual(self.client_for(self.owner, self.b).get("/api/customers/").status_code, 403)
 
     def test_legacy_profile_admin_cannot_change_membership_defaults_or_delete(self):
         from django.contrib import admin
