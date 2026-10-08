@@ -5300,7 +5300,6 @@ def _record_inbound_call(*, contact_id, store_phone, from_phone):
     with transaction.atomic():
         existing = (
             CallLog.objects.select_for_update()
-            .select_related("customer")
             .filter(contact_id=contact_id)
             .first()
         )
