@@ -5289,6 +5289,94 @@ def _is_valid_cti_token(token):
     return secrets.compare_digest(str(token or ""), configured_token)
 
 
+def _record_inbound_call(*, contact_id, store_phone, from_phone):
+    """Persist the server-resolved destination without allowing it to drift.
+
+    A provider can retry a webhook, but a retry must never reassign an
+    existing provider call ID to another store or caller.  The StorePhoneNumber
+    lookup happened before this function, so no browser-supplied store value is
+    involved in the decision.
+    """
+    with transaction.atomic():
+        existing = (
+            CallLog.objects.select_for_update()
+            .select_related("customer")
+            .filter(contact_id=contact_id)
+            .first()
+        )
+        if existing:
+            matches_original_route = (
+                existing.store_id == store_phone.store_id
+                and existing.to_phone == store_phone.phone
+                and existing.from_phone == from_phone
+            )
+            return existing, False, matches_original_route
+
+        store = store_phone.store
+        customer = Customer.objects.filter(store=store, phone=from_phone).first()
+        threshold = timezone.now() - timedelta(minutes=10)
+        is_repeat = CallLog.objects.filter(
+            store=store, from_phone=from_phone, created_at__gte=threshold,
+        ).exists()
+        call = CallLog.objects.create(
+            contact_id=contact_id,
+            store=store,
+            from_phone=from_phone,
+            to_phone=store_phone.phone,
+            customer=customer,
+            is_repeat=is_repeat,
+            status=CallLog.Status.NEW,
+        )
+        return call, True, True
+
+
+def _cti_call_payload(call, *, include_attention=False):
+    customer = call.customer
+    payload = {
+        "id": call.id,
+        "contact_id": call.contact_id,
+        "store_id": call.store_id,
+        "store_name": call.store.name,
+        "from_phone": call.from_phone,
+        "to_phone": call.to_phone,
+        "customer_id": call.customer_id,
+        "customer_name": str(customer) if customer else None,
+        "is_repeat": call.is_repeat,
+        "status": call.status,
+        "assigned_to": call.assigned_to.username if call.assigned_to else None,
+        "created_at": call.created_at,
+        "updated_at": call.updated_at,
+    }
+    if include_attention:
+        payload["customer_attention"] = (
+            {
+                "flag": customer.flag,
+                "ban_type": customer.ban_type,
+                "staff_memo": customer.staff_memo,
+            }
+            if customer else None
+        )
+        # This is the explicit, server-resolved context a later reservation
+        # flow must consume. It is intentionally not derived from a selected
+        # browser store.
+        payload["reservation_context"] = {
+            "call_id": call.id,
+            "store_id": call.store_id,
+            "store_name": call.store.name,
+            "customer_id": call.customer_id,
+            "phone": call.from_phone,
+        }
+    return payload
+
+
+def _accessible_cti_calls(request):
+    """Return only calls for stores the authenticated operator belongs to."""
+    if request.user.is_superuser:
+        return CallLog.objects.all()
+    store_ids = operator_memberships(request.user).values("store_id")
+    return CallLog.objects.filter(store_id__in=store_ids)
+
+
 @document_object_api_view
 class CtiInboundView(APIView):
     """
@@ -5322,45 +5410,30 @@ class CtiInboundView(APIView):
             store_phone = StorePhoneNumber.objects.select_related("store").get(phone=to_phone, is_active=True)
         except StorePhoneNumber.DoesNotExist:
             return Response(
-                {"detail": f"着信先番号 {to_phone} に対応する店舗が見つかりません"},
+                {"detail": "着信先番号に対応する有効な店舗が見つかりません"},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        store = store_phone.store
-
-        # from_phone → Customer 検索
-        customer = Customer.objects.filter(store=store, phone=from_phone).first()
-
-        # is_repeat: 同一 store + from_phone で直近 10 分以内の CallLog
-        threshold = timezone.now() - timedelta(minutes=10)
-        is_repeat = CallLog.objects.filter(
-            store=store, from_phone=from_phone, created_at__gte=threshold,
-        ).exclude(contact_id=contact_id).exists()
-
-        # CallLog upsert
-        call, created = CallLog.objects.update_or_create(
+        call, created, route_matches = _record_inbound_call(
             contact_id=contact_id,
-            defaults={
-                "store": store,
-                "from_phone": from_phone,
-                "to_phone": to_phone,
-                "customer": customer,
-                "is_repeat": is_repeat,
-            },
+            store_phone=store_phone,
+            from_phone=from_phone,
         )
-        # 初回のみ status=NEW（既存は上書きしない）
-        if created:
-            call.status = CallLog.Status.NEW
-            call.save(update_fields=["status"])
+        if not route_matches:
+            logger.warning("CTI inbound rejected: contact route did not match its original record")
+            return Response(
+                {"detail": "この通話IDは既存の着信情報と一致しません"},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response({
             "id": call.id,
             "contact_id": call.contact_id,
-            "store_id": store.id,
-            "store_name": store.name,
+            "store_id": call.store_id,
+            "store_name": call.store.name,
             "from_phone": call.from_phone,
             "customer_id": call.customer_id,
-            "customer_name": str(customer) if customer else None,
+            "customer_name": str(call.customer) if call.customer else None,
             "is_repeat": call.is_repeat,
             "status": call.status,
             "created": created,
@@ -5406,6 +5479,42 @@ class CtiQueueView(APIView):
                 "updated_at": c.updated_at,
             })
         return Response({"calls": data})
+
+
+@document_object_api_view
+class CtiWorkQueueView(APIView):
+    """GET /api/op/cti/work-queue/ — 所属店舗をまたぐ着信作業キュー。
+
+    Existing /queue/ remains tied to the selected dashboard store for backward
+    compatibility. Roomink Work and the future fixed-store reservation flow use
+    this endpoint so a call is authorized from its stored store, not a client
+    chosen store ID.
+    """
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
+    def get(self, request):
+        calls = (
+            _accessible_cti_calls(request)
+            .filter(status__in=[CallLog.Status.NEW, CallLog.Status.IN_PROGRESS])
+            .select_related("store", "customer", "assigned_to")
+            .order_by("-created_at")
+        )
+        return Response({"calls": [_cti_call_payload(call, include_attention=True) for call in calls]})
+
+
+@document_object_api_view
+class CtiCallContextView(APIView):
+    """GET /api/op/cti/calls/{id}/context/ — one immutable call context."""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
+    def get(self, request, pk):
+        try:
+            call = _accessible_cti_calls(request).select_related("store", "customer", "assigned_to").get(pk=pk)
+        except CallLog.DoesNotExist:
+            return Response({"detail": "コールが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(_cti_call_payload(call, include_attention=True))
 
 
 @document_object_api_view
@@ -6323,31 +6432,21 @@ def twilio_voice_webhook(request):
             content_type="application/xml",
         )
 
-    store = store_phone.store
-
-    # from_phone → Customer 検索
-    customer = Customer.objects.filter(store=store, phone=from_phone).first()
-
-    # is_repeat: 同一 store + from_phone で直近 10 分以内
-    threshold = timezone.now() - timedelta(minutes=10)
-    is_repeat = CallLog.objects.filter(
-        store=store, from_phone=from_phone, created_at__gte=threshold,
-    ).exclude(contact_id=call_sid).exists()
-
-    # CallLog upsert
-    call, created = CallLog.objects.update_or_create(
+    call, created, route_matches = _record_inbound_call(
         contact_id=call_sid,
-        defaults={
-            "store": store,
-            "from_phone": from_phone,
-            "to_phone": to_phone,
-            "customer": customer,
-            "is_repeat": is_repeat,
-        },
+        store_phone=store_phone,
+        from_phone=from_phone,
     )
-    if created:
-        call.status = CallLog.Status.NEW
-        call.save(update_fields=["status"])
+    if not route_matches:
+        logger.warning("Twilio voice rejected: CallSid route did not match its original record")
+        return HttpResponse(
+            '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="ja-JP">エラーが発生しました</Say></Response>',
+            content_type="application/xml",
+            status=409,
+        )
+
+    store = store_phone.store
+    customer = call.customer
 
     # TwiML レスポンス（受付メッセージ + 登録済みSIP端末への接続）
     customer_name = customer.display_name if customer and customer.display_name else ""

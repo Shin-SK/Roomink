@@ -330,6 +330,80 @@ class CtiInboundAuthenticationTest(RoomankOpsSmokeTestBase):
         self.assertNotIn(submitted_token, str(logger_mock.method_calls))
         self.assertNotIn(self.configured_token, str(logger_mock.method_calls))
 
+    @patch.dict("os.environ", {"CTI_SHARED_TOKEN": configured_token})
+    def test_retry_cannot_reassign_an_existing_call_to_another_store(self):
+        other_number = StorePhoneNumber.objects.create(
+            store=self.store_b,
+            phone="05087654321",
+            is_active=True,
+        )
+        created = self.post(self.configured_token)
+        self.assertEqual(created.status_code, 201)
+
+        changed_route = dict(self.payload, to_phone=other_number.phone)
+        response = APIClient().post(
+            self.endpoint,
+            changed_route,
+            format="json",
+            HTTP_X_CTI_TOKEN=self.configured_token,
+        )
+
+        self.assertEqual(response.status_code, 409)
+        call = CallLog.objects.get(contact_id=self.payload["contact_id"])
+        self.assertEqual(call.store, self.store_a)
+        self.assertEqual(call.to_phone, self.payload["to_phone"])
+
+
+class CtiWorkQueueTest(RoomankOpsSmokeTestBase):
+    endpoint = "/api/op/cti/work-queue/"
+
+    def setUp(self):
+        super().setUp()
+        self.manager_a.store_memberships.create(store=self.store_b, role="staff")
+        self.customer.flag = Customer.Flag.ATTENTION
+        self.customer.ban_type = Customer.BanType.CAST_NG
+        self.customer.staff_memo = "受付時に確認"
+        self.customer.save(update_fields=["flag", "ban_type", "staff_memo"])
+        self.call_a = CallLog.objects.create(
+            store=self.store_a,
+            contact_id="work-queue-a",
+            from_phone=self.customer.phone,
+            to_phone="05012345678",
+            customer=self.customer,
+        )
+        self.call_b = CallLog.objects.create(
+            store=self.store_b,
+            contact_id="work-queue-b",
+            from_phone="09000000002",
+            to_phone="05087654321",
+        )
+
+    def test_returns_only_authorised_store_calls_with_fixed_reservation_context(self):
+        response = self.client_as(self.manager_a).get(self.endpoint)
+
+        self.assertEqual(response.status_code, 200, response.data)
+        calls = {call["id"]: call for call in response.data["calls"]}
+        self.assertEqual(set(calls), {self.call_a.id, self.call_b.id})
+        self.assertEqual(calls[self.call_a.id]["reservation_context"], {
+            "call_id": self.call_a.id,
+            "store_id": self.store_a.id,
+            "store_name": self.store_a.name,
+            "customer_id": self.customer.id,
+            "phone": self.customer.phone,
+        })
+        self.assertEqual(calls[self.call_a.id]["customer_attention"]["flag"], Customer.Flag.ATTENTION)
+        self.assertEqual(calls[self.call_a.id]["customer_attention"]["staff_memo"], "受付時に確認")
+
+    def test_never_discloses_another_store_call_or_its_customer_context(self):
+        response = self.client_as(self.manager_b).get(self.endpoint)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual([call["id"] for call in response.data["calls"]], [self.call_b.id])
+
+        forbidden_context = self.client_as(self.manager_b).get(
+            f"/api/op/cti/calls/{self.call_a.id}/context/"
+        )
+        self.assertEqual(forbidden_context.status_code, 404)
+
 
 @override_settings(
     TWILIO_AUTH_TOKEN="twilio-webhook-test-token",
@@ -515,6 +589,37 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
         call = CallLog.objects.get(contact_id=data["CallSid"])
         self.assertEqual(call.from_phone, "09012345678")
         self.assertEqual(call.to_phone, "05012345678")
+
+    def test_twilio_retry_cannot_reassign_an_existing_call_to_another_store(self):
+        StorePhoneNumber.objects.create(
+            store=self.store_a,
+            phone="05012345678",
+            is_active=True,
+        )
+        StorePhoneNumber.objects.create(
+            store=self.store_b,
+            phone="05087654321",
+            is_active=True,
+        )
+        original = self.voice_data("CAroute-immutable")
+        first = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            original,
+        )
+        self.assertEqual(first.status_code, 200)
+
+        altered = dict(original, To="+815087654321")
+        retry = self.signed_post(
+            self.voice_endpoint,
+            f"https://roomink.example{self.voice_endpoint}",
+            altered,
+        )
+
+        self.assertEqual(retry.status_code, 409)
+        call = CallLog.objects.get(contact_id=original["CallSid"])
+        self.assertEqual(call.store, self.store_a)
+        self.assertEqual(call.to_phone, "15075800167")
 
     def test_anonymous_byoc_caller_still_reaches_the_store(self):
         StorePhoneNumber.objects.create(

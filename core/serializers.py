@@ -303,6 +303,15 @@ class MediumSerializer(serializers.ModelSerializer):
 
 
 class StorePhoneNumberSerializer(serializers.ModelSerializer):
+    def validate_phone(self, value):
+        phone = normalize_phone(value)
+        # A routing identifier must be a real numeric destination.  Do not
+        # accept labels or SIP addresses here: the webhook normalizes its
+        # called party to this same numeric form before lookup.
+        if not phone or not phone.isdigit() or not 10 <= len(phone) <= 15:
+            raise serializers.ValidationError("着信先番号は10〜15桁の数字で入力してください。")
+        return phone
+
     class Meta:
         model = StorePhoneNumber
         fields = "__all__"

@@ -272,6 +272,8 @@ urlpatterns = [
     # CTI
     path("op/cti/inbound/", views.CtiInboundView.as_view(), name="cti-inbound"),
     path("op/cti/queue/", views.CtiQueueView.as_view(), name="cti-queue"),
+    path("op/cti/work-queue/", views.CtiWorkQueueView.as_view(), name="cti-work-queue"),
+    path("op/cti/calls/<int:pk>/context/", views.CtiCallContextView.as_view(), name="cti-call-context"),
     path("op/cti/calls/mark-seen/", views.CtiCallsMarkSeenView.as_view(), name="cti-calls-mark-seen"),
     path("op/cti/calls/<int:pk>/start/", views.CtiCallStartView.as_view(), name="cti-call-start"),
     path("op/cti/calls/<int:pk>/done/", views.CtiCallDoneView.as_view(), name="cti-call-done"),
