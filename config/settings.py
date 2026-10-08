@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import timedelta
 from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
@@ -26,9 +27,13 @@ if "DYNO" in os.environ:
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 SECURE_SSL_REDIRECT = IS_PRODUCTION
-SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "3600" if IS_PRODUCTION else "0"))
+SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "31536000" if IS_PRODUCTION else "0"))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", "0") == "1"
 SECURE_HSTS_PRELOAD = os.getenv("DJANGO_SECURE_HSTS_PRELOAD", "0") == "1"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"
 
 LOGGING = {
     "version": 1,
@@ -64,6 +69,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "django_filters",
     "drf_spectacular",
+    "axes",
 
     # local
     "core",
@@ -77,6 +83,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "axes.middleware.AxesMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -118,6 +125,8 @@ if _cors_env or IS_PRODUCTION:
     CSRF_COOKIE_SAMESITE = "None"
     CSRF_COOKIE_SECURE = True
 
+SESSION_COOKIE_HTTPONLY = True
+
 # --- DRF minimal ---
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -140,7 +149,24 @@ REST_FRAMEWORK = {
         "public_booking_verification": "10/hour",
         "public_booking_confirm": "30/hour",
     },
+    # Heroku / Netlify proxy one hop behind the client. This prevents a caller
+    # supplied left-most X-Forwarded-For value from becoming the throttle key.
+    "NUM_PROXIES": 1,
 }
+
+# django-axes stores failures in the shared database, so lockouts stay
+# consistent across processes without introducing a paid Redis dependency.
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+AXES_RESET_ON_SUCCESS = True
+AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]
+AXES_IPWARE_PROXY_COUNT = 1
+AXES_COOLOFF_MESSAGE = "ログイン試行が多すぎます。15分後にもう一度お試しください。"
+AXES_LOCKOUT_CALLABLE = "core.security.axes_lockout_response"
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Roomink API",

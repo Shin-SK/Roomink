@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { uploadToCloudinary } from '../../cloudinary.js'
+import { generateTemporaryPassword } from '../../password.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -15,6 +16,7 @@ const form = ref(emptyForm())
 const formError = ref('')
 const saving = ref(false)
 const uploading = ref(false)
+const showPassword = ref(false)
 
 function emptyForm() {
   return { username: '', password: '', email: '', role: 'staff', avatar_url: '' }
@@ -39,6 +41,7 @@ function openCreate() {
   editingId.value = null
   form.value = emptyForm()
   formError.value = ''
+  showPassword.value = false
   showForm.value = true
 }
 
@@ -52,7 +55,13 @@ function openEdit(s) {
     avatar_url: s.avatar_url || '',
   }
   formError.value = ''
+  showPassword.value = false
   showForm.value = true
+}
+
+function generatePassword() {
+  form.value.password = generateTemporaryPassword(14)
+  showPassword.value = true
 }
 
 async function onAvatarChange(e) {
@@ -261,7 +270,25 @@ const roleLabel = (role) => role === 'manager' ? 'マネージャー' : 'スタ�
 
             <div class="mb-3">
               <label class="form-label">パスワード <span v-if="!editingId" class="text-danger">*</span></label>
-              <input v-model="form.password" type="password" class="form-control" :placeholder="editingId ? '変更する場合のみ入力' : 'パスワード'" />
+              <div class="input-group">
+                <input
+                  v-model="form.password"
+                  :type="showPassword ? 'text' : 'password'"
+                  class="form-control"
+                  :placeholder="editingId ? '変更する場合のみ入力' : '10文字以上'"
+                  minlength="10"
+                  autocomplete="new-password"
+                >
+                <button type="button" class="btn btn-outline-secondary" @click="showPassword = !showPassword">
+                  {{ showPassword ? '隠す' : '表示' }}
+                </button>
+              </div>
+              <div class="d-flex justify-content-between align-items-center gap-2 mt-1">
+                <small class="text-muted">10文字以上。大文字や記号は必須ではありません。</small>
+                <button type="button" class="btn btn-link btn-sm p-0 text-nowrap" @click="generatePassword">
+                  安全な仮パスワードを作る
+                </button>
+              </div>
             </div>
 
             <div class="mb-3">

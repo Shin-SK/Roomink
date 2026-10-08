@@ -20,6 +20,7 @@ import notebook from '@tabler/icons/outline/notebook.svg?raw'
 import receipt from '@tabler/icons/outline/receipt.svg?raw'
 import reportMoney from '@tabler/icons/outline/report-money.svg?raw'
 import settings from '@tabler/icons/outline/settings.svg?raw'
+import shieldLock from '@tabler/icons/outline/shield-lock.svg?raw'
 import star from '@tabler/icons/outline/star.svg?raw'
 import users from '@tabler/icons/outline/users.svg?raw'
 
@@ -48,6 +49,7 @@ const icons = {
   receipt,
   'report-money': reportMoney,
   settings,
+  'shield-lock': shieldLock,
   star,
   users,
 }

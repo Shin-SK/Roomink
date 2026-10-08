@@ -3,6 +3,7 @@ import { computed, ref, onMounted } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { uploadToCloudinary } from '../../cloudinary.js'
+import { generateTemporaryPassword } from '../../password.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -22,6 +23,7 @@ const saving = ref(false)
 const uploading = ref(false)
 const accountUsername = ref('')
 const accountPassword = ref('')
+const showAccountPassword = ref(false)
 const accountSaving = ref(false)
 const accountMessage = ref('')
 const issuedCredentialText = ref('')
@@ -82,6 +84,7 @@ function openCreate() {
   expenseHistory.value = []
   accountUsername.value = ''
   accountPassword.value = ''
+  showAccountPassword.value = false
   accountMessage.value = ''
   issuedCredentialText.value = ''
 }
@@ -111,9 +114,15 @@ function openEdit(c) {
   expenseHistory.value = []
   accountUsername.value = c.account_username || ''
   accountPassword.value = ''
+  showAccountPassword.value = false
   accountMessage.value = ''
   issuedCredentialText.value = ''
   loadExpenseTemplates(c.id)
+}
+
+function generateAccountPassword() {
+  accountPassword.value = generateTemporaryPassword(10)
+  showAccountPassword.value = true
 }
 
 async function provisionAccount() {
@@ -583,13 +592,25 @@ async function toggleExpenseHistory() {
               </div>
               <div class="mb-2">
                 <label class="form-label small">仮パスワード</label>
-                <input
-                  v-model="accountPassword"
-                  type="password"
-                  class="form-control"
-                  minlength="8"
-                  placeholder="8文字以上"
-                >
+                <div class="input-group">
+                  <input
+                    v-model="accountPassword"
+                    :type="showAccountPassword ? 'text' : 'password'"
+                    class="form-control"
+                    minlength="8"
+                    autocomplete="new-password"
+                    placeholder="8文字以上"
+                  >
+                  <button type="button" class="btn btn-outline-secondary" @click="showAccountPassword = !showAccountPassword">
+                    {{ showAccountPassword ? '隠す' : '表示' }}
+                  </button>
+                </div>
+                <div class="d-flex justify-content-between align-items-center gap-2 mt-1">
+                  <small class="text-muted">8文字以上。大文字や記号は必須ではありません。</small>
+                  <button type="button" class="btn btn-link btn-sm p-0 text-nowrap" @click="generateAccountPassword">
+                    安全な仮パスワードを作る
+                  </button>
+                </div>
               </div>
               <button
                 type="button"

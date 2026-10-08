@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 
 DAY_OFFSET_CHOICES = ((0, "当日"), (1, "翌日"))
@@ -1777,6 +1778,94 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"Profile({self.user.username})"
+
+
+class SystemAnnouncement(models.Model):
+    """Roomink運営から、ログインユーザーへ配信する全体お知らせ。"""
+
+    class Kind(models.TextChoices):
+        UPDATE = "UPDATE", "アップデート"
+        IMPORTANT = "IMPORTANT", "重要"
+        MAINTENANCE = "MAINTENANCE", "メンテナンス"
+
+    class Audience(models.TextChoices):
+        ALL = "ALL", "全ユーザー"
+        OPERATORS = "OPERATORS", "マネージャー・スタッフ"
+        MANAGERS = "MANAGERS", "マネージャー"
+        STAFF = "STAFF", "スタッフ"
+        CASTS = "CASTS", "キャスト"
+        CUSTOMERS = "CUSTOMERS", "顧客"
+
+    title = models.CharField(max_length=120)
+    body = models.TextField()
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.UPDATE)
+    audience = models.CharField(
+        max_length=16,
+        choices=Audience.choices,
+        default=Audience.ALL,
+    )
+    target_stores = models.ManyToManyField(
+        Store,
+        blank=True,
+        related_name="system_announcements",
+        help_text="指定なしの場合は全店舗へ配信します。",
+    )
+    target_path = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Roomink内の移動先。例: /account/security",
+    )
+    published_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_system_announcements",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-published_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["is_active", "published_at"],
+                name="sys_notice_active_pub_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return self.title
+
+
+class SystemAnnouncementReadReceipt(models.Model):
+    announcement = models.ForeignKey(
+        SystemAnnouncement,
+        on_delete=models.CASCADE,
+        related_name="read_receipts",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="system_announcement_read_receipts",
+    )
+    read_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["announcement", "user"],
+                name="unique_system_announcement_read_receipt",
+            ),
+        ]
+        ordering = ["read_at", "id"]
+
+    def __str__(self):
+        return f"Announcement#{self.announcement_id} read by {self.user_id}"
 
 
 class SupportConversation(models.Model):

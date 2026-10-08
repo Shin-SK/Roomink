@@ -86,6 +86,13 @@ export const api = {
   logout: () => request('POST', '/auth/logout/'),
   me: () => request('GET', '/auth/me/'),
   updateProfile: (body) => request('PATCH', '/auth/profile/', body),
+  changePassword: (body) => request('POST', '/auth/change-password/', body),
+  getSystemAnnouncements: () => request('GET', '/auth/announcements/'),
+  markSystemAnnouncementsRead: (announcementIds = [], all = false) => request(
+    'POST',
+    '/auth/announcements/',
+    all ? { all: true } : { announcement_ids: announcementIds },
+  ),
 
   // In-app support assistant
   supportChat: (body) => request('POST', '/support/chat/', body),

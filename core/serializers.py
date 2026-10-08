@@ -7,8 +7,10 @@ from rest_framework.exceptions import PermissionDenied
 
 from .utils.phone import normalize_phone
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError as DjangoValidationError
 from django.db import transaction
+
+from .security import validate_password_for_role
 
 from .models import (
     CallLog,
@@ -210,6 +212,19 @@ class CastAccountProvisionSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("ユーザー名を入力してください")
         return value
+
+    def validate(self, attrs):
+        username = attrs.get("username", "").strip()
+        user = User.objects.filter(username=username).first() or User(username=username)
+        try:
+            validate_password_for_role(
+                attrs.get("password", ""),
+                user=user,
+                role=UserProfile.Role.CAST,
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": exc.messages}) from exc
+        return attrs
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -577,6 +592,21 @@ class StaffCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("このユーザー名は既に使用されています")
         return value
 
+    def validate(self, attrs):
+        pending_user = User(
+            username=attrs.get("username", ""),
+            email=attrs.get("email", ""),
+        )
+        try:
+            validate_password_for_role(
+                attrs.get("password", ""),
+                user=pending_user,
+                role=attrs.get("role", UserProfile.Role.STAFF),
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": exc.messages}) from exc
+        return attrs
+
     def create(self, validated_data):
         from .services.cast_user import create_staff_with_user
         store = validated_data.pop("store")
@@ -599,6 +629,19 @@ class StaffUpdateSerializer(serializers.Serializer):
     )
     avatar_url = serializers.URLField(required=False, allow_blank=True)
     password = serializers.CharField(max_length=128, write_only=True, required=False)
+
+    def validate(self, attrs):
+        password = attrs.get("password")
+        if password:
+            try:
+                validate_password_for_role(
+                    password,
+                    user=self.instance.user,
+                    role=attrs.get("role", self.instance.role),
+                )
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"password": exc.messages}) from exc
+        return attrs
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)

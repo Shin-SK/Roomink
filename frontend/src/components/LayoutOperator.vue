@@ -7,6 +7,7 @@ import UserAvatar from './UserAvatar.vue'
 import CtiIncomingPanel from './CtiIncomingPanel.vue'
 import OperatorNotifications from './OperatorNotifications.vue'
 import OperatorSidebarIcon from './OperatorSidebarIcon.vue'
+import SystemAnnouncements from './SystemAnnouncements.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -67,6 +68,7 @@ const navItems = computed(() => {
   }
   items.push(
     { to: '/op/point-logs', icon: 'star', label: 'ポイント', page: 'point-logs' },
+    { to: '/account/security', icon: 'shield-lock', label: 'ログインと安全', page: 'account-security' },
     { to: '/op/settings', icon: 'settings', label: '設定', page: 'settings' },
   )
   return items
@@ -211,6 +213,7 @@ onBeforeUnmount(() => {
       </header>
 
       <main class="container">
+        <SystemAnnouncements v-if="currentUser" />
         <slot></slot>
       </main>
 

@@ -67,11 +67,13 @@ const PublicBooking = () => import('./pages/public/PublicBooking.vue')
 const PublicBookingComplete = () => import('./pages/public/PublicBookingComplete.vue')
 const GuestReservation = () => import('./pages/public/GuestReservation.vue')
 const PasswordReset = () => import('./pages/PasswordReset.vue')
+const AccountSecurity = () => import('./pages/AccountSecurity.vue')
 
 const routes = [
   { path: '/', redirect: '/op/dashboard' },
   { path: '/login', name: 'login', component: Login, meta: { public: true } },
   { path: '/password-reset', name: 'password-reset', component: PasswordReset, meta: { public: true } },
+  { path: '/account/security', name: 'account-security', component: AccountSecurity, meta: { requiresAuth: true } },
   { path: '/booking', name: 'public-booking', component: PublicBooking, meta: { public: true } },
   { path: '/r/:token', name: 'guest-reservation', component: GuestReservation, meta: { public: true } },
   {
@@ -202,6 +204,7 @@ router.beforeEach(async (to) => {
   const isCast = to.path.startsWith('/cast/')
   const isCu = to.path.startsWith('/cu/') || to.meta.customer
   const isPlatform = to.path.startsWith('/platform')
+  const requiresAuth = Boolean(to.meta.requiresAuth)
 
   // public ページはガード不要
   if (to.meta.public) return
@@ -220,7 +223,7 @@ router.beforeEach(async (to) => {
   }
 
   // /op/* と /cast/* 以外はガード不要
-  if (!isOp && !isCast && !isPlatform) return
+  if (!isOp && !isCast && !isPlatform && !requiresAuth) return
 
   const auth = await ensureAuth()
 
@@ -231,6 +234,8 @@ router.beforeEach(async (to) => {
 
   // role 別アクセス制御
   if (to.meta.superuserOnly && !auth.isSuperuser) return { path: homeForRole(auth.role) }
+
+  if (requiresAuth) return
 
   if (auth.isSuperuser) {
     if (isCast) return { path: '/platform' }

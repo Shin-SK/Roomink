@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { resetAuthCache } from '../router.js'
 import UserAvatar from './UserAvatar.vue'
+import SystemAnnouncements from './SystemAnnouncements.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +21,7 @@ const sidebarItems = [
   { to: '/cast/schedule', icon: 'ti-calendar-week', label: '出勤予定' },
   { to: '/cast/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請' },
   { to: '/cast/profile', icon: 'ti-user', label: 'プロフィール' },
+  { to: '/account/security', icon: 'ti-shield-lock', label: 'ログインと安全' },
   { to: '/cast/manual', icon: 'ti-book', label: 'マニュアル' },
 ]
 
@@ -110,6 +112,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
       </header>
 
       <main class="container">
+        <SystemAnnouncements v-if="currentUser" />
         <slot></slot>
       </main>
 

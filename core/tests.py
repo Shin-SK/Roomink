@@ -1432,8 +1432,21 @@ class WeeklyShiftAndSmsSmokeTest(TestCase):
 
 
 class OpenApiSchemaSmokeTest(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="schema-admin",
+            password="schema-admin-password",
+            email="schema@example.com",
+        )
+
+    def test_schema_is_not_public(self):
+        self.assertEqual(Client().get("/api/schema/").status_code, 403)
+        self.assertEqual(Client().get("/api/docs/").status_code, 403)
+
     def test_schema_contains_handwritten_api_views_and_webhooks(self):
-        response = Client().get(
+        client = Client()
+        client.force_login(self.admin)
+        response = client.get(
             "/api/schema/",
             HTTP_ACCEPT="application/vnd.oai.openapi+json",
         )

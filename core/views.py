@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import date as date_type, datetime, timedelta
 
 from django.conf import settings
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email, validate_slug
 from django.middleware.csrf import get_token
@@ -23,6 +23,7 @@ from django.utils.html import escape
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import parsers, viewsets, status
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -45,9 +46,14 @@ from .models import (
     OrderServiceRecipientLinkLog,
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
     SipProvisioningLink, SipReceptionDevice, SmsTemplate, Store, StorePhoneNumber,
-    StoreSlugAlias, UserProfile,
+    StoreSlugAlias, SystemAnnouncement, SystemAnnouncementReadReceipt, UserProfile,
     generate_line_link_code,
     generate_line_operations_link_code,
+)
+from .security import (
+    apply_session_expiry,
+    password_policy_for_user,
+    validate_password_for_role,
 )
 from .permissions import (
     IsManager,
@@ -244,17 +250,22 @@ class CustomerLoginThrottle(_LoginIPThrottle):
 @permission_classes([AllowAny])
 @throttle_classes([OperatorLoginThrottle])
 def auth_login(request):
+    # DRF deliberately exempts API views from Django's outer CSRF middleware.
+    # Login still creates an authenticated cookie, so enforce the standard
+    # cookie/header CSRF handshake explicitly before checking credentials.
+    SessionAuthentication().enforce_csrf(request)
     # 運営・キャスト用APIでは、見た目にかかわらずDjango usernameとして扱う。
     # 顧客の電話番号認証と正規化は customer_login に限定する。
     username = (request.data.get("username") or "").strip()
     password = request.data.get("password", "")
-    user = authenticate(request, username=username, password=password)
+    user = authenticate(request._request, username=username, password=password)
     if user is None:
         return Response(
             {"detail": "ユーザー名またはパスワードが正しくありません"},
             status=status.HTTP_401_UNAUTHORIZED,
         )
     login(request, user)
+    apply_session_expiry(request, user)
     return Response({
         "ok": True,
         "username": user.username,
@@ -267,6 +278,50 @@ def auth_login(request):
 def auth_logout(request):
     logout(request)
     return Response({"ok": True})
+
+
+@extend_schema(operation_id="auth_change_password", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
+@api_view(["POST"])
+def auth_change_password(request):
+    current_password = request.data.get("current_password", "")
+    new_password = request.data.get("new_password", "")
+    new_password_confirm = request.data.get("new_password_confirm", "")
+
+    if not request.user.check_password(current_password):
+        return Response(
+            {"current_password": ["現在のパスワードが正しくありません。"]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if new_password != new_password_confirm:
+        return Response(
+            {"new_password_confirm": ["新しいパスワードが一致しません。"]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if current_password == new_password:
+        return Response(
+            {"new_password": ["現在とは異なるパスワードを設定してください。"]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        validate_password_for_role(new_password, user=request.user)
+    except DjangoValidationError as exc:
+        return Response(
+            {"new_password": exc.messages},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    request.user.set_password(new_password)
+    request.user.save(update_fields=["password"])
+    # Keep only this browser signed in. Other sessions retain the old auth hash
+    # and are rejected on their next authenticated request.
+    update_session_auth_hash(request, request.user)
+    apply_session_expiry(request, request.user)
+    logger.info("Password changed: user_id=%s", request.user.pk)
+    return Response({
+        "ok": True,
+        "detail": "パスワードを変更しました。ほかの端末からはログアウトされます。",
+    })
 
 
 @extend_schema(operation_id="auth_password_reset", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
@@ -317,6 +372,7 @@ def auth_me(request):
         "role": primary_role,
         "roles": roles,
         "is_superuser": request.user.is_superuser,
+        "password_policy": password_policy_for_user(request.user),
         "csrf_token": get_token(request),
     })
 
@@ -358,6 +414,121 @@ def auth_profile_update(request):
 def csrf_token_view(request):
     """CSRF cookieを発行するだけのエンドポイント（クロスオリジン用）"""
     return Response({"ok": True, "csrf_token": get_token(request)})
+
+
+def _visible_system_announcements(user):
+    now = timezone.now()
+    queryset = SystemAnnouncement.objects.filter(
+        is_active=True,
+        published_at__lte=now,
+    ).filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gt=now),
+    )
+    if user.is_superuser:
+        return queryset.distinct()
+
+    audiences = {SystemAnnouncement.Audience.ALL}
+    store_ids = set()
+    profile = getattr(user, "profile", None)
+    if profile is not None:
+        store_ids.add(profile.store_id)
+        if profile.role in (UserProfile.Role.MANAGER, UserProfile.Role.STAFF):
+            audiences.add(SystemAnnouncement.Audience.OPERATORS)
+        if profile.role == UserProfile.Role.MANAGER:
+            audiences.add(SystemAnnouncement.Audience.MANAGERS)
+        elif profile.role == UserProfile.Role.STAFF:
+            audiences.add(SystemAnnouncement.Audience.STAFF)
+        elif profile.role == UserProfile.Role.CAST:
+            audiences.add(SystemAnnouncement.Audience.CASTS)
+
+    customer_store_ids = list(
+        Customer.objects.filter(user=user).values_list("store_id", flat=True)
+    )
+    if customer_store_ids:
+        audiences.add(SystemAnnouncement.Audience.CUSTOMERS)
+        store_ids.update(customer_store_ids)
+
+    queryset = queryset.filter(audience__in=audiences)
+    if store_ids:
+        queryset = queryset.filter(
+            Q(target_stores__isnull=True) | Q(target_stores__id__in=store_ids),
+        )
+    else:
+        queryset = queryset.filter(target_stores__isnull=True)
+    return queryset.distinct()
+
+
+@document_object_api_view
+class SystemAnnouncementListView(APIView):
+    """GET active notices; POST marks only notices visible to the current user as read."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        announcements = list(_visible_system_announcements(request.user)[:50])
+        announcement_ids = [item.id for item in announcements]
+        read_ids = set(
+            SystemAnnouncementReadReceipt.objects.filter(
+                user=request.user,
+                announcement_id__in=announcement_ids,
+            ).values_list("announcement_id", flat=True)
+        )
+        return Response({
+            "unread_count": sum(item.id not in read_ids for item in announcements),
+            "announcements": [
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "body": item.body,
+                    "kind": item.kind,
+                    "kind_label": item.get_kind_display(),
+                    "target_path": (
+                        item.target_path
+                        if item.target_path.startswith("/") and not item.target_path.startswith("//")
+                        else ""
+                    ),
+                    "published_at": item.published_at.isoformat(),
+                    "is_read": item.id in read_ids,
+                }
+                for item in announcements
+            ],
+        })
+
+    def post(self, request):
+        raw_ids = request.data.get("announcement_ids", [])
+        mark_all = request.data.get("all") is True
+        if not mark_all and not isinstance(raw_ids, list):
+            return Response(
+                {"detail": "announcement_idsは配列で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        queryset = _visible_system_announcements(request.user)
+        if not mark_all:
+            try:
+                announcement_ids = {int(value) for value in raw_ids}
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "お知らせIDが正しくありません。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(id__in=announcement_ids)
+
+        SystemAnnouncementReadReceipt.objects.bulk_create(
+            [
+                SystemAnnouncementReadReceipt(
+                    announcement_id=announcement_id,
+                    user=request.user,
+                )
+                for announcement_id in queryset.values_list("id", flat=True)
+            ],
+            ignore_conflicts=True,
+        )
+        unread_count = (
+            _visible_system_announcements(request.user)
+            .exclude(read_receipts__user=request.user)
+            .count()
+        )
+        return Response({"unread_count": unread_count})
 
 
 # ──────────────────────────────────────
@@ -2035,6 +2206,7 @@ def customer_signup(request):
 @permission_classes([AllowAny])
 @throttle_classes([CustomerLoginThrottle])
 def customer_login(request):
+    SessionAuthentication().enforce_csrf(request)
     phone = normalize_phone((request.data.get("phone") or "").strip())
     password = request.data.get("password", "")
     failure = {"detail": "電話番号またはパスワードが正しくありません"}
@@ -2059,17 +2231,22 @@ def customer_login(request):
     if len(users) != 1:
         # 存在しない電話番号でもpassword hash計算を行い、応答時間による列挙を抑える。
         authenticate(
-            request,
+            request._request,
             username="__roomink_customer_login_dummy__",
             password=password,
         )
         return Response(failure, status=status.HTTP_401_UNAUTHORIZED)
 
     candidate = next(iter(users.values()))
-    user = authenticate(request, username=candidate.username, password=password)
+    user = authenticate(
+        request._request,
+        username=candidate.username,
+        password=password,
+    )
     if user is None:
         return Response(failure, status=status.HTTP_401_UNAUTHORIZED)
     login(request, user)
+    apply_session_expiry(request, user)
     return Response({
         "ok": True,
         "store_slug": store.slug if store is not None else "",
@@ -2117,13 +2294,15 @@ def customer_activation_preview(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def customer_activate(request):
+    SessionAuthentication().enforce_csrf(request)
     try:
-        _, next_path = activate_customer_invitation(
+        user, next_path = activate_customer_invitation(
             request,
             request.data.get("token", ""),
             request.data.get("password", ""),
             request.data.get("password_confirm", ""),
         )
+        apply_session_expiry(request, user)
     except DjangoValidationError as exc:
         messages = list(exc.messages)
         return Response(

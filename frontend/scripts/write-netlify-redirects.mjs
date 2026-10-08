@@ -31,4 +31,31 @@ fs.writeFileSync(
   `/api/*  ${apiUrl}/api/:splat  200\n/admin/*  ${apiUrl}/admin/  302!\n/*    /index.html   200\n`,
 )
 
+const apiOrigin = new URL(apiUrl).origin
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  `connect-src 'self' ${apiOrigin} https://api.cloudinary.com https://*.ingest.sentry.io`,
+].join('; ')
+
+fs.writeFileSync(
+  path.join(root, 'dist', '_headers'),
+  `/*
+  Content-Security-Policy: ${contentSecurityPolicy}
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+`,
+)
+
 console.log(`Netlify redirects generated for ${environment}: ${apiHost}`)

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { resetAuthCache } from '../router.js'
 import UserAvatar from './UserAvatar.vue'
+import SystemAnnouncements from './SystemAnnouncements.vue'
 import { customerPath, routeStoreSlug } from '../customerStore.js'
 
 const route = useRoute()
@@ -42,6 +43,7 @@ const sidebarItems = computed(() => [
   { to: customerPath(route, 'mypage'), icon: 'ti-home', label: 'マイページ' },
   { to: customerPath(route, 'booking'), icon: 'ti-calendar-plus', label: '予約' },
   { to: customerPath(route, 'contact'), icon: 'ti-help', label: 'お問い合わせ' },
+  { to: '/account/security', icon: 'ti-shield-lock', label: 'ログインと安全' },
   { to: customerPath(route, 'help'), icon: 'ti-book', label: 'ヘルプ' },
 ])
 
@@ -157,6 +159,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
       <main class="container">
         <div style="max-width: 640px; margin: 0 auto;">
+          <SystemAnnouncements v-if="currentUser" />
           <slot :store-id="selectedStoreId" :store-slug="storeSlug" :store-q="storeQ" :stores="stores" :drawer-open="drawerOpen"></slot>
         </div>
       </main>

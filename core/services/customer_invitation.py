@@ -4,12 +4,12 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import get_user_model, login
-from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from core.models import Customer, CustomerAccountInvitation, SmsLog
+from core.security import validate_password_for_role
 from core.utils.phone import normalize_phone
 
 
@@ -122,7 +122,7 @@ def activate_customer_invitation(request, raw_token, password, password_confirm)
         username_collision = User.objects.filter(username=phone).first()
         if existing_user is None and username_collision is None:
             pending_user = User(username=phone, first_name=customer.display_name or "")
-            validate_password(password, user=pending_user)
+            validate_password_for_role(password, user=pending_user, role="customer")
             user = User.objects.create_user(
                 username=phone,
                 password=password,

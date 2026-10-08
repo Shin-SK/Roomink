@@ -11,6 +11,7 @@ from .models import (
     DailySettlement, LineNotificationLog, Option, Order, OrderServiceRecipientLinkLog, PointLog, PublicBookingVerification, Room,
     ShiftAssignment, ShiftConfirmNotificationLog, ShiftEndAlert, ShiftRequest, SmsLog, SmsTemplate, Store, StoreSlugAlias,
     StorePhoneNumber, SupportConversation, SupportMessage, UserProfile,
+    SystemAnnouncement, SystemAnnouncementReadReceipt,
     generate_line_link_code,
 )
 from .services.cast_user import ensure_user_profile, create_staff_with_user
@@ -362,6 +363,30 @@ class UserProfileAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
         if obj.user:
             ensure_user_profile(obj.user, obj.store, role=obj.role)
+
+
+@admin.register(SystemAnnouncement)
+class SystemAnnouncementAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "title", "kind", "audience", "published_at", "expires_at", "is_active",
+    )
+    list_filter = ("kind", "audience", "is_active")
+    search_fields = ("title", "body")
+    filter_horizontal = ("target_stores",)
+    readonly_fields = ("created_by", "created_at", "updated_at")
+
+    def save_model(self, request, obj, form, change):
+        if obj.created_by_id is None:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(SystemAnnouncementReadReceipt)
+class SystemAnnouncementReadReceiptAdmin(admin.ModelAdmin):
+    list_display = ("announcement", "user", "read_at")
+    list_filter = ("announcement", "read_at")
+    search_fields = ("announcement__title", "user__username")
+    readonly_fields = ("announcement", "user", "read_at")
 
 
 @admin.register(SupportConversation)

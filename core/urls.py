@@ -55,9 +55,15 @@ urlpatterns = [
     path("auth/csrf/", views.csrf_token_view, name="auth-csrf"),
     path("auth/login/", views.auth_login, name="auth-login"),
     path("auth/logout/", views.auth_logout, name="auth-logout"),
+    path("auth/change-password/", views.auth_change_password, name="auth-change-password"),
     path("auth/password-reset/", views.auth_password_reset, name="auth-password-reset"),
     path("auth/me/", views.auth_me, name="auth-me"),
     path("auth/profile/", views.auth_profile_update, name="auth-profile-update"),
+    path(
+        "auth/announcements/",
+        views.SystemAnnouncementListView.as_view(),
+        name="auth-announcements",
+    ),
 
     # in-app support assistant
     path("support/chat/", support_views.SupportChatView.as_view(), name="support-chat"),
