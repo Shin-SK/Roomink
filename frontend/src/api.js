@@ -421,7 +421,6 @@ export const api = {
   customerLogin: (phone, password, storeSlug = '') => request('POST', '/cu/login/', { phone, password, store_slug: storeSlug }),
   getCustomerActivation: (token, storeSlug = '') => request('POST', '/cu/activate/preview/', { token, store_slug: storeSlug }),
   activateCustomer: (token, password, passwordConfirm) => request('POST', '/cu/activate/', { token, password, password_confirm: passwordConfirm }),
-  getStoreListPublic: () => request('GET', '/cu/store-list/'),
   getPublicBookingOptions: (storeId, date, storeSlug = '') => request(
     'GET',
     `/public/booking/options/?${storeSlug ? `store_slug=${encodeURIComponent(storeSlug)}` : `store=${storeId}`}${date ? `&date=${date}` : ''}`,

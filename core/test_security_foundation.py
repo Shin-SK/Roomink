@@ -18,6 +18,18 @@ from core.serializers import CastAccountProvisionSerializer, StaffCreateSerializ
 User = get_user_model()
 
 
+class StoreCatalogPrivacyTest(TestCase):
+    def test_anonymous_users_cannot_retrieve_a_store_catalog(self):
+        Store.objects.create(name="非公開店舗A")
+        Store.objects.create(name="非公開店舗B")
+
+        response = APIClient().get("/api/cu/store-list/")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn("非公開店舗A", response.content.decode())
+        self.assertNotIn("非公開店舗B", response.content.decode())
+
+
 class PasswordPolicyCompatibilityTest(TestCase):
     def setUp(self):
         self.store = Store.objects.create(name="セキュリティ検証店")

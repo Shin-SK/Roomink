@@ -139,7 +139,6 @@ urlpatterns = [
     path("cast/", include(cast_sr_router.urls)),
 
     # customer
-    path("cu/store-list/", views.StoreListPublicView.as_view(), name="cu-store-list"),
     path("public/booking/options/", views.PublicBookingOptionsView.as_view(), name="public-booking-options"),
     path("public/booking/slots/", views.PublicBookingSlotsView.as_view(), name="public-booking-slots"),
     path(

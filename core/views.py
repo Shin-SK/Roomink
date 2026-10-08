@@ -2024,22 +2024,6 @@ class OpOrderCastAckView(APIView):
 # ──────────────────────────────────────
 
 @document_object_api_view
-class StoreListPublicView(APIView):
-    """GET /api/cu/store-list/ — 全店舗一覧（サインアップ用、認証不要）"""
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        stores = Store.objects.order_by("id")
-        return Response({
-            "stores": [
-                {"store_id": s.id, "store_name": s.name, "store_slug": s.slug}
-                for s in stores
-            ]
-        })
-
-
-@document_object_api_view
 class PublicBookingOptionsView(APIView):
     """GET /api/public/booking/options/?store={id} — 公開予約の選択肢。"""
 
