@@ -218,6 +218,14 @@ class WorkDeviceFoundationTest(TestCase):
         new_client = self.device_client(rotated.data["token"])
         self.assertEqual(new_client.get("/api/work/me/").status_code, 200)
 
+        self.client.force_login(self.outsider)
+        denied = self.client.post(
+            f"/api/op/work-devices/{device_id}/action/",
+            {"action": "pause"},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, 400)
+
         self.client.force_login(self.manager)
         paused = self.client.post(
             f"/api/op/work-devices/{device_id}/action/",

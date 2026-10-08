@@ -466,11 +466,10 @@ class OperationWorkDeviceActionView(APIView):
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
             group_id = operation_group_for_request(request)
-            device = WorkDevice.objects.select_for_update().filter(
-                pk=device_id,
-                store_subscriptions__store__operation_group_id=group_id,
-            ).distinct().first()
-            if not device:
+            device = WorkDevice.objects.select_for_update().filter(pk=device_id).first()
+            if not device or not device.store_subscriptions.filter(
+                store__operation_group_id=group_id
+            ).exists():
                 raise ValidationError("端末が見つかりません。")
             if device.store_subscriptions.exclude(store__operation_group_id=group_id).exists():
                 raise PermissionDenied("別契約でも利用中の端末は一括変更できません。")
