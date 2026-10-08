@@ -11,6 +11,7 @@ const menuItems = [
   { to: '/op/settings/casts', icon: 'ti-users', label: 'キャスト管理', desc: 'キャストの追加・編集・削除', managerOnly: true },
   { to: '/op/settings/staffs', icon: 'ti-user-shield', label: 'スタッフ管理', desc: 'スタッフの追加・編集・削除', managerOnly: true },
   { to: '/op/settings/operation-group', icon: 'ti-building-community', label: '運営管理', desc: '同じ契約内の店舗とスタッフの所属設定', operationGroupManagerOnly: true },
+  { to: '/op/settings/work-devices', icon: 'ti-device-mobile', label: 'Roomink Work端末', desc: '受信端末の連携・受付停止・遠隔失効', operationGroupManagerOnly: true },
   { to: '/op/settings/rooms', icon: 'ti-door', label: 'ルーム管理', desc: 'ルームの追加・編集・削除', managerOnly: true },
   { to: '/op/settings/courses', icon: 'ti-list', label: 'コース管理', desc: 'コースの追加・編集・削除', managerOnly: true },
   { to: '/op/settings/options', icon: 'ti-puzzle', label: 'オプション管理', desc: 'オプションの追加・編集・削除', managerOnly: true },

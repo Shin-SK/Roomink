@@ -27,6 +27,7 @@ const SettingsDiscounts = () => import('./pages/op/SettingsDiscounts.vue')
 const SettingsMedia = () => import('./pages/op/SettingsMedia.vue')
 const SettingsStaffs = () => import('./pages/op/SettingsStaffs.vue')
 const SettingsOperationGroup = () => import('./pages/op/SettingsOperationGroup.vue')
+const SettingsWorkDevices = () => import('./pages/op/SettingsWorkDevices.vue')
 const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
 const SettingsLine = () => import('./pages/op/SettingsLine.vue')
 const SettingsLineActivation = () => import('./pages/op/SettingsLineActivation.vue')
@@ -116,6 +117,7 @@ const routes = [
   { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts, meta: { managerOnly: true } },
   { path: '/op/settings/staffs', name: 'settings-staffs', component: SettingsStaffs, meta: { managerOnly: true } },
   { path: '/op/settings/operation-group', name: 'settings-operation-group', component: SettingsOperationGroup, meta: { operationGroupManagerOnly: true } },
+  { path: '/op/settings/work-devices', name: 'settings-work-devices', component: SettingsWorkDevices, meta: { operationGroupManagerOnly: true } },
   { path: '/op/settings/rooms', name: 'settings-rooms', component: SettingsRooms, meta: { managerOnly: true } },
   { path: '/op/settings/courses', name: 'settings-courses', component: SettingsCourses, meta: { managerOnly: true } },
   { path: '/op/settings/options', name: 'settings-options', component: SettingsOptions, meta: { managerOnly: true } },

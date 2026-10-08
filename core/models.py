@@ -947,6 +947,162 @@ class SipProvisioningLink(models.Model):
         return f"SIP provisioning #{self.pk} ({self.store})"
 
 
+class WorkDevice(models.Model):
+    """Roomink Work installation, separate from legacy Groundwire SIP devices."""
+
+    class Kind(models.TextChoices):
+        PERSONAL = "personal", "個人端末"
+        SHARED = "shared", "共用端末"
+
+    class Platform(models.TextChoices):
+        IOS = "ios", "iOS"
+        ANDROID = "android", "Android"
+        OTHER = "other", "その他"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "受付中"
+        PAUSED = "paused", "受付停止"
+        REVOKED = "revoked", "失効済み"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device_key = models.UUIDField(unique=True, help_text="アプリインストール単位の公開識別子")
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    label = models.CharField(max_length=80)
+    platform = models.CharField(max_length=12, choices=Platform.choices)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="work_devices",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_work_devices",
+    )
+    status = models.CharField(
+        max_length=12,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+        db_index=True,
+    )
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-created_at"]
+
+    def __str__(self):
+        return f"{self.label} ({self.get_kind_display()})"
+
+
+class WorkDeviceStore(models.Model):
+    device = models.ForeignKey(
+        WorkDevice,
+        on_delete=models.CASCADE,
+        related_name="store_subscriptions",
+    )
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="work_device_subscriptions",
+    )
+    is_receiving = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["device", "store"],
+                name="unique_work_device_store",
+            ),
+        ]
+        ordering = ["store__name", "store_id"]
+
+
+class WorkDeviceCredential(models.Model):
+    """Hashed, rotatable device credential. Plaintext is returned only once."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device = models.ForeignKey(
+        WorkDevice,
+        on_delete=models.CASCADE,
+        related_name="credentials",
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    token_prefix = models.CharField(max_length=12, blank=True, default="")
+    expires_at = models.DateTimeField(db_index=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class WorkDeviceLinkRequest(models.Model):
+    """One-time shared-device pairing request initiated on the device."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device_key = models.UUIDField()
+    label = models.CharField(max_length=80)
+    platform = models.CharField(max_length=12, choices=WorkDevice.Platform.choices)
+    code_hash = models.CharField(max_length=64, unique=True)
+    claim_secret_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField(db_index=True)
+    approved_stores = models.ManyToManyField(
+        Store,
+        blank=True,
+        related_name="work_device_link_requests",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_work_device_links",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    rejected_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["device_key", "-created_at"])]
+
+
+class WorkDeviceEvent(models.Model):
+    """Authorization audit without storing phone numbers, codes, or tokens."""
+
+    device = models.ForeignKey(
+        WorkDevice,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="events",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="work_device_actions",
+    )
+    store = models.ForeignKey(Store, null=True, blank=True, on_delete=models.SET_NULL)
+    action = models.CharField(max_length=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
 class CallLog(models.Model):
     class Status(models.TextChoices):
         NEW = "NEW", "新規"

@@ -7,6 +7,7 @@ from . import (
     operations_line_inbox_views,
     support_views,
     views,
+    work_device_views,
 )
 
 router = DefaultRouter()
@@ -66,6 +67,17 @@ urlpatterns = [
     path("op/operation-group/staff/", operation_group_views.OperationGroupStaffCreateView.as_view()),
     path("op/operation-group/invitations/", operation_group_views.OperationGroupInvitationView.as_view()),
     path("op/operation-group/managers/", operation_group_views.OperationGroupManagerView.as_view()),
+    path("op/work-devices/", work_device_views.OperationWorkDeviceListView.as_view()),
+    path("op/work-devices/approve/", work_device_views.OperationWorkDeviceApproveView.as_view()),
+    path("op/work-devices/<uuid:device_id>/action/", work_device_views.OperationWorkDeviceActionView.as_view()),
+    path("work/personal-login/", work_device_views.PersonalDeviceLoginView.as_view()),
+    path("work/shared-links/", work_device_views.SharedLinkRequestCreateView.as_view()),
+    path("work/shared-links/<uuid:request_id>/claim/", work_device_views.SharedLinkClaimView.as_view()),
+    path("work/me/", work_device_views.WorkDeviceMeView.as_view()),
+    path("work/heartbeat/", work_device_views.WorkDeviceHeartbeatView.as_view()),
+    path("work/receiving/", work_device_views.WorkDeviceReceivingView.as_view()),
+    path("work/calls/", work_device_views.WorkDeviceCallsView.as_view()),
+    path("work/token/rotate/", work_device_views.WorkDeviceRotateTokenView.as_view()),
     path("auth/csrf/", views.csrf_token_view, name="auth-csrf"),
     path("auth/login/", views.auth_login, name="auth-login"),
     path("auth/logout/", views.auth_logout, name="auth-logout"),
