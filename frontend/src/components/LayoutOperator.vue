@@ -203,6 +203,13 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </aside>
+    <button
+      type="button"
+      class="sidebar-backdrop"
+      :class="{ show: sidebarOpen }"
+      aria-label="メニューを閉じる"
+      @click="closeSidebar"
+    ></button>
 
     <!-- Main content -->
     <div class="main-content">
@@ -247,9 +254,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.operator-sidebar,
 .operator-layout > .main-content {
   transition: width 0.24s ease, margin-left 0.24s ease;
+}
+
+.sidebar-backdrop {
+  display: none;
 }
 
 .operator-sidebar :deep(.operator-sidebar-icon) {
@@ -258,6 +268,10 @@ onBeforeUnmount(() => {
 
 .sidebar-header {
   position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 72px;
+  overflow: visible;
 }
 
 /* The compact-sidebar control is desktop-only. On mobile, the hamburger is
@@ -336,35 +350,40 @@ onBeforeUnmount(() => {
 }
 
 @media (min-width: 992px) {
+  .operator-sidebar {
+    transition: width 0.24s ease;
+  }
+
   .operator-layout > .main-content {
-    margin-left: calc(var(--rk-sidebar-width) + 28px);
+    margin-left: var(--rk-sidebar-width);
   }
 
   .sidebar-collapse-toggle {
     position: absolute;
-    right: -18px;
+    right: -16px;
     top: 50%;
     z-index: 4;
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 40px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     transform: translateY(-50%);
     border: 1px solid var(--bs-border-color);
-    border-radius: 50%;
+    border-left: 0;
+    border-radius: 0 10px 10px 0;
     outline: none;
     color: var(--bs-secondary);
     background: var(--bs-white);
-    box-shadow: 0 3px 10px rgb(15 23 42 / 12%);
-    transition: color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: 4px 2px 10px rgb(15 23 42 / 8%);
+    transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .sidebar-collapse-toggle:hover,
   .sidebar-collapse-toggle:focus-visible {
-    border-color: var(--rk-primary);
     color: var(--rk-primary);
-    box-shadow: 0 4px 14px rgb(42 157 143 / 20%);
+    background: #f3fbf9;
+    box-shadow: 4px 2px 12px rgb(42 157 143 / 16%);
   }
 
   .sidebar-collapse-toggle :deep(.operator-sidebar-icon) {
@@ -378,18 +397,12 @@ onBeforeUnmount(() => {
   }
 
   .operator-layout.is-sidebar-collapsed > .main-content {
-    margin-left: 104px;
+    margin-left: 76px;
   }
 
   .operator-layout.is-sidebar-collapsed .sidebar-header {
     justify-content: center;
-    padding-left: 0;
-  }
-
-  .operator-layout.is-sidebar-collapsed :deep(.operator-notifications) {
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    padding-inline: 0;
   }
 
   .operator-layout.is-sidebar-collapsed :deep(.nav-link) {
@@ -440,6 +453,32 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 991.98px) {
+  .operator-sidebar {
+    will-change: transform;
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: rgb(15 23 42 / 28%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.22s ease, visibility 0s linear 0.22s;
+  }
+
+  .sidebar-backdrop.show {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+
   .sidebar-notifications--desktop { display: none; }
   .sidebar-profile-avatar--mobile { display: inline-flex; }
 }
