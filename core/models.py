@@ -329,7 +329,14 @@ class ShiftAssignment(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="shift_assignments")
     date = models.DateField()
     cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="shift_assignments")
-    room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name="shift_assignments")
+    room = models.ForeignKey(
+        Room,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="shift_assignments",
+        help_text="未定のまま登録し、必要になった時点で割り当てる",
+    )
     start_time = models.TimeField()
     end_time = models.TimeField()
     end_day_offset = models.PositiveSmallIntegerField(

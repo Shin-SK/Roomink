@@ -519,7 +519,7 @@ async function onClearClockIn(s) {
                       <span>{{ s.cast_name || castName(s.cast) }}</span>
                     </div>
                   </td>
-                  <td>{{ s.room_name || roomName(s.room) }}</td>
+                  <td>{{ s.room_name || roomName(s.room) || '未定' }}</td>
                   <td>{{ s.start_time?.slice(0, 5) }}</td>
                   <td>{{ s.end_time_extended || s.end_time?.slice(0, 5) }}</td>
                   <td>
@@ -610,14 +610,14 @@ async function onClearClockIn(s) {
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">部屋</label>
+              <label class="form-label">部屋（任意）</label>
               <select v-model="form.room" class="form-select">
-                <option value="">自動選択（希望エリア・空室優先）</option>
+                <option value="">未定（後から割り当て）</option>
                 <option v-for="r in rooms" :key="r.id" :value="r.id">
                   {{ r.name }}{{ r.area_name ? `（${r.area_name}）` : '' }}
                 </option>
               </select>
-              <div class="form-text">ルームを指定した場合は、その指定を優先します。</div>
+              <div class="form-text">未選択でもシフトを保存できます。必要になった時点で後から部屋を割り当ててください。</div>
             </div>
             <div class="row">
               <div class="col-6 mb-3">

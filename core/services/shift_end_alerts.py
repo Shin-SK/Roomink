@@ -79,7 +79,10 @@ def evaluate_shift_end_alerts(store, reference_at=None):
         with transaction.atomic():
             locked_shift = (
                 ShiftAssignment.objects
-                .select_for_update()
+                # room is optional. PostgreSQL cannot lock the nullable side
+                # of the OUTER JOIN introduced by select_related("room"), so
+                # lock only the shift row itself.
+                .select_for_update(of=("self",))
                 .select_related("cast", "room", "store")
                 .get(pk=shift.pk)
             )

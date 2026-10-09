@@ -63,7 +63,6 @@ from .services.order_availability import (
     cast_has_unavailable_time_conflict,
     find_covering_shift,
 )
-from .services.room_assignment import suggest_room_for_shift
 from .services.order_policy import (
     can_modify_business_datetime,
     can_modify_order,
@@ -760,30 +759,9 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(str(exc)) from exc
 
         room = data.get("room", getattr(self.instance, "room", None))
-        auto_room_requested = (
-            (self.instance is None and room is None)
-            or (
-                self.instance is not None
-                and "room" in self.initial_data
-                and self.initial_data.get("room") in (None, "")
-            )
-        )
-        if auto_room_requested and store and cast and date and start_time and end_time:
-            room = suggest_room_for_shift(
-                store,
-                cast,
-                date,
-                start_time,
-                end_time,
-                end_day_offset=end_day_offset,
-                exclude_shift_id=self.instance.pk if self.instance else None,
-            )
-            if room is None:
-                raise serializers.ValidationError({
-                    "room": "指定時間に利用できるルームがありません",
-                })
-            data["room"] = room
-            self._room_auto_assigned = True
+        # シフトはルーム未定のまま登録できる。ルームを実在の「フリー」部屋へ
+        # 置き換えると、予約・空室判定・売上集計に誤った部屋情報が混ざるため、
+        # 未選択時は NULL をそのまま保持する。
         if store is not None:
             if cast is not None and cast.store_id != store.id:
                 raise serializers.ValidationError("他店舗のキャストは指定できません")
