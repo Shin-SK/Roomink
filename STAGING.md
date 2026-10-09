@@ -7,7 +7,7 @@
 ## 環境の分離
 
 - ステージングWeb: `https://roomink-staging.netlify.app`
-- ステージングAPI: `https://roomink-staging-api-df7e61fcf13f.herokuapp.com`
+- ステージングAPI: `https://api-staging.roomink.net`
 - 本番とステージングで、Web URL・API・PostgreSQLを完全に分ける。
 - 本番の顧客、電話番号、認証情報、通話・SMS・LINE設定はコピーしない。
 - ステージングのSMSは常にダミー送信とする。

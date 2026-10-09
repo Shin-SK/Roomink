@@ -24,8 +24,8 @@ const configuredApiUrl = String(process.env.VITE_API_BASE_URL ?? fileValues.VITE
 const apiUrl = (configuredApiUrl || 'https://api.roomink.net').replace(/\/$/, '')
 const apiHost = new URL(apiUrl).hostname
 
-if (environment === 'staging' && (apiHost === 'api.roomink.net' || apiHost.includes('roomink-0315e6e58623'))) {
-  throw new Error('Staging redirect generation blocked: the production Roomink API cannot be used.')
+if (environment === 'staging' && apiHost !== 'api-staging.roomink.net') {
+  throw new Error('Staging redirect generation blocked: VITE_API_BASE_URL must use https://api-staging.roomink.net.')
 }
 
 fs.writeFileSync(
