@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'expo-router';
-import { ActivityIndicator, Alert, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ReceptionScreen } from '../components/ReceptionScreen';
 import { clearPendingLink, clearToken, claimSharedLink, createSharedLink, Device, getPendingLink, getToken, loginPersonal, lookupPersonalStores, PendingLink, Store, WorkApiError, WorkCall, workRequest } from '../lib/roomink';
 
 type Mode = 'personal' | 'shared';
@@ -12,7 +13,6 @@ export default function HomeScreen() {
   const [device, setDevice] = useState<Device | null>(null);
   const [calls, setCalls] = useState<WorkCall[]>([]);
   const [history, setHistory] = useState<WorkCall[]>([]);
-  const [selectedStore, setSelectedStore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('personal');
   const [username, setUsername] = useState('');
@@ -22,12 +22,9 @@ export default function HomeScreen() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [link, setLink] = useState<PendingLink | null>(null);
   const [busy, setBusy] = useState(false);
+  const deviceConnected = device !== null;
 
-  const receivingStores = useMemo(() => device?.stores.filter((store) => store.is_receiving) ?? [], [device]);
-  const visibleCalls = calls.filter((call) => selectedStore === null || call.store_id === selectedStore);
-  const visibleHistory = history.filter((call) => selectedStore === null || call.store_id === selectedStore);
-
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setError(null);
     try {
       const nextDevice = await workRequest<Device>('/work/me/');
@@ -45,7 +42,7 @@ export default function HomeScreen() {
         setError(reason instanceof Error ? reason.message : '読み込みに失敗しました。');
       }
     }
-  }
+  }, []);
 
   useEffect(() => { (async () => {
     try {
@@ -54,7 +51,20 @@ export default function HomeScreen() {
       else setLink(await getPendingLink());
     } catch (reason) { setError(reason instanceof Error ? reason.message : '端末情報を読み込めませんでした。'); }
     finally { setLoading(false); }
-  })(); }, []);
+  })(); }, [refresh]);
+
+  useEffect(() => {
+    if (!deviceConnected) return;
+    let inFlight = false;
+    const tick = async () => {
+      if (AppState.currentState !== 'active' || inFlight) return;
+      inFlight = true;
+      try { await refresh(); } finally { inFlight = false; }
+    };
+    const interval = setInterval(() => { void tick(); }, 15000);
+    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') void tick(); });
+    return () => { clearInterval(interval); subscription.remove(); };
+  }, [deviceConnected, refresh]);
 
   async function findStores() {
     setBusy(true); setError(null);
@@ -102,20 +112,7 @@ export default function HomeScreen() {
 
   if (loading) return <Centered><ActivityIndicator color={colors.green} /></Centered>;
   if (!device) return <AuthScreen {...{ mode, setMode, username, setUsername, password, setPassword, label, setLabel, stores, selectedIds, setSelectedIds, link, busy, error, findStores, completePersonalLogin, startSharedLink, checkSharedLink }} />;
-  return <SafeAreaView style={styles.safe}><ScrollView contentContainerStyle={styles.page}>
-    <View style={styles.header}><View><Text style={styles.kicker}>ROOMINK WORK</Text><Text style={styles.title}>受付</Text></View><Pressable onPress={refresh} style={styles.smallButton}><Text>更新</Text></Pressable></View>
-    {error ? <Notice text={error} /> : null}
-    <View style={styles.status}><Text style={styles.statusTitle}>{device.label}</Text><Text style={styles.statusText}>{device.status === 'active' ? `${receivingStores.length}店舗で受付中` : '受付を停止中'}</Text></View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}><Pressable onPress={() => setSelectedStore(null)} style={[styles.filter, selectedStore === null && styles.filterActive]}><Text>すべて</Text></Pressable>{device.stores.map((store) => <Pressable key={store.id} onPress={() => setSelectedStore(store.id)} style={[styles.filter, selectedStore === store.id && styles.filterActive]}><Text>{store.name}</Text></Pressable>)}</ScrollView>
-    <Text style={styles.section}>着信</Text>
-    {visibleCalls.length ? visibleCalls.map((call) => <View key={call.id} style={styles.callCard}><Text style={styles.storeName}>{call.store_name}</Text><Text style={styles.caller}>{call.customer_name || '新規のお客さま'}</Text><Text style={styles.meta}>{call.from_phone} ・ {call.status === 'IN_PROGRESS' ? '対応中' : '未対応'}</Text>{call.customer_attention?.flag && call.customer_attention.flag !== 'NONE' ? <Text style={styles.notice}>{call.customer_attention.flag === 'BAN' ? '出禁' : '要注意'}{call.customer_attention.staff_memo ? `：${call.customer_attention.staff_memo}` : ''}</Text> : null}<Text style={styles.notice}>折り返しは店舗の受付回線から行ってください。</Text></View>) : <View style={styles.empty}><Text>対応が必要な着信はありません</Text></View>}
-    <Text style={styles.section}>着信履歴</Text>
-    {visibleHistory.length ? visibleHistory.map((call) => <View key={call.id} style={styles.historyRow}><Text style={styles.storeName}>{call.store_name} ・ {call.customer_name || '新規のお客さま'}</Text><Text style={styles.meta}>{call.from_phone} ・ {call.status === 'MISSED' ? '不在' : '完了'} ・ {new Date(call.created_at).toLocaleString('ja-JP')}</Text>{call.customer_attention?.flag && call.customer_attention.flag !== 'NONE' ? <Text style={styles.notice}>{call.customer_attention.flag === 'BAN' ? '出禁' : '要注意'}{call.customer_attention.staff_memo ? `：${call.customer_attention.staff_memo}` : ''}</Text> : null}</View>) : <View style={styles.empty}><Text>着信履歴はありません</Text></View>}
-    <Text style={styles.section}>店舗ごとの受付</Text>
-    {device.stores.map((store) => <Pressable key={store.id} onPress={() => toggleStore(store)} disabled={busy} style={[styles.storeRow, store.is_receiving ? styles.storeOn : styles.storeOff, busy && styles.disabled]}><View><Text style={styles.storeName}>{store.name}</Text><Text style={styles.meta}>{store.is_receiving ? '受付中' : '休み（着信を出しません）'}</Text></View><Text style={styles.toggle}>{store.is_receiving ? '停止' : '再開'}</Text></Pressable>)}
-    <Pressable onPress={async () => { await clearToken(); setDevice(null); setCalls([]); setHistory([]); }} style={styles.logout}><Text>この端末からログアウト</Text></Pressable>
-    {__DEV__ ? <Link href="/lab" style={styles.labLink}>模擬着信のローカル検証</Link> : null}
-  </ScrollView></SafeAreaView>;
+  return <ReceptionScreen device={device} calls={calls} history={history} busy={busy} error={error} onRefresh={refresh} onToggleStore={toggleStore} onLogout={async () => { await clearToken(); setDevice(null); setCalls([]); setHistory([]); }} />;
 }
 
 function AuthScreen(props: any) {
@@ -132,7 +129,7 @@ function AuthScreen(props: any) {
       {!personalReady ? <Primary label="所属店舗を確認" disabled={webPreview || !props.username || !props.password || props.busy} onPress={props.findStores} /> : <>
         <Text style={styles.section}>この端末で受ける店舗</Text>{props.stores.map((store: Store) => <Pressable key={store.id} onPress={() => props.setSelectedIds(props.selectedIds.includes(store.id) ? props.selectedIds.filter((id: number) => id !== store.id) : [...props.selectedIds, store.id])} style={styles.checkRow}><Text>{props.selectedIds.includes(store.id) ? '✓' : '○'}</Text><Text style={styles.storeName}>{store.name}</Text></Pressable>)}<Primary label="この端末を連携" disabled={webPreview || !props.selectedIds.length || props.busy} onPress={props.completePersonalLogin} /></>}
     </> : <>{!props.link ? <Primary label="連携コードを表示" disabled={webPreview || !props.label || props.busy} onPress={props.startSharedLink} /> : <View style={styles.linkBox}><Text style={styles.meta}>管理画面で次のコードを承認してください</Text><Text style={styles.code}>{props.link.code}</Text><Primary label="承認状態を確認" disabled={webPreview || props.busy} onPress={props.checkSharedLink} /><Pressable onPress={async () => { await clearPendingLink(); props.setLink(null); }}><Text>連携をやり直す</Text></Pressable></View>}</>}
-    {__DEV__ ? <Link href="/lab" style={styles.labLink}>模擬着信のローカル検証</Link> : null}
+    {__DEV__ ? <><Link href="/preview" style={styles.labLink}>実際の受付画面をプレビュー</Link><Link href="/lab" style={styles.labLink}>模擬着信のローカル検証</Link></> : null}
   </ScrollView></SafeAreaView>;
 }
 

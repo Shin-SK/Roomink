@@ -43,7 +43,7 @@ export default function CallLab() {
     <Text style={styles.kicker}>ROOMINK WORK · LOCAL LAB</Text>
     <Text style={styles.title}>着信の動き</Text>
     <Text style={styles.intro}>フェーズ4のローカル検証用です。実際の着信・音声通話・OS通知はまだ行いません。</Text>
-    <Link href="/" style={styles.back}>受付画面へ戻る</Link>
+    <Link href="/preview" style={styles.back}>実際の受付画面プレビューを見る</Link>
     <View style={styles.deviceSwitch}>{devices.map((name, index) => <Pressable key={name} onPress={() => setDeviceIndex(index)} style={[styles.deviceButton, index === deviceIndex && styles.activeDevice]}><Text style={[styles.deviceText, index === deviceIndex && styles.activeDeviceText]}>{name}</Text></Pressable>)}</View>
     <Text style={styles.section}>{current}の受付店舗</Text>
     {stores.map((store) => <Pressable key={store.id} onPress={() => toggleReceiving(store.id)} style={styles.storeRow}><Text style={styles.storeText}>{store.name}</Text><Text style={styles.storeState}>{receiving[deviceIndex].includes(store.id) ? '受付中' : '休み'}</Text></Pressable>)}

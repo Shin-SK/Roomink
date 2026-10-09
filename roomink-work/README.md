@@ -14,11 +14,14 @@ The app intentionally refuses to make an API call until `EXPO_PUBLIC_ROOMINK_API
 - Personal-device login and selection of only the signed-in operator's permitted stores.
 - Shared-device one-time linking and approval polling, with pending state stored securely across app restarts.
 - Per-store reception on/off control, current calls with customer attention flags, recent call history, and manual refresh/heartbeat.
+- Foreground refresh every 15 seconds and immediately when returning to the app; this updates information only and cannot ring a locked or terminated device.
 - No dial pad or outbound-call feature.
 
 ## Phase 4 local call lab
 
 In development builds, open **模擬着信のローカル検証** from the reception screen. It simulates two receiving devices, three stores, simultaneous calls, pause/resume, and another subscribed device answering the same call. Run `npm run test:local-calls` for deterministic state tests. The lab sends no notification, makes no call, and uses no real customer data.
+
+The development-only `/preview` route renders the **same reception component as the authenticated app** with fictitious A/B/C store data. It is for reviewing the real app layout and its three tabs (calls, history, receiving stores) locally without an iOS/Android build; it does not connect to the backend or prove native calling. The `/lab` route remains a separate call-state simulator.
 
 The app icon is derived from the existing Roomink vector mark. No new visual asset is needed for this local phase.
 
