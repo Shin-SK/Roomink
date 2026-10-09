@@ -21,7 +21,7 @@ The app intentionally refuses to make an API call until `EXPO_PUBLIC_ROOMINK_API
 
 In development builds, open **模擬着信のローカル検証** from the reception screen. It simulates two receiving devices, three stores, simultaneous calls, pause/resume, and another subscribed device answering the same call. Run `npm run test:local-calls` for deterministic state tests. The lab sends no notification, makes no call, and uses no real customer data.
 
-The development-only `/preview` route renders the **same reception component as the authenticated app** with fictitious A/B/C store data. It is for reviewing the real app layout and its three tabs (calls, history, receiving stores) locally without an iOS/Android build; it does not connect to the backend or prove native calling. The `/lab` route remains a separate call-state simulator.
+The development-only `/preview` route renders the **same call-list component as the authenticated app** with fictitious A/B/C store data. The main screen shows one chronological call list (all/missed, with an optional store filter); device and per-store receiving controls are under Settings. Tapping a row opens details, never starts an outbound call. This preview does not connect to the backend or prove native calling. The `/lab` route remains a separate call-state simulator.
 
 The app icon is derived from the existing Roomink vector mark. No new visual asset is needed for this local phase.
 

@@ -5,11 +5,11 @@ const tokenKey = 'roomink-work.device-token';
 const deviceKey = 'roomink-work.device-key';
 const pendingLinkKey = 'roomink-work.pending-link';
 
-export type Store = { id: number; name: string; is_receiving?: boolean };
+export type Store = { id: number; name: string; is_receiving?: boolean; is_entitled?: boolean };
 export type Device = { label: string; status: string; stores: Store[] };
 export type WorkCall = {
   id: number;
-  contact_id: string;
+  contact_id?: string;
   store_id: number;
   store_name: string;
   from_phone: string;

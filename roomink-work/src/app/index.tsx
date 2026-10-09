@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'expo-router';
 import { ActivityIndicator, Alert, AppState, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { ReceptionScreen } from '../components/ReceptionScreen';
+import { CallListScreen } from '../components/CallListScreen';
 import { clearPendingLink, clearToken, claimSharedLink, createSharedLink, Device, getPendingLink, getToken, loginPersonal, lookupPersonalStores, PendingLink, Store, WorkApiError, WorkCall, workRequest } from '../lib/roomink';
 
 type Mode = 'personal' | 'shared';
@@ -112,7 +112,7 @@ export default function HomeScreen() {
 
   if (loading) return <Centered><ActivityIndicator color={colors.green} /></Centered>;
   if (!device) return <AuthScreen {...{ mode, setMode, username, setUsername, password, setPassword, label, setLabel, stores, selectedIds, setSelectedIds, link, busy, error, findStores, completePersonalLogin, startSharedLink, checkSharedLink }} />;
-  return <ReceptionScreen device={device} calls={calls} history={history} busy={busy} error={error} onRefresh={refresh} onToggleStore={toggleStore} onLogout={async () => { await clearToken(); setDevice(null); setCalls([]); setHistory([]); }} />;
+  return <CallListScreen device={device} calls={calls} history={history} busy={busy} error={error} onRefresh={refresh} onToggleStore={toggleStore} onLogout={async () => { await clearToken(); setDevice(null); setCalls([]); setHistory([]); }} />;
 }
 
 function AuthScreen(props: any) {

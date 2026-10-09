@@ -29,6 +29,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "test:local-calls": "node --test src/lib/incoming.test.mjs",
+    "test:call-list": "node --test src/lib/call-list.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint"
   },

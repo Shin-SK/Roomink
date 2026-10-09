@@ -1,6 +1,6 @@
 import { Redirect } from 'expo-router';
 import { useState } from 'react';
-import { ReceptionScreen } from '../components/ReceptionScreen';
+import { CallListScreen } from '../components/CallListScreen';
 import type { Device, Store, WorkCall } from '../lib/roomink';
 
 const now = new Date().toISOString();
@@ -23,5 +23,5 @@ export default function ReceptionPreview() {
   function toggleStore(store: Store) {
     setDevice((current) => ({ ...current, stores: current.stores.map((row) => row.id === store.id ? { ...row, is_receiving: !row.is_receiving } : row) }));
   }
-  return <ReceptionScreen preview device={device} calls={sampleCalls} history={sampleHistory} busy={false} error={null} onRefresh={() => {}} onToggleStore={toggleStore} />;
+  return <CallListScreen preview device={device} calls={sampleCalls} history={sampleHistory} busy={false} error={null} onRefresh={() => {}} onToggleStore={toggleStore} />;
 }
