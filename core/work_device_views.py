@@ -1,13 +1,15 @@
 """Roomink Work Phase 2 device identity and store-subscription foundation."""
 
 import hashlib
+import base64
 import secrets
 import string
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.contrib.auth import authenticate
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.types import OpenApiTypes
@@ -632,14 +634,40 @@ class WorkDeviceHistoryView(APIView):
     def get(self, request):
         # Pausing reception must not remove permission to inspect existing history.
         store_ids = [sub.store_id for sub in entitled_subscriptions(request.work_device)]
+        missed_only = request.query_params.get("status") == "missed"
+        if request.query_params.get("status") not in (None, "missed"):
+            raise ValidationError({"status": "無効な絞り込みです。"})
         calls = (
             CallLog.objects.filter(
                 store_id__in=store_ids,
                 status__in=[CallLog.Status.DONE, CallLog.Status.MISSED],
             )
             .select_related("store", "customer")
-            .order_by("-created_at")[:100]
+            .order_by("-created_at", "-id")
         )
+        if missed_only:
+            calls = calls.filter(status=CallLog.Status.MISSED)
+        cursor = request.query_params.get("cursor")
+        if cursor:
+            if len(cursor) > 160:
+                raise ValidationError({"cursor": "無効なページ位置です。"})
+            try:
+                raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode("ascii")
+                timestamp, call_id = raw.rsplit("|", 1)
+                created_at = datetime.fromisoformat(timestamp)
+                call_id = int(call_id)
+                if not timezone.is_aware(created_at) or call_id < 1:
+                    raise ValueError
+            except (ValueError, UnicodeError, base64.binascii.Error) as exc:
+                raise ValidationError({"cursor": "無効なページ位置です。"}) from exc
+            calls = calls.filter(Q(created_at__lt=created_at) | Q(created_at=created_at, id__lt=call_id))
+        page = list(calls[:101])
+        has_more = len(page) > 100
+        page = page[:100]
+        last = page[-1] if has_more else None
+        next_cursor = base64.urlsafe_b64encode(
+            f"{last.created_at.isoformat()}|{last.pk}".encode("ascii")
+        ).decode("ascii").rstrip("=") if last else None
         return Response({"calls": [
             {
                 "id": call.pk,
@@ -650,8 +678,8 @@ class WorkDeviceHistoryView(APIView):
                 "status": call.status,
                 "created_at": call.created_at,
             }
-            for call in calls
-        ]})
+            for call in page
+        ], "next_cursor": next_cursor})
 
 
 class WorkDeviceRotateTokenView(APIView):

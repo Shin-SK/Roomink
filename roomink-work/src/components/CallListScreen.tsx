@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'expo-router';
-import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { callList } from '../lib/call-list';
 import type { Device, Store, WorkCall } from '../lib/roomink';
 
@@ -8,6 +8,13 @@ type Props = {
   device: Device;
   calls: WorkCall[];
   history: WorkCall[];
+  missedHistory?: WorkCall[];
+  missedLoaded?: boolean;
+  hasMoreAll?: boolean;
+  hasMoreMissed?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: (missedOnly: boolean) => void;
+  onMissedOnlyChange?: (missedOnly: boolean) => void;
   busy: boolean;
   error: string | null;
   onRefresh: () => void;
@@ -16,10 +23,10 @@ type Props = {
   preview?: boolean;
 };
 
-const ink = '#183733';
-const green = '#197c6e';
-const muted = '#62736e';
-const red = '#aa4633';
+const palettes = {
+  light: { bg: '#f7faf9', surface: '#ffffff', text: '#182723', muted: '#5a6965', border: '#e2e9e6', accent: '#167f70', accentBg: '#e5f3ef', red: '#b13e42', caution: '#9b4728', cautionBg: '#fff0e8' },
+  dark: { bg: '#0d1212', surface: '#171e1e', text: '#f2f6f4', muted: '#aab8b2', border: '#2d3836', accent: '#56c6b4', accentBg: '#1b3833', red: '#ff6d76', caution: '#ffb18b', cautionBg: '#3d2721' },
+};
 
 function statusLabel(status: string) {
   switch (status) {
@@ -33,85 +40,95 @@ function statusLabel(status: string) {
 
 function callTime(value: string) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  if (Number.isNaN(date.getTime())) return '';
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' });
 }
 
 function attention(call: WorkCall) {
   const flag = call.customer_attention?.flag;
-  if (!flag || flag === 'NONE') return null;
-  const label = flag === 'BAN' ? '出禁' : '要注意';
-  return call.customer_attention?.staff_memo ? `${label}・${call.customer_attention.staff_memo}` : label;
+  return flag && flag !== 'NONE' ? flag === 'BAN' ? '出禁' : '要注意' : null;
 }
 
-export function CallListScreen({ device, calls, history, busy, error, onRefresh, onToggleStore, onLogout, preview = false }: Props) {
+function ClockIcon({ color }: { color: string }) {
+  return <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: color, alignItems: 'center', justifyContent: 'center' }}><View style={{ position: 'absolute', width: 2, height: 7, backgroundColor: color, top: 3, left: 9 }} /><View style={{ position: 'absolute', width: 7, height: 2, backgroundColor: color, top: 10, left: 9 }} /></View>;
+}
+
+export function CallListScreen({ device, calls, history, missedHistory, missedLoaded = true, hasMoreAll = false, hasMoreMissed = false, loadingMore = false, onLoadMore, onMissedOnlyChange, busy, error, onRefresh, onToggleStore, onLogout, preview = false }: Props) {
+  const systemScheme = useColorScheme();
+  const [previewDark, setPreviewDark] = useState(true);
+  const dark = preview ? previewDark : systemScheme === 'dark';
+  const palette = dark ? palettes.dark : palettes.light;
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const [section, setSection] = useState<'calls' | 'settings'>('calls');
   const [missedOnly, setMissedOnly] = useState(false);
   const [selectedStore, setSelectedStore] = useState<number | null>(null);
   const [showStoreFilter, setShowStoreFilter] = useState(false);
   const [selectedCall, setSelectedCall] = useState<number | null>(null);
-  const rows = useMemo(() => callList(device, calls, history, selectedStore, missedOnly), [device, calls, history, selectedStore, missedOnly]);
+  // The all-calls poll can receive a new missed call before the dedicated missed page refreshes.
+  const rows = useMemo(() => callList(device, calls, missedOnly ? [...(missedHistory ?? []), ...history] : history, selectedStore, missedOnly), [device, calls, history, missedHistory, selectedStore, missedOnly]);
   const detail = rows.find((row) => row.id === selectedCall);
+  const hasMore = missedOnly ? hasMoreMissed : hasMoreAll;
   const receivingCount = device.stores.filter((store) => store.is_receiving && store.is_entitled !== false).length;
 
-  return <SafeAreaView style={styles.safe}>
-    <View style={styles.header}>
-      <Text style={styles.kicker}>ROOMINK WORK</Text>
-      <View style={styles.headingRow}>
-        <Text style={styles.title}>{section === 'settings' ? '設定' : detail ? '通話の詳細' : '通話'}</Text>
-        {section === 'calls' ? <Pressable onPress={detail ? () => setSelectedCall(null) : onRefresh} disabled={busy} style={styles.headerAction}><Text style={styles.actionText}>{detail ? '戻る' : busy ? '更新中' : '更新'}</Text></Pressable> : null}
-      </View>
+  const header = <>
+    {preview ? <Text style={styles.preview}>画面プレビュー · 架空データ／実際の電話は鳴りません</Text> : null}
+    {error ? <Text style={styles.error}>{error}</Text> : null}
+    <View style={styles.segment}>
+      <Pressable onPress={() => { setMissedOnly(false); onMissedOnlyChange?.(false); }} style={[styles.segmentButton, !missedOnly && styles.segmentActive]}><Text style={[styles.segmentText, !missedOnly && styles.segmentTextActive]}>すべて</Text></Pressable>
+      <Pressable onPress={() => { setMissedOnly(true); onMissedOnlyChange?.(true); }} style={[styles.segmentButton, missedOnly && styles.segmentActive]}><Text style={[styles.segmentText, missedOnly && styles.segmentTextActive]}>不在</Text></Pressable>
     </View>
-    <ScrollView contentContainerStyle={styles.content}>
-      {preview ? <Text style={styles.preview}>画面プレビュー · 架空の通話です。実際の電話は鳴りません。</Text> : null}
+    {device.stores.length > 1 ? <><Pressable onPress={() => setShowStoreFilter((value) => !value)} style={styles.filterTrigger}><Text style={styles.filterText}>{selectedStore === null ? 'すべての店舗' : device.stores.find((store) => store.id === selectedStore)?.name || 'すべての店舗'} ▾</Text></Pressable>
+      {showStoreFilter ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}><Pressable onPress={() => { setSelectedStore(null); setShowStoreFilter(false); }} style={styles.filterPill}><Text style={styles.filterText}>すべて</Text></Pressable>{device.stores.filter((store) => store.is_entitled !== false).map((store) => <Pressable key={store.id} onPress={() => { setSelectedStore(store.id); setShowStoreFilter(false); }} style={styles.filterPill}><Text style={styles.filterText}>{store.name}</Text></Pressable>)}</ScrollView> : null}
+    </> : null}
+  </>;
+
+  function renderRow({ item: call }: { item: WorkCall }) {
+    const flag = attention(call);
+    return <Pressable onPress={() => setSelectedCall(call.id)} style={styles.callRow} accessibilityLabel={`${call.from_phone} ${call.customer_name || '新規のお客さま'} ${statusLabel(call.status)} ${call.store_name}`}>
+      <View style={styles.firstLine}><Text style={[styles.phone, call.status === 'MISSED' && styles.missed]} numberOfLines={1}>{call.from_phone}</Text><Text style={styles.storeChip} numberOfLines={1}>{call.store_name}</Text><Text style={styles.time}>{callTime(call.created_at)}</Text></View>
+      <View style={styles.secondLine}>{flag ? <Text style={styles.flag}>{flag}</Text> : null}<Text style={styles.customer} numberOfLines={1}>{call.customer_name || '新規のお客さま'}</Text><Text style={styles.status}>{statusLabel(call.status)}</Text><Text style={styles.chevron}>›</Text></View>
+    </Pressable>;
+  }
+
+  return <SafeAreaView style={styles.safe}>
+    <View style={styles.topBar}>
+      <View style={styles.topSide}>{detail && section === 'calls' ? <Pressable onPress={() => setSelectedCall(null)}><Text style={styles.topAction}>‹ 戻る</Text></Pressable> : null}</View>
+      <Image source={require('../../assets/brand-mark.png')} style={styles.mark} accessibilityLabel="Roomink" />
+      <View style={styles.topSide}>{section === 'calls' && !detail ? <Pressable onPress={onRefresh} disabled={busy}><Text style={styles.topAction}>{busy ? '更新中' : '↻ 更新'}</Text></Pressable> : null}</View>
+    </View>
+    {section === 'settings' ? <ScrollView contentContainerStyle={styles.content}>
+      {preview ? <Text style={styles.preview}>画面プレビュー · 架空データ／実際の電話は鳴りません</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {section === 'settings' ? <>
-        <View style={styles.deviceRow}><View><Text style={styles.deviceName}>{device.label}</Text><Text style={styles.deviceStatus}>{device.status === 'active' ? `${receivingCount}店舗で受付中` : '受付停止中'}</Text></View></View>
-        <Text style={styles.groupTitle}>着信を受ける店舗</Text>
-        <Text style={styles.description}>休みにした店舗の新しい着信は、この端末に表示しません。履歴は残ります。</Text>
-        <View style={styles.group}>{device.stores.filter((store) => store.is_entitled !== false).map((store) => <Pressable key={store.id} onPress={() => onToggleStore(store)} disabled={busy} style={styles.settingRow}>
-          <View style={styles.grow}><Text style={styles.name}>{store.name}</Text><Text style={styles.secondary}>{store.is_receiving ? '受付中' : '休み'}</Text></View>
-          <Text style={[styles.settingAction, !store.is_receiving && styles.paused]}>{store.is_receiving ? '休みにする' : '受付を再開'}</Text>
-        </Pressable>)}</View>
-        {busy ? <ActivityIndicator color={green} /> : null}
-        <Text style={styles.description}>発信・ダイヤルパッドはありません。折り返しは店舗の受付回線から行ってください。</Text>
-        {__DEV__ ? <Link href="/lab" style={styles.developerLink}>開発用の模擬着信テスト</Link> : null}
-        {onLogout ? <Pressable onPress={onLogout} style={styles.logout}><Text style={styles.secondary}>この端末からログアウト</Text></Pressable> : null}
-      </> : detail ? <>
-        <View style={styles.detailHero}><Text style={[styles.detailName, detail.status === 'MISSED' && styles.missed]}>{detail.customer_name || '新規のお客さま'}</Text><Text style={styles.detailPhone}>{detail.from_phone}</Text></View>
-        <View style={styles.group}>
-          <View style={styles.detailRow}><Text style={styles.secondary}>店舗</Text><Text style={styles.value}>{detail.store_name}</Text></View>
-          <View style={styles.detailRow}><Text style={styles.secondary}>状態</Text><Text style={styles.value}>{statusLabel(detail.status)}</Text></View>
-          <View style={styles.detailRow}><Text style={styles.secondary}>日時</Text><Text style={styles.value}>{callTime(detail.created_at)}</Text></View>
-        </View>
-        {attention(detail) ? <Text style={styles.attention}>{attention(detail)}</Text> : null}
-        <Text style={styles.description}>この画面からの発信はできません。折り返しは店舗の受付回線から行ってください。</Text>
-      </> : <>
-        <View style={styles.segment}><Pressable onPress={() => setMissedOnly(false)} style={[styles.segmentButton, !missedOnly && styles.segmentActive]}><Text style={[styles.segmentText, !missedOnly && styles.segmentTextActive]}>すべて</Text></Pressable><Pressable onPress={() => setMissedOnly(true)} style={[styles.segmentButton, missedOnly && styles.segmentActive]}><Text style={[styles.segmentText, missedOnly && styles.segmentTextActive]}>不在</Text></Pressable></View>
-        {device.stores.length > 1 ? <><Pressable onPress={() => setShowStoreFilter((value) => !value)} style={styles.filterTrigger}><Text style={styles.filterText}>{selectedStore === null ? 'すべての店舗' : device.stores.find((store) => store.id === selectedStore)?.name || 'すべての店舗'} ▾</Text></Pressable>
-          {showStoreFilter ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}><Pressable onPress={() => { setSelectedStore(null); setShowStoreFilter(false); }} style={styles.filterPill}><Text style={styles.filterText}>すべて</Text></Pressable>{device.stores.filter((store) => store.is_entitled !== false).map((store) => <Pressable key={store.id} onPress={() => { setSelectedStore(store.id); setShowStoreFilter(false); }} style={styles.filterPill}><Text style={styles.filterText}>{store.name}</Text></Pressable>)}</ScrollView> : null}
-        </> : null}
-        {rows.length ? <View style={styles.group}>{rows.map((call) => <Pressable key={call.id} onPress={() => setSelectedCall(call.id)} style={styles.callRow}>
-          <View style={styles.grow}><Text style={[styles.name, call.status === 'MISSED' && styles.missed]} numberOfLines={1}>{call.customer_name || '新規のお客さま'}</Text><Text style={styles.secondary} numberOfLines={1}>{call.store_name} · {statusLabel(call.status)}{attention(call) ? ' · 要注意' : ''}</Text></View>
-          <View style={styles.rowEnd}><Text style={styles.time}>{callTime(call.created_at)}</Text><Text style={styles.chevron}>›</Text></View>
-        </Pressable>)}</View> : <Text style={styles.empty}>{missedOnly ? '不在着信はありません' : '通話はまだありません'}</Text>}
-      </>}
-    </ScrollView>
-    <View style={styles.tabBar}><Pressable onPress={() => { setSection('calls'); setSelectedCall(null); }} style={[styles.tab, section === 'calls' && styles.tabActive]}><Text style={[styles.tabText, section === 'calls' && styles.tabTextActive]}>通話</Text></Pressable><Pressable onPress={() => { setSection('settings'); setSelectedCall(null); }} style={[styles.tab, section === 'settings' && styles.tabActive]}><Text style={[styles.tabText, section === 'settings' && styles.tabTextActive]}>設定</Text></Pressable></View>
+      <View style={styles.deviceRow}><Text style={styles.deviceName}>{device.label}</Text><Text style={styles.deviceStatus}>{device.status === 'active' ? `${receivingCount}店舗で受付中` : '受付停止中'}</Text></View>
+      <Text style={styles.groupTitle}>着信を受ける店舗</Text>
+      <Text style={styles.description}>休みの店舗でも履歴は確認できます。</Text>
+      <View style={styles.group}>{device.stores.filter((store) => store.is_entitled !== false).map((store) => <Pressable key={store.id} onPress={() => onToggleStore(store)} disabled={busy} style={styles.settingRow}><View style={styles.grow}><Text style={styles.settingName}>{store.name}</Text><Text style={styles.secondary}>{store.is_receiving ? '受付中' : '休み'}</Text></View><Text style={[styles.settingAction, !store.is_receiving && styles.paused]}>{store.is_receiving ? '休みにする' : '受付を再開'}</Text></Pressable>)}</View>
+      {preview ? <Pressable onPress={() => setPreviewDark((value) => !value)} style={styles.themeToggle}><Text style={styles.settingName}>画面確認用：{dark ? 'ダーク' : 'ライト'}表示</Text><Text style={styles.settingAction}>切り替え</Text></Pressable> : null}
+      <Text style={styles.description}>アプリから発信はできません。折り返しは店舗の受付回線から行ってください。</Text>
+      {__DEV__ ? <Link href="/lab" style={styles.developerLink}>開発用の模擬着信テスト</Link> : null}
+      {onLogout ? <Pressable onPress={onLogout} style={styles.logout}><Text style={styles.secondary}>この端末からログアウト</Text></Pressable> : null}
+    </ScrollView> : detail ? <ScrollView contentContainerStyle={styles.content}>
+      {preview ? <Text style={styles.preview}>画面プレビュー · 架空データ／実際の電話は鳴りません</Text> : null}
+      <Text style={styles.detailPhone}>{detail.from_phone}</Text><Text style={styles.detailName}>{detail.customer_name || '新規のお客さま'}</Text>
+      <View style={styles.group}><View style={styles.detailRow}><Text style={styles.secondary}>店舗</Text><Text style={styles.value}>{detail.store_name}</Text></View><View style={styles.detailRow}><Text style={styles.secondary}>状態</Text><Text style={styles.value}>{statusLabel(detail.status)}</Text></View><View style={styles.detailRow}><Text style={styles.secondary}>日時</Text><Text style={styles.value}>{new Date(detail.created_at).toLocaleString('ja-JP')}</Text></View></View>
+      {attention(detail) ? <Text style={styles.attention}>{attention(detail)}{detail.customer_attention?.staff_memo ? ` · ${detail.customer_attention.staff_memo}` : ''}</Text> : null}
+      <Text style={styles.description}>折り返しは店舗の受付回線から行ってください。</Text>
+    </ScrollView> : <FlatList data={rows} keyExtractor={(call) => String(call.id)} renderItem={renderRow} contentContainerStyle={styles.listContent} ListHeaderComponent={header} ListEmptyComponent={<Text style={styles.empty}>{missedOnly && !missedLoaded ? '不在着信を読み込み中…' : missedOnly ? '不在着信はありません' : '通話はまだありません'}</Text>} ListFooterComponent={hasMore ? <Pressable onPress={() => onLoadMore?.(missedOnly)} disabled={loadingMore} style={styles.loadMore}><Text style={styles.filterText}>{loadingMore ? '読み込み中…' : '過去の通話を読み込む'}</Text></Pressable> : null} onEndReached={() => { if (hasMore && !loadingMore) onLoadMore?.(missedOnly); }} onEndReachedThreshold={0.4} initialNumToRender={18} maxToRenderPerBatch={20} windowSize={7} />}
+    <View style={styles.tabBar}><Pressable onPress={() => { setSection('calls'); setSelectedCall(null); }} style={styles.tab} accessibilityLabel="通話"><ClockIcon color={section === 'calls' ? palette.accent : palette.muted} /><Text style={[styles.tabText, section === 'calls' && styles.tabTextActive]}>通話</Text></Pressable><Pressable onPress={() => { setSection('settings'); setSelectedCall(null); }} style={styles.tab} accessibilityLabel="設定"><Text style={[styles.gear, section === 'settings' && styles.gearActive]}>⚙</Text><Text style={[styles.tabText, section === 'settings' && styles.tabTextActive]}>設定</Text></Pressable></View>
   </SafeAreaView>;
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#f6faf9' }, header: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 12 }, kicker: { color: green, fontSize: 11, fontWeight: '800', letterSpacing: 1.3 },
-  headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }, title: { color: ink, fontSize: 31, fontWeight: '800' }, headerAction: { padding: 10 }, actionText: { color: green, fontWeight: '800' },
-  content: { paddingHorizontal: 20, paddingBottom: 28, gap: 12 }, preview: { color: red, backgroundColor: '#fff1ea', borderRadius: 9, padding: 10, fontSize: 12 }, error: { color: red, backgroundColor: '#fff1ea', borderRadius: 9, padding: 10 },
-  segment: { alignSelf: 'flex-start', flexDirection: 'row', padding: 3, borderRadius: 11, backgroundColor: '#e8efed' }, segmentButton: { paddingVertical: 8, paddingHorizontal: 17, borderRadius: 9 }, segmentActive: { backgroundColor: '#fff' }, segmentText: { color: muted, fontWeight: '700' }, segmentTextActive: { color: ink },
-  filterTrigger: { alignSelf: 'flex-start', paddingVertical: 7 }, filterText: { color: green, fontWeight: '700' }, filters: { gap: 8 }, filterPill: { paddingVertical: 8, paddingHorizontal: 13, borderRadius: 20, backgroundColor: '#e8efed' },
-  group: { backgroundColor: '#fff', borderRadius: 15, overflow: 'hidden' }, callRow: { minHeight: 66, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomColor: '#edf0ee', borderBottomWidth: 1 },
-  grow: { flex: 1, minWidth: 0 }, name: { color: ink, fontSize: 17, fontWeight: '700' }, missed: { color: red }, secondary: { color: muted, fontSize: 12, marginTop: 4 }, rowEnd: { alignItems: 'flex-end', gap: 1 }, time: { color: muted, fontSize: 11 }, chevron: { color: '#9aa9a4', fontSize: 23, lineHeight: 24 },
-  empty: { color: muted, backgroundColor: '#eaf4f1', padding: 20, borderRadius: 13 }, detailHero: { alignItems: 'center', paddingVertical: 24, gap: 7 }, detailName: { color: ink, fontSize: 25, fontWeight: '800' }, detailPhone: { color: muted, fontSize: 16 },
-  detailRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, padding: 15, borderBottomColor: '#edf0ee', borderBottomWidth: 1 }, value: { color: ink, fontWeight: '700', flexShrink: 1, textAlign: 'right' }, attention: { color: red, backgroundColor: '#fff1ea', padding: 13, borderRadius: 11, fontWeight: '700' },
-  description: { color: muted, fontSize: 13, lineHeight: 20 }, deviceRow: { backgroundColor: ink, borderRadius: 14, padding: 18 }, deviceName: { color: '#fff', fontSize: 17, fontWeight: '800' }, deviceStatus: { color: '#cae7df', fontSize: 12, marginTop: 6 }, groupTitle: { color: ink, fontSize: 17, fontWeight: '800', marginTop: 8 },
-  settingRow: { padding: 16, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomColor: '#edf0ee', borderBottomWidth: 1 }, settingAction: { color: green, fontSize: 12, fontWeight: '800' }, paused: { color: red },
-  developerLink: { alignSelf: 'center', padding: 12, color: green, fontWeight: '700' }, logout: { alignSelf: 'center', padding: 15 }, tabBar: { flexDirection: 'row', padding: 8, gap: 6, borderTopColor: '#e1e9e5', borderTopWidth: 1, backgroundColor: '#fff' },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 11 }, tabActive: { backgroundColor: '#eaf4f1' }, tabText: { color: muted, fontWeight: '700' }, tabTextActive: { color: green, fontWeight: '800' },
-});
+function makeStyles(c: typeof palettes.light) { return StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg }, topBar: { height: 55, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: c.border }, topSide: { width: 80 }, mark: { width: 29, height: 29 }, topAction: { color: c.accent, fontSize: 13, fontWeight: '700', textAlign: 'right' },
+  listContent: { paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }, content: { padding: 18, paddingBottom: 36, gap: 13 }, preview: { color: c.caution, backgroundColor: c.cautionBg, borderRadius: 8, padding: 9, fontSize: 11, marginVertical: 9 }, error: { color: c.red, padding: 10, backgroundColor: c.cautionBg, borderRadius: 8 },
+  segment: { flexDirection: 'row', alignSelf: 'flex-start', padding: 3, backgroundColor: c.surface, borderRadius: 10, marginVertical: 10 }, segmentButton: { paddingVertical: 7, paddingHorizontal: 16, borderRadius: 8 }, segmentActive: { backgroundColor: c.accentBg }, segmentText: { color: c.muted, fontWeight: '700' }, segmentTextActive: { color: c.accent },
+  filterTrigger: { alignSelf: 'flex-start', paddingVertical: 8, marginBottom: 4 }, filterText: { color: c.accent, fontSize: 12, fontWeight: '700' }, filters: { gap: 7, paddingBottom: 8 }, filterPill: { padding: 9, backgroundColor: c.surface, borderRadius: 20 },
+  callRow: { minHeight: 72, paddingVertical: 11, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: c.border, gap: 5 }, firstLine: { flexDirection: 'row', alignItems: 'center', gap: 7 }, phone: { color: c.text, fontSize: 17, fontWeight: '800', flexShrink: 1 }, storeChip: { color: c.muted, fontSize: 10, flex: 1 }, time: { color: c.muted, fontSize: 11, marginLeft: 'auto' },
+  secondLine: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingRight: 2 }, flag: { color: c.caution, backgroundColor: c.cautionBg, fontSize: 10, fontWeight: '800', overflow: 'hidden', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 }, customer: { color: c.muted, fontSize: 13, flex: 1 }, status: { color: c.muted, fontSize: 12 }, missed: { color: c.red }, chevron: { color: c.muted, fontSize: 19, marginLeft: 3 },
+  empty: { color: c.muted, textAlign: 'center', padding: 25 }, loadMore: { padding: 18, alignItems: 'center' }, tabBar: { flexDirection: 'row', backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border, paddingVertical: 6 }, tab: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 5 }, tabText: { color: c.muted, fontSize: 11, fontWeight: '700' }, tabTextActive: { color: c.accent }, gear: { color: c.muted, fontSize: 24, lineHeight: 25 }, gearActive: { color: c.accent },
+  deviceRow: { padding: 16, backgroundColor: c.surface, borderRadius: 12 }, deviceName: { color: c.text, fontSize: 16, fontWeight: '800' }, deviceStatus: { color: c.muted, marginTop: 5 }, groupTitle: { color: c.text, fontSize: 16, fontWeight: '800', marginTop: 7 }, description: { color: c.muted, fontSize: 12, lineHeight: 19 }, group: { backgroundColor: c.surface, borderRadius: 12, overflow: 'hidden' },
+  settingRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: c.border }, grow: { flex: 1 }, settingName: { color: c.text, fontWeight: '700' }, secondary: { color: c.muted, fontSize: 12, marginTop: 4 }, settingAction: { color: c.accent, fontSize: 12, fontWeight: '700' }, paused: { color: c.caution }, themeToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, backgroundColor: c.surface, borderRadius: 11 }, developerLink: { alignSelf: 'center', padding: 12, color: c.accent }, logout: { alignSelf: 'center', padding: 15 },
+  detailPhone: { color: c.text, fontSize: 25, fontWeight: '800', textAlign: 'center', marginTop: 22 }, detailName: { color: c.muted, fontSize: 16, textAlign: 'center', marginBottom: 18 }, detailRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 }, value: { color: c.text, fontWeight: '700', flexShrink: 1, textAlign: 'right' }, attention: { color: c.caution, backgroundColor: c.cautionBg, padding: 12, borderRadius: 9 },
+}); }

@@ -183,6 +183,45 @@ class WorkDeviceFoundationTest(TestCase):
         self.assertEqual([row["id"] for row in response.data["calls"]], [own.pk])
         self.assertEqual(response.data["calls"][0]["customer_attention"]["flag"], "BAN")
 
+    def test_history_cursor_pages_beyond_300_calls_without_cross_store_leak(self):
+        # Keep this added login off the shared test throttle bucket.
+        self.client.defaults["REMOTE_ADDR"] = "192.0.2.40"
+        login = self.personal_login(store_ids=[self.store_a.pk])
+        client = self.device_client(login.data["token"])
+        CallLog.objects.bulk_create([
+            CallLog(
+                store=self.store_a, contact_id=f"CA-page-{index}",
+                from_phone="09000000000", to_phone="05000000000",
+                status=CallLog.Status.MISSED if index % 3 == 0 else CallLog.Status.DONE,
+            ) for index in range(305)
+        ])
+        CallLog.objects.create(
+            store=self.store_c, contact_id="CA-page-other", from_phone="09000000000",
+            to_phone="05000000000", status=CallLog.Status.MISSED,
+        )
+        cursor = None
+        seen = []
+        for expected_count in (100, 100, 100, 5):
+            response = client.get("/api/work/history/", {"cursor": cursor} if cursor else {})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(len(response.data["calls"]), expected_count)
+            seen.extend(row["id"] for row in response.data["calls"])
+            self.assertTrue(all(row["store_id"] == self.store_a.pk for row in response.data["calls"]))
+            cursor = response.data["next_cursor"]
+        self.assertIsNone(cursor)
+        self.assertEqual(len(set(seen)), 305)
+
+        missed = client.get("/api/work/history/", {"status": "missed"})
+        self.assertEqual(missed.status_code, 200)
+        self.assertEqual(len(missed.data["calls"]), 100)
+        self.assertTrue(all(row["status"] == CallLog.Status.MISSED for row in missed.data["calls"]))
+        self.assertIsNotNone(missed.data["next_cursor"])
+        tail = client.get("/api/work/history/", {"status": "missed", "cursor": missed.data["next_cursor"]})
+        self.assertEqual(len(tail.data["calls"]), 2)
+        self.assertIsNone(tail.data["next_cursor"])
+        self.assertEqual(client.get("/api/work/history/", {"cursor": "invalid!"}).status_code, 400)
+        self.assertEqual(client.get("/api/work/history/", {"status": "unknown"}).status_code, 400)
+
     def test_current_calls_include_only_same_store_customer_attention(self):
         login = self.personal_login(store_ids=[self.store_a.pk])
         client = self.device_client(login.data["token"])

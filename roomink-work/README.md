@@ -13,7 +13,9 @@ The app intentionally refuses to make an API call until `EXPO_PUBLIC_ROOMINK_API
 
 - Personal-device login and selection of only the signed-in operator's permitted stores.
 - Shared-device one-time linking and approval polling, with pending state stored securely across app restarts.
-- Per-store reception on/off control, current calls with customer attention flags, recent call history, and manual refresh/heartbeat.
+- Per-store reception on/off control, current calls with customer attention flags, a compact recent-call list, and manual refresh/heartbeat.
+- System light/dark appearance, with a Roomink mark at the top and only Call/Settings tabs at the bottom. Settings holds receiving controls.
+- Cursor-paged call history (100 records per request) and a virtualized list so a 300-call day does not truncate the history or mount every row at once.
 - Foreground refresh every 15 seconds and immediately when returning to the app; this updates information only and cannot ring a locked or terminated device.
 - No dial pad or outbound-call feature.
 
@@ -21,7 +23,7 @@ The app intentionally refuses to make an API call until `EXPO_PUBLIC_ROOMINK_API
 
 In development builds, open **模擬着信のローカル検証** from the reception screen. It simulates two receiving devices, three stores, simultaneous calls, pause/resume, and another subscribed device answering the same call. Run `npm run test:local-calls` for deterministic state tests. The lab sends no notification, makes no call, and uses no real customer data.
 
-The development-only `/preview` route renders the **same call-list component as the authenticated app** with fictitious A/B/C store data. The main screen shows one chronological call list (all/missed, with an optional store filter); device and per-store receiving controls are under Settings. Tapping a row opens details, never starts an outbound call. This preview does not connect to the backend or prove native calling. The `/lab` route remains a separate call-state simulator.
+The development-only `/preview` route renders the **same call-list component as the authenticated app** with 320 fictitious A/B/C-store records. It opens in dark mode for visual review; Settings has a preview-only light/dark switch. The main screen shows one chronological call list (all/missed, with an optional store filter); device and per-store receiving controls are under Settings. Tapping a row opens details, never starts an outbound call. This preview does not connect to the backend or prove native calling. The `/lab` route remains a separate call-state simulator.
 
 The app icon is derived from the existing Roomink vector mark. No new visual asset is needed for this local phase.
 
