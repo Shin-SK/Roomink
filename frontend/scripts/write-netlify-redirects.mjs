@@ -19,7 +19,9 @@ const root = process.cwd()
 const environment = String(process.env.ROOMINK_ENV || process.env.VITE_ROOMINK_ENV || 'production').toLowerCase()
 const fileValues = readEnvFile(path.join(root, `.env.${environment}`))
 const configuredApiUrl = String(process.env.VITE_API_BASE_URL ?? fileValues.VITE_API_BASE_URL ?? '').trim()
-const apiUrl = (configuredApiUrl || 'https://roomink-0315e6e58623.herokuapp.com').replace(/\/$/, '')
+// Production must keep using the Cloudflare-proxied API hostname. Falling back
+// to Heroku's direct hostname would bypass the origin access lock.
+const apiUrl = (configuredApiUrl || 'https://api.roomink.net').replace(/\/$/, '')
 const apiHost = new URL(apiUrl).hostname
 
 if (environment === 'staging' && (apiHost === 'api.roomink.net' || apiHost.includes('roomink-0315e6e58623'))) {
