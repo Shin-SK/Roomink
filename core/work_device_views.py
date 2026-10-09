@@ -132,6 +132,17 @@ def _device_payload(device, *, operation_group_id=None):
     }
 
 
+def _call_customer_payload(call):
+    customer = call.customer if call.customer and call.customer.store_id == call.store_id else None
+    return {
+        "customer_name": str(customer) if customer else None,
+        "customer_attention": (
+            {"flag": customer.flag, "ban_type": customer.ban_type, "staff_memo": customer.staff_memo}
+            if customer else None
+        ),
+    }
+
+
 class PublicWorkThrottle(SimpleRateThrottle):
     scope = "roomink_work_public"
     rate = "20/hour"
@@ -603,15 +614,7 @@ class WorkDeviceCallsView(APIView):
                         "store_id": call.store_id,
                         "store_name": call.store.name,
                         "from_phone": call.from_phone,
-                        "customer_name": str(call.customer) if call.customer and call.customer.store_id == call.store_id else None,
-                        "customer_attention": (
-                            {
-                                "flag": call.customer.flag,
-                                "ban_type": call.customer.ban_type,
-                                "staff_memo": call.customer.staff_memo,
-                            }
-                            if call.customer and call.customer.store_id == call.store_id else None
-                        ),
+                        **_call_customer_payload(call),
                         "status": call.status,
                         "created_at": call.created_at,
                     }
@@ -643,7 +646,7 @@ class WorkDeviceHistoryView(APIView):
                 "store_id": call.store_id,
                 "store_name": call.store.name,
                 "from_phone": call.from_phone,
-                "customer_name": str(call.customer) if call.customer and call.customer.store_id == call.store_id else None,
+                **_call_customer_payload(call),
                 "status": call.status,
                 "created_at": call.created_at,
             }

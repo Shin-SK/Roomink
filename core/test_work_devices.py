@@ -104,6 +104,14 @@ class WorkDeviceFoundationTest(TestCase):
             format="json",
         )
         self.assertEqual(rejected.status_code, 403)
+        staff = self.client.post(
+            "/api/work/personal-stores/",
+            {"username": self.staff.username, "password": "Strong-pass-456"},
+            format="json",
+            REMOTE_ADDR="192.0.2.2",
+        )
+        self.assertEqual(staff.status_code, 200)
+        self.assertEqual([row["id"] for row in staff.data["stores"]], [self.store_b.pk])
 
     def test_personal_membership_removal_stops_store_calls_immediately(self):
         login = self.personal_login()
@@ -153,9 +161,13 @@ class WorkDeviceFoundationTest(TestCase):
     def test_history_remains_available_when_receiving_is_paused_but_other_store_is_hidden(self):
         login = self.personal_login(store_ids=[self.store_a.pk])
         client = self.device_client(login.data["token"])
+        customer = Customer.objects.create(
+            store=self.store_a, display_name="History caller", phone="09000000001",
+            flag=Customer.Flag.BAN, staff_memo="要確認",
+        )
         own = CallLog.objects.create(
             store=self.store_a, contact_id="CA-history-a", from_phone="09000000001",
-            to_phone="05000000001", status=CallLog.Status.MISSED,
+            to_phone="05000000001", status=CallLog.Status.MISSED, customer=customer,
         )
         CallLog.objects.create(
             store=self.store_c, contact_id="CA-history-c", from_phone="09000000003",
@@ -169,6 +181,7 @@ class WorkDeviceFoundationTest(TestCase):
         response = client.get("/api/work/history/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual([row["id"] for row in response.data["calls"]], [own.pk])
+        self.assertEqual(response.data["calls"][0]["customer_attention"]["flag"], "BAN")
 
     def test_current_calls_include_only_same_store_customer_attention(self):
         login = self.personal_login(store_ids=[self.store_a.pk])

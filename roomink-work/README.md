@@ -16,7 +16,14 @@ The app intentionally refuses to make an API call until `EXPO_PUBLIC_ROOMINK_API
 - Per-store reception on/off control, current calls with customer attention flags, recent call history, and manual refresh/heartbeat.
 - No dial pad or outbound-call feature.
 
+## Phase 4 local call lab
+
+In development builds, open **模擬着信のローカル検証** from the reception screen. It simulates two receiving devices, three stores, simultaneous calls, pause/resume, and another subscribed device answering the same call. Run `npm run test:local-calls` for deterministic state tests. The lab sends no notification, makes no call, and uses no real customer data.
+
+The app icon is derived from the existing Roomink vector mark. No new visual asset is needed for this local phase.
+
 ## Explicitly deferred
 
 - PushKit/CallKit, Android OS calling UI, background or locked-device ringing.
 - Carrier or Twilio/Groundwire changes, real-number testing, staging deployment, and production deployment.
+- Server-side answer arbitration and native call/push adapters; the lab does not prove actual ringing or audio.
