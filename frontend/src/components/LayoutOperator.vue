@@ -135,9 +135,9 @@ onBeforeUnmount(() => {
     <!-- Sidebar (matches sidebar-operator.html) -->
     <aside class="sidebar operator-sidebar" :class="{ show: sidebarOpen }">
       <div class="sidebar-header">
-        <router-link to="/op/dashboard" class="sidebar-brand sidebar-brand--desktop" @click="closeSidebar">
-          <img class="sidebar-logo" src="/logo.svg" alt="Roomink">
-        </router-link>
+        <div class="sidebar-notifications--desktop">
+          <OperatorNotifications v-if="currentUser" />
+        </div>
         <router-link to="/op/profile" class="sidebar-profile-avatar sidebar-profile-avatar--mobile" aria-label="プロフィール" @click="closeSidebar">
           <UserAvatar :name="currentUser?.display_name" :avatar-url="currentUser?.avatar_url" :size="40" />
         </router-link>
@@ -284,12 +284,6 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-profile-avatar--mobile { display: none; }
-
-.sidebar-logo {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-}
 
 .footer .operator-sidebar-icon {
   width: 24px;
@@ -445,7 +439,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 991.98px) {
-  .sidebar-brand--desktop { display: none; }
+  .sidebar-notifications--desktop { display: none; }
   .sidebar-profile-avatar--mobile { display: inline-flex; }
 }
 </style>
