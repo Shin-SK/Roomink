@@ -342,17 +342,18 @@ onBeforeUnmount(() => {
 
   .sidebar-collapse-toggle {
     position: absolute;
-    right: -26px;
+    right: -18px;
     top: 50%;
     z-index: 4;
-    width: 24px;
-    height: 48px;
+    width: 36px;
+    height: 36px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     transform: translateY(-50%);
     border: 1px solid var(--bs-border-color);
-    border-radius: 999px;
+    border-radius: 50%;
+    outline: none;
     color: var(--bs-secondary);
     background: var(--bs-white);
     box-shadow: 0 3px 10px rgb(15 23 42 / 12%);
