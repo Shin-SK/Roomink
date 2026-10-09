@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../../api.js'
 import { resetAuthCache } from '../../router.js'
@@ -10,6 +10,12 @@ const loading = ref(true)
 const switchingId = ref(null)
 const error = ref('')
 const data = ref({ stores: [], active_store_id: null, month: '' })
+const isMobile = ref(false)
+let mediaQuery = null
+
+function syncViewport() {
+  isMobile.value = Boolean(mediaQuery?.matches)
+}
 
 const totals = computed(() => data.value.stores.reduce((sum, store) => ({
   stores: sum.stores + 1,
@@ -80,12 +86,34 @@ async function openPhoneSettings(store) {
   }
 }
 
-onMounted(load)
+async function logout() {
+  try { await api.logout() } catch { /* ignore */ }
+  resetAuthCache()
+  router.push('/login')
+}
+
+onMounted(() => {
+  mediaQuery = window.matchMedia('(max-width: 991.98px)')
+  syncViewport()
+  mediaQuery.addEventListener('change', syncViewport)
+  load()
+})
+
+onBeforeUnmount(() => mediaQuery?.removeEventListener('change', syncViewport))
 </script>
 
 <template>
-  <LayoutOperator>
+  <component :is="isMobile ? LayoutOperator : 'div'">
     <div class="platform-page">
+      <header v-if="!isMobile" class="platform-header">
+        <img src="/logo.svg" alt="Roomink" class="platform-logo">
+        <div class="platform-header__actions">
+          <router-link to="/op/settings/phones" class="btn btn-outline-primary btn-sm">
+            <i class="ti ti-phone"></i> 電話設定
+          </router-link>
+          <button class="btn btn-outline-secondary btn-sm" @click="logout">ログアウト</button>
+        </div>
+      </header>
       <main class="platform-main">
       <div class="platform-title">
         <div>
@@ -93,7 +121,7 @@ onMounted(load)
           <h1>運営ダッシュボード</h1>
           <p>{{ data.month }} の通信利用と稼働状況</p>
         </div>
-        <router-link to="/op/settings/phones" class="btn btn-outline-primary btn-sm">
+        <router-link v-if="isMobile" to="/op/settings/phones" class="btn btn-outline-primary btn-sm">
           <i class="ti ti-phone"></i> 電話設定
         </router-link>
       </div>
@@ -147,11 +175,14 @@ onMounted(load)
       </template>
       </main>
     </div>
-  </LayoutOperator>
+  </component>
 </template>
 
 <style scoped>
-.platform-page { min-height: 100%; background: #f5f8f7; color: #22312e; }
+.platform-page { min-height: 100dvh; background: #f5f8f7; color: #22312e; }
+.platform-header { min-height: 72px; padding: 14px clamp(18px, 4vw, 48px); display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #fff; border-bottom: 1px solid #dce6e3; position: sticky; top: 0; z-index: 10; }
+.platform-logo { height: 42px; max-width: 180px; }
+.platform-header__actions { display: flex; gap: 8px; }
 .platform-main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 38px 0 72px; }
 .platform-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .platform-kicker { margin: 0 0 5px; color: #2a9d8f; font-size: .74rem; font-weight: 800; letter-spacing: .14em; }
@@ -181,6 +212,9 @@ onMounted(load)
 .ops-metrics strong { display: block; margin: 3px 0; font-size: 1.08rem; }
 .store-ops-card__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 @media (max-width: 720px) {
+  .platform-header { align-items: flex-start; }
+  .platform-logo { height: 34px; }
+  .platform-header__actions { flex-direction: column; }
   .platform-main { width: min(100% - 24px, 1180px); padding-top: 24px; }
   .platform-title .btn { white-space: nowrap; }
   .platform-summary { grid-template-columns: repeat(2, 1fr); }
