@@ -30,6 +30,41 @@ class StoreCatalogPrivacyTest(TestCase):
         self.assertNotIn("非公開店舗B", response.content.decode())
 
 
+class CloudflareOriginLockTest(TestCase):
+    @override_settings(
+        CLOUDFLARE_ORIGIN_LOCK_ENABLED=True,
+        CLOUDFLARE_ORIGIN_SECRET="test-origin-secret",
+    )
+    def test_rejects_direct_heroku_access_without_the_edge_secret(self):
+        response = APIClient().get("/api/health/")
+
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(
+        CLOUDFLARE_ORIGIN_LOCK_ENABLED=True,
+        CLOUDFLARE_ORIGIN_SECRET="test-origin-secret",
+    )
+    def test_allows_requests_forwarded_by_cloudflare(self):
+        response = APIClient().get(
+            "/api/health/",
+            HTTP_X_ROOMINK_ORIGIN_SECRET="test-origin-secret",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(
+        CLOUDFLARE_ORIGIN_LOCK_ENABLED=True,
+        CLOUDFLARE_ORIGIN_SECRET="test-origin-secret",
+    )
+    def test_rejects_a_wrong_edge_secret(self):
+        response = APIClient().get(
+            "/api/health/",
+            HTTP_X_ROOMINK_ORIGIN_SECRET="wrong-secret",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+
 class PasswordPolicyCompatibilityTest(TestCase):
     def setUp(self):
         self.store = Store.objects.create(name="セキュリティ検証店")

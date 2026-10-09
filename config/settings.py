@@ -18,6 +18,16 @@ if not SECRET_KEY:
 
 DEBUG = False if IS_PRODUCTION else os.getenv("DJANGO_DEBUG", "1") == "1"
 
+# Cloudflare が付与する秘密ヘッダーを検証し、Heroku の既知URLへの
+# 直アクセスをアプリケーション層で拒否する。段階導入のため、既存環境は
+# 明示的に有効化するまで従来どおりに動作する。
+CLOUDFLARE_ORIGIN_LOCK_ENABLED = os.getenv("CLOUDFLARE_ORIGIN_LOCK_ENABLED", "0") == "1"
+CLOUDFLARE_ORIGIN_SECRET = os.getenv("CLOUDFLARE_ORIGIN_SECRET", "")
+if CLOUDFLARE_ORIGIN_LOCK_ENABLED and not CLOUDFLARE_ORIGIN_SECRET:
+    raise ImproperlyConfigured(
+        "CLOUDFLARE_ORIGIN_SECRET is required when CLOUDFLARE_ORIGIN_LOCK_ENABLED=1"
+    )
+
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0,.ngrok-free.dev,.ngrok-free.app").split(",")
 if "DYNO" in os.environ:
     ALLOWED_HOSTS.append("roomink-0315e6e58623.herokuapp.com")
@@ -78,6 +88,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "core.middleware.CloudflareOriginLockMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
