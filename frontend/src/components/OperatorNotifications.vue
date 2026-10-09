@@ -200,7 +200,7 @@ onBeforeUnmount(() => {
       :aria-expanded="open"
       @click.stop="open = !open"
     >
-      <i class="ti ti-bell"></i>
+      <img src="/icon.svg" alt="Roominkからのお知らせ">
       <span v-if="displayUnreadCount" class="operator-notifications__count">
         {{ displayUnreadCount > 99 ? '99+' : displayUnreadCount }}
       </span>
@@ -276,18 +276,18 @@ onBeforeUnmount(() => {
 }
 
 .operator-notifications__bell {
-  width: 40px;
-  height: 40px;
-  border: 1px solid #dbe6e3;
-  border-radius: 50%;
-  background: #fff;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #334155;
   display: grid;
   place-items: center;
   position: relative;
 }
 
-.operator-notifications__bell .ti { font-size: 21px; }
+.operator-notifications__bell img { width: 32px; height: 32px; object-fit: contain; }
 
 .operator-notifications__count {
   position: absolute;
@@ -404,7 +404,15 @@ onBeforeUnmount(() => {
 .operator-booking-toast small { color: #475569; line-height: 1.45; }
 
 @media (max-width: 991.98px) {
-  .operator-notifications__panel { top: 48px; }
+  .operator-notifications__panel {
+    position: fixed;
+    top: calc(var(--rk-header-height) + 8px);
+    right: auto;
+    left: 50%;
+    width: min(552px, calc(100vw - 28px));
+    max-height: calc(100dvh - var(--rk-header-height) - 104px);
+    transform: translateX(-50%);
+  }
   .operator-booking-toast { top: 64px; right: 12px; }
 }
 </style>

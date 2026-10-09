@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../../api.js'
 import { resetAuthCache } from '../../router.js'
+import LayoutOperator from '../../components/LayoutOperator.vue'
 
 const router = useRouter()
 const loading = ref(true)
@@ -79,34 +80,22 @@ async function openPhoneSettings(store) {
   }
 }
 
-async function logout() {
-  try { await api.logout() } catch { /* ignore */ }
-  resetAuthCache()
-  router.push('/login')
-}
-
 onMounted(load)
 </script>
 
 <template>
-  <div class="platform-page">
-    <header class="platform-header">
-      <img src="/logo.svg" alt="Roomink" class="platform-logo">
-      <div class="platform-header__actions">
-        <router-link to="/op/settings/phones" class="btn btn-outline-primary btn-sm">
-          <i class="ti ti-phone"></i> 電話設定
-        </router-link>
-        <button class="btn btn-outline-secondary btn-sm" @click="logout">ログアウト</button>
-      </div>
-    </header>
-
-    <main class="platform-main">
+  <LayoutOperator>
+    <div class="platform-page">
+      <main class="platform-main">
       <div class="platform-title">
         <div>
           <p class="platform-kicker">ROOMINK OPERATIONS</p>
           <h1>運営ダッシュボード</h1>
           <p>{{ data.month }} の通信利用と稼働状況</p>
         </div>
+        <router-link to="/op/settings/phones" class="btn btn-outline-primary btn-sm">
+          <i class="ti ti-phone"></i> 電話設定
+        </router-link>
       </div>
 
       <div v-if="error" class="alert alert-danger">{{ error }}</div>
@@ -156,16 +145,15 @@ onMounted(load)
           </article>
         </section>
       </template>
-    </main>
-  </div>
+      </main>
+    </div>
+  </LayoutOperator>
 </template>
 
 <style scoped>
-.platform-page { min-height: 100dvh; background: #f5f8f7; color: #22312e; }
-.platform-header { min-height: 72px; padding: 14px clamp(18px, 4vw, 48px); display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #fff; border-bottom: 1px solid #dce6e3; position: sticky; top: 0; z-index: 10; }
-.platform-logo { height: 42px; max-width: 180px; }
-.platform-header__actions { display: flex; gap: 8px; }
+.platform-page { min-height: 100%; background: #f5f8f7; color: #22312e; }
 .platform-main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 38px 0 72px; }
+.platform-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .platform-kicker { margin: 0 0 5px; color: #2a9d8f; font-size: .74rem; font-weight: 800; letter-spacing: .14em; }
 .platform-title h1 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.35rem); font-weight: 800; }
 .platform-title p:last-child { margin: 7px 0 0; color: #687873; }
@@ -193,10 +181,8 @@ onMounted(load)
 .ops-metrics strong { display: block; margin: 3px 0; font-size: 1.08rem; }
 .store-ops-card__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 @media (max-width: 720px) {
-  .platform-header { align-items: flex-start; }
-  .platform-logo { height: 34px; }
-  .platform-header__actions { flex-direction: column; }
   .platform-main { width: min(100% - 24px, 1180px); padding-top: 24px; }
+  .platform-title .btn { white-space: nowrap; }
   .platform-summary { grid-template-columns: repeat(2, 1fr); }
   .store-ops-card { padding: 18px; }
   .ops-details { grid-template-columns: 1fr; }
