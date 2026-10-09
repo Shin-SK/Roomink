@@ -217,6 +217,13 @@ class PersonalLoginInput(serializers.Serializer):
         return value
 
 
+class PersonalStoreLookupInput(serializers.Serializer):
+    """Verify an individual user's credentials before exposing their own stores."""
+
+    username = serializers.CharField(max_length=150)
+    password = serializers.CharField(trim_whitespace=False)
+
+
 class SharedLinkInput(serializers.Serializer):
     device_key = serializers.UUIDField()
     label = serializers.CharField(max_length=80)
@@ -306,6 +313,33 @@ class PersonalDeviceLoginView(APIView):
             token = _issue_credential(device)
             WorkDeviceEvent.objects.create(device=device, actor=user, action="personal_login")
         return Response({"token": token, "device": _device_payload(device)})
+
+
+class PersonalStoreLookupView(APIView):
+    """List only the stores the supplied operator may use on a personal device."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [WorkLoginThrottle]
+
+    @extend_schema(request=PersonalStoreLookupInput, responses=OpenApiTypes.OBJECT)
+    def post(self, request):
+        serializer = PersonalStoreLookupInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = authenticate(request, **serializer.validated_data)
+        if not user or not user.is_active:
+            raise AuthenticationFailed("ユーザー名またはパスワードが正しくありません。")
+        memberships = operator_memberships(user).filter(
+            role__in=("manager", "staff")
+        ).select_related("store").order_by("store__name", "store_id")
+        return Response(
+            {
+                "stores": [
+                    {"id": membership.store_id, "name": membership.store.name}
+                    for membership in memberships
+                ]
+            }
+        )
 
 
 class SharedLinkRequestCreateView(APIView):
@@ -569,7 +603,15 @@ class WorkDeviceCallsView(APIView):
                         "store_id": call.store_id,
                         "store_name": call.store.name,
                         "from_phone": call.from_phone,
-                        "customer_name": str(call.customer) if call.customer else None,
+                        "customer_name": str(call.customer) if call.customer and call.customer.store_id == call.store_id else None,
+                        "customer_attention": (
+                            {
+                                "flag": call.customer.flag,
+                                "ban_type": call.customer.ban_type,
+                                "staff_memo": call.customer.staff_memo,
+                            }
+                            if call.customer and call.customer.store_id == call.store_id else None
+                        ),
                         "status": call.status,
                         "created_at": call.created_at,
                     }
@@ -577,6 +619,36 @@ class WorkDeviceCallsView(APIView):
                 ]
             }
         )
+
+
+class WorkDeviceHistoryView(APIView):
+    authentication_classes = [WorkDeviceAuthentication]
+    permission_classes = [IsWorkDevice]
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        # Pausing reception must not remove permission to inspect existing history.
+        store_ids = [sub.store_id for sub in entitled_subscriptions(request.work_device)]
+        calls = (
+            CallLog.objects.filter(
+                store_id__in=store_ids,
+                status__in=[CallLog.Status.DONE, CallLog.Status.MISSED],
+            )
+            .select_related("store", "customer")
+            .order_by("-created_at")[:100]
+        )
+        return Response({"calls": [
+            {
+                "id": call.pk,
+                "store_id": call.store_id,
+                "store_name": call.store.name,
+                "from_phone": call.from_phone,
+                "customer_name": str(call.customer) if call.customer and call.customer.store_id == call.store_id else None,
+                "status": call.status,
+                "created_at": call.created_at,
+            }
+            for call in calls
+        ]})
 
 
 class WorkDeviceRotateTokenView(APIView):
