@@ -309,8 +309,8 @@ onBeforeUnmount(() => {
 .operator-notifications__panel {
   position: absolute;
   top: 42px;
-  right: 0;
-  left: auto;
+  right: auto;
+  left: 0;
   width: min(380px, calc(100vw - 24px));
   max-height: min(560px, calc(100vh - 90px));
   overflow: hidden;
