@@ -8,6 +8,7 @@ const isSuperuser = computed(() => getAuthIsSuperuser())
 const isOperationGroupManager = computed(() => getAuthIsOperationGroupManager())
 
 const menuItems = [
+  { to: '/op/settings/setup', icon: 'ti-rocket', label: '初期設定', desc: '開業前に必要な設定を順番に進める', superuserOnly: true },
   { to: '/op/settings/casts', icon: 'ti-users', label: 'キャスト管理', desc: 'キャストの追加・編集・削除', managerOnly: true },
   { to: '/op/settings/staffs', icon: 'ti-user-shield', label: 'スタッフ管理', desc: 'スタッフの追加・編集・削除', managerOnly: true },
   { to: '/op/settings/operation-group', icon: 'ti-building-community', label: '運営管理', desc: '同じ契約内の店舗とスタッフの所属設定', operationGroupManagerOnly: true },

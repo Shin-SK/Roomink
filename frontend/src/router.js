@@ -32,6 +32,7 @@ const SettingsCsvImport = () => import('./pages/op/SettingsCsvImport.vue')
 const SettingsLine = () => import('./pages/op/SettingsLine.vue')
 const SettingsLineActivation = () => import('./pages/op/SettingsLineActivation.vue')
 const SettingsPhones = () => import('./pages/op/SettingsPhones.vue')
+const SettingsSetup = () => import('./pages/op/SettingsSetup.vue')
 const SettingsManual = () => import('./pages/op/SettingsManual.vue')
 const ManualArticle = () => import('./pages/op/ManualArticle.vue')
 const CastExpenses = () => import('./pages/op/CastExpenses.vue')
@@ -114,6 +115,7 @@ const routes = [
   { path: '/op/sales-summary', name: 'sales-summary', component: SalesSummary, meta: { managerOnly: true } },
   { path: '/op/point-logs', name: 'point-logs', component: PointLogs },
   { path: '/op/settings', name: 'settings', component: Settings },
+  { path: '/op/settings/setup', name: 'settings-setup', component: SettingsSetup, meta: { superuserOnly: true } },
   { path: '/op/settings/casts', name: 'settings-casts', component: SettingsCasts, meta: { managerOnly: true } },
   { path: '/op/settings/staffs', name: 'settings-staffs', component: SettingsStaffs, meta: { managerOnly: true } },
   { path: '/op/settings/operation-group', name: 'settings-operation-group', component: SettingsOperationGroup, meta: { operationGroupManagerOnly: true } },
