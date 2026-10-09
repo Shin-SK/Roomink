@@ -95,12 +95,6 @@ onMounted(load)
   <LayoutOperator>
     <template #title>Roomink Work端末</template>
 
-    <div class="mb-3">
-      <router-link to="/op/settings" class="btn btn-outline-secondary btn-sm">
-        <i class="ti ti-arrow-left"></i> 設定に戻る
-      </router-link>
-    </div>
-
     <div v-if="error" class="alert alert-danger" role="alert">{{ error }}</div>
     <div v-if="message" class="alert alert-success" role="status">{{ message }}</div>
 

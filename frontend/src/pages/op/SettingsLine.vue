@@ -149,10 +149,6 @@ onMounted(load)
   <LayoutOperator>
     <template #title>LINE連携設定</template>
 
-    <router-link to="/op/settings" class="btn btn-sm btn-outline-secondary mb-3">
-      <i class="ti ti-arrow-left"></i> 設定に戻る
-    </router-link>
-
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-if="success" class="alert alert-success">{{ success }}</div>
 

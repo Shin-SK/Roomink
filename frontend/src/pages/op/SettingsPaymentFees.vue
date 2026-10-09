@@ -51,12 +51,6 @@ onMounted(load)
   <LayoutOperator>
     <template #title>決済料率設定</template>
 
-    <div class="mb-3">
-      <router-link to="/op/settings" class="btn btn-outline-secondary btn-sm">
-        <i class="ti ti-arrow-left"></i> 設定に戻る
-      </router-link>
-    </div>
-
     <div class="alert alert-info small">
       <i class="ti ti-info-circle"></i>
       カードの率は、お客様のカード決済額へ上乗せする率です。上乗せ分は店舗配分に含まれます。

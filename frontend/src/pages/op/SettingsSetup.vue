@@ -83,12 +83,6 @@ onMounted(load)
   <LayoutOperator>
     <template #title>初期設定</template>
 
-    <div class="mb-3">
-      <router-link to="/op/settings" class="btn btn-outline-secondary btn-sm">
-        <i class="ti ti-arrow-left"></i> 設定に戻る
-      </router-link>
-    </div>
-
     <div class="intro card mb-4">
       <div class="card-body">
         <span class="badge text-bg-primary mb-2">まずここから</span>

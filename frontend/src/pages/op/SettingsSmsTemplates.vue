@@ -84,12 +84,6 @@ onMounted(load)
   <LayoutOperator>
     <template #title>SMS・カード決済設定</template>
 
-    <div class="mb-3">
-      <router-link to="/op/settings" class="btn btn-outline-secondary btn-sm">
-        <i class="ti ti-arrow-left"></i> 設定に戻る
-      </router-link>
-    </div>
-
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-if="success" class="alert alert-success">{{ success }}</div>
     <div v-if="!isManager" class="alert alert-warning small">

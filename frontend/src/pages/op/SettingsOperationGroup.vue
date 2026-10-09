@@ -104,12 +104,6 @@ onMounted(load)
   <LayoutOperator>
     <template #title>運営管理</template>
 
-    <div class="mb-3">
-      <router-link to="/op/settings" class="btn btn-outline-secondary btn-sm">
-        <i class="ti ti-arrow-left"></i> 設定に戻る
-      </router-link>
-    </div>
-
     <div v-if="error" class="alert alert-danger" role="alert">{{ error }}</div>
     <div v-if="message" class="alert alert-info" role="status">{{ message }}</div>
     <div v-if="loading" class="text-center py-5"><div class="spinner-border text-primary"></div></div>

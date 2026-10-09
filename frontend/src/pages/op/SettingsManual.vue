@@ -23,12 +23,6 @@ const roleLabel = Object.fromEntries(MANUAL_ROLES.map(r => [r.key, r.label]))
   <LayoutOperator>
     <template #title>操作マニュアル</template>
 
-    <div class="mb-3">
-      <router-link to="/op/settings" class="btn btn-outline-secondary btn-sm">
-        <i class="ti ti-arrow-left"></i> 設定に戻る
-      </router-link>
-    </div>
-
     <div
       v-for="g in groups"
       :key="g.category"
