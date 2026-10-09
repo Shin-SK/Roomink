@@ -719,11 +719,11 @@ async function onClearClockIn(s) {
 .cast-cell {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
 
   &__avatar {
-    width: 28px;
-    height: 28px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     object-fit: cover;
     flex-shrink: 0;
@@ -734,7 +734,7 @@ async function onClearClockIn(s) {
       justify-content: center;
       background: #f0f0f0;
       color: #aaa;
-      font-size: 14px;
+      font-size: 12px;
     }
   }
 }
@@ -748,14 +748,17 @@ async function onClearClockIn(s) {
   background: rgba(42, 157, 143, 0.05);
 }
 
-// スマホでは横スクロール。表は最小幅を確保して詰めない
+// シフト一覧は一度に多くの行を確認できる密度を保つ。
+// スマホでは横スクロールを維持しつつ、文字・余白・列幅を過剰にしない。
 .shift-table {
-  min-width: 720px;
+  min-width: 640px;
+  font-size: 0.875rem;
 
   :deep(td),
   :deep(th) {
     white-space: nowrap;
     vertical-align: middle;
+    padding: 0.35rem 0.5rem;
   }
 }
 
