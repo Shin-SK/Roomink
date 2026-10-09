@@ -344,6 +344,8 @@ export const api = {
   }),
   getPublicBookingSettings: () => request('GET', '/op/public-booking-settings/'),
   updatePublicBookingSettings: (body) => request('PATCH', '/op/public-booking-settings/', body),
+  getBusinessDaySettings: () => request('GET', '/op/business-day-settings/'),
+  updateBusinessDaySettings: (body) => request('PATCH', '/op/business-day-settings/', body),
   testPublicBookingNotificationEmail: (email) => request(
     'POST',
     '/op/public-booking-settings/test-email/',

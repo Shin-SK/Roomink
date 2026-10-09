@@ -13,7 +13,9 @@ from core.services.business_datetime import (
 def find_covering_shift(store, cast, start_at, end_at):
     """予約区間全体を含む出勤シフトを返す。"""
     local_start = start_at.astimezone(ZoneInfo(store.timezone))
-    business_date = business_date_for_datetime(start_at, store.timezone)
+    business_date = business_date_for_datetime(
+        start_at, store.timezone, store.business_day_boundary_hour,
+    )
     candidate_dates = {business_date, local_start.date()}
     shifts = ShiftAssignment.objects.filter(
         store=store,
@@ -27,6 +29,7 @@ def find_covering_shift(store, cast, start_at, end_at):
             shift.date,
             shift.start_time,
             shift.end_time,
+            start_day_offset=shift.start_day_offset,
             end_day_offset=shift.end_day_offset,
             timezone_name=store.timezone,
         )
@@ -98,6 +101,7 @@ def build_available_order_slots(
             shift.date,
             shift.start_time,
             shift.end_time,
+            start_day_offset=shift.start_day_offset,
             end_day_offset=shift.end_day_offset,
             timezone_name=store.timezone,
         )

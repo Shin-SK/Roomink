@@ -28,6 +28,7 @@ const allocationDate = ref('')
 const allocationRows = ref([])
 const allocationTotals = ref({})
 const allocationStatus = ref('OPEN')
+const businessDayBoundaryHour = ref(5)
 
 function yen(value) {
   return `¥${Number(value || 0).toLocaleString()}`
@@ -124,7 +125,9 @@ const callLogsError = ref('')
 const savingMemo = ref(false)
 
 function today() {
-  return formatLocalDate(new Date())
+  const d = new Date()
+  if (d.getHours() < businessDayBoundaryHour.value) d.setDate(d.getDate() - 1)
+  return formatLocalDate(d)
 }
 
 function tomorrow() {
@@ -214,7 +217,7 @@ async function openOrderModal() {
       row.shifts.push({
         id: item.shift_assignment_id,
         room_name: item.room_name || 'ルーム未定',
-        time: `${String(item.start_time).slice(0, 5)}〜${item.end_time_extended || String(item.end_time).slice(0, 5)}`,
+        time: `${item.start_time_extended || String(item.start_time).slice(0, 5)}〜${item.end_time_extended || String(item.end_time).slice(0, 5)}`,
       })
     }
     orderRows.value = Array.from(byCast.values())
@@ -496,7 +499,14 @@ watch(selectedDate, () => {
 watch(viewMode, () => {
   loadSchedule()
 })
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const settings = await api.getBusinessDaySettings()
+    businessDayBoundaryHour.value = settings.business_day_boundary_hour
+    if (!route.query.date) selectedDate.value = today()
+  } catch (e) {
+    console.error(e)
+  }
   loadSchedule()
   window.addEventListener('message', onOrderWindowMessage)
   window.addEventListener('focus', onWindowFocus)

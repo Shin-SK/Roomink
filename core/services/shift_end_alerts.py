@@ -55,7 +55,9 @@ def _serialize_alert(alert, shift_start, shift_end):
 def evaluate_shift_end_alerts(store, reference_at=None):
     """現在営業日の70分前アラートを同期し、画面表示用データを返す。"""
     reference_at = reference_at or timezone.now()
-    business_date = business_date_for_datetime(reference_at, store.timezone)
+    business_date = business_date_for_datetime(
+        reference_at, store.timezone, store.business_day_boundary_hour,
+    )
     shifts = list(
         ShiftAssignment.objects
         .filter(store=store, date=business_date, is_absent=False)
@@ -69,6 +71,7 @@ def evaluate_shift_end_alerts(store, reference_at=None):
             shift.date,
             shift.start_time,
             shift.end_time,
+            start_day_offset=shift.start_day_offset,
             end_day_offset=shift.end_day_offset,
             timezone_name=store.timezone,
         )

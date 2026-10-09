@@ -156,7 +156,7 @@ function openEdit(s) {
     date: s.date,
     cast: s.cast,
     room: s.room,
-    start_time: s.start_time?.slice(0, 5) || '',
+    start_time: s.start_time_extended || s.start_time?.slice(0, 5) || '',
     end_time: s.end_time_extended || s.end_time?.slice(0, 5) || '',
     daily_memo: s.daily_memo || '',
     is_absent: !!s.is_absent,
@@ -170,26 +170,24 @@ async function onSave() {
   formError.value = ''
   saveNotice.value = ''
   try {
-    if (!/^\d{2}:\d{2}$/.test(form.value.end_time)) {
-      throw new Error('終了時間はHH:MM形式で入力してください')
+    const normalizeExtendedTime = (value, label) => {
+      if (!/^\d{2}:\d{2}$/.test(value)) throw new Error(`${label}はHH:MM形式で入力してください`)
+      const [hour, minute] = value.split(':').map(Number)
+      if (hour < 0 || hour > 29 || minute < 0 || minute > 59 || (hour === 29 && minute !== 0)) {
+        throw new Error(`${label}は00:00から29:00までで入力してください`)
+      }
+      return { time: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`, dayOffset: hour >= 24 ? 1 : 0 }
     }
-    const [extendedEndHour, extendedEndMinute] = form.value.end_time.split(':').map(Number)
-    if (
-      extendedEndHour < 0
-      || extendedEndHour > 29
-      || extendedEndMinute < 0
-      || extendedEndMinute > 59
-      || (extendedEndHour === 29 && extendedEndMinute !== 0)
-    ) {
-      throw new Error('終了時間は00:00から29:00までで入力してください')
-    }
+    const start = normalizeExtendedTime(form.value.start_time, '開始時間')
+    const end = normalizeExtendedTime(form.value.end_time, '終了時間')
     const body = {
       date: form.value.date,
       cast: Number(form.value.cast),
       room: form.value.room ? Number(form.value.room) : null,
-      start_time: form.value.start_time,
-      end_time: `${String(extendedEndHour % 24).padStart(2, '0')}:${String(extendedEndMinute).padStart(2, '0')}`,
-      end_day_offset: extendedEndHour >= 24 ? 1 : 0,
+      start_time: start.time,
+      start_day_offset: start.dayOffset,
+      end_time: end.time,
+      end_day_offset: end.dayOffset,
       daily_memo: form.value.daily_memo || '',
       is_absent: !!form.value.is_absent,
     }
@@ -520,7 +518,7 @@ async function onClearClockIn(s) {
                     </div>
                   </td>
                   <td>{{ s.room_name || roomName(s.room) || '未定' }}</td>
-                  <td>{{ s.start_time?.slice(0, 5) }}</td>
+                  <td>{{ s.start_time_extended || s.start_time?.slice(0, 5) }}</td>
                   <td>{{ s.end_time_extended || s.end_time?.slice(0, 5) }}</td>
                   <td>
                     <button
@@ -622,7 +620,15 @@ async function onClearClockIn(s) {
             <div class="row">
               <div class="col-6 mb-3">
                 <label class="form-label">開始時間</label>
-                <input v-model="form.start_time" type="time" step="1800" class="form-control" />
+                <input
+                  v-model.trim="form.start_time"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="5"
+                  placeholder="例: 18:00 / 24:00"
+                  class="form-control"
+                />
+                <div class="form-text">HH:MM形式。24:00以降は翌日の時刻として保存されます（最大29:00）。</div>
               </div>
               <div class="col-6 mb-3">
                 <label class="form-label">終了時間</label>

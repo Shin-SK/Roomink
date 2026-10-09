@@ -76,6 +76,11 @@ class Store(models.Model):
         help_text="顧客向けURLに使用する店舗識別子（例: rs-spa）",
     )
     timezone = models.CharField(max_length=40, default="Asia/Tokyo")
+    business_day_boundary_hour = models.PositiveSmallIntegerField(
+        default=5,
+        validators=[MinValueValidator(0), MaxValueValidator(5)],
+        help_text="この時刻から次の営業日として扱う（例: 5=29:00まで前営業日）",
+    )
     line_add_friend_url = models.URLField(blank=True, default="")
     line_channel_secret = models.TextField(blank=True, default="")
     line_channel_access_token = models.TextField(blank=True, default="")
@@ -338,6 +343,11 @@ class ShiftAssignment(models.Model):
         help_text="未定のまま登録し、必要になった時点で割り当てる",
     )
     start_time = models.TimeField()
+    start_day_offset = models.PositiveSmallIntegerField(
+        choices=DAY_OFFSET_CHOICES,
+        default=0,
+        help_text="開始時刻がシフト日の翌日に属する場合は1",
+    )
     end_time = models.TimeField()
     end_day_offset = models.PositiveSmallIntegerField(
         choices=DAY_OFFSET_CHOICES,

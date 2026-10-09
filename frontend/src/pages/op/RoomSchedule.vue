@@ -12,9 +12,12 @@ const orders = ref([])
 const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 0 })
 const loading = ref(true)
 const toolbarOpen = ref(false)
+const businessDayBoundaryHour = ref(5)
 
 function today() {
-  return formatLocalDate(new Date())
+  const d = new Date()
+  if (d.getHours() < businessDayBoundaryHour.value) d.setDate(d.getDate() - 1)
+  return formatLocalDate(d)
 }
 
 function tomorrow() {
@@ -89,7 +92,16 @@ function toggleToolbar(e) {
 }
 
 watch(selectedDate, fetchSchedule)
-onMounted(fetchSchedule)
+onMounted(async () => {
+  try {
+    const settings = await api.getBusinessDaySettings()
+    businessDayBoundaryHour.value = settings.business_day_boundary_hour
+    selectedDate.value = today()
+  } catch (e) {
+    console.error(e)
+  }
+  await fetchSchedule()
+})
 </script>
 
 <template>

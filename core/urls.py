@@ -207,6 +207,7 @@ urlpatterns = [
     ),
     path("op/schedule/", views.ScheduleView.as_view(), name="op-schedule"),
     path("op/room-schedule/", views.RoomScheduleView.as_view(), name="op-room-schedule"),
+    path("op/business-day-settings/", views.StoreBusinessDaySettingsView.as_view(), name="op-business-day-settings"),
     path("op/csv-import/", views.CsvImportView.as_view(), name="csv-import"),
     path("op/csv-import/template/", views.CsvImportTemplateView.as_view(), name="csv-import-template"),
     path("op/daily-settlement/", views.DailySettlementView.as_view(), name="daily-settlement"),

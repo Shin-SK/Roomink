@@ -583,6 +583,33 @@ class RoomScheduleView(APIView):
         return Response(data)
 
 
+@document_object_api_view
+class StoreBusinessDaySettingsView(APIView):
+    """タイムラインの営業日切替時刻。変更はマネージャーだけが行える。"""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
+
+    @staticmethod
+    def _payload(store):
+        return {"business_day_boundary_hour": store.business_day_boundary_hour}
+
+    def get(self, request):
+        return Response(self._payload(get_user_store(request)))
+
+    def patch(self, request):
+        _require_manager(request)
+        store = get_user_store(request)
+        try:
+            hour = int(request.data.get("business_day_boundary_hour"))
+        except (TypeError, ValueError):
+            return Response({"detail": "切替時刻は0〜5の整数で指定してください。"}, status=400)
+        if not 0 <= hour <= 5:
+            return Response({"detail": "切替時刻は0〜5の範囲で指定してください。"}, status=400)
+        store.business_day_boundary_hour = hour
+        store.save(update_fields=["business_day_boundary_hour"])
+        return Response(self._payload(store))
+
+
 # ──────────────────────────────────────
 # Order CRUD + status actions
 # ──────────────────────────────────────
@@ -2585,7 +2612,7 @@ class CustomerReservationDetailView(APIView):
 class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsManagerOrStaff]
     queryset = ShiftAssignment.objects.select_related("cast", "room").order_by(
-        "date", "start_time",
+        "date", "start_day_offset", "start_time",
     )
     serializer_class = ShiftAssignmentSerializer
     filterset_fields = {
@@ -2593,8 +2620,8 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
         "cast": ["exact"],
         "room": ["exact"],
     }
-    ordering_fields = ["date", "start_time"]
-    ordering = ["date", "start_time"]
+    ordering_fields = ["date", "start_day_offset", "start_time"]
+    ordering = ["date", "start_day_offset", "start_time"]
 
     def get_queryset(self):
         store = get_user_store(self.request)
@@ -2616,6 +2643,7 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
             shift.date,
             shift.start_time,
             shift.end_time,
+            start_day_offset=shift.start_day_offset,
             end_day_offset=shift.end_day_offset,
             timezone_name=shift.store.timezone,
         )
@@ -4457,6 +4485,7 @@ def _apply_shift_request_approval(
         "cast": obj.cast_id,
         "room": room.id if room else None,
         "start_time": start_time,
+        "start_day_offset": 0,
         "end_time": end_time,
         "end_day_offset": end_day_offset,
     }
@@ -8266,6 +8295,7 @@ class WeeklyShiftView(APIView):
                 "cast": cast.id,
                 "room": item.get("room"),
                 "start_time": item.get("start_time"),
+                "start_day_offset": item.get("start_day_offset", 0),
                 "end_time": item.get("end_time"),
                 "end_day_offset": item.get("end_day_offset", 0),
                 "daily_memo": item.get("daily_memo") or "",
@@ -8298,6 +8328,7 @@ class WeeklyShiftView(APIView):
                 v["date"],
                 v["start_time"],
                 v["end_time"],
+                start_day_offset=v.get("start_day_offset", 0),
                 end_day_offset=v.get("end_day_offset", 0),
                 timezone_name=store.timezone,
             )
@@ -8352,6 +8383,7 @@ class ScheduleCastOrderView(APIView):
                 "cast_name": s.cast.name,
                 "room_name": s.room.name if s.room else "",
                 "start_time": s.start_time,
+                "start_time_extended": format_extended_time(s.start_time, s.start_day_offset),
                 "end_time": s.end_time,
                 "end_time_extended": format_extended_time(s.end_time, s.end_day_offset),
                 "display_order": s.display_order,

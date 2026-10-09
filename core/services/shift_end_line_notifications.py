@@ -52,6 +52,7 @@ def send_shift_end_line_alerts(store, reference_at=None):
                 shift.date,
                 shift.start_time,
                 shift.end_time,
+                start_day_offset=shift.start_day_offset,
                 end_day_offset=shift.end_day_offset,
                 timezone_name=locked_store.timezone,
             )

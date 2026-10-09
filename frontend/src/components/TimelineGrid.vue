@@ -100,7 +100,7 @@ const effectiveStartHour = computed(() => {
   for (const c of props.casts || []) {
     const shifts = Array.isArray(c.shifts) ? c.shifts : []
     for (const s of shifts) {
-      const t = (s.start_time || '').slice(0, 5)
+      const t = (s.start_time_extended || s.start_time || '').slice(0, 5)
       if (!t) continue
       const h = parseInt(t.slice(0, 2), 10)
       if (Number.isFinite(h) && h < earliest) earliest = h
@@ -251,7 +251,7 @@ function castShiftRange(cast) {
   let minStart = null
   let maxEnd = null
   for (const s of shifts) {
-    const st = (s.start_time || '').slice(0, 5)
+    const st = (s.start_time_extended || s.start_time || '').slice(0, 5)
     const ed = (s.end_time_extended || s.end_time || '').slice(0, 5)
     if (st && (minStart === null || st < minStart)) minStart = st
     if (ed && (maxEnd === null || ed > maxEnd)) maxEnd = ed
@@ -323,7 +323,7 @@ function castStatus(cast) {
   if (anyClockedIn) return { key: 'in', label: '出勤済み', short: '済' }
   let minStart = null
   for (const s of shifts) {
-    const st = (s.start_time || '').slice(0, 5)
+    const st = (s.start_time_extended || s.start_time || '').slice(0, 5)
     if (st && (minStart === null || st < minStart)) minStart = st
   }
   if (!minStart) return { key: 'scheduled', label: '出勤予定', short: '予' }
@@ -347,7 +347,7 @@ const shiftBands = computed(() => {
     const shifts = Array.isArray(cast.shifts) ? cast.shifts : []
     for (const s of shifts) {
       if (s.is_absent) continue
-      const st = (s.start_time || '').slice(0, 5)
+      const st = (s.start_time_extended || s.start_time || '').slice(0, 5)
       const ed = (s.end_time_extended || s.end_time || '').slice(0, 5)
       if (!st || !ed) continue
       const stMin = parseTimeToMin(st)

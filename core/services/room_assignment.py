@@ -25,6 +25,7 @@ def suggest_room_for_shift(
     date,
     start_time,
     end_time,
+    start_day_offset=0,
     end_day_offset=0,
     exclude_shift_id=None,
 ):
@@ -33,6 +34,7 @@ def suggest_room_for_shift(
         date,
         start_time,
         end_time,
+        start_day_offset=start_day_offset,
         end_day_offset=end_day_offset,
         timezone_name=store.timezone,
     )
@@ -62,6 +64,7 @@ def suggest_room_for_shift(
                 shift.date,
                 shift.start_time,
                 shift.end_time,
+                start_day_offset=shift.start_day_offset,
                 end_day_offset=shift.end_day_offset,
                 timezone_name=store.timezone,
             )

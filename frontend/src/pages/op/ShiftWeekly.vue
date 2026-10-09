@@ -114,19 +114,19 @@ function clearAll() {
   days.value.forEach(d => { d.enabled = false })
 }
 
-function normalizeExtendedEndTime(value) {
+function normalizeExtendedTime(value, label) {
   const match = /^(\d{2}):(\d{2})$/.exec(value || '')
-  if (!match) throw new Error('終了時間はHH:MM形式で入力してください（例: 23:00 / 29:00）')
+  if (!match) throw new Error(`${label}はHH:MM形式で入力してください（例: 23:00 / 29:00）`)
 
   const hour = Number(match[1])
   const minute = Number(match[2])
   if (minute > 59 || hour > 29 || (hour === 29 && minute !== 0)) {
-    throw new Error('終了時間は00:00〜29:00で入力してください')
+    throw new Error(`${label}は00:00〜29:00で入力してください`)
   }
 
   return {
-    end_time: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-    end_day_offset: hour >= 24 ? 1 : 0,
+    time: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+    dayOffset: hour >= 24 ? 1 : 0,
   }
 }
 
@@ -143,12 +143,15 @@ async function onSubmit() {
     }
 
     try {
-      const normalizedEnd = normalizeExtendedEndTime(d.end_time)
+      const normalizedStart = normalizeExtendedTime(d.start_time, '開始時間')
+      const normalizedEnd = normalizeExtendedTime(d.end_time, '終了時間')
       items.push({
         date: d.date,
         enabled: true,
-        start_time: d.start_time,
-        ...normalizedEnd,
+        start_time: normalizedStart.time,
+        start_day_offset: normalizedStart.dayOffset,
+        end_time: normalizedEnd.time,
+        end_day_offset: normalizedEnd.dayOffset,
         room: d.room ? Number(d.room) : null,
         daily_memo: d.daily_memo,
       })
@@ -256,7 +259,7 @@ onMounted(async () => {
           <div class="row g-2 align-items-end">
             <div class="col-6 col-md-3">
               <label class="form-label small">開始</label>
-              <input v-model="bulk.start_time" type="time" step="300" class="form-control form-control-sm" />
+              <input v-model="bulk.start_time" type="text" inputmode="numeric" maxlength="5" placeholder="例: 24:00" class="form-control form-control-sm" />
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">終了</label>
@@ -281,7 +284,7 @@ onMounted(async () => {
             </div>
           </div>
           <div class="mt-2">
-            <div class="text-muted small mb-1">深夜の終了時刻は24:00〜29:00で入力できます。</div>
+            <div class="text-muted small mb-1">開始・終了ともに、深夜は24:00〜29:00で入力できます。</div>
             <button class="btn btn-sm btn-link text-muted p-0" @click="clearAll">すべて「出勤しない」に戻す</button>
           </div>
         </div>
@@ -319,7 +322,7 @@ onMounted(async () => {
 
             <div v-if="d.existing_shifts.length" class="day-row__existing small text-muted">
               <div v-for="s in d.existing_shifts" :key="s.id">
-                既存: {{ s.start_time?.slice(0, 5) }}〜{{ s.end_time_extended || s.end_time?.slice(0, 5) }} / {{ s.room_name }}
+                既存: {{ s.start_time_extended || s.start_time?.slice(0, 5) }}〜{{ s.end_time_extended || s.end_time?.slice(0, 5) }} / {{ s.room_name }}
               </div>
               <div class="text-muted" style="font-size: 0.72rem;">
                 ※ 既存シフトの変更はシフト管理画面から行ってください
@@ -330,7 +333,7 @@ onMounted(async () => {
               <div class="row g-2">
                 <div class="col-6 col-md-2">
                   <label class="form-label small mb-1">開始</label>
-                  <input v-model="d.start_time" type="time" step="300" class="form-control form-control-sm" />
+                  <input v-model="d.start_time" type="text" inputmode="numeric" maxlength="5" placeholder="例: 24:00" class="form-control form-control-sm" />
                 </div>
                 <div class="col-6 col-md-2">
                   <label class="form-label small mb-1">終了</label>
@@ -342,7 +345,7 @@ onMounted(async () => {
                     placeholder="例: 29:00"
                     class="form-control form-control-sm"
                   />
-                  <div class="form-text">翌朝は24:00〜29:00</div>
+                  <div class="form-text">開始・終了とも翌朝は24:00〜29:00</div>
                 </div>
                 <div class="col-12 col-md-3">
                   <label class="form-label small mb-1">部屋</label>

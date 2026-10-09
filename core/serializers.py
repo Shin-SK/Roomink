@@ -718,6 +718,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
     cast_name = serializers.CharField(source="cast.name", read_only=True)
     cast_avatar_url = serializers.CharField(source="cast.avatar_url", read_only=True)
     room_name = serializers.CharField(source="room.name", read_only=True)
+    start_time_extended = serializers.SerializerMethodField()
     end_time_extended = serializers.SerializerMethodField()
     assigned_order_count = serializers.SerializerMethodField()
     room_auto_assigned = serializers.SerializerMethodField()
@@ -738,6 +739,10 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         date = data.get("date", getattr(self.instance, "date", None))
         cast = data.get("cast", getattr(self.instance, "cast", None))
         start_time = data.get("start_time", getattr(self.instance, "start_time", None))
+        start_day_offset = data.get(
+            "start_day_offset",
+            getattr(self.instance, "start_day_offset", 0),
+        )
         end_time = data.get("end_time", getattr(self.instance, "end_time", None))
         end_day_offset = data.get(
             "end_day_offset",
@@ -747,11 +752,13 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         start_at = end_at = None
         if date and start_time and end_time:
             try:
+                format_extended_time(start_time, start_day_offset)
                 format_extended_time(end_time, end_day_offset)
                 start_at, end_at = build_business_interval(
                     date,
                     start_time,
                     end_time,
+                    start_day_offset=start_day_offset,
                     end_day_offset=end_day_offset,
                     timezone_name=store.timezone if store else "Asia/Tokyo",
                 )
@@ -782,6 +789,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                         existing.date,
                         existing.start_time,
                         existing.end_time,
+                        start_day_offset=existing.start_day_offset,
                         end_day_offset=existing.end_day_offset,
                         timezone_name=store.timezone,
                     )
@@ -820,6 +828,9 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             )
 
         return data
+
+    def get_start_time_extended(self, obj) -> str:
+        return format_extended_time(obj.start_time, obj.start_day_offset)
 
     def create(self, validated_data):
         with transaction.atomic():
@@ -1856,16 +1867,21 @@ class CastTodayOrderSerializer(serializers.Serializer):
 class ScheduleShiftSerializer(serializers.ModelSerializer):
     room_name = serializers.CharField(source="room.name", read_only=True)
     room_color = serializers.CharField(source="room.background_color", read_only=True, default="")
+    start_time_extended = serializers.SerializerMethodField()
     end_time_extended = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftAssignment
         fields = [
             "id", "room_id", "room_name", "room_color",
-            "start_time", "end_time", "end_day_offset", "end_time_extended",
+            "start_time", "start_day_offset", "start_time_extended",
+            "end_time", "end_day_offset", "end_time_extended",
             "clocked_in_at", "confirmed_at",
             "daily_memo", "is_absent",
         ]
+
+    def get_start_time_extended(self, obj) -> str:
+        return format_extended_time(obj.start_time, obj.start_day_offset)
 
     def get_end_time_extended(self, obj) -> str:
         return format_extended_time(obj.end_time, obj.end_day_offset)
@@ -1938,6 +1954,7 @@ def build_schedule_data(store, date):
         ShiftAssignment.objects
         .filter(store=store, date=date)
         .select_related("room", "cast")
+        .order_by("start_day_offset", "start_time", "id")
     )
 
     shifts_by_cast = defaultdict(list)
@@ -1975,7 +1992,9 @@ def build_schedule_data(store, date):
             "shifts": shifts_by_cast.get(c.id, []),
         })
 
-    range_start, range_end = business_day_range(date, store.timezone)
+    range_start, range_end = business_day_range(
+        date, store.timezone, store.business_day_boundary_hour,
+    )
     orders = (
         Order.objects
         .filter(store=store, start__gte=range_start, start__lt=range_end)
@@ -2066,7 +2085,9 @@ def build_room_schedule_data(store, date):
 
     rooms = Room.objects.filter(store=store).order_by("sort_order")
 
-    range_start, range_end = business_day_range(date, store.timezone)
+    range_start, range_end = business_day_range(
+        date, store.timezone, store.business_day_boundary_hour,
+    )
     orders = (
         Order.objects
         .filter(
