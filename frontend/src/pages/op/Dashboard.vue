@@ -633,6 +633,24 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
 .dashboard-attention__row .ti-chevron-right { color: #94a3b8; font-size: 0.72rem; }
 
 @media (max-width: 575.98px) {
+  .dashboard-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    margin-inline: -0.25rem;
+  }
+
+  .dashboard-tabs .wrap { min-width: 0; }
+
+  .dashboard-tabs button {
+    width: 100%;
+    min-height: 52px;
+    padding: .45rem .15rem;
+    font-size: clamp(.73rem, 3.1vw, .88rem);
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+
   .dashboard-attention__groups { grid-template-columns: 1fr; }
 }
 </style>

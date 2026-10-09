@@ -17,6 +17,7 @@ import home from '@tabler/icons/outline/home.svg?raw'
 import lifebuoy from '@tabler/icons/outline/lifebuoy.svg?raw'
 import logout from '@tabler/icons/outline/logout.svg?raw'
 import notebook from '@tabler/icons/outline/notebook.svg?raw'
+import plus from '@tabler/icons/outline/plus.svg?raw'
 import receipt from '@tabler/icons/outline/receipt.svg?raw'
 import reportMoney from '@tabler/icons/outline/report-money.svg?raw'
 import settings from '@tabler/icons/outline/settings.svg?raw'
@@ -46,6 +47,7 @@ const icons = {
   lifebuoy,
   logout,
   notebook,
+  plus,
   receipt,
   'report-money': reportMoney,
   settings,

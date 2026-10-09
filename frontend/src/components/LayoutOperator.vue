@@ -74,11 +74,11 @@ const navItems = computed(() => {
 })
 
 const footerItems = [
-  { to: '/op/dashboard', icon: 'ti-home', label: 'ホーム', page: 'dashboard' },
-  { to: '/op/schedule', icon: 'ti-timeline-event-exclamation', label: '予約', page: 'schedule' },
-  { to: '/op/phone', icon: 'ti-plus', label: '新規', page: 'phone' },
-  { to: '/op/rooms', icon: 'ti-door', label: 'ルーム', page: 'rooms' },
-  { to: '/op/customers', icon: 'ti-users', label: '顧客', page: 'customer-list' },
+  { to: '/op/dashboard', icon: 'home', label: 'ホーム', page: 'dashboard' },
+  { to: '/op/schedule', icon: 'calendar', label: '予約', page: 'schedule' },
+  { to: '/op/phone', icon: 'plus', label: '新規', page: 'phone' },
+  { to: '/op/rooms', icon: 'door', label: 'ルーム', page: 'rooms' },
+  { to: '/op/customers', icon: 'users', label: '顧客', page: 'customer-list' },
 ]
 
 function toggleSidebar() {
@@ -231,7 +231,7 @@ onBeforeUnmount(() => {
               class="nav-link"
               :class="{ active: route.path === item.to }"
             >
-              <i class="ti" :class="item.icon"></i>
+              <OperatorSidebarIcon :name="item.icon" />
               <small>{{ item.label }}</small>
             </router-link>
           </button>
@@ -278,6 +278,11 @@ onBeforeUnmount(() => {
   display: inline-flex;
   border-radius: 50%;
   text-decoration: none;
+}
+
+.footer .operator-sidebar-icon {
+  width: 24px;
+  height: 24px;
 }
 
 .sidebar-store-switch {
