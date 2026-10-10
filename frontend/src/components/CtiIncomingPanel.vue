@@ -133,25 +133,6 @@ function discardDraft(id) {
   if (!entry?.result && !entry?.blocked && !window.confirm('この着信の予約入力を破棄しますか？')) return
   drafts.value = drafts.value.filter(d => d.id !== id); activeId.value = null
 }
-function openInSeparateTab(entry) {
-  const url = new URL('/op/phone', window.location.origin)
-  url.searchParams.set('popup', '1')
-  url.searchParams.set('cti_call', entry.id)
-  const popup = window.open(url.toString(), '_blank')
-  if (popup) popup.focus()
-  else error.value = '別タブを開けませんでした。ブラウザのポップアップ設定をご確認ください。'
-}
-function onOrderWindowMessage(event) {
-  if (event.origin !== window.location.origin || event.data?.type !== 'roomink-cti-order-created') return
-  const entry = drafts.value.find(d => String(d.id) === String(event.data.ctiCallId))
-  if (!entry || !event.data.order?.id) return
-  entry.result = { order: event.data.order, startDate: event.data.startDate, confirmationError: event.data.confirmationError }
-  activeId.value = entry.id
-  completion.value = `${entry.context.store_name}の予約を作成しました`
-  clearTimeout(completionTimer)
-  completionTimer = setTimeout(() => { completion.value = '' }, 5000)
-  refresh()
-}
 async function created(entry, result) {
   entry.result = result
   busy.value = true
@@ -183,16 +164,11 @@ async function finishReception(entry) {
 function keydown(event) {
   if (!isOpen.value) return
   if (event.key === 'Escape') { event.preventDefault(); closePanel(); return }
-  if (event.key !== 'Tab') return
-  const nodes = [...panel.value.querySelectorAll('button,a,input,select,textarea,[tabindex="0"]')].filter(el => !el.disabled && el.getClientRects().length)
-  const first = nodes[0], last = nodes.at(-1)
-  if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.value)) { event.preventDefault(); last?.focus() }
-  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
 }
 function beforeUnload(event) { if (drafts.value.some(d => !d.result && !d.blocked)) { event.preventDefault(); event.returnValue = '' } }
 onBeforeRouteLeave(() => !drafts.value.some(d => !d.result && !d.blocked) || window.confirm('受付パネルの入力を破棄して移動しますか？'))
-onMounted(() => { cycle(); window.addEventListener('beforeunload', beforeUnload); window.addEventListener('message', onOrderWindowMessage) })
-onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(completionTimer); window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('message', onOrderWindowMessage); document.body.classList.remove('cti-modal-open') })
+onMounted(() => { cycle(); window.addEventListener('beforeunload', beforeUnload) })
+onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(completionTimer); window.removeEventListener('beforeunload', beforeUnload); document.body.classList.remove('cti-modal-open') })
 </script>
 
 <template>
@@ -209,8 +185,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
   </button>
   <span class="visually-hidden" aria-live="polite">未対応の着信 {{ newCount }}件</span>
   <Teleport to="body">
-    <div v-show="isOpen" class="cti-overlay" @click.self="closePanel">
-      <section ref="panel" class="cti-work" :class="{ editing: activeId }" role="dialog" aria-modal="true" aria-labelledby="cti-title" tabindex="-1" @keydown="keydown">
+    <div v-show="isOpen" class="cti-overlay">
+      <section ref="panel" class="cti-work" :class="{ editing: activeId }" role="complementary" aria-labelledby="cti-title" tabindex="-1" @keydown="keydown">
         <header class="cti-header">
           <div class="cti-heading"><span class="cti-icon"><i class="ti ti-phone-incoming" aria-hidden="true"></i></span><h2 id="cti-title">着信・予約受付</h2></div>
           <button class="cti-close" aria-label="入力を保持して閉じる" @click="closePanel"><i class="ti ti-x" aria-hidden="true"></i></button>
@@ -267,7 +243,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
                   </div>
                 </section>
                 <div v-if="d.result" class="cti-success" role="status"><i class="ti ti-circle-check" aria-hidden="true"></i><h3>{{ d.result.confirmationError ? '予約を保存しました・確定は未完了' : '予約を作成しました' }}</h3><p>保存しました。</p><p v-if="d.result.confirmationError">{{ d.result.confirmationError }}</p><div class="cti-success__actions"><button class="btn btn-outline-primary" type="button" @click="copyTherapistMessage(d.result.order)"><i class="ti ti-copy me-1" aria-hidden="true"></i>セラピスト共有文をコピー</button><a class="btn btn-primary" :href="`/op/schedule?store=${d.context.store_id}&date=${d.result.startDate}&highlight=${d.result.order.id}`" target="_blank" rel="noopener">タイムラインを開く</a></div></div>
-                <template v-else><div class="d-flex justify-content-end mb-3"><button class="btn btn-outline-primary btn-sm" type="button" @click="openInSeparateTab(d)"><i class="ti ti-external-link me-1" aria-hidden="true"></i>別タブで予約入力</button></div><fieldset :disabled="d.offline" class="border-0 p-0 m-0"><OrderForm :api-client="d.client" :call-bound="true" :initial-phone="numericPhone(d.context.from_phone) ? d.context.from_phone : ''" :initial-customer-id="d.context.customer_id || ''" :embedded="true" :show-flow-hint="false" cancel-label="一覧に戻る（入力を保持）" @cancel="activeId = null" @created="created(d, $event)" /></fieldset></template>
+                <fieldset v-else :disabled="d.offline" class="border-0 p-0 m-0"><OrderForm :api-client="d.client" :call-bound="true" :initial-phone="numericPhone(d.context.from_phone) ? d.context.from_phone : ''" :initial-customer-id="d.context.customer_id || ''" :embedded="true" :show-flow-hint="false" cancel-label="一覧に戻る（入力を保持）" @cancel="activeId = null" @created="created(d, $event)" /></fieldset>
               </template>
               <button v-if="!d.result && !d.blocked" class="cti-finish" :disabled="busy" @click="finishReception(d)">予約を作成せず、受付を完了</button>
               <button class="cti-discard" @click="discardDraft(d.id)">{{ d.result || d.blocked ? 'この入力タブを閉じる' : 'この入力を破棄' }}</button>
@@ -306,7 +282,11 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
 .cti-work :deep(.card-header) { padding: 9px 12px; }
 .cti-work :deep(.card-body) { padding: 12px; }
 .cti-work :deep(.form-label) { font-size: 13px; margin-bottom: 5px; }
+:global(body.cti-modal-open) { overflow: initial; }
+.cti-overlay { display: flex; justify-content: flex-end; align-items: stretch; padding: 0; background: transparent; pointer-events: none; }
+.cti-work { width: min(620px, 48vw); height: 100dvh; border-radius: 0; box-shadow: -14px 0 40px #162c3438; pointer-events: auto; }
 @media (max-width: 767px) {
+  .cti-work { width: 100%; height: 100%; border-radius: 0; }
   .cti-header { padding: 8px 14px; }
   .cti-work h2 { font-size: 16px; }
   .cti-context h3 { font-size: 16px; }

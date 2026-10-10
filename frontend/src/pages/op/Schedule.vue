@@ -8,7 +8,6 @@ import OrderForm from '../../components/OrderForm.vue'
 import UnavailableTimeModal from '../../components/UnavailableTimeModal.vue'
 import { api, normalizePhone } from '../../api.js'
 import { getAuthRole } from '../../router.js'
-import { selectedStoreId } from '../../storeSelection.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -52,7 +51,6 @@ async function openAllocation() {
   }
 }
 const absenceUpdatingCastId = ref(null)
-let orderEntryWindow = null
 
 // 表示モード切り替え（キャスト別 / 部屋別）
 const viewMode = ref('cast')
@@ -265,22 +263,7 @@ function openCreateModal({ cast = '', customer = '', startTime = '', startDate =
   modalCustomerId.value = customer
   modalStartTime.value = startTime || '15:00'
   modalStartDate.value = startDate || selectedDate.value
-  const query = {
-    store: selectedStoreId(),
-    popup: '1',
-    date: modalStartDate.value,
-    start: modalStartTime.value,
-  }
-  if (modalCast.value) query.cast = String(modalCast.value)
-  if (modalCustomerId.value) query.customer = String(modalCustomerId.value)
-  const url = router.resolve({ path: '/op/phone', query }).href
-  // ブラウザ標準の別タブで開く。元のタイムラインを残したまま入力できる。
-  orderEntryWindow = window.open(url, '_blank')
-  if (orderEntryWindow) {
-    orderEntryWindow.focus()
-    return
-  }
-  // ブラウザでポップアップが拒否された場合も予約作成を止めない。
+  // タイムラインを見ながら入力できる、画面右側の予約パネルを開く。
   showCreateModal.value = true
 }
 
@@ -314,28 +297,6 @@ function onOrderCreated({ order }) {
   showCreateModal.value = false
   highlightId.value = order.id
   fetchSchedule()
-}
-
-function onOrderWindowMessage(event) {
-  if (event.origin !== window.location.origin) return
-  if (event.data?.type !== 'roomink-order-created') return
-  const order = event.data.order
-  if (String(event.data.storeId) !== selectedStoreId()) return
-  const startDate = event.data.startDate || selectedDate.value
-  if (!order?.id) return
-  highlightId.value = order.id
-  if (startDate !== selectedDate.value) {
-    selectedDate.value = startDate
-  } else {
-    fetchSchedule()
-  }
-}
-
-function onWindowFocus() {
-  if (orderEntryWindow && orderEntryWindow.closed) {
-    orderEntryWindow = null
-    loadSchedule()
-  }
 }
 
 function onOrderCancel() {
@@ -508,12 +469,8 @@ onMounted(async () => {
     console.error(e)
   }
   loadSchedule()
-  window.addEventListener('message', onOrderWindowMessage)
-  window.addEventListener('focus', onWindowFocus)
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('message', onOrderWindowMessage)
-  window.removeEventListener('focus', onWindowFocus)
 })
 </script>
 
@@ -688,17 +645,16 @@ onBeforeUnmount(() => {
       @saved="onUnavailableTimeSaved"
     />
 
-    <!-- 予約作成モーダル（OrderForm 雛形を利用） -->
-    <div v-if="showCreateModal" class="modal d-block" style="background: rgba(0,0,0,0.3);" @click.self="showCreateModal = false">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
+    <!-- タイムラインと並べて使う予約入力パネル -->
+    <aside v-if="showCreateModal" class="schedule-create-drawer" aria-label="予約作成">
+      <div class="schedule-create-drawer__panel">
+          <div class="schedule-create-drawer__header">
             <h5 class="modal-title">
               <i class="ti ti-plus me-1"></i>予約作成（{{ modalStartDate || selectedDate }}）
             </h5>
             <button type="button" class="btn-close" @click="showCreateModal = false"></button>
           </div>
-          <div class="modal-body">
+          <div class="schedule-create-drawer__body">
             <OrderForm
               :initial-date="modalStartDate"
               :initial-cast="modalCast"
@@ -710,9 +666,8 @@ onBeforeUnmount(() => {
               @cancel="onOrderCancel"
             />
           </div>
-        </div>
       </div>
-    </div>
+    </aside>
 
     <!-- 出勤セラピスト並び替え -->
     <div v-if="showOrderModal" class="modal d-block" style="background: rgba(0,0,0,0.3);" @click.self="closeOrderModal">
@@ -904,9 +859,11 @@ onBeforeUnmount(() => {
   }
 }
 
-.modal-dialog.modal-lg {
-  max-width: 720px;
-}
+.schedule-create-drawer { position: fixed; inset: 0 0 0 auto; z-index: 1090; width: min(620px, 48vw); pointer-events: none; }
+.schedule-create-drawer__panel { height: 100dvh; display: flex; flex-direction: column; background: #fff; border-left: 1px solid #dce8e2; box-shadow: -14px 0 40px rgba(21, 53, 45, .18); pointer-events: auto; }
+.schedule-create-drawer__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 20px; border-bottom: 1px solid #e5eee9; flex-shrink: 0; }
+.schedule-create-drawer__header h5 { margin: 0; font-size: 1rem; }
+.schedule-create-drawer__body { min-height: 0; overflow-y: auto; padding: 18px 20px 30px; }
 
 .allocation-backdrop { position: fixed; inset: 0; z-index: 2100; display: flex; align-items: flex-end; justify-content: center; background: rgba(14, 32, 30, .52); }
 .allocation-panel { width: min(760px, 100%); max-height: min(90dvh, 850px); display: flex; flex-direction: column; background: #fff; border-radius: 18px 18px 0 0; box-shadow: 0 18px 60px rgba(0, 0, 0, .18); }
@@ -923,5 +880,6 @@ onBeforeUnmount(() => {
 .allocation-row summary::-webkit-details-marker { display: none; }
 .allocation-details { display: flex; flex-wrap: wrap; gap: 5px 14px; padding: 0 8px 14px; color: #61716b; font-size: .77rem; }
 @media (min-width: 768px) { .allocation-backdrop { align-items: center; } .allocation-panel { border-radius: 18px; } }
+@media (max-width: 767px) { .schedule-create-drawer { width: 100%; } .schedule-create-drawer__header { padding: 13px 16px; } .schedule-create-drawer__body { padding: 16px; } }
 @media (max-width: 575px) { .rk-actions__buttons { flex-wrap: wrap; } .allocation-header, .allocation-footer { padding: 13px 15px; } .allocation-body { padding: 15px; } .allocation-row summary { grid-template-columns: 1fr 1fr; } .allocation-row summary strong { grid-column: 1 / -1; } .allocation-row summary i { display: none; } }
 </style>
