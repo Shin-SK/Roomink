@@ -1,4 +1,4 @@
-const isTestFlight = process.env.EAS_BUILD_PROFILE === 'testflight';
+const usesDistributionPush = ['preview', 'testflight'].includes(process.env.EAS_BUILD_PROFILE);
 
 /** @type {import('expo/config').ExpoConfig} */
 module.exports = {
@@ -17,7 +17,7 @@ module.exports = {
     },
     entitlements: {
       // Development builds use the APNs sandbox. TestFlight builds must use production.
-      'aps-environment': isTestFlight ? 'production' : 'development',
+      'aps-environment': usesDistributionPush ? 'production' : 'development',
     },
   },
   android: {
@@ -35,7 +35,7 @@ module.exports = {
     'expo-router',
     'expo-secure-store',
     ['@twilio/voice-react-native-sdk', {
-      apsEnvironment: isTestFlight ? 'production' : 'development',
+      apsEnvironment: usesDistributionPush ? 'production' : 'development',
       microphoneUsageDescription: 'Roomink Work は受信した通話の音声を扱うためにマイクを使用します。',
     }],
   ],
