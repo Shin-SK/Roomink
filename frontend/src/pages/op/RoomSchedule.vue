@@ -6,13 +6,13 @@ import TimelineGrid from '../../components/TimelineGrid.vue'
 import { api } from '../../api.js'
 
 const router = useRouter()
+const businessDayBoundaryHour = ref(5)
 const selectedDate = ref(today())
 const rooms = ref([])
 const orders = ref([])
 const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 0 })
 const loading = ref(true)
 const toolbarOpen = ref(false)
-const businessDayBoundaryHour = ref(5)
 
 function today() {
   const d = new Date()

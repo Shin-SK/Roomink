@@ -12,6 +12,7 @@ import { selectedStoreId } from '../../storeSelection.js'
 
 const router = useRouter()
 const route = useRoute()
+const businessDayBoundaryHour = ref(5)
 const selectedDate = ref(route.query.date || today())
 const highlightId = ref(route.query.highlight ? Number(route.query.highlight) : null)
 const casts = ref([])
@@ -28,7 +29,6 @@ const allocationDate = ref('')
 const allocationRows = ref([])
 const allocationTotals = ref({})
 const allocationStatus = ref('OPEN')
-const businessDayBoundaryHour = ref(5)
 
 function yen(value) {
   return `¥${Number(value || 0).toLocaleString()}`
