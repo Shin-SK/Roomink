@@ -1264,6 +1264,10 @@ class CastTodayView(APIView):
             "shift": {
                 "date": shift.date.isoformat() if shift else None,
                 "start_time": str(shift.start_time)[:5] if shift else None,
+                "start_time_extended": (
+                    format_extended_time(shift.start_time, shift.start_day_offset)
+                    if shift else None
+                ),
                 "end_time": str(shift.end_time)[:5] if shift else None,
                 "end_time_extended": (
                     format_extended_time(shift.end_time, shift.end_day_offset)
