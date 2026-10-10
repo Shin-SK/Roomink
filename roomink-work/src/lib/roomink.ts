@@ -113,6 +113,12 @@ export async function rotateToken() {
   await SecureStore.setItemAsync(tokenKey, result.token);
 }
 
+export async function getVoiceAccessToken() {
+  return workRequest<{ token: string; expires_in: number }>('/work/voice-token/', {
+    method: 'POST', body: '{}',
+  });
+}
+
 export async function workRequest<T>(path: string, init: RequestInit = {}) {
   const token = await getToken();
   if (!token) throw new Error('端末認証がありません。もう一度連携してください。');

@@ -80,6 +80,7 @@ urlpatterns = [
     path("work/calls/", work_device_views.WorkDeviceCallsView.as_view()),
     path("work/history/", work_device_views.WorkDeviceHistoryView.as_view()),
     path("work/token/rotate/", work_device_views.WorkDeviceRotateTokenView.as_view()),
+    path("work/voice-token/", work_device_views.WorkDeviceVoiceTokenView.as_view()),
     path("auth/csrf/", views.csrf_token_view, name="auth-csrf"),
     path("auth/login/", views.auth_login, name="auth-login"),
     path("auth/logout/", views.auth_logout, name="auth-logout"),

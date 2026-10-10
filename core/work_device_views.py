@@ -7,6 +7,7 @@ import string
 import uuid
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.db import transaction
 from django.db.models import Q
@@ -16,7 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.authentication import BaseAuthentication
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, AuthenticationFailed, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
@@ -38,6 +39,12 @@ from .store_access import is_operation_group_manager, operator_memberships
 TOKEN_TTL = timedelta(days=90)
 LINK_TTL = timedelta(minutes=10)
 LINK_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+
+class VoiceConfigurationUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "通話受信の設定はまだ利用できません。"
+    default_code = "voice_configuration_unavailable"
 
 
 def _hash_secret(value):
@@ -702,3 +709,46 @@ class WorkDeviceRotateTokenView(APIView):
                 action="credential_rotated",
             )
         return Response({"token": token, "expires_in_days": TOKEN_TTL.days})
+
+
+class WorkDeviceVoiceTokenView(APIView):
+    """Issue an incoming-only Voice token for one active Work device.
+
+    This intentionally does not read or alter the existing BYOC/Groundwire
+    provisioning. It stays unavailable until its separate credentials exist.
+    """
+
+    authentication_classes = [WorkDeviceAuthentication]
+    permission_classes = [IsWorkDevice]
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    def post(self, request):
+        device = request.work_device
+        if device.status != WorkDevice.Status.ACTIVE or not entitled_subscriptions(
+            device, receiving_only=True
+        ):
+            raise PermissionDenied("受付中の利用可能な店舗がないため、着信登録できません。")
+        required = (
+            settings.TWILIO_ACCOUNT_SID,
+            settings.TWILIO_VOICE_API_KEY_SID,
+            settings.TWILIO_VOICE_API_KEY_SECRET,
+            settings.TWILIO_VOICE_PUSH_CREDENTIAL_SID,
+        )
+        if not all(required):
+            raise VoiceConfigurationUnavailable()
+
+        from twilio.jwt.access_token import AccessToken
+        from twilio.jwt.access_token.grants import VoiceGrant
+
+        token = AccessToken(
+            settings.TWILIO_ACCOUNT_SID,
+            settings.TWILIO_VOICE_API_KEY_SID,
+            settings.TWILIO_VOICE_API_KEY_SECRET,
+            identity=f"roomink-work-{device.pk}",
+            ttl=3600,
+        )
+        token.add_grant(VoiceGrant(
+            incoming_allow=True,
+            push_credential_sid=settings.TWILIO_VOICE_PUSH_CREDENTIAL_SID,
+        ))
+        return Response({"token": token.to_jwt(), "expires_in": 3600})

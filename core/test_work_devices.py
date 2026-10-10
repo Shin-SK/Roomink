@@ -1,7 +1,7 @@
 import uuid
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -70,6 +70,36 @@ class WorkDeviceFoundationTest(TestCase):
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"RoominkWork {token}")
         return client
+
+    def test_voice_token_requires_separate_voice_configuration(self):
+        login = self.client.post(
+            "/api/work/personal-login/",
+            {
+                "username": self.manager.username,
+                "password": "Strong-pass-123",
+                "device_key": str(uuid.uuid4()),
+                "label": "Voice test iPhone",
+                "platform": "ios",
+                "store_ids": [self.store_a.pk],
+            },
+            format="json",
+            REMOTE_ADDR="198.51.100.42",
+        )
+        self.assertEqual(login.status_code, 200)
+        client = self.device_client(login.data["token"])
+        unavailable = client.post("/api/work/voice-token/", {}, format="json")
+        self.assertEqual(unavailable.status_code, 503)
+
+        with override_settings(
+            TWILIO_ACCOUNT_SID="AC" + "1" * 32,
+            TWILIO_VOICE_API_KEY_SID="SK" + "2" * 32,
+            TWILIO_VOICE_API_KEY_SECRET="voice-api-secret",
+            TWILIO_VOICE_PUSH_CREDENTIAL_SID="CR" + "3" * 32,
+        ):
+            configured = client.post("/api/work/voice-token/", {}, format="json")
+        self.assertEqual(configured.status_code, 200)
+        self.assertTrue(configured.data["token"])
+        self.assertEqual(configured.data["expires_in"], 3600)
 
     def test_personal_login_issues_hashed_device_token_for_owned_stores(self):
         response = self.personal_login()

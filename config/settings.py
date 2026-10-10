@@ -329,6 +329,14 @@ TWILIO_BYOC_IP_ACCESS_CONTROL_LIST_SID = os.getenv(
 TWILIO_WEBHOOK_PUBLIC_BASE_URL = os.getenv("TWILIO_WEBHOOK_PUBLIC_BASE_URL", "").rstrip("/")
 TWILIO_WEBHOOK_ALLOW_UNSIGNED = os.getenv("TWILIO_WEBHOOK_ALLOW_UNSIGNED", "0") == "1"
 
+# Separate from the existing BYOC / Groundwire SIP route. With these unset,
+# Roomink Work cannot register for Voice and the existing route is unchanged.
+TWILIO_VOICE_API_KEY_SID = os.getenv("TWILIO_VOICE_API_KEY_SID", "").strip()
+TWILIO_VOICE_API_KEY_SECRET = os.getenv("TWILIO_VOICE_API_KEY_SECRET", "")
+TWILIO_VOICE_PUSH_CREDENTIAL_SID = os.getenv(
+    "TWILIO_VOICE_PUSH_CREDENTIAL_SID", ""
+).strip()
+
 # --- Customer account invitation / SMS delivery ---
 FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 RESERVATION_LINK_BASE_URL = os.getenv(

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'expo-router';
 import { ActivityIndicator, Alert, AppState, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
 import { CallListScreen } from '../components/CallListScreen';
-import { clearPendingLink, clearToken, claimSharedLink, createSharedLink, Device, getPendingLink, getToken, loginPersonal, lookupPersonalStores, PendingLink, Store, WorkApiError, WorkCall, workRequest } from '../lib/roomink';
+import { clearPendingLink, clearToken, claimSharedLink, createSharedLink, Device, getPendingLink, getToken, getVoiceAccessToken, loginPersonal, lookupPersonalStores, PendingLink, Store, WorkApiError, WorkCall, workRequest } from '../lib/roomink';
+import { registerForIncomingCalls, unregisterIncomingCalls, VoiceRegistrationState } from '../lib/voice';
 
 type Mode = 'personal' | 'shared';
 
@@ -34,7 +35,11 @@ export default function HomeScreen() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [link, setLink] = useState<PendingLink | null>(null);
   const [busy, setBusy] = useState(false);
+  const [voiceState, setVoiceState] = useState<VoiceRegistrationState | null>(null);
   const deviceConnected = device !== null;
+  const canReceiveVoice = device?.status === 'active' && device.stores.some(
+    (store) => store.is_receiving && store.is_entitled,
+  );
 
   const refreshMissed = useCallback(async () => {
     const page = await workRequest<{ calls: WorkCall[]; next_cursor: string | null }>('/work/history/?status=missed');
@@ -102,6 +107,31 @@ export default function HomeScreen() {
     return () => { clearInterval(interval); subscription.remove(); };
   }, [deviceConnected, refresh]);
 
+  useEffect(() => {
+    if (!canReceiveVoice || Platform.OS === 'web') {
+      void unregisterIncomingCalls().catch(() => {});
+      return;
+    }
+    let cancelled = false;
+    const configureVoice = async () => {
+      try {
+        const { token } = await getVoiceAccessToken();
+        if (!cancelled) {
+          await registerForIncomingCalls(token, (state) => {
+            if (!cancelled) setVoiceState(state);
+          });
+        }
+      } catch (reason) {
+        if (!cancelled) {
+          setVoiceState({ kind: 'error', message: reason instanceof Error ? reason.message : '着信の初期化に失敗しました。' });
+        }
+      }
+    };
+    void configureVoice();
+    const timer = setInterval(() => { void configureVoice(); }, 50 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [canReceiveVoice]);
+
   async function findStores() {
     setBusy(true); setError(null);
     try {
@@ -148,7 +178,12 @@ export default function HomeScreen() {
 
   if (loading) return <Centered><ActivityIndicator color={colors.green} /></Centered>;
   if (!device) return <AuthScreen {...{ mode, setMode, username, setUsername, password, setPassword, label, setLabel, stores, selectedIds, setSelectedIds, link, busy, error, findStores, completePersonalLogin, startSharedLink, checkSharedLink }} />;
-  return <CallListScreen device={device} calls={calls} history={history} missedHistory={missedHistory} missedLoaded={missedLoaded} hasMoreAll={historyCursor !== null} hasMoreMissed={missedCursor !== null} loadingMore={loadingMore} onLoadMore={loadMoreHistory} onMissedOnlyChange={async (value) => { if (value && !missedLoaded) { try { await refreshMissed(); } catch (reason) { setError(reason instanceof Error ? reason.message : '不在着信を読み込めませんでした。'); } } }} busy={busy} error={error} onRefresh={async () => { await refresh(); if (missedLoaded) await refreshMissed(); }} onToggleStore={toggleStore} onLogout={async () => { await clearToken(); setDevice(null); setCalls([]); setHistory([]); setMissedHistory([]); setHistoryCursor(null); setMissedCursor(null); setMissedLoaded(false); historyInitializedRef.current = false; missedInitializedRef.current = false; }} />;
+  const voiceNotice = !canReceiveVoice ? null : voiceState?.kind === 'registered'
+    ? 'iPhoneの着信登録が完了しました。'
+    : voiceState?.kind === 'registering'
+      ? 'iPhoneの着信登録を準備しています。'
+      : voiceState?.kind === 'error' ? voiceState.message : null;
+  return <CallListScreen device={device} calls={calls} history={history} missedHistory={missedHistory} missedLoaded={missedLoaded} hasMoreAll={historyCursor !== null} hasMoreMissed={missedCursor !== null} loadingMore={loadingMore} onLoadMore={loadMoreHistory} onMissedOnlyChange={async (value) => { if (value && !missedLoaded) { try { await refreshMissed(); } catch (reason) { setError(reason instanceof Error ? reason.message : '不在着信を読み込めませんでした。'); } } }} busy={busy} error={error || voiceNotice} onRefresh={async () => { await refresh(); if (missedLoaded) await refreshMissed(); }} onToggleStore={toggleStore} onLogout={async () => { try { await unregisterIncomingCalls(); } catch { /* Local logout must still revoke the app session. */ } await clearToken(); setDevice(null); setCalls([]); setHistory([]); setMissedHistory([]); setHistoryCursor(null); setMissedCursor(null); setMissedLoaded(false); historyInitializedRef.current = false; missedInitializedRef.current = false; }} />;
 }
 
 function AuthScreen(props: any) {
