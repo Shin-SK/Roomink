@@ -63,10 +63,8 @@ class NotificationTimezoneTest(TestCase):
 
         self.assert_tokyo_time(build_confirmation_body(self.order))
 
-    def test_cast_notice_uses_store_timezone(self):
-        log = notify_cast_order(self.order)
-
-        self.assert_tokyo_time(log.body)
+    def test_cast_notice_is_not_sent_before_store_line_is_started(self):
+        self.assertIsNone(notify_cast_order(self.order))
 
     def test_cancellation_notice_is_short_and_uses_guest_link(self):
         log = notify_order_cancelled(self.order)

@@ -7669,7 +7669,8 @@ class LineAlertsView(APIView):
         )
         unlinked = (
             Cast.objects
-            .filter(id__in=today_shift_cast_ids, line_user_id__isnull=True)
+            .filter(id__in=today_shift_cast_ids)
+            .filter(Q(line_user_id__isnull=True) | Q(line_user_id=""))
             .values("id", "name")
         )
         # 各 unlinked cast の最初のシフト時間を取得
@@ -7692,8 +7693,11 @@ class LineAlertsView(APIView):
             LineNotificationLog.objects
             .filter(
                 store=store,
-                shift_assignment__date=today,
                 status=LineNotificationLog.Status.FAILED,
+            )
+            .filter(
+                Q(shift_assignment__date=today)
+                | Q(order__start__date=today)
             )
             .select_related("cast")
             .order_by("-sent_at")[:20]

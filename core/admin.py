@@ -264,10 +264,10 @@ class SmsTemplateAdmin(admin.ModelAdmin):
 
 @admin.register(LineNotificationLog)
 class LineNotificationLogAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "cast", "notification_type", "status", "sent_at")
+    list_display = ("id", "store", "order", "cast", "notification_type", "status", "sent_at")
     list_filter = ("store", "status", "notification_type")
     search_fields = ("cast__name",)
-    readonly_fields = ("store", "cast", "shift_assignment", "notification_type", "status", "error_message", "sent_at")
+    readonly_fields = ("store", "order", "cast", "shift_assignment", "notification_type", "status", "message", "error_message", "sent_at")
 
 
 @admin.register(CustomerMergeLog)

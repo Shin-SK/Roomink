@@ -1387,6 +1387,7 @@ class LineNotificationLog(models.Model):
         TWO_HOURS_BEFORE = "TWO_HOURS_BEFORE", "2時間前"
         FIFTEEN_MIN_BEFORE = "FIFTEEN_MIN_BEFORE", "15分前"
         SHIFT_END_70 = "SHIFT_END_70", "終了70分前"
+        ORDER_CONFIRMED = "ORDER_CONFIRMED", "予約確定"
 
     class Status(models.TextChoices):
         SENT = "SENT", "送信済"
@@ -1395,9 +1396,23 @@ class LineNotificationLog(models.Model):
 
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="line_notification_logs")
     cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="line_notification_logs")
-    shift_assignment = models.ForeignKey(ShiftAssignment, on_delete=models.CASCADE, related_name="line_notification_logs")
+    shift_assignment = models.ForeignKey(
+        ShiftAssignment,
+        on_delete=models.CASCADE,
+        related_name="line_notification_logs",
+        null=True,
+        blank=True,
+    )
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name="line_notification_logs",
+        null=True,
+        blank=True,
+    )
     notification_type = models.CharField(max_length=20, choices=NotificationType.choices)
     status = models.CharField(max_length=10, choices=Status.choices)
+    message = models.TextField(blank=True, default="")
     error_message = models.TextField(blank=True, default="")
     sent_at = models.DateTimeField(auto_now_add=True)
 

@@ -1619,8 +1619,8 @@ class WeeklyShiftAndSmsSmokeTest(TestCase):
         self.assertEqual(confirm_log["to_phone"], "09012345678")
         self.assertEqual(confirm_log["payment_method"], "CARD")
         self.assertTrue(confirm_log["sent_at"])
-        # キャスト通知は電話番号が無いので SKIPPED
-        self.assertEqual(kinds["CAST_NOTICE"]["status"], "SKIPPED")
+        # キャスト通知は店舗LINEが未開始のため外部送信しない
+        self.assertNotIn("CAST_NOTICE", kinds)
 
     def test_sms_logs_other_store_404(self):
         order = self._make_order()

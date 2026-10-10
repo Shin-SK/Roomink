@@ -5,15 +5,18 @@ Store 単位の line_channel_access_token を優先し、未設定なら環境�
 import logging
 import os
 import uuid
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests as http_requests
 from django.db import transaction
+from django.utils import timezone
 
-from core.models import LineNotificationLog, ShiftAssignment, Store
+from core.models import LineNotificationLog, Order, ShiftAssignment, Store
 
 logger = logging.getLogger(__name__)
 
 _GLOBAL_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
+_WEEKDAYS_JA = ("月", "火", "水", "木", "金", "土", "日")
 
 
 def _line_retry_key(shift_assignment, notification_type):
@@ -29,6 +32,22 @@ def _push_headers(token, shift_assignment, notification_type):
         "Content-Type": "application/json",
         "Authorization": f"Bearer {token}",
         "X-Line-Retry-Key": _line_retry_key(shift_assignment, notification_type),
+    }
+
+
+def _order_retry_key(order, notification_type):
+    """同じ予約通知の再試行では、LINE に同一リトライキーを渡す。"""
+    return str(uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"roomink:line-order-notification:{order.pk}:{notification_type}",
+    ))
+
+
+def _order_push_headers(token, order, notification_type):
+    return {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+        "X-Line-Retry-Key": _order_retry_key(order, notification_type),
     }
 
 
@@ -240,3 +259,111 @@ def send_line_operations_push(
         status=LineNotificationLog.Status.FAILED,
         error_message=error_msg,
     )
+
+
+def build_order_confirmation_message(order):
+    """個人宛て予約通知。顧客の個人情報は本文に含めない。"""
+    timezone_name = order.store.timezone or "Asia/Tokyo"
+    try:
+        store_timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        store_timezone = timezone.get_default_timezone()
+    start = timezone.localtime(order.start, store_timezone)
+    end = timezone.localtime(order.end, store_timezone)
+    weekday = _WEEKDAYS_JA[start.weekday()]
+    return (
+        "【Roomink】予約が確定しました\n"
+        f"日時：{start:%Y/%m/%d（{weekday}）%H:%M}〜{end:%H:%M}\n"
+        f"コース：{order.course_name or order.course.name}\n"
+        f"ルーム：{order.room.name if order.room else '未定'}\n"
+        "詳細はRoominkでご確認ください。"
+    )
+
+
+def send_order_confirmation_push_once(order_id):
+    """予約確定を担当キャストへ一度だけ通知する。
+
+    店舗のLINEが未開始なら外部送信もログ作成も行わない。未連携・失敗は
+    予約確定を妨げず、運営が確認できる記録だけを残す。
+    """
+    notification_type = LineNotificationLog.NotificationType.ORDER_CONFIRMED
+    with transaction.atomic():
+        order = (
+            Order.objects.select_for_update()
+            .select_related("store", "cast", "room", "course")
+            .filter(pk=order_id, status=Order.Status.CONFIRMED)
+            .first()
+        )
+        if order is None or not order.store.line_is_operational:
+            return None
+        if LineNotificationLog.objects.filter(
+            order=order,
+            notification_type=notification_type,
+            status__in=(
+                LineNotificationLog.Status.SENT,
+                LineNotificationLog.Status.SKIPPED,
+            ),
+        ).exists():
+            return None
+
+        message = build_order_confirmation_message(order)
+        cast = order.cast
+        if not cast.line_user_id:
+            logger.info("LINE order notification skipped (unlinked): order=%s cast=%s", order.pk, cast.pk)
+            return LineNotificationLog.objects.create(
+                store=order.store,
+                cast=cast,
+                order=order,
+                notification_type=notification_type,
+                status=LineNotificationLog.Status.SKIPPED,
+                message=message,
+                error_message="LINE未連携",
+            )
+
+        token = _resolve_token(order.store)
+        if not token:
+            logger.error("LINE order notification failed (token missing): order=%s", order.pk)
+            return LineNotificationLog.objects.create(
+                store=order.store,
+                cast=cast,
+                order=order,
+                notification_type=notification_type,
+                status=LineNotificationLog.Status.FAILED,
+                message=message,
+                error_message="LINE送信設定が不足しています",
+            )
+
+        try:
+            response = http_requests.post(
+                "https://api.line.me/v2/bot/message/push",
+                headers=_order_push_headers(token, order, notification_type),
+                json={
+                    "to": cast.line_user_id,
+                    "messages": [{"type": "text", "text": message}],
+                },
+                timeout=10,
+            )
+            if _line_accepted_response(response):
+                logger.info("LINE order notification sent: order=%s cast=%s", order.pk, cast.pk)
+                return LineNotificationLog.objects.create(
+                    store=order.store,
+                    cast=cast,
+                    order=order,
+                    notification_type=notification_type,
+                    status=LineNotificationLog.Status.SENT,
+                    message=message,
+                )
+            error_message = f"HTTP {response.status_code}: {response.text[:200]}"
+        except Exception as exc:
+            error_message = str(exc)[:500]
+
+        logger.error("LINE order notification failed: order=%s cast=%s error=%s", order.pk, cast.pk, error_message)
+        return LineNotificationLog.objects.create(
+            store=order.store,
+            cast=cast,
+            order=order,
+            notification_type=notification_type,
+            status=LineNotificationLog.Status.FAILED,
+            message=message,
+            error_message=error_message,
+        )
