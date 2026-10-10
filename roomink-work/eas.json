@@ -14,6 +14,15 @@
         "resourceClass": "m-medium"
       }
     },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_ROOMINK_API_BASE_URL": "https://api-staging.roomink.net/api"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    },
     "testflight": {
       "distribution": "store",
       "env": {
