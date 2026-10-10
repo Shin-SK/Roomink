@@ -289,7 +289,7 @@ def send_order_confirmation_push_once(order_id):
     notification_type = LineNotificationLog.NotificationType.ORDER_CONFIRMED
     with transaction.atomic():
         order = (
-            Order.objects.select_for_update()
+            Order.objects.select_for_update(of=("self",))
             .select_related("store", "cast", "room", "course")
             .filter(pk=order_id, status=Order.Status.CONFIRMED)
             .first()
