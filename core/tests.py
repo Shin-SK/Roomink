@@ -36,7 +36,7 @@ from rest_framework.test import APIClient
 from twilio.request_validator import RequestValidator
 
 from core.models import (
-    CallLog, Cast, CastAdjustment, CastDailyCheckout, CastNote, Course, Customer,
+    CallLog, CallNote, Cast, CastAdjustment, CastDailyCheckout, CastNote, Course, Customer,
     CastExpenseTemplate, CastExpenseTemplateHistory, Order, Room, StorePhoneNumber,
     ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SipReceptionDevice,
     SmsTemplate, Store, UserProfile,
@@ -393,6 +393,41 @@ class CtiWorkQueueTest(RoomankOpsSmokeTestBase):
         })
         self.assertEqual(calls[self.call_a.id]["customer_attention"]["flag"], Customer.Flag.ATTENTION)
         self.assertEqual(calls[self.call_a.id]["customer_attention"]["staff_memo"], "受付時に確認")
+
+    def test_context_includes_member_usage_and_phone_scoped_inquiry_memos(self):
+        self.customer.legacy_usage_history = "旧システム: 63回利用"
+        self.customer.save(update_fields=["legacy_usage_history"])
+        earlier = CallLog.objects.create(
+            store=self.store_a, contact_id="earlier-inquiry",
+            from_phone=self.customer.phone, to_phone="", status=CallLog.Status.DONE,
+            customer=self.customer,
+        )
+        CallNote.objects.create(call=earlier, author=self.manager_a, body="希望時間が埋まっていたため折り返し")
+
+        response = self.client_as(self.manager_a).get(
+            f"/api/op/cti/calls/{self.call_a.id}/context/"
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        history = response.data["customer_history"]
+        self.assertEqual(history["legacy_usage_history"], "旧システム: 63回利用")
+        self.assertEqual(history["inquiries"][0]["notes"], ["希望時間が埋まっていたため折り返し"])
+
+    def test_context_keeps_inquiry_memos_for_new_callers_without_member_history(self):
+        earlier = CallLog.objects.create(
+            store=self.store_b, contact_id="new-caller-inquiry",
+            from_phone=self.call_b.from_phone, to_phone="", status=CallLog.Status.DONE,
+        )
+        CallNote.objects.create(call=earlier, author=self.manager_a, body="後ほど空き枠を確認予定")
+
+        response = self.client_as(self.manager_a).get(
+            f"/api/op/cti/calls/{self.call_b.id}/context/"
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        history = response.data["customer_history"]
+        self.assertEqual(history["legacy_usage_history"], "")
+        self.assertEqual(history["inquiries"][0]["notes"], ["後ほど空き枠を確認予定"])
 
     def test_never_discloses_another_store_call_or_its_customer_context(self):
         response = self.client_as(self.manager_b).get(self.endpoint)
