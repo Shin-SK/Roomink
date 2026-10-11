@@ -742,14 +742,6 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["store"]
 
     def validate(self, data):
-        if (
-            "room" in self.initial_data
-            and self.initial_data.get("room") not in (None, "")
-            and not self.context.get("allow_direct_room", False)
-        ):
-            raise serializers.ValidationError({
-                "room": "部屋は直接指定できません。割当エリアを指定してください。"
-            })
         # store は read_only のため新規作成時は data に載らない。
         # ViewSet / 週次入力から context 経由で受け取り、重複チェックを店舗内に限定する。
         store = (
@@ -1156,9 +1148,12 @@ class CastShiftRequestBulkItemSerializer(serializers.Serializer):
     end_time = serializers.TimeField()
     end_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
     memo = serializers.CharField(required=False, allow_blank=True)
+    # 旧クライアントからの部屋指定を明示的に検知して拒否する。
+    # 通常の希望シフトでは部屋を指定せず、運営がエリアと実部屋を判断する。
+    desired_room = serializers.IntegerField(required=False, write_only=True)
 
     def validate(self, data):
-        if "desired_room" in self.initial_data:
+        if "desired_room" in data:
             raise serializers.ValidationError({
                 "desired_room": "部屋は指定できません。希望エリアは運営が設定します。"
             })

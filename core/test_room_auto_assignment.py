@@ -109,14 +109,16 @@ class RoomOptionalTest(TestCase):
         self.assertEqual(response.data["room"], self.shibuya.id)
         self.assertTrue(response.data["room_auto_assigned"])
 
-    def test_direct_room_selection_is_rejected(self):
+    def test_legacy_direct_room_selection_is_preserved(self):
         response = self.client.post(
             "/api/shifts/",
             self.shift_payload(room=self.shinjuku.id),
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["room"], self.shinjuku.id)
+        self.assertFalse(response.data["room_auto_assigned"])
 
     def test_weekly_input_auto_assigns_by_preferred_area(self):
         response = self.client.post(
