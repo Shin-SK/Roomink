@@ -204,7 +204,7 @@ async function onDelete(r) {
               <tr v-for="r in rooms" :key="r.id">
                 <td>
                   <div>{{ r.name }}</div>
-                  <div v-if="r.address" class="small text-muted">{{ r.address }}</div>
+                  <div v-if="r.address" class="room-address small text-muted">{{ r.address }}</div>
                   <a
                     v-if="r.map_url"
                     :href="r.map_url"
@@ -316,5 +316,36 @@ async function onDelete(r) {
 <style scoped>
 .rooms-table {
   min-width: 620px;
+}
+
+@media (max-width: 575.98px) {
+  .rooms-table {
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .rooms-table th:nth-child(1),
+  .rooms-table td:nth-child(1) {
+    width: 47%;
+  }
+
+  .rooms-table th:nth-child(2),
+  .rooms-table td:nth-child(2) {
+    width: 27% !important;
+  }
+
+  .rooms-table th:nth-child(3),
+  .rooms-table td:nth-child(3) {
+    width: 14% !important;
+  }
+
+  .rooms-table th:nth-child(4),
+  .rooms-table td:nth-child(4) {
+    width: 12% !important;
+  }
+
+  .room-address {
+    display: none;
+  }
 }
 </style>
