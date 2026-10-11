@@ -7501,22 +7501,33 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
                 continue
             code = msg.get("text", "").strip().upper()
 
+            source_type = source.get("type", "")
+            source_recipient_id = {
+                Store.LineOperationsRecipientType.USER: source.get("userId", ""),
+                Store.LineOperationsRecipientType.GROUP: source.get("groupId", ""),
+                Store.LineOperationsRecipientType.ROOM: source.get("roomId", ""),
+            }.get(source_type, "")
+
+            # 通知先として登録済みのトークでは、通常会話を連携コードとして扱わない。
+            # 返信も行わず、通知専用のトークとして静かに受け流す。
+            if (
+                store
+                and source_recipient_id
+                and source_type == store.line_operations_recipient_type
+                and source_recipient_id == store.line_operations_recipient_id
+            ):
+                continue
+
             # 運営通知先の使い切りコード。store別webhookでのみ受け付ける。
             if store and code == store.line_operations_link_code:
-                source_type = source.get("type", "")
-                recipient_id = {
-                    Store.LineOperationsRecipientType.USER: source.get("userId", ""),
-                    Store.LineOperationsRecipientType.GROUP: source.get("groupId", ""),
-                    Store.LineOperationsRecipientType.ROOM: source.get("roomId", ""),
-                }.get(source_type, "")
-                if not recipient_id:
+                if not source_recipient_id:
                     _line_reply(
                         channel_token,
                         reply_token,
                         "このトークは運営通知先として登録できませんでした。",
                     )
                     continue
-                store.line_operations_recipient_id = recipient_id
+                store.line_operations_recipient_id = source_recipient_id
                 store.line_operations_recipient_type = source_type
                 store.line_operations_linked_at = timezone.now()
                 store.line_operations_link_code = generate_line_operations_link_code()
@@ -7536,8 +7547,7 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
             # 既に別 Cast に連携済みの LINE userId か
             existing = Cast.objects.filter(line_user_id=line_user_id).first()
             if existing:
-                _line_reply(channel_token, reply_token,
-                            f"既に {existing.name} さんとして連携済みです。\n再連携が必要な場合は管理者にお問い合わせください。")
+                # 連携済みのキャストの通常会話は、無効なコード等を返さず受け流す。
                 continue
 
             # コード照合 — store 指定がある場合はその store のキャストのみ

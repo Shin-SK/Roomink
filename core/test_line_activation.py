@@ -195,6 +195,56 @@ class LineWebhookBeforeStartTest(TestCase):
         reply.assert_not_called()
 
 
+class LinkedCastLineWebhookTest(TestCase):
+    def setUp(self):
+        self.store = Store.objects.create(
+            name="連携済みキャスト店舗",
+            slug="linked-cast-line-webhook",
+            line_is_enabled=True,
+            line_channel_secret="test-secret",
+            line_channel_access_token="test-token",
+            line_setup_completed_at=timezone.now(),
+            line_started_at=timezone.now(),
+        )
+        self.cast = Cast.objects.create(
+            store=self.store,
+            name="連携済みキャスト",
+            line_user_id="U-linked-cast",
+            line_linked_at=timezone.now(),
+        )
+
+    @patch("core.views._line_reply")
+    def test_linked_cast_message_is_ignored(self, reply):
+        body = {
+            "events": [
+                {
+                    "type": "message",
+                    "replyToken": "reply-token",
+                    "source": {"type": "user", "userId": self.cast.line_user_id},
+                    "message": {"type": "text", "text": "普通の会話です"},
+                },
+            ],
+        }
+        raw_body = json.dumps(body).encode("utf-8")
+        digest = hmac.new(
+            self.store.line_channel_secret.encode("utf-8"),
+            raw_body,
+            hashlib.sha256,
+        ).digest()
+        signature = base64.b64encode(digest).decode("utf-8")
+
+        response = APIClient().generic(
+            "POST",
+            f"/api/webhook/line/{self.store.line_webhook_token}/",
+            raw_body,
+            content_type="application/json",
+            HTTP_X_LINE_SIGNATURE=signature,
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        reply.assert_not_called()
+
+
 class LineReminderActivationGateTest(TestCase):
     @patch(
         "core.management.commands.send_line_reminders.send_shift_end_line_alerts",
