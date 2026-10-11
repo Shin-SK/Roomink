@@ -60,3 +60,22 @@ class CustomerDuplicateValidationTest(TestCase):
 
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(Customer.objects.filter(store=other_store).count(), 1)
+
+    def test_phone_search_finds_a_customer_beyond_the_first_page(self):
+        Customer.objects.bulk_create([
+            Customer(store=self.store, phone=f"080000{index:05d}")
+            for index in range(250)
+        ])
+        target = Customer.objects.create(
+            store=self.store,
+            phone="09012345678",
+            display_name="ページ外顧客",
+        )
+
+        response = self.client.get("/api/customers/?phone=09012345678")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            [customer["id"] for customer in response.data["results"]],
+            [target.id],
+        )
