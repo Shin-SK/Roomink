@@ -92,7 +92,7 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
     </Pressable>;
   }
 
-  return <SafeAreaView style={styles.safe}>
+  return <SafeAreaView style={styles.safe}><View style={styles.screen}>
     <View style={styles.topBar}>
       <View style={styles.topSide}>{detail && section === 'calls' ? <Pressable onPress={() => setSelectedCall(null)} style={styles.backButton} accessibilityLabel="通話一覧に戻る"><Text style={styles.backArrow}>‹</Text></Pressable> : null}</View>
       <Image source={require('../../assets/brand-mark.png')} style={styles.mark} accessibilityLabel="Roomink" />
@@ -117,11 +117,11 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
       <Text style={styles.description}>折り返しは店舗の受付回線から行ってください。</Text>
     </ScrollView> : <FlatList data={rows} keyExtractor={(call) => String(call.id)} renderItem={renderRow} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent} ListHeaderComponent={header} ListEmptyComponent={<Text style={styles.empty}>{missedOnly && !missedLoaded ? '不在着信を読み込み中…' : missedOnly ? '不在着信はありません' : '通話はまだありません'}</Text>} ListFooterComponent={hasMore ? <Pressable onPress={() => onLoadMore?.(missedOnly)} disabled={loadingMore} style={styles.loadMore}><Text style={styles.filterText}>{loadingMore ? '読み込み中…' : '過去の通話を読み込む'}</Text></Pressable> : null} onEndReached={() => { if (hasMore && !loadingMore) onLoadMore?.(missedOnly); }} onEndReachedThreshold={0.4} initialNumToRender={18} maxToRenderPerBatch={20} windowSize={7} />}
     <View style={styles.tabBar}><Pressable onPress={() => { setSection('calls'); setSelectedCall(null); }} style={styles.tab} accessibilityLabel="通話"><ClockIcon color={section === 'calls' ? palette.accent : palette.muted} /><Text style={[styles.tabText, section === 'calls' && styles.tabTextActive]}>通話</Text></Pressable><Pressable onPress={() => { setSection('settings'); setSelectedCall(null); }} style={styles.tab} accessibilityLabel="設定"><Text style={[styles.gear, section === 'settings' && styles.gearActive]}>⚙</Text><Text style={[styles.tabText, section === 'settings' && styles.tabTextActive]}>設定</Text></Pressable></View>
-  </SafeAreaView>;
+  </View></SafeAreaView>;
 }
 
 function makeStyles(c: typeof palettes.light) { return StyleSheet.create({
-  safe: { flex: 1, backgroundColor: c.bg }, topBar: { height: 55, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: c.border }, topSide: { width: 80 }, mark: { width: 29, height: 29 }, topAction: { color: c.accent, fontSize: 13, fontWeight: '700', textAlign: 'right' }, backButton: { width: 44, height: 44, justifyContent: 'center' }, backArrow: { color: c.accent, fontSize: 32, lineHeight: 38 },
+  safe: { flex: 1, backgroundColor: c.surface }, screen: { flex: 1, backgroundColor: c.bg }, topBar: { height: 55, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: c.border }, topSide: { width: 80 }, mark: { width: 29, height: 29 }, topAction: { color: c.accent, fontSize: 13, fontWeight: '700', textAlign: 'right' }, backButton: { width: 44, height: 44, justifyContent: 'center' }, backArrow: { color: c.accent, fontSize: 32, lineHeight: 38 },
   listContent: { paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }, content: { padding: 18, paddingBottom: 36, gap: 13 }, preview: { color: c.caution, backgroundColor: c.cautionBg, borderRadius: 8, padding: 9, fontSize: 11, marginVertical: 9 }, error: { color: c.red, padding: 10, backgroundColor: c.cautionBg, borderRadius: 8 },
   segment: { flexDirection: 'row', alignSelf: 'flex-start', padding: 3, backgroundColor: c.surface, borderRadius: 10, marginVertical: 10 }, segmentButton: { paddingVertical: 7, paddingHorizontal: 16, borderRadius: 8 }, segmentActive: { backgroundColor: c.accentBg }, segmentText: { color: c.muted, fontWeight: '700' }, segmentTextActive: { color: c.accent },
   filterTrigger: { alignSelf: 'flex-start', paddingVertical: 8, marginBottom: 4 }, filterText: { color: c.accent, fontSize: 12, fontWeight: '700' }, filters: { gap: 7, paddingBottom: 8 }, filterPill: { padding: 9, backgroundColor: c.surface, borderRadius: 20 },
