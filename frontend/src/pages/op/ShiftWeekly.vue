@@ -11,12 +11,13 @@ const rowErrors = ref([])
 
 const casts = ref([])
 const rooms = ref([])
+const areas = computed(() => [...new Set(rooms.value.map(r => (r.area_name || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja')))
 const selectedCast = ref('')
 const weekStart = ref(mondayOf(new Date()))
 const days = ref([])
 
 // 一括反映用（全曜日にまとめて入れる）
-const bulk = ref({ start_time: '18:00', end_time: '23:00', room: '' })
+const bulk = ref({ start_time: '18:00', end_time: '23:00', area_name: '' })
 
 const WEEKDAYS = ['月', '火', '水', '木', '金', '土', '日']
 
@@ -58,7 +59,7 @@ function emptyDays() {
       enabled: false,
       start_time: '18:00',
       end_time: '23:00',
-      room: '',
+      area_name: '',
       daily_memo: '',
       existing_shifts: [],
     })
@@ -106,7 +107,7 @@ function applyBulk() {
     d.enabled = true
     d.start_time = bulk.value.start_time
     d.end_time = bulk.value.end_time
-    d.room = bulk.value.room
+    d.area_name = bulk.value.area_name
   })
 }
 
@@ -152,7 +153,7 @@ async function onSubmit() {
         start_day_offset: normalizedStart.dayOffset,
         end_time: normalizedEnd.time,
         end_day_offset: normalizedEnd.dayOffset,
-        room: d.room ? Number(d.room) : null,
+        area_name: d.area_name,
         daily_memo: d.daily_memo,
       })
     } catch (e) {
@@ -273,10 +274,10 @@ onMounted(async () => {
               />
             </div>
             <div class="col-8 col-md-4">
-              <label class="form-label small">部屋</label>
-              <select v-model="bulk.room" class="form-select form-select-sm">
-                <option value="">自動選択</option>
-                <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}{{ r.area_name ? `（${r.area_name}）` : '' }}</option>
+              <label class="form-label small">割当エリア</label>
+              <select v-model="bulk.area_name" class="form-select form-select-sm">
+                <option value="">希望エリア順で自動割当</option>
+                <option v-for="area in areas" :key="area" :value="area">{{ area }}</option>
               </select>
             </div>
             <div class="col-4 col-md-2">
@@ -348,10 +349,10 @@ onMounted(async () => {
                   <div class="form-text">開始・終了とも翌朝は24:00〜29:00</div>
                 </div>
                 <div class="col-12 col-md-3">
-                  <label class="form-label small mb-1">部屋</label>
-                  <select v-model="d.room" class="form-select form-select-sm">
-                    <option value="">自動選択（希望エリア優先）</option>
-                    <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}{{ r.area_name ? `（${r.area_name}）` : '' }}</option>
+                  <label class="form-label small mb-1">割当エリア</label>
+                  <select v-model="d.area_name" class="form-select form-select-sm">
+                    <option value="">希望エリア順で自動割当</option>
+                    <option v-for="area in areas" :key="area" :value="area">{{ area }}</option>
                   </select>
                 </div>
                 <div class="col-12 col-md-5">

@@ -8,6 +8,7 @@ const error = ref('')
 const shifts = ref([])
 const casts = ref([])
 const rooms = ref([])
+const areas = computed(() => [...new Set(rooms.value.map(r => (r.area_name || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja')))
 
 const today = new Date().toISOString().slice(0, 10)
 
@@ -41,7 +42,7 @@ const filteredCasts = computed(() => {
 })
 
 function emptyForm() {
-  return { date: today, cast: '', room: '', start_time: '', end_time: '', daily_memo: '', is_absent: false }
+  return { date: today, cast: '', area_name: '', start_time: '', end_time: '', daily_memo: '', is_absent: false }
 }
 
 async function loadMasters() {
@@ -155,7 +156,7 @@ function openEdit(s) {
   form.value = {
     date: s.date,
     cast: s.cast,
-    room: s.room,
+    area_name: rooms.value.find(room => room.id === s.room)?.area_name || '',
     start_time: s.start_time_extended || s.start_time?.slice(0, 5) || '',
     end_time: s.end_time_extended || s.end_time?.slice(0, 5) || '',
     daily_memo: s.daily_memo || '',
@@ -183,7 +184,7 @@ async function onSave() {
     const body = {
       date: form.value.date,
       cast: Number(form.value.cast),
-      room: form.value.room ? Number(form.value.room) : null,
+      area_name: form.value.area_name,
       start_time: start.time,
       start_day_offset: start.dayOffset,
       end_time: end.time,
@@ -608,14 +609,12 @@ async function onClearClockIn(s) {
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">部屋（任意）</label>
-              <select v-model="form.room" class="form-select">
-                <option value="">未定（後から割り当て）</option>
-                <option v-for="r in rooms" :key="r.id" :value="r.id">
-                  {{ r.name }}{{ r.area_name ? `（${r.area_name}）` : '' }}
-                </option>
+              <label class="form-label">割当エリア</label>
+              <select v-model="form.area_name" class="form-select">
+                <option value="">希望エリア順で自動割当</option>
+                <option v-for="area in areas" :key="area" :value="area">{{ area }}</option>
               </select>
-              <div class="form-text">未選択でもシフトを保存できます。必要になった時点で後から部屋を割り当ててください。</div>
+              <div class="form-text">部屋名は選びません。希望エリア内に空きがなければ未割当として保存します。</div>
             </div>
             <div class="row">
               <div class="col-6 mb-3">

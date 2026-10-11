@@ -6,7 +6,6 @@ import { api } from '../../api.js'
 const loading = ref(true)
 const error = ref('')
 const requests = ref([])
-const rooms = ref([])
 
 const showForm = ref(false)
 const form = ref(emptyForm())
@@ -20,7 +19,6 @@ function emptyForm() {
   return {
     week_start: formatLocalDate(today),
     days: buildSevenDays(today),
-    desired_room: '',
     memo: '',
   }
 }
@@ -110,15 +108,7 @@ async function load() {
   }
 }
 
-onMounted(async () => {
-  try {
-    const r = await api.getRooms()
-    rooms.value = Array.isArray(r) ? r : []
-  } catch (e) {
-    error.value = e.message
-  }
-  await load()
-})
+onMounted(load)
 
 function openCreate() {
   form.value = emptyForm()
@@ -178,7 +168,6 @@ async function onSave() {
       items,
       memo: form.value.memo,
     }
-    if (form.value.desired_room) body.desired_room = Number(form.value.desired_room)
     await api.createCastShiftRequestsBulk(body)
     showForm.value = false
     await load()
@@ -238,9 +227,6 @@ function formatDateTime(s) {
               <span class="badge" :class="statusClass[r.status]">{{ statusLabel[r.status] }}</span>
             </div>
             <div class="small text-muted mb-1">申請日時: {{ formatDateTime(r.created_at) }}</div>
-            <div v-if="r.desired_room_name" class="small text-muted mb-1">
-              <i class="ti ti-door"></i> 希望: {{ r.desired_room_name }}
-            </div>
             <div v-if="r.status === 'APPROVED'" class="small bg-success bg-opacity-10 p-2 rounded mb-2">
               <div class="fw-bold mb-1"><i class="ti ti-check"></i> 承認内容</div>
               <template v-if="r.approved_date">
@@ -338,13 +324,9 @@ function formatDateTime(s) {
                   </div>
                 </div>
                 <div v-if="selectedDays.length" class="form-text mb-3">翌朝の終了時間は24:00〜29:00から選択できます。</div>
-                <div class="mb-3">
-                  <label class="form-label">希望部屋（任意）</label>
-                  <select v-model="form.desired_room" class="form-select">
-                    <option value="">指定なし</option>
-                    <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
-                  </select>
-                </div>
+                <p class="small text-muted mb-3">
+                  出勤場所は、登録済みの希望エリアと空室状況をもとに運営が調整します。部屋の指定はできません。
+                </p>
                 <div class="mb-3">
                   <label class="form-label">メモ（任意）</label>
                   <textarea v-model="form.memo" class="form-control" rows="2"></textarea>

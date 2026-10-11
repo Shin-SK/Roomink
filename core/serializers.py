@@ -63,6 +63,7 @@ from .services.order_availability import (
     cast_has_unavailable_time_conflict,
     find_covering_shift,
 )
+from .services.room_assignment import suggest_room_for_shift
 from .services.order_policy import (
     can_modify_business_datetime,
     can_modify_order,
@@ -733,6 +734,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
     end_time_extended = serializers.SerializerMethodField()
     assigned_order_count = serializers.SerializerMethodField()
     room_auto_assigned = serializers.SerializerMethodField()
+    area_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = ShiftAssignment
@@ -740,6 +742,14 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["store"]
 
     def validate(self, data):
+        if (
+            "room" in self.initial_data
+            and self.initial_data.get("room") not in (None, "")
+            and not self.context.get("allow_direct_room", False)
+        ):
+            raise serializers.ValidationError({
+                "room": "部屋は直接指定できません。割当エリアを指定してください。"
+            })
         # store は read_only のため新規作成時は data に載らない。
         # ViewSet / 週次入力から context 経由で受け取り、重複チェックを店舗内に限定する。
         store = (
@@ -776,7 +786,12 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             except BusinessDateTimeError as exc:
                 raise serializers.ValidationError(str(exc)) from exc
 
+        area_selected = bool((data.get("area_name") or "").strip())
         room = data.get("room", getattr(self.instance, "room", None))
+        if area_selected:
+            # An area selection replaces any historical concrete-room choice.
+            room = None
+            data["room"] = None
         # シフトはルーム未定のまま登録できる。ルームを実在の「フリー」部屋へ
         # 置き換えると、予約・空室判定・売上集計に誤った部屋情報が混ざるため、
         # 未選択時は NULL をそのまま保持する。
@@ -787,6 +802,23 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("他店舗のルームは指定できません")
 
         if store and cast and date and start_at and end_at:
+            # Normal scheduling is area-based.  A concrete room is chosen only
+            # after an area is known, and never from an unrequested area.
+            # Existing assignments may still retain their historical room.
+            if room is None and (self.instance is None or area_selected):
+                suggested_room = suggest_room_for_shift(
+                    store,
+                    cast,
+                    date,
+                    start_time,
+                    end_time,
+                    end_day_offset=end_day_offset,
+                    area_name=data.get("area_name"),
+                )
+                if suggested_room is not None:
+                    data["room"] = suggested_room
+                    room = suggested_room
+                    self._room_auto_assigned = True
             qs = ShiftAssignment.objects.filter(
                 store=store,
                 cast=cast,
@@ -844,6 +876,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         return format_extended_time(obj.start_time, obj.start_day_offset)
 
     def create(self, validated_data):
+        validated_data.pop("area_name", None)
         with transaction.atomic():
             instance = super().create(validated_data)
             instance._room_auto_assigned = bool(
@@ -860,6 +893,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             return instance
 
     def update(self, instance, validated_data):
+        validated_data.pop("area_name", None)
         instance = super().update(instance, validated_data)
         instance._room_auto_assigned = bool(
             getattr(self, "_room_auto_assigned", False)
@@ -1041,6 +1075,10 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
         return obj.decided_by.get_full_name() or obj.decided_by.username
 
     def validate(self, data):
+        if "desired_room" in self.initial_data:
+            raise serializers.ValidationError({
+                "desired_room": "部屋は指定できません。希望エリアは運営が設定します。"
+            })
         request = self.context.get("request")
         start_time = data.get("start_time", getattr(self.instance, "start_time", None))
         end_time = data.get("end_time", getattr(self.instance, "end_time", None))
@@ -1117,12 +1155,14 @@ class CastShiftRequestBulkItemSerializer(serializers.Serializer):
     start_time = serializers.TimeField()
     end_time = serializers.TimeField()
     end_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
-    desired_room = serializers.PrimaryKeyRelatedField(
-        queryset=Room.objects.all(),
-        required=False,
-        allow_null=True,
-    )
     memo = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, data):
+        if "desired_room" in self.initial_data:
+            raise serializers.ValidationError({
+                "desired_room": "部屋は指定できません。希望エリアは運営が設定します。"
+            })
+        return data
 
 
 class CastShiftRequestBulkCreateSerializer(serializers.Serializer):
@@ -1136,11 +1176,6 @@ class CastShiftRequestBulkCreateSerializer(serializers.Serializer):
     start_time = serializers.TimeField(required=False)
     end_time = serializers.TimeField(required=False)
     end_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
-    desired_room = serializers.PrimaryKeyRelatedField(
-        queryset=Room.objects.all(),
-        required=False,
-        allow_null=True,
-    )
     memo = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_dates(self, dates):
@@ -1149,6 +1184,10 @@ class CastShiftRequestBulkCreateSerializer(serializers.Serializer):
         return sorted(dates)
 
     def validate(self, data):
+        if "desired_room" in self.initial_data:
+            raise serializers.ValidationError({
+                "desired_room": "部屋は指定できません。希望エリアは運営が設定します。"
+            })
         dates = data.get("dates")
         items = data.get("items")
         if bool(dates) == bool(items):

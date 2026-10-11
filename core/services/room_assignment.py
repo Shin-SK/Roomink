@@ -19,6 +19,15 @@ def _preferred_area_rank(cast, room):
     return None
 
 
+def preferred_area_names(cast):
+    """Return a cast's configured areas in priority order."""
+    return [
+        (getattr(cast, f"preferred_area_{rank}", "") or "").strip()
+        for rank in range(1, 6)
+        if (getattr(cast, f"preferred_area_{rank}", "") or "").strip()
+    ]
+
+
 def suggest_room_for_shift(
     store,
     cast,
@@ -28,8 +37,15 @@ def suggest_room_for_shift(
     start_day_offset=0,
     end_day_offset=0,
     exclude_shift_id=None,
+    area_name=None,
 ):
-    """空室の中からキャストの希望エリア順位を優先して1室選ぶ。"""
+    """Pick an available room only from an explicitly permitted area.
+
+    A shift must never silently spill into an unrequested area.  With an
+    ``area_name`` the operator has made an explicit area choice; otherwise
+    the cast's ranked preferred areas define the permitted set.  ``None``
+    means that an operator must make the next decision.
+    """
     start_at, end_at = build_business_interval(
         date,
         start_time,
@@ -74,6 +90,23 @@ def suggest_room_for_shift(
             blocked_room_ids.add(shift.room_id)
 
     available = [room for room in rooms if room.id not in blocked_room_ids]
+    if not available:
+        return None
+
+    requested_area = (area_name or "").strip().casefold()
+    if requested_area:
+        available = [
+            room for room in available
+            if (room.area_name or "").strip().casefold() == requested_area
+        ]
+    else:
+        preferred_areas = {area.casefold() for area in preferred_area_names(cast)}
+        if not preferred_areas:
+            return None
+        available = [
+            room for room in available
+            if (room.area_name or "").strip().casefold() in preferred_areas
+        ]
     if not available:
         return None
 

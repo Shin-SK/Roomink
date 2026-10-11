@@ -39,7 +39,6 @@ class ShiftRequestBulkCreateTest(TestCase):
             "start_time": "18:00",
             "end_time": "05:00",
             "end_day_offset": 1,
-            "desired_room": self.room.id,
             "memo": "同じ内容でまとめて申請",
         }
         payload.update(overrides)
@@ -72,7 +71,7 @@ class ShiftRequestBulkCreateTest(TestCase):
                 start_time=time(18, 0),
                 end_time=time(5, 0),
                 end_day_offset=1,
-                desired_room=self.room,
+                desired_room=None,
                 memo="同じ内容でまとめて申請",
             ).exists()
         )
@@ -108,13 +107,10 @@ class ShiftRequestBulkCreateTest(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(ShiftRequest.objects.count(), 1)
 
-    def test_room_from_another_store_is_rejected_without_creating_rows(self):
-        other_store = Store.objects.create(name="別店舗")
-        other_room = Room.objects.create(store=other_store, name="201")
-
+    def test_room_selection_is_rejected_without_creating_rows(self):
         response = self.client.post(
             "/api/cast/shift-requests/bulk-create/",
-            self.payload(desired_room=other_room.id),
+            self.payload(desired_room=self.room.id),
             format="json",
         )
 
@@ -163,13 +159,27 @@ class ShiftRequestBulkCreateTest(TestCase):
                 "start_time": "18:00",
                 "end_time": "23:00",
                 "end_day_offset": 0,
-                "desired_room": self.room.id,
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(ShiftRequest.objects.count(), 1)
+
+    def test_single_date_room_selection_is_rejected(self):
+        response = self.client.post(
+            "/api/cast/shift-requests/",
+            {
+                "date": self.start_date.isoformat(),
+                "start_time": "18:00",
+                "end_time": "23:00",
+                "desired_room": self.room.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(ShiftRequest.objects.count(), 0)
 
     def test_cast_can_submit_seven_days_with_individual_times(self):
         items = [
@@ -184,7 +194,7 @@ class ShiftRequestBulkCreateTest(TestCase):
 
         response = self.client.post(
             "/api/cast/shift-requests/bulk-create/",
-            {"items": items, "desired_room": self.room.id, "memo": "週次提出"},
+            {"items": items, "memo": "週次提出"},
             format="json",
         )
 

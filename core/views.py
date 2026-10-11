@@ -4420,9 +4420,6 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
                     "end_day_offset": item.get("end_day_offset", 0),
                     "memo": item.get("memo", data["memo"]),
                 }
-                desired_room = item.get("desired_room", data.get("desired_room"))
-                if desired_room is not None:
-                    request_data["desired_room"] = desired_room.pk
                 request_items.append(request_data)
         else:
             common_data = {
@@ -4431,8 +4428,6 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
                 "end_day_offset": data["end_day_offset"],
                 "memo": data["memo"],
             }
-            if data.get("desired_room") is not None:
-                common_data["desired_room"] = data["desired_room"].pk
             request_items = [
                 {"date": request_date, **common_data}
                 for request_date in data["dates"]
@@ -4483,13 +4478,14 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
 def _apply_shift_request_approval(
     obj,
     store,
-    room,
+    area_name,
     date,
     start_time,
     end_time,
     end_day_offset,
     admin_memo,
     user,
+    room=None,
 ):
     """ShiftRequest承認の共通処理（ShiftAssignment作成 + ShiftRequestの承認内容/履歴保存）。
     OpShiftRequestViewSet.approve() と シフト申請CSV戻し承認(import_apply) の両方から呼ばれる。
@@ -4499,13 +4495,21 @@ def _apply_shift_request_approval(
     sa_data = {
         "date": date,
         "cast": obj.cast_id,
-        "room": room.id if room else None,
         "start_time": start_time,
         "start_day_offset": 0,
         "end_time": end_time,
         "end_day_offset": end_day_offset,
     }
-    sa_serializer = ShiftAssignmentSerializer(data=sa_data, context={"store": store})
+    if room is not None:
+        # Existing CSV approvals retain their already-reviewed concrete room.
+        # New UI flows do not send this field.
+        sa_data["room"] = room.id
+    else:
+        sa_data["area_name"] = area_name
+    sa_serializer = ShiftAssignmentSerializer(
+        data=sa_data,
+        context={"store": store, "allow_direct_room": room is not None},
+    )
     if not sa_serializer.is_valid():
         messages = []
         for field, errs in sa_serializer.errors.items():
@@ -4579,16 +4583,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        room_id = request.data.get("room")
-        room = None
-        if room_id:
-            try:
-                room = Room.objects.get(pk=room_id, store=store)
-            except Room.DoesNotExist:
-                return Response(
-                    {"detail": "指定された部屋が見つかりません"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        area_name = request.data.get("area_name", "")
 
         admin_memo = request.data.get("admin_memo", "")
 
@@ -4600,7 +4595,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         ok, err = _apply_shift_request_approval(
             obj,
             store,
-            room,
+            area_name,
             date,
             start_time,
             end_time,
@@ -4913,13 +4908,14 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 )
 
                 ok, err = _apply_shift_request_approval(
-                    obj, store, room,
+                    obj, store, room.area_name if room else "",
                     row_for_validation["approved_date"],
                     row_for_validation["approved_start_time"],
                     end_t,
                     end_day_offset,
                     row_for_validation["admin_memo"],
                     request.user,
+                    room=room,
                 )
                 if not ok:
                     validated["can_apply"] = False
