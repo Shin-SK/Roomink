@@ -270,6 +270,10 @@ export const api = {
   createRoom: (body) => request('POST', '/rooms/', body),
   updateRoom: (id, body) => request('PATCH', `/rooms/${id}/`, body),
   deleteRoom: (id) => request('DELETE', `/rooms/${id}/`),
+  getAreas: () => listRequest('GET', '/areas/?limit=200'),
+  createArea: (body) => request('POST', '/areas/', body),
+  updateArea: (id, body) => request('PATCH', `/areas/${id}/`, body),
+  deleteArea: (id) => request('DELETE', `/areas/${id}/`),
 
   // Extensions
   getExtensions: () => listRequest('GET', '/extensions/?limit=200'),

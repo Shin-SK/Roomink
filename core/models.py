@@ -1,5 +1,6 @@
 import secrets
 import string
+import unicodedata
 import uuid
 
 from django.conf import settings
@@ -216,6 +217,45 @@ class StoreSlugAlias(models.Model):
         return f"{self.slug} -> {self.store.slug}"
 
 
+def normalize_area_name(value):
+    """Stable comparison key for a store's area master names."""
+    return unicodedata.normalize("NFKC", value or "").strip().casefold()
+
+
+class Area(models.Model):
+    """A store-owned area label used by rooms, casts and shift allocation."""
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="areas")
+    name = models.CharField(max_length=50)
+    normalized_name = models.CharField(max_length=100, editable=False)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("store", "normalized_name"),
+                name="core_area_store_normalized_name_unique",
+            ),
+        ]
+        ordering = ("sort_order", "name", "id")
+
+    def clean(self):
+        self.name = (self.name or "").strip()
+        self.normalized_name = normalize_area_name(self.name)
+        if not self.normalized_name:
+            raise ValidationError({"name": "エリア名を入力してください。"})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
 class Room(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="rooms")
     name = models.CharField(max_length=50)
@@ -238,6 +278,14 @@ class Room(models.Model):
     )
     sort_order = models.PositiveSmallIntegerField(default=0)
     background_color = models.CharField(max_length=7, blank=True, default="", help_text="HEX形式 例: #fde2e4")
+    area = models.ForeignKey(
+        Area,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="rooms",
+        help_text="店舗のエリアマスタから選択する。",
+    )
     area_name = models.CharField(
         max_length=50, blank=True, default="",
         help_text="エリアタグ（例: 新宿・池袋・渋谷・五反田）。空欄可＝未設定扱い。",
@@ -287,6 +335,28 @@ class Cast(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class CastAreaPreference(models.Model):
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="area_preferences")
+    area = models.ForeignKey(Area, on_delete=models.PROTECT, related_name="cast_preferences")
+    rank = models.PositiveSmallIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("cast", "rank"), name="core_cast_area_preference_rank_unique"),
+            models.UniqueConstraint(fields=("cast", "area"), name="core_cast_area_preference_area_unique"),
+        ]
+        ordering = ("rank", "id")
+
+    def clean(self):
+        if self.rank not in range(1, 6):
+            raise ValidationError({"rank": "希望順位は1〜5で指定してください。"})
+        if self.area_id and self.cast_id and self.area.store_id != self.cast.store_id:
+            raise ValidationError({"area": "キャストと同じ店舗のエリアを指定してください。"})
+
+    def __str__(self):
+        return f"{self.cast} / {self.rank}: {self.area}"
 
 
 class Customer(models.Model):
@@ -341,6 +411,14 @@ class ShiftAssignment(models.Model):
         on_delete=models.CASCADE,
         related_name="shift_assignments",
         help_text="未定のまま登録し、必要になった時点で割り当てる",
+    )
+    requested_area = models.ForeignKey(
+        Area,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="shift_assignments",
+        help_text="運営が指定した割当希望エリア。空欄はキャスト希望順で判定する。",
     )
     start_time = models.TimeField()
     start_day_offset = models.PositiveSmallIntegerField(

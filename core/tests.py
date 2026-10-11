@@ -37,7 +37,7 @@ from twilio.request_validator import RequestValidator
 
 from core.models import (
     CallLog, CallNote, Cast, CastAdjustment, CastDailyCheckout, CastNote, Course, Customer,
-    CastExpenseTemplate, CastExpenseTemplateHistory, Order, Room, StorePhoneNumber,
+    Area, CastExpenseTemplate, CastExpenseTemplateHistory, Order, Room, StorePhoneNumber,
     ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SipReceptionDevice,
     SmsTemplate, Store, UserProfile,
 )
@@ -77,8 +77,10 @@ class RoomankOpsSmokeTestBase(TestCase):
         self.cast_user_a, self.cast_a = make_cast(self.store_a, "smoke_cast_a", "スモークキャストA")
         self.cast_user_b, self.cast_b = make_cast(self.store_b, "smoke_cast_b", "スモークキャストB")
 
-        self.room_shinjuku = Room.objects.create(store=self.store_a, name="101号室", area_name="新宿")
-        self.room_ikebukuro = Room.objects.create(store=self.store_a, name="201号室", area_name="池袋")
+        self.area_shinjuku = Area.objects.create(store=self.store_a, name="新宿")
+        self.area_ikebukuro = Area.objects.create(store=self.store_a, name="池袋")
+        self.room_shinjuku = Room.objects.create(store=self.store_a, name="101号室", area=self.area_shinjuku)
+        self.room_ikebukuro = Room.objects.create(store=self.store_a, name="201号室", area=self.area_ikebukuro)
         self.room_noarea = Room.objects.create(store=self.store_a, name="301号室")  # 未設定エリア
 
         self.course = Course.objects.create(store=self.store_a, name="スモークコース60分", duration=60, price=10000)
@@ -1051,15 +1053,18 @@ class TwilioWebhookSignatureTest(RoomankOpsSmokeTestBase):
 class AreaSalesDashboardSmokeTest(RoomankOpsSmokeTestBase):
     """1. エリアタグ付き売上集計"""
 
-    def test_room_area_name_editable_via_api(self):
+    def test_room_area_is_selected_from_area_master_via_api(self):
         client = self.client_as(self.manager_a)
-        res = client.patch(f"/api/rooms/{self.room_noarea.id}/", {"area_name": "五反田"}, format="json")
+        created = client.post("/api/areas/", {"name": "五反田"}, format="json")
+        self.assertEqual(created.status_code, 201, created.data)
+        res = client.patch(f"/api/rooms/{self.room_noarea.id}/", {"area": created.data["id"]}, format="json")
         self.assertEqual(res.status_code, 200)
         self.room_noarea.refresh_from_db()
-        self.assertEqual(self.room_noarea.area_name, "五反田")
+        self.assertEqual(self.room_noarea.area_id, created.data["id"])
+        self.assertEqual(res.data["area_name"], "五反田")
 
         # 空欄に戻せる（未設定扱い）ことも確認
-        res = client.patch(f"/api/rooms/{self.room_noarea.id}/", {"area_name": ""}, format="json")
+        res = client.patch(f"/api/rooms/{self.room_noarea.id}/", {"area": None}, format="json")
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()["area_name"], "")
 

@@ -5,7 +5,9 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from core.models import (
+    Area,
     Cast,
+    CastAreaPreference,
     Course,
     Customer,
     Order,
@@ -24,11 +26,13 @@ User = get_user_model()
 class RoomOptionalTest(TestCase):
     def setUp(self):
         self.store = Store.objects.create(name="自動割当店舗", timezone="Asia/Tokyo")
+        self.shibuya_area = Area.objects.create(store=self.store, name="渋谷")
+        self.shinjuku_area = Area.objects.create(store=self.store, name="新宿")
         self.shibuya = Room.objects.create(
-            store=self.store, name="渋谷101", area_name="渋谷", sort_order=1,
+            store=self.store, name="渋谷101", area=self.shibuya_area, sort_order=1,
         )
         self.shinjuku = Room.objects.create(
-            store=self.store, name="新宿201", area_name="新宿", sort_order=2,
+            store=self.store, name="新宿201", area=self.shinjuku_area, sort_order=2,
         )
         self.fallback = Room.objects.create(
             store=self.store, name="その他301", area_name="", sort_order=0,
@@ -36,9 +40,9 @@ class RoomOptionalTest(TestCase):
         self.cast = Cast.objects.create(
             store=self.store,
             name="希望ありキャスト",
-            preferred_area_1="新宿",
-            preferred_area_2="渋谷",
         )
+        CastAreaPreference.objects.create(cast=self.cast, area=self.shinjuku_area, rank=1)
+        CastAreaPreference.objects.create(cast=self.cast, area=self.shibuya_area, rank=2)
         self.other_cast = Cast.objects.create(store=self.store, name="別キャスト")
         self.manager = User.objects.create_user("room_auto_manager", password="pass")
         UserProfile.objects.create(
@@ -101,7 +105,7 @@ class RoomOptionalTest(TestCase):
     def test_area_selection_assigns_an_available_room_in_that_area(self):
         response = self.client.post(
             "/api/shifts/",
-            self.shift_payload(area_name="渋谷"),
+            self.shift_payload(requested_area=self.shibuya_area.id),
             format="json",
         )
 

@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
+from drf_spectacular.utils import extend_schema_field
 
 from .utils.phone import normalize_phone
 from django.contrib.auth import get_user_model
@@ -15,9 +16,11 @@ from .security import validate_password_for_role
 from .store_access import get_request_profile
 
 from .models import (
+    Area,
     CallLog,
     CallNote,
     Cast,
+    CastAreaPreference,
     CastUnavailableTime,
     CastAck,
     CastAdjustment,
@@ -47,6 +50,7 @@ from .models import (
     StoreMembership,
     StorePhoneNumber,
     UserProfile,
+    normalize_area_name,
 )
 from .services.business_datetime import (
     BusinessDateTimeError,
@@ -99,10 +103,63 @@ class StoreSerializer(serializers.ModelSerializer):
 
 
 class RoomSerializer(serializers.ModelSerializer):
+    area = serializers.PrimaryKeyRelatedField(
+        queryset=Area.objects.all(), required=False, allow_null=True,
+    )
+    area_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Room
         fields = "__all__"
         read_only_fields = ["store"]
+
+    def validate_area(self, area):
+        store = getattr(self.instance, "store", None) or self.context.get("store")
+        if area is not None and (store is None or area.store_id != store.id):
+            raise serializers.ValidationError("他店舗のエリアは指定できません。")
+        if area is not None and not area.is_active:
+            raise serializers.ValidationError("無効なエリアは指定できません。")
+        return area
+
+    @extend_schema_field(serializers.CharField())
+    def get_area_name(self, obj):
+        return obj.area.name if obj.area_id else ""
+
+
+class AreaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Area
+        fields = ["id", "store", "name", "is_active", "sort_order", "created_at", "updated_at"]
+        read_only_fields = ["store", "created_at", "updated_at"]
+
+    def validate_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("エリア名を入力してください。")
+        return value
+
+    def validate(self, attrs):
+        store = getattr(self.instance, "store", None) or self.context.get("store")
+        name = attrs.get("name", getattr(self.instance, "name", ""))
+        duplicate_qs = Area.objects.filter(
+            store=store,
+            normalized_name=normalize_area_name(name),
+        )
+        if self.instance:
+            duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+        if duplicate_qs.exists():
+            raise serializers.ValidationError({"name": "このエリア名は既に登録されています。"})
+        if attrs.get("is_active") is False and self.instance:
+            used = (
+                self.instance.rooms.exists()
+                or self.instance.cast_preferences.exists()
+                or self.instance.shift_assignments.exists()
+            )
+            if used:
+                raise serializers.ValidationError({
+                    "is_active": "部屋・希望エリア・シフトで使用中のエリアは無効化できません。先に紐づけ先を変更してください。"
+                })
+        return attrs
 
 
 class CastExpenseTemplateInputSerializer(serializers.Serializer):
@@ -120,13 +177,20 @@ class CastSerializer(serializers.ModelSerializer):
         required=False,
         write_only=True,
     )
-
-    preferred_area_fields = tuple(f"preferred_area_{rank}" for rank in range(1, 6))
+    preferred_areas = serializers.SerializerMethodField()
+    preferred_area_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False, write_only=True,
+        max_length=5,
+    )
 
     class Meta:
         model = Cast
         fields = "__all__"
-        read_only_fields = ["store", "line_user_id", "line_linked_at"]
+        read_only_fields = [
+            "store", "line_user_id", "line_linked_at",
+            "preferred_area_1", "preferred_area_2", "preferred_area_3",
+            "preferred_area_4", "preferred_area_5",
+        ]
 
     def get_line_linked(self, obj) -> bool:
         return obj.line_user_id is not None
@@ -137,9 +201,32 @@ class CastSerializer(serializers.ModelSerializer):
     def get_account_username(self, obj) -> str:
         return obj.user.username if obj.user_id else ""
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_preferred_areas(self, obj):
+        return [
+            {"id": item.area_id, "name": item.area.name, "rank": item.rank}
+            for item in obj.area_preferences.select_related("area").all()
+        ]
+
+    def _validate_preferred_area_ids(self, area_ids, store):
+        if len(area_ids) != len(set(area_ids)):
+            raise serializers.ValidationError({"preferred_area_ids": "同じエリアを複数の順位へ登録することはできません。"})
+        areas = list(Area.objects.filter(id__in=area_ids, store=store, is_active=True))
+        if len(areas) != len(area_ids):
+            raise serializers.ValidationError({"preferred_area_ids": "同じ店舗の有効なエリアだけを指定してください。"})
+        return areas
+
+    def _replace_area_preferences(self, cast, area_ids):
+        CastAreaPreference.objects.filter(cast=cast).delete()
+        CastAreaPreference.objects.bulk_create([
+            CastAreaPreference(cast=cast, area_id=area_id, rank=rank)
+            for rank, area_id in enumerate(area_ids, start=1)
+        ])
+
     @transaction.atomic
     def create(self, validated_data):
         expense_templates = validated_data.pop("expense_templates", [])
+        area_ids = validated_data.pop("preferred_area_ids", None)
         cast = super().create(validated_data)
         request = self.context.get("request")
         edited_by = getattr(request, "user", None)
@@ -160,7 +247,17 @@ class CastSerializer(serializers.ModelSerializer):
                 action=CastExpenseTemplateHistory.Action.CREATE,
                 edited_by=edited_by,
             )
+        if area_ids is not None:
+            self._replace_area_preferences(cast, area_ids)
 
+        return cast
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        area_ids = validated_data.pop("preferred_area_ids", None)
+        cast = super().update(instance, validated_data)
+        if area_ids is not None:
+            self._replace_area_preferences(cast, area_ids)
         return cast
 
     def validate(self, attrs):
@@ -169,39 +266,14 @@ class CastSerializer(serializers.ModelSerializer):
         elif "option_fullback_enabled" in attrs:
             attrs["option_back_rate"] = 100 if attrs["option_fullback_enabled"] else 0
 
-        submitted_fields = [
-            field for field in self.preferred_area_fields
-            if field in self.initial_data
-        ]
-        if submitted_fields:
+        if "preferred_area_ids" in self.initial_data:
             request = self.context.get("request")
             profile = get_request_profile(request)
             if profile is None or profile.role != UserProfile.Role.MANAGER:
                 raise PermissionDenied("希望エリアを変更できるのはマネージャーのみです。")
-
-        blank_rank_found = False
-        normalized_seen = set()
-        for rank, field in enumerate(self.preferred_area_fields, start=1):
-            current_value = getattr(self.instance, field, "") if self.instance else ""
-            value = attrs.get(field, current_value)
-            value = (value or "").strip()
-            if field in attrs:
-                attrs[field] = value
-
-            if not value:
-                blank_rank_found = True
-                continue
-            if blank_rank_found:
-                raise serializers.ValidationError({
-                    field: f"第{rank}希望の前に空いている順位があります。第1希望から順に入力してください。",
-                })
-
-            normalized = value.casefold()
-            if normalized in normalized_seen:
-                raise serializers.ValidationError({
-                    field: "同じエリアを複数の順位へ登録することはできません。",
-                })
-            normalized_seen.add(normalized)
+        if "preferred_area_ids" in attrs:
+            store = getattr(self.instance, "store", None) or self.context.get("store")
+            self._validate_preferred_area_ids(attrs["preferred_area_ids"], store)
 
         return attrs
 
@@ -734,7 +806,10 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
     end_time_extended = serializers.SerializerMethodField()
     assigned_order_count = serializers.SerializerMethodField()
     room_auto_assigned = serializers.SerializerMethodField()
-    area_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    requested_area = serializers.PrimaryKeyRelatedField(
+        queryset=Area.objects.all(), required=False, allow_null=True,
+    )
+    requested_area_name = serializers.CharField(source="requested_area.name", read_only=True, default="")
 
     class Meta:
         model = ShiftAssignment
@@ -778,7 +853,8 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             except BusinessDateTimeError as exc:
                 raise serializers.ValidationError(str(exc)) from exc
 
-        area_selected = bool((data.get("area_name") or "").strip())
+        area_selected = "requested_area" in data and data.get("requested_area") is not None
+        requested_area = data.get("requested_area", getattr(self.instance, "requested_area", None))
         room = data.get("room", getattr(self.instance, "room", None))
         if area_selected:
             # An area selection replaces any historical concrete-room choice.
@@ -792,6 +868,10 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("他店舗のキャストは指定できません")
             if room is not None and room.store_id != store.id:
                 raise serializers.ValidationError("他店舗のルームは指定できません")
+            if requested_area is not None and requested_area.store_id != store.id:
+                raise serializers.ValidationError("他店舗のエリアは指定できません")
+            if requested_area is not None and not requested_area.is_active:
+                raise serializers.ValidationError("無効なエリアは指定できません")
 
         if store and cast and date and start_at and end_at:
             # Normal scheduling is area-based.  A concrete room is chosen only
@@ -805,7 +885,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                     start_time,
                     end_time,
                     end_day_offset=end_day_offset,
-                    area_name=data.get("area_name"),
+                    area=requested_area,
                 )
                 if suggested_room is not None:
                     data["room"] = suggested_room
@@ -868,7 +948,6 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         return format_extended_time(obj.start_time, obj.start_day_offset)
 
     def create(self, validated_data):
-        validated_data.pop("area_name", None)
         with transaction.atomic():
             instance = super().create(validated_data)
             instance._room_auto_assigned = bool(
@@ -885,7 +964,6 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             return instance
 
     def update(self, instance, validated_data):
-        validated_data.pop("area_name", None)
         instance = super().update(instance, validated_data)
         instance._room_auto_assigned = bool(
             getattr(self, "_room_auto_assigned", False)

@@ -8,7 +8,7 @@ from .models import (
     CallLog, CallLogReadReceipt, CallNote, Cast, CastCheckoutExpenseSnapshot, CastDailyCheckout,
     CastExpense, CastExpenseTemplate,
     CastExpenseTemplateHistory, CastNote, Course, Customer, CustomerAccountInvitation, CustomerMergeLog,
-    DailySettlement, LineNotificationLog, Option, Order, OrderServiceRecipientLinkLog, PointLog, PublicBookingVerification, Room,
+    Area, DailySettlement, LineNotificationLog, Option, Order, OrderServiceRecipientLinkLog, PointLog, PublicBookingVerification, Room,
     ShiftAssignment, ShiftConfirmNotificationLog, ShiftEndAlert, ShiftRequest, SmsLog, SmsTemplate, Store, StoreSlugAlias,
     StorePhoneNumber, SupportConversation, SupportMessage, UserProfile,
     SystemAnnouncement, SystemAnnouncementReadReceipt,
@@ -55,8 +55,15 @@ class StoreSlugAliasAdmin(admin.ModelAdmin):
 
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):
-    list_display = ("id", "store", "name", "address", "sort_order")
+    list_display = ("id", "store", "name", "area", "address", "sort_order")
     list_filter = ("store",)
+
+
+@admin.register(Area)
+class AreaAdmin(admin.ModelAdmin):
+    list_display = ("id", "store", "name", "is_active", "sort_order")
+    list_filter = ("store", "is_active")
+    search_fields = ("name",)
 
 
 @admin.register(Cast)
@@ -68,11 +75,7 @@ class CastAdmin(admin.ModelAdmin):
 
     @admin.display(description="希望エリア")
     def preferred_areas_display(self, obj):
-        values = [
-            getattr(obj, f"preferred_area_{rank}")
-            for rank in range(1, 6)
-            if getattr(obj, f"preferred_area_{rank}")
-        ]
+        values = [item.area.name for item in obj.area_preferences.select_related("area").all()]
         return " ＞ ".join(values) or "-"
 
     def line_unlink_button(self, obj):

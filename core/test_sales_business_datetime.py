@@ -9,6 +9,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from core.models import (
+    Area,
     Cast,
     Course,
     Customer,
@@ -40,10 +41,11 @@ class SalesBusinessDateTimeTest(TestCase):
             name="深夜キャスト",
             course_back_rate=50,
         )
+        self.area = Area.objects.create(store=self.store, name="深夜エリア")
         self.room = Room.objects.create(
             store=self.store,
             name="101",
-            area_name="深夜エリア",
+            area=self.area,
         )
         self.customer = Customer.objects.create(
             store=self.store,

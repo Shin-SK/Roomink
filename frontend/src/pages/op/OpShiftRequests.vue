@@ -9,8 +9,7 @@ const isManager = computed(() => getAuthRole() === 'manager')
 const loading = ref(true)
 const error = ref('')
 const requests = ref([])
-const rooms = ref([])
-const areas = computed(() => [...new Set(rooms.value.map(r => (r.area_name || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja')))
+const areas = ref([])
 
 const filterStatus = ref('REQUESTED')
 const viewMode = ref('list')
@@ -34,9 +33,9 @@ const groupedByCast = computed(() => {
   return Object.keys(map).sort().map((key) => ({ key, items: map[key] }))
 })
 
-async function loadRooms() {
-  const r = await api.getRooms()
-  rooms.value = Array.isArray(r) ? r : []
+async function loadAreas() {
+  const a = await api.getAreas()
+  areas.value = Array.isArray(a) ? a.filter(area => area.is_active) : []
 }
 
 async function load() {
@@ -54,7 +53,7 @@ async function load() {
 }
 
 onMounted(async () => {
-  try { await loadRooms() } catch (e) { error.value = e.message }
+  try { await loadAreas() } catch (e) { error.value = e.message }
   await load()
 })
 
@@ -116,7 +115,7 @@ async function doApprove() {
       date: approveDate.value,
       start_time: approveStartTime.value,
       ...normalizedEnd,
-      area_name: approveArea.value,
+      requested_area: approveArea.value || null,
       admin_memo: approveAdminMemo.value,
     })
     showApprove.value = false
@@ -516,7 +515,7 @@ async function doApply() {
               <label class="form-label">割当エリア</label>
               <select v-model="approveArea" class="form-select">
                 <option value="">希望エリア順で自動割当</option>
-                <option v-for="area in areas" :key="area" :value="area">{{ area }}</option>
+                <option v-for="area in areas" :key="area.id" :value="area.id">{{ area.name }}</option>
               </select>
               <div class="form-text">空きがない場合は部屋を自動で変更せず、未割当として運営が判断します。</div>
             </div>

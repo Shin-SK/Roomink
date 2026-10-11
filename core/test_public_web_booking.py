@@ -9,6 +9,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from core.models import (
+    Area,
     Cast,
     Course,
     Customer,
@@ -45,11 +46,12 @@ class PublicWebBookingTest(TestCase):
             name="公開予約キャスト",
             interval_minutes=15,
         )
+        self.area = Area.objects.create(store=self.store, name="新宿")
         self.room = Room.objects.create(
             store=self.store,
             name="101",
             address="東京都新宿区テスト1-2-3",
-            area_name="新宿",
+            area=self.area,
         )
         self.course = Course.objects.create(
             store=self.store,

@@ -43,6 +43,7 @@ from .store_access import (
 from .membership_views import audit_membership, require_manager
 
 from .models import (
+    Area,
     StoreMembership, StoreInvitation,
     CallLog, CallLogReadReceipt, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
     CastUnavailableTime,
@@ -85,6 +86,7 @@ from .serializers import (
     CastNoteSerializer,
     CastNoteCastSerializer,
     CastSerializer,
+    AreaSerializer,
     CastAccountProvisionSerializer,
     CastUnavailableTimeSerializer,
     PointLogSerializer,
@@ -2615,7 +2617,7 @@ class CustomerReservationDetailView(APIView):
 
 class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsManagerOrStaff]
-    queryset = ShiftAssignment.objects.select_related("cast", "room").order_by(
+    queryset = ShiftAssignment.objects.select_related("cast", "room", "requested_area").order_by(
         "date", "start_day_offset", "start_time",
     )
     serializer_class = ShiftAssignmentSerializer
@@ -3180,6 +3182,35 @@ class RoomViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AreaViewSet(viewsets.ModelViewSet):
+    """Store-owned area master. Only managers can mutate it."""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
+    queryset = Area.objects.order_by("sort_order", "name", "id")
+    serializer_class = AreaSerializer
+
+    def get_queryset(self):
+        return super().get_queryset().filter(store=get_user_store(self.request))
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.request.user.is_authenticated:
+            context["store"] = get_user_store(self.request)
+        return context
+
+    def perform_create(self, serializer):
+        serializer.save(store=get_user_store(self.request))
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.rooms.exists() or instance.cast_preferences.exists() or instance.shift_assignments.exists():
+            return Response(
+                {"detail": "部屋・希望エリア・シフトで使用中のエリアは削除できません。先に紐づけ先を変更してください。"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 class ExtensionViewSet(viewsets.ModelViewSet):
@@ -4478,7 +4509,7 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
 def _apply_shift_request_approval(
     obj,
     store,
-    area_name,
+    requested_area,
     date,
     start_time,
     end_time,
@@ -4505,7 +4536,7 @@ def _apply_shift_request_approval(
         # New UI flows do not send this field.
         sa_data["room"] = room.id
     else:
-        sa_data["area_name"] = area_name
+        sa_data["requested_area"] = requested_area.id if requested_area else None
     sa_serializer = ShiftAssignmentSerializer(
         data=sa_data,
         context={"store": store, "allow_direct_room": room is not None},
@@ -4583,7 +4614,14 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        area_name = request.data.get("area_name", "")
+        requested_area_id = request.data.get("requested_area")
+        requested_area = None
+        if requested_area_id not in (None, ""):
+            requested_area = Area.objects.filter(
+                pk=requested_area_id, store=store, is_active=True,
+            ).first()
+            if requested_area is None:
+                return Response({"detail": "同じ店舗の有効なエリアを指定してください"}, status=status.HTTP_400_BAD_REQUEST)
 
         admin_memo = request.data.get("admin_memo", "")
 
@@ -4595,7 +4633,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         ok, err = _apply_shift_request_approval(
             obj,
             store,
-            area_name,
+            requested_area,
             date,
             start_time,
             end_time,
@@ -4908,7 +4946,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 )
 
                 ok, err = _apply_shift_request_approval(
-                    obj, store, room.area_name if room else "",
+                    obj, store, room.area if room else None,
                     row_for_validation["approved_date"],
                     row_for_validation["approved_start_time"],
                     end_t,
@@ -8342,6 +8380,7 @@ class WeeklyShiftView(APIView):
                 "date": d.isoformat(),
                 "cast": cast.id,
                 "room": item.get("room"),
+                "requested_area": item.get("requested_area"),
                 "start_time": item.get("start_time"),
                 "start_day_offset": item.get("start_day_offset", 0),
                 "end_time": item.get("end_time"),

@@ -8,7 +8,7 @@ const error = ref('')
 const shifts = ref([])
 const casts = ref([])
 const rooms = ref([])
-const areas = computed(() => [...new Set(rooms.value.map(r => (r.area_name || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja')))
+const areas = ref([])
 
 const today = new Date().toISOString().slice(0, 10)
 
@@ -42,13 +42,14 @@ const filteredCasts = computed(() => {
 })
 
 function emptyForm() {
-  return { date: today, cast: '', area_name: '', start_time: '', end_time: '', daily_memo: '', is_absent: false }
+  return { date: today, cast: '', requested_area: '', start_time: '', end_time: '', daily_memo: '', is_absent: false }
 }
 
 async function loadMasters() {
-  const [c, r] = await Promise.all([api.getCasts(), api.getRooms()])
+  const [c, r, a] = await Promise.all([api.getCasts(), api.getRooms(), api.getAreas()])
   casts.value = Array.isArray(c) ? c : []
   rooms.value = Array.isArray(r) ? r : []
+  areas.value = Array.isArray(a) ? a.filter(area => area.is_active) : []
 }
 
 function buildParams() {
@@ -156,7 +157,7 @@ function openEdit(s) {
   form.value = {
     date: s.date,
     cast: s.cast,
-    area_name: rooms.value.find(room => room.id === s.room)?.area_name || '',
+    requested_area: s.requested_area || '',
     start_time: s.start_time_extended || s.start_time?.slice(0, 5) || '',
     end_time: s.end_time_extended || s.end_time?.slice(0, 5) || '',
     daily_memo: s.daily_memo || '',
@@ -184,7 +185,7 @@ async function onSave() {
     const body = {
       date: form.value.date,
       cast: Number(form.value.cast),
-      area_name: form.value.area_name,
+      requested_area: form.value.requested_area || null,
       start_time: start.time,
       start_day_offset: start.dayOffset,
       end_time: end.time,
@@ -610,9 +611,9 @@ async function onClearClockIn(s) {
             </div>
             <div class="mb-3">
               <label class="form-label">割当エリア</label>
-              <select v-model="form.area_name" class="form-select">
+              <select v-model="form.requested_area" class="form-select">
                 <option value="">希望エリア順で自動割当</option>
-                <option v-for="area in areas" :key="area" :value="area">{{ area }}</option>
+                <option v-for="area in areas" :key="area.id" :value="area.id">{{ area.name }}</option>
               </select>
               <div class="form-text">部屋名は選びません。希望エリア内に空きがなければ未割当として保存します。</div>
             </div>
