@@ -1264,6 +1264,10 @@ class CastTodayView(APIView):
             "shift": {
                 "date": shift.date.isoformat() if shift else None,
                 "start_time": str(shift.start_time)[:5] if shift else None,
+                "start_time_extended": (
+                    format_extended_time(shift.start_time, shift.start_day_offset)
+                    if shift else None
+                ),
                 "end_time": str(shift.end_time)[:5] if shift else None,
                 "end_time_extended": (
                     format_extended_time(shift.end_time, shift.end_day_offset)
@@ -5385,6 +5389,28 @@ def _cti_call_payload(call, *, include_attention=False):
             "customer_id": customer.pk if customer else None,
             "phone": call.from_phone,
         }
+        # Resolve this on the server from the persisted call context.  This
+        # keeps a CTI popup from ever reading another store's customer data.
+        history_calls = (
+            CallLog.objects.filter(store_id=call.store_id, from_phone=call.from_phone)
+            .exclude(pk=call.pk)
+            .prefetch_related("notes")
+            .order_by("-created_at", "-id")[:10]
+        )
+        payload["customer_history"] = {
+            # Migrated usage exists only when the caller is a matched member.
+            "legacy_usage_history": customer.legacy_usage_history if customer else "",
+            # Inquiry memos can predate customer registration, so match them
+            # to this incoming number inside the same store.
+            "inquiries": [
+                {
+                    "created_at": history_call.created_at,
+                    "notes": [note.body for note in history_call.notes.all() if note.body],
+                }
+                for history_call in history_calls
+                if history_call.notes.all()
+            ],
+        }
     return payload
 
 
@@ -7643,7 +7669,8 @@ class LineAlertsView(APIView):
         )
         unlinked = (
             Cast.objects
-            .filter(id__in=today_shift_cast_ids, line_user_id__isnull=True)
+            .filter(id__in=today_shift_cast_ids)
+            .filter(Q(line_user_id__isnull=True) | Q(line_user_id=""))
             .values("id", "name")
         )
         # 各 unlinked cast の最初のシフト時間を取得
@@ -7666,8 +7693,11 @@ class LineAlertsView(APIView):
             LineNotificationLog.objects
             .filter(
                 store=store,
-                shift_assignment__date=today,
                 status=LineNotificationLog.Status.FAILED,
+            )
+            .filter(
+                Q(shift_assignment__date=today)
+                | Q(order__start__date=today)
             )
             .select_related("cast")
             .order_by("-sent_at")[:20]

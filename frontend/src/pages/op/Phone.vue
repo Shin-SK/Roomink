@@ -1,8 +1,9 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import OrderForm from '../../components/OrderForm.vue'
+import { api, callApi } from '../../api.js'
 import { selectedStoreId } from '../../storeSelection.js'
 
 const router = useRouter()
@@ -14,14 +15,42 @@ const initialStartTime = ref(route.query.start || '15:00')
 const initialCast = ref(route.query.cast || '')
 const initialCustomerId = ref(route.query.customer || '')
 const isPopup = computed(() => route.query.popup === '1')
+const ctiCallId = computed(() => /^\d+$/.test(String(route.query.cti_call || '')) ? String(route.query.cti_call) : '')
+const ctiContext = ref(null)
+const ctiError = ref('')
+const ctiLoading = ref(Boolean(ctiCallId.value))
+const orderClient = computed(() => ctiCallId.value ? callApi(ctiCallId.value) : undefined)
 
-function onCreated({ order, startDate }) {
+onMounted(async () => {
+  if (!ctiCallId.value) return
+  try {
+    ctiContext.value = await api.getCtiCallContext(ctiCallId.value)
+    initialPhone.value = ctiContext.value.from_phone || ''
+    initialCustomerId.value = ctiContext.value.customer_id || ''
+    await callApi(ctiCallId.value).markSeen()
+  } catch (error) {
+    ctiError.value = error.message || '着信情報を読み込めませんでした。'
+  } finally {
+    ctiLoading.value = false
+  }
+})
+
+async function onCreated({ order, startDate, confirmationError }) {
+  if (ctiCallId.value) {
+    try {
+      await callApi(ctiCallId.value).done()
+    } catch (error) {
+      confirmationError = error.message || '予約は保存されましたが、受付を完了できませんでした。'
+    }
+  }
   if (isPopup.value && window.opener) {
     window.opener.postMessage({
-      type: 'roomink-order-created',
+      type: ctiCallId.value ? 'roomink-cti-order-created' : 'roomink-order-created',
       storeId: selectedStoreId(),
       order,
       startDate,
+      ctiCallId: ctiCallId.value,
+      confirmationError,
     }, window.location.origin)
     window.close()
     return
@@ -42,7 +71,7 @@ function onCancel() {
   <div v-if="isPopup" class="order-entry-popup">
     <header class="order-entry-popup__header">
       <div>
-        <div class="order-entry-popup__eyebrow">予約タイムラインから入力中</div>
+        <div class="order-entry-popup__eyebrow">{{ ctiCallId ? '着信から予約入力中' : '予約タイムラインから入力中' }}</div>
         <h1>予約作成</h1>
       </div>
       <button type="button" class="btn btn-outline-secondary btn-sm" @click="onCancel">
@@ -50,7 +79,12 @@ function onCancel() {
       </button>
     </header>
     <main class="order-entry-popup__body">
+      <div v-if="ctiLoading" class="alert alert-light" role="status">着信情報を読み込んでいます…</div>
+      <div v-else-if="ctiError" class="alert alert-danger" role="alert">{{ ctiError }}</div>
       <OrderForm
+        v-else
+        :api-client="orderClient"
+        :call-bound="Boolean(ctiCallId)"
         :initial-phone="initialPhone"
         :initial-date="initialDate"
         :initial-start-time="initialStartTime"

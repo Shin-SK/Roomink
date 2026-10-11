@@ -497,23 +497,11 @@ def notify_card_payment_confirmed(order: Order, created_by=None) -> SmsLog:
     )
 
 
-def notify_cast_order(order: Order, created_by=None) -> SmsLog:
-    """予約確定時にキャストへ通知"""
-    start, end = _local_order_datetimes(order)
-    body = (
-        f"【Roomink】予約通知\n"
-        f"日時: {start:%Y-%m-%d %H:%M}〜{end:%H:%M}\n"
-        f"コース: {order.course.name}\n"
-        f"ルーム: {order.room.name if order.room else '未定'}"
-    )
-    # キャストに電話番号がないため、仮に空文字で記録
-    return send_sms(
-        to_phone="cast",
-        body=body,
-        order=order,
-        template_type=SmsLog.TemplateType.CAST_NOTICE,
-        created_by=created_by,
-    )
+def notify_cast_order(order: Order, created_by=None):
+    """予約確定時に、開始済み店舗の公式LINEから担当キャスト個人へ通知する。"""
+    from core.services.line_notify import send_order_confirmation_push_once
+
+    return send_order_confirmation_push_once(order.pk)
 
 
 # ── high-level: 予約キャンセル ────────────────
