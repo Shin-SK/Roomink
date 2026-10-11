@@ -238,7 +238,18 @@ class CustomerSerializer(serializers.ModelSerializer):
         read_only_fields = ["store", "user"]
 
     def validate_phone(self, value):
-        return normalize_phone(value)
+        phone = normalize_phone(value)
+        store = self.context.get("store")
+        if (
+            store is not None
+            and Customer.objects.filter(store=store, phone=phone)
+            .exclude(pk=getattr(self.instance, "pk", None))
+            .exists()
+        ):
+            raise serializers.ValidationError(
+                "この電話番号は既に登録されています。既存顧客を選択してください。"
+            )
+        return phone
 
 
 class CourseSerializer(serializers.ModelSerializer):

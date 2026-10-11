@@ -16,6 +16,7 @@ const loading = ref(true)
 const error = ref('')
 
 const isNew = computed(() => props.id === 'new')
+const hasPhoneDuplicate = computed(() => createWarnings.value.some(w => w.reason === '電話番号一致'))
 
 // Edit / Create state
 const editing = ref(false)
@@ -349,7 +350,10 @@ function formatInvitationDate(value) {
 
             <!-- 新規作成時の重複警告 -->
             <div v-if="isNew && createWarnings.length" class="alert alert-warning py-2 px-3 mb-3" style="font-size: 0.85rem;">
-              <div class="fw-bold mb-1"><i class="ti ti-alert-triangle"></i> 既存顧客の可能性があります</div>
+              <div class="fw-bold mb-1">
+                <i class="ti ti-alert-triangle"></i>
+                {{ hasPhoneDuplicate ? 'この電話番号は既に登録されています' : '既存顧客の可能性があります' }}
+              </div>
               <div v-for="w in createWarnings" :key="w.id" class="d-flex align-items-center justify-content-between py-1 border-bottom">
                 <span>
                   {{ w.display_name || '—' }} ({{ w.phone }})
@@ -358,10 +362,12 @@ function formatInvitationDate(value) {
                   <small class="text-muted ms-1">{{ w.reason }}</small>
                 </span>
                 <router-link :to="`/op/customers/${w.id}`" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 0.75rem;">
-                  詳細
+                  既存顧客を開く
                 </router-link>
               </div>
-              <small class="text-muted mt-1 d-block">そのまま作成も可能です。</small>
+              <small class="text-muted mt-1 d-block">
+                {{ hasPhoneDuplicate ? '新規作成はできません。既存顧客を選択して予約を進めてください。' : '同名のお客様かどうかを確認してから作成してください。' }}
+              </small>
             </div>
 
             <div class="mb-3">
@@ -389,8 +395,8 @@ function formatInvitationDate(value) {
               <textarea v-model="form.staff_memo" class="form-control" rows="3" placeholder="運営のみが閲覧可能なメモ"></textarea>
             </div>
             <div class="d-flex gap-2">
-              <button type="submit" class="btn btn-primary" :disabled="saving">
-                {{ saving ? '保存中...' : (isNew ? '作成' : '保存') }}
+              <button type="submit" class="btn btn-primary" :disabled="saving || (isNew && hasPhoneDuplicate)">
+                {{ saving ? '保存中...' : (isNew && hasPhoneDuplicate ? '既存顧客を選択してください' : (isNew ? '作成' : '保存')) }}
               </button>
               <button type="button" class="btn btn-outline-secondary" @click="cancelEdit" :disabled="saving">
                 キャンセル

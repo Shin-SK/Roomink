@@ -16,7 +16,7 @@ from django.core.validators import validate_email, validate_slug
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, ProtectedError, Q, Sum
 from django.utils import timezone
 from django.utils.html import escape
@@ -2752,6 +2752,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
         store = get_user_store(self.request)
         return super().get_queryset().filter(store=store)
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["store"] = get_user_store(self.request)
+        return context
+
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
         customers_data = response.data
@@ -2789,7 +2794,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
         return response
 
     def perform_create(self, serializer):
-        serializer.save(store=get_user_store(self.request))
+        try:
+            serializer.save(store=get_user_store(self.request))
+        except IntegrityError as exc:
+            # A concurrent create can pass serializer validation before the
+            # database's unique constraint is checked. Never expose it as 500.
+            raise ValidationError({
+                "phone": "この電話番号は既に登録されています。既存顧客を選択してください。"
+            }) from exc
 
     @action(detail=False, methods=["get"], url_path="check-duplicate")
     def check_duplicate(self, request):
