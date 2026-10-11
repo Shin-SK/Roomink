@@ -1,10 +1,10 @@
 <script setup>
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { articlesForRole, MANUAL_CATEGORIES, MANUAL_ROLES } from './manualData.js'
-import { getAuthRole } from '../../router.js'
+import { getAuthIsSuperuser, getAuthRole } from '../../router.js'
 
 // ログイン中ユーザーの role に応じて表示記事を絞る（op画面なので未取得時はstaff扱い=最小権限）
-const role = getAuthRole() || 'staff'
+const role = getAuthIsSuperuser() ? 'superuser' : (getAuthRole() || 'staff')
 const articles = articlesForRole(role)
 
 // category ごとにグルーピング（MANUAL_CATEGORIES の順）
