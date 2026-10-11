@@ -9,14 +9,17 @@ from core.services.business_datetime import (
 
 
 def _preferred_area_rank(cast, room):
-    room_area = (room.area_name or "").strip().casefold()
-    if not room_area:
+    if not room.area_id:
         return None
-    for rank in range(1, 6):
-        preferred = (getattr(cast, f"preferred_area_{rank}", "") or "").strip().casefold()
-        if preferred and preferred == room_area:
-            return rank
+    for preference in cast.area_preferences.all():
+        if preference.area_id == room.area_id:
+            return preference.rank
     return None
+
+
+def preferred_area_ids(cast):
+    """Return a cast's configured area master IDs in priority order."""
+    return list(cast.area_preferences.values_list("area_id", flat=True))
 
 
 def suggest_room_for_shift(
@@ -28,8 +31,15 @@ def suggest_room_for_shift(
     start_day_offset=0,
     end_day_offset=0,
     exclude_shift_id=None,
+    area=None,
 ):
-    """空室の中からキャストの希望エリア順位を優先して1室選ぶ。"""
+    """Pick an available room only from an explicitly permitted area.
+
+    A shift must never silently spill into an unrequested area.  With an
+    ``area`` the operator has made an explicit area choice; otherwise
+    the cast's ranked preferred areas define the permitted set.  ``None``
+    means that an operator must make the next decision.
+    """
     start_at, end_at = build_business_interval(
         date,
         start_time,
@@ -38,7 +48,7 @@ def suggest_room_for_shift(
         end_day_offset=end_day_offset,
         timezone_name=store.timezone,
     )
-    rooms = list(Room.objects.filter(store=store).order_by("sort_order", "id"))
+    rooms = list(Room.objects.filter(store=store).select_related("area").order_by("sort_order", "id"))
     if not rooms:
         return None
 
@@ -74,6 +84,16 @@ def suggest_room_for_shift(
             blocked_room_ids.add(shift.room_id)
 
     available = [room for room in rooms if room.id not in blocked_room_ids]
+    if not available:
+        return None
+
+    if area is not None:
+        available = [room for room in available if room.area_id == area.id]
+    else:
+        preferred_areas = set(preferred_area_ids(cast))
+        if not preferred_areas:
+            return None
+        available = [room for room in available if room.area_id in preferred_areas]
     if not available:
         return None
 

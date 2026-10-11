@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { api as defaultApi } from '../api.js'
+import { api as defaultApi, normalizePhone } from '../api.js'
 
 const props = defineProps({
   apiClient: { type: Object, default: null },
@@ -85,19 +85,16 @@ const paymentMethods = [
 
 const castSearch = ref('')
 const customerSearch = ref('')
+const searchedCustomers = ref([])
+const searchingCustomers = ref(false)
+const customerSearchLoaded = ref(false)
+let customerSearchRequest = 0
 
-const normalizedQuery = computed(() =>
-  customerSearch.value.replace(/[-\s()]/g, '').trim()
-)
+const normalizedQuery = computed(() => normalizePhone(customerSearch.value))
 
 const filteredCustomers = computed(() => {
-  const q = normalizedQuery.value
-  if (!q) return []
-  return customers.value.filter(c => {
-    const phone = (c.phone || '').replace(/[-\s()]/g, '')
-    const name = c.display_name || ''
-    return phone.includes(q) || name.includes(customerSearch.value.trim())
-  }).slice(0, 20)
+  if (!customerSearch.value.trim()) return []
+  return searchedCustomers.value
 })
 
 const selectedCustomer = computed(() =>
@@ -114,7 +111,44 @@ const editCustomerLabel = computed(() => {
 const hasExactPhoneMatch = computed(() => {
   const q = normalizedQuery.value
   if (!q) return true
-  return customers.value.some(c => (c.phone || '').replace(/[-\s()]/g, '') === q)
+  return searchedCustomers.value.some(c => (c.phone || '').replace(/[-\s()]/g, '') === q)
+})
+
+watch(customerSearch, async (value) => {
+  const rawQuery = value.trim()
+  const phoneQuery = normalizePhone(rawQuery)
+  const query = phoneQuery || rawQuery
+  const requestId = ++customerSearchRequest
+  if (!query) {
+    searchedCustomers.value = []
+    searchingCustomers.value = false
+    customerSearchLoaded.value = false
+    return
+  }
+
+  searchingCustomers.value = true
+  customerSearchLoaded.value = false
+  try {
+    const data = phoneQuery.length >= 10 && api.searchCustomerByPhone
+      ? await api.searchCustomerByPhone(phoneQuery)
+      : api.searchCustomers
+        ? await api.searchCustomers(query)
+      : customers.value.filter(c => {
+        const phone = (c.phone || '').replace(/[-\s()]/g, '')
+        return phone.includes(phoneQuery) || (c.display_name || '').includes(rawQuery)
+      })
+    if (requestId === customerSearchRequest) {
+      searchedCustomers.value = Array.isArray(data) ? data : []
+      customerSearchLoaded.value = true
+    }
+  } catch (e) {
+    if (requestId === customerSearchRequest) {
+      searchedCustomers.value = []
+      errorMsg.value = e.message || '顧客を検索できませんでした。'
+    }
+  } finally {
+    if (requestId === customerSearchRequest) searchingCustomers.value = false
+  }
 })
 
 function selectCustomer(c) {
@@ -549,8 +583,11 @@ function formatYen(n) {
             >
 
             <div v-if="customerSearch.trim()" class="customer-results mt-2">
+              <div v-if="searchingCustomers" class="text-muted small py-2">
+                顧客を検索中です…
+              </div>
               <button
-                v-for="c in filteredCustomers"
+                v-for="c in searchingCustomers ? [] : filteredCustomers"
                 :key="c.id"
                 type="button"
                 class="customer-result-item"
@@ -563,12 +600,12 @@ function formatYen(n) {
                 </div>
                 <div class="text-muted small">{{ c.phone }}</div>
               </button>
-              <div v-if="filteredCustomers.length === 0" class="text-muted small py-2">
+              <div v-if="!searchingCustomers && customerSearchLoaded && filteredCustomers.length === 0" class="text-muted small py-2">
                 該当する顧客はいません
               </div>
             </div>
 
-            <div v-if="!callBound && customerSearch.trim() && !hasExactPhoneMatch" class="mt-3">
+            <div v-if="!callBound && customerSearchLoaded && normalizedQuery.length >= 10 && !hasExactPhoneMatch" class="mt-3">
               <router-link
                 :to="`/op/customers/new?phone=${encodeURIComponent(normalizedQuery)}&return=${encodeURIComponent('/op/phone?phone=' + normalizedQuery)}`"
                 class="btn btn-primary w-100"

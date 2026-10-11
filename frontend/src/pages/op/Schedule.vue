@@ -106,6 +106,9 @@ const orderRows = ref([])
 const orderLoading = ref(false)
 const orderSaving = ref(false)
 const orderError = ref('')
+const draggingOrderCastId = ref(null)
+const orderDropTargetCastId = ref(null)
+const orderDropPosition = ref('before')
 
 // 電話番号検索 → 顧客情報カード
 const phoneInput = ref('')
@@ -228,6 +231,7 @@ async function openOrderModal() {
 }
 
 function closeOrderModal() {
+  cancelOrderDrag()
   showOrderModal.value = false
 }
 
@@ -236,6 +240,66 @@ function moveRow(index, delta) {
   if (target < 0 || target >= orderRows.value.length) return
   const rows = orderRows.value
   ;[rows[index], rows[target]] = [rows[target], rows[index]]
+}
+
+function clearOrderDragState() {
+  draggingOrderCastId.value = null
+  orderDropTargetCastId.value = null
+  orderDropPosition.value = 'before'
+}
+
+function detachOrderDragListeners() {
+  window.removeEventListener('pointermove', updateOrderDrag)
+  window.removeEventListener('pointerup', finishOrderDrag)
+  window.removeEventListener('pointercancel', cancelOrderDrag)
+}
+
+function cancelOrderDrag() {
+  detachOrderDragListeners()
+  clearOrderDragState()
+}
+
+function startOrderDrag(event, row) {
+  if (orderSaving.value || event.pointerType === 'mouse' && event.button !== 0) return
+  event.preventDefault()
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+  draggingOrderCastId.value = row.cast_id
+  orderDropTargetCastId.value = row.cast_id
+  orderDropPosition.value = 'before'
+  window.addEventListener('pointermove', updateOrderDrag, { passive: false })
+  window.addEventListener('pointerup', finishOrderDrag)
+  window.addEventListener('pointercancel', cancelOrderDrag)
+}
+
+function updateOrderDrag(event) {
+  if (!draggingOrderCastId.value) return
+  event.preventDefault()
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-order-cast-id]')
+  if (!target) return
+  const targetCastId = Number(target.dataset.orderCastId)
+  if (!Number.isInteger(targetCastId)) return
+  const rect = target.getBoundingClientRect()
+  orderDropTargetCastId.value = targetCastId
+  orderDropPosition.value = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+function finishOrderDrag() {
+  if (!draggingOrderCastId.value) return
+  detachOrderDragListeners()
+  const movingCastId = draggingOrderCastId.value
+  const targetCastId = orderDropTargetCastId.value
+  const position = orderDropPosition.value
+  clearOrderDragState()
+  if (!targetCastId || movingCastId === targetCastId) return
+
+  const rows = orderRows.value
+  const movingIndex = rows.findIndex(row => row.cast_id === movingCastId)
+  const targetIndex = rows.findIndex(row => row.cast_id === targetCastId)
+  if (movingIndex < 0 || targetIndex < 0) return
+
+  const [movingRow] = rows.splice(movingIndex, 1)
+  const updatedTargetIndex = rows.findIndex(row => row.cast_id === targetCastId)
+  rows.splice(updatedTargetIndex + (position === 'after' ? 1 : 0), 0, movingRow)
 }
 
 async function saveOrder() {
@@ -471,6 +535,7 @@ onMounted(async () => {
   loadSchedule()
 })
 onBeforeUnmount(() => {
+  detachOrderDragListeners()
 })
 </script>
 
@@ -694,8 +759,27 @@ onBeforeUnmount(() => {
               この日の出勤セラピストはいません
             </div>
             <div v-else class="order-list">
-              <div v-for="(row, i) in orderRows" :key="row.cast_id" class="order-row">
+              <div
+                v-for="(row, i) in orderRows"
+                :key="row.cast_id"
+                class="order-row"
+                :data-order-cast-id="row.cast_id"
+                :class="{
+                  'order-row--dragging': draggingOrderCastId === row.cast_id,
+                  'order-row--drop-before': draggingOrderCastId && orderDropTargetCastId === row.cast_id && orderDropPosition === 'before',
+                  'order-row--drop-after': draggingOrderCastId && orderDropTargetCastId === row.cast_id && orderDropPosition === 'after',
+                }"
+              >
                 <span class="order-row__no">{{ i + 1 }}</span>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-light border order-row__drag-handle"
+                  title="ドラッグして移動"
+                  :aria-label="`${row.cast_name}をドラッグして移動`"
+                  :aria-grabbed="draggingOrderCastId === row.cast_id"
+                  :disabled="orderSaving"
+                  @pointerdown="startOrderDrag($event, row)"
+                ><i class="ti ti-grip-vertical"></i></button>
                 <div class="flex-grow-1">
                   <div class="fw-bold">{{ row.cast_name }}</div>
                   <div class="order-row__shifts">
@@ -787,6 +871,7 @@ onBeforeUnmount(() => {
 
 <style scoped lang="scss">
 .order-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -797,11 +882,37 @@ onBeforeUnmount(() => {
     border-bottom: none;
   }
 
+  &--dragging {
+    opacity: 0.45;
+  }
+
+  &--drop-before::before,
+  &--drop-after::after {
+    position: absolute;
+    right: 0;
+    left: 0;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--bs-primary);
+    content: '';
+  }
+
+  &--drop-before::before { top: -2px; }
+  &--drop-after::after { bottom: -2px; }
+
   &__no {
     width: 1.5rem;
     text-align: center;
     color: #888;
     font-size: 0.8rem;
+  }
+
+  &__drag-handle {
+    flex: 0 0 auto;
+    cursor: grab;
+    touch-action: none;
+
+    &:active { cursor: grabbing; }
   }
 
   &__shifts {

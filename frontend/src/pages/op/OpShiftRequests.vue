@@ -9,7 +9,7 @@ const isManager = computed(() => getAuthRole() === 'manager')
 const loading = ref(true)
 const error = ref('')
 const requests = ref([])
-const rooms = ref([])
+const areas = ref([])
 
 const filterStatus = ref('REQUESTED')
 const viewMode = ref('list')
@@ -33,9 +33,9 @@ const groupedByCast = computed(() => {
   return Object.keys(map).sort().map((key) => ({ key, items: map[key] }))
 })
 
-async function loadRooms() {
-  const r = await api.getRooms()
-  rooms.value = Array.isArray(r) ? r : []
+async function loadAreas() {
+  const a = await api.getAreas()
+  areas.value = Array.isArray(a) ? a.filter(area => area.is_active) : []
 }
 
 async function load() {
@@ -53,7 +53,7 @@ async function load() {
 }
 
 onMounted(async () => {
-  try { await loadRooms() } catch (e) { error.value = e.message }
+  try { await loadAreas() } catch (e) { error.value = e.message }
   await load()
 })
 
@@ -65,7 +65,7 @@ const approveTarget = ref(null)
 const approveDate = ref('')
 const approveStartTime = ref('')
 const approveEndTime = ref('')
-const approveRoom = ref('')
+const approveArea = ref('')
 const approveAdminMemo = ref('')
 const approveError = ref('')
 const approving = ref(false)
@@ -91,7 +91,7 @@ function openApprove(r) {
   approveDate.value = r.date || ''
   approveStartTime.value = r.start_time?.slice(0, 5) || ''
   approveEndTime.value = r.end_time_extended || r.end_time?.slice(0, 5) || ''
-  approveRoom.value = r.desired_room || ''
+  approveArea.value = ''
   approveAdminMemo.value = ''
   approveError.value = ''
   showApprove.value = true
@@ -115,7 +115,7 @@ async function doApprove() {
       date: approveDate.value,
       start_time: approveStartTime.value,
       ...normalizedEnd,
-      room: approveRoom.value ? Number(approveRoom.value) : null,
+      requested_area: approveArea.value || null,
       admin_memo: approveAdminMemo.value,
     })
     showApprove.value = false
@@ -307,7 +307,6 @@ async function doApply() {
               <td>
                 <div>{{ r.date }}</div>
                 <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time_extended || r.end_time?.slice(0,5) }}</div>
-                <div class="small text-muted">{{ r.desired_room_name || '-' }}</div>
               </td>
               <td>
                 <template v-if="r.status === 'APPROVED'">
@@ -369,7 +368,6 @@ async function doApply() {
                   <td>{{ r.cast_name }}</td>
                   <td>
                     <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time_extended || r.end_time?.slice(0,5) }}</div>
-                    <div class="small text-muted">{{ r.desired_room_name || '-' }}</div>
                   </td>
                   <td>
                     <template v-if="r.status === 'APPROVED'">
@@ -432,7 +430,6 @@ async function doApply() {
                   <td>
                     <div>{{ r.date }}</div>
                     <div class="small text-muted">{{ r.start_time?.slice(0,5) }}-{{ r.end_time_extended || r.end_time?.slice(0,5) }}</div>
-                    <div class="small text-muted">{{ r.desired_room_name || '-' }}</div>
                   </td>
                   <td>
                     <template v-if="r.status === 'APPROVED'">
@@ -515,12 +512,12 @@ async function doApply() {
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">部屋</label>
-              <select v-model="approveRoom" class="form-select">
-                <option value="">自動選択（希望エリア・空室優先）</option>
-                <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}{{ r.area_name ? `（${r.area_name}）` : '' }}</option>
+              <label class="form-label">割当エリア</label>
+              <select v-model="approveArea" class="form-select">
+                <option value="">希望エリア順で自動割当</option>
+                <option v-for="area in areas" :key="area.id" :value="area.id">{{ area.name }}</option>
               </select>
-              <div class="form-text">申請で希望ルームが選ばれている場合は初期表示へ反映されます。</div>
+              <div class="form-text">空きがない場合は部屋を自動で変更せず、未割当として運営が判断します。</div>
             </div>
             <div class="mb-3">
               <label class="form-label">管理者メモ（任意）</label>
@@ -619,7 +616,6 @@ async function doApply() {
                         <template v-if="r.original">
                           {{ r.original.cast_name }}<br>
                           {{ r.original.date }} {{ r.original.start_time }}-{{ r.original.end_time }}<br>
-                          <span class="text-muted">希望: {{ r.original.desired_room_name || '-' }}</span><br>
                           <span class="badge" :class="statusClass[r.original.status]">{{ r.original.status_display }}</span>
                         </template>
                         <span v-else class="text-muted">-</span>

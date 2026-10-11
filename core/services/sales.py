@@ -266,7 +266,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
         .annotate(sales=Sum("total_price"), orders=Count("id"))
         .order_by("-sales")
     )
-    rooms = {r.id: r for r in Room.objects.filter(pk__in=[r["room_id"] for r in room_rows])}
+    rooms = {r.id: r for r in Room.objects.filter(pk__in=[r["room_id"] for r in room_rows]).select_related("area")}
     by_room = []
     for row in room_rows:
         room = rooms.get(row["room_id"])
@@ -279,13 +279,13 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
             "sales": row["sales"] or 0,
         })
 
-    # エリア別（Room.area_name ベース。空欄は「未設定」扱い。給与見込みは含めない＝キャスト単位ではないため）
+    # エリア別（Area master ベース。未設定は「未設定」扱い。）
     area_map = {}
     for row in room_rows:
         room = rooms.get(row["room_id"])
         if room is None:
             continue
-        area_key = room.area_name or "未設定"
+        area_key = room.area.name if room.area_id else "未設定"
         entry = area_map.setdefault(area_key, {
             "area_name": area_key,
             "orders": 0,
@@ -304,7 +304,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
         room = rooms.get(row["room_id"])
         if room is None:
             continue
-        area_key = room.area_name or "未設定"
+        area_key = room.area.name if room.area_id else "未設定"
         entry = area_map.get(area_key)
         if entry is None:
             continue

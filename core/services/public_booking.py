@@ -54,7 +54,7 @@ def serialize_public_booking_options(store, business_date=None):
             store=store,
             date=business_date,
             is_absent=False,
-        ).select_related("room").order_by("start_time", "id")
+        ).select_related("room__area").order_by("start_time", "id")
         for shift in shifts:
             shifts_by_cast.setdefault(shift.cast_id, []).append(shift)
         cast_queryset = cast_queryset.filter(pk__in=shifts_by_cast)
@@ -65,7 +65,7 @@ def serialize_public_booking_options(store, business_date=None):
         for shift in shifts_by_cast.get(cast.id, []):
             shift_summaries.append({
                 "room_name": shift.room.name,
-                "area_name": shift.room.area_name or "その他",
+                "area_name": (shift.room.area.name if shift.room and shift.room.area_id else "その他"),
                 "start": shift.start_time.strftime("%H:%M"),
                 "end": (
                     f"{shift.end_time.hour + (24 * shift.end_day_offset):02d}"

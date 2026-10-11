@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { uploadToCloudinary } from '../../cloudinary.js'
@@ -8,11 +8,7 @@ import { generateTemporaryPassword } from '../../password.js'
 const loading = ref(true)
 const error = ref('')
 const casts = ref([])
-const rooms = ref([])
-const areaSuggestions = computed(() =>
-  [...new Set(rooms.value.map(room => (room.area_name || '').trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, 'ja'))
-)
+const areas = ref([])
 
 // Form
 const showForm = ref(false)
@@ -36,11 +32,7 @@ function emptyForm() {
     hp_url: '',
     introduction: '',
     staff_memo: '',
-    preferred_area_1: '',
-    preferred_area_2: '',
-    preferred_area_3: '',
-    preferred_area_4: '',
-    preferred_area_5: '',
+    preferred_area_ids: [],
     interval_minutes: 15,
     course_back_rate: 0,
     option_back_rate: 0,
@@ -60,17 +52,18 @@ async function loadCasts() {
   }
 }
 
-async function loadAreaSuggestions() {
+async function loadAreas() {
   try {
-    rooms.value = await api.getRooms()
+    const data = await api.getAreas()
+    areas.value = Array.isArray(data) ? data.filter(area => area.is_active) : []
   } catch {
-    rooms.value = []
+    areas.value = []
   }
 }
 
 onMounted(() => {
   loadCasts()
-  loadAreaSuggestions()
+  loadAreas()
 })
 
 function openCreate() {
@@ -98,11 +91,7 @@ function openEdit(c) {
     hp_url: c.hp_url || '',
     introduction: c.introduction || '',
     staff_memo: c.staff_memo || '',
-    preferred_area_1: c.preferred_area_1 || '',
-    preferred_area_2: c.preferred_area_2 || '',
-    preferred_area_3: c.preferred_area_3 || '',
-    preferred_area_4: c.preferred_area_4 || '',
-    preferred_area_5: c.preferred_area_5 || '',
+    preferred_area_ids: (c.preferred_areas || []).map(area => area.id),
     interval_minutes: c.interval_minutes ?? 15,
     course_back_rate: c.course_back_rate ?? 0,
     option_back_rate: c.option_back_rate ?? (c.option_fullback_enabled ? 100 : 0),
@@ -202,11 +191,7 @@ async function onSave() {
       hp_url: form.value.hp_url,
       introduction: form.value.introduction,
       staff_memo: form.value.staff_memo,
-      preferred_area_1: form.value.preferred_area_1,
-      preferred_area_2: form.value.preferred_area_2,
-      preferred_area_3: form.value.preferred_area_3,
-      preferred_area_4: form.value.preferred_area_4,
-      preferred_area_5: form.value.preferred_area_5,
+      preferred_area_ids: form.value.preferred_area_ids.filter(Boolean).map(Number),
       interval_minutes: Number(form.value.interval_minutes),
       course_back_rate: Number(form.value.course_back_rate),
       option_back_rate: Number(form.value.option_back_rate),
@@ -233,9 +218,17 @@ async function onSave() {
 }
 
 function preferredAreas(cast) {
-  return [1, 2, 3, 4, 5]
-    .map(rank => cast[`preferred_area_${rank}`])
-    .filter(Boolean)
+  return (cast.preferred_areas || []).map(area => area.name)
+}
+
+function updatePreferredArea(rank, value) {
+  const ids = [...form.value.preferred_area_ids]
+  ids[rank - 1] = value ? Number(value) : null
+  form.value.preferred_area_ids = ids.filter((id, index) => id || index < rank - 1)
+}
+
+function preferredAreaAt(rank) {
+  return form.value.preferred_area_ids[rank - 1] || ''
 }
 
 async function onDelete(c) {
@@ -624,20 +617,17 @@ async function toggleExpenseHistory() {
 
             <hr class="my-3">
             <h6 class="mb-1">希望エリア</h6>
-            <p class="small text-muted mb-3">第1希望から順に入力してください。ルームへ登録済みのエリア名が候補に表示されます。</p>
-            <datalist id="cast-area-options">
-              <option v-for="area in areaSuggestions" :key="area" :value="area"></option>
-            </datalist>
+            <p class="small text-muted mb-3">第1希望から順に、エリア管理で作成済みのエリアだけを選びます。</p>
             <div v-for="rank in 5" :key="rank" class="mb-2">
               <label class="form-label small">第{{ rank }}希望</label>
-              <input
-                v-model="form[`preferred_area_${rank}`]"
-                type="text"
-                class="form-control"
-                list="cast-area-options"
-                :placeholder="rank === 1 ? '例: 新宿' : '未設定'"
-                maxlength="50"
-              />
+              <select
+                :value="preferredAreaAt(rank)"
+                class="form-select"
+                @change="updatePreferredArea(rank, $event.target.value)"
+              >
+                <option value="">未設定</option>
+                <option v-for="area in areas" :key="area.id" :value="area.id" :disabled="form.preferred_area_ids.includes(area.id) && preferredAreaAt(rank) !== area.id">{{ area.name }}</option>
+              </select>
             </div>
 
             <hr class="my-3">

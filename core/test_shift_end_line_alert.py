@@ -212,6 +212,49 @@ class ShiftEndLineAlertTest(TestCase):
         self.assertNotEqual(self.store.line_operations_link_code, original_code)
         reply.assert_called_once()
 
+    @patch("core.views._line_reply")
+    def test_registered_operations_group_messages_are_ignored(self, reply):
+        self.store.line_operations_recipient_id = "C-registered-operations-group"
+        self.store.line_operations_recipient_type = Store.LineOperationsRecipientType.GROUP
+        self.store.line_operations_linked_at = timezone.now()
+        self.store.save(update_fields=[
+            "line_operations_recipient_id",
+            "line_operations_recipient_type",
+            "line_operations_linked_at",
+        ])
+        body = {
+            "events": [
+                {
+                    "type": "message",
+                    "replyToken": "reply-token",
+                    "source": {
+                        "type": "group",
+                        "groupId": "C-registered-operations-group",
+                        "userId": "U-manager",
+                    },
+                    "message": {"type": "text", "text": "こんにちは"},
+                },
+            ],
+        }
+        raw_body = json.dumps(body).encode("utf-8")
+        digest = hmac.new(
+            self.store.line_channel_secret.encode("utf-8"),
+            raw_body,
+            hashlib.sha256,
+        ).digest()
+        signature = base64.b64encode(digest).decode("utf-8")
+
+        response = APIClient().generic(
+            "POST",
+            f"/api/webhook/line/{self.store.line_webhook_token}/",
+            raw_body,
+            content_type="application/json",
+            HTTP_X_LINE_SIGNATURE=signature,
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        reply.assert_not_called()
+
     def test_only_platform_admin_can_unlink_without_recipient_id_being_exposed(self):
         manager = User.objects.create_user("line-alert-manager")
         UserProfile.objects.create(

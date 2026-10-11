@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import (
+    Area,
     Cast,
     Course,
     Customer,
@@ -81,11 +82,12 @@ class Command(BaseCommand):
                 sip_domain="",
             )
 
+            area, _ = Area.objects.get_or_create(store=store, name="高田馬場")
             rooms = [
                 Room.objects.create(
                     store=store,
                     name=name,
-                    area_name="高田馬場",
+                    area=area,
                     address="東京都新宿区 テスト住所",
                     sort_order=index,
                 )

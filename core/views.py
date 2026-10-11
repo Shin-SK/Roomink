@@ -16,7 +16,7 @@ from django.core.validators import validate_email, validate_slug
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, ProtectedError, Q, Sum
 from django.utils import timezone
 from django.utils.html import escape
@@ -43,6 +43,7 @@ from .store_access import (
 from .membership_views import audit_membership, require_manager
 
 from .models import (
+    Area,
     StoreMembership, StoreInvitation,
     CallLog, CallLogReadReceipt, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
     CastUnavailableTime,
@@ -85,6 +86,7 @@ from .serializers import (
     CastNoteSerializer,
     CastNoteCastSerializer,
     CastSerializer,
+    AreaSerializer,
     CastAccountProvisionSerializer,
     CastUnavailableTimeSerializer,
     PointLogSerializer,
@@ -2615,7 +2617,7 @@ class CustomerReservationDetailView(APIView):
 
 class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsManagerOrStaff]
-    queryset = ShiftAssignment.objects.select_related("cast", "room").order_by(
+    queryset = ShiftAssignment.objects.select_related("cast", "room", "requested_area").order_by(
         "date", "start_day_offset", "start_time",
     )
     serializer_class = ShiftAssignmentSerializer
@@ -2752,6 +2754,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
         store = get_user_store(self.request)
         return super().get_queryset().filter(store=store)
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["store"] = get_user_store(self.request)
+        return context
+
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
         customers_data = response.data
@@ -2789,7 +2796,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
         return response
 
     def perform_create(self, serializer):
-        serializer.save(store=get_user_store(self.request))
+        try:
+            serializer.save(store=get_user_store(self.request))
+        except IntegrityError as exc:
+            # A concurrent create can pass serializer validation before the
+            # database's unique constraint is checked. Never expose it as 500.
+            raise ValidationError({
+                "phone": "この電話番号は既に登録されています。既存顧客を選択してください。"
+            }) from exc
 
     @action(detail=False, methods=["get"], url_path="check-duplicate")
     def check_duplicate(self, request):
@@ -3168,6 +3182,35 @@ class RoomViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AreaViewSet(viewsets.ModelViewSet):
+    """Store-owned area master. Only managers can mutate it."""
+
+    permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
+    queryset = Area.objects.order_by("sort_order", "name", "id")
+    serializer_class = AreaSerializer
+
+    def get_queryset(self):
+        return super().get_queryset().filter(store=get_user_store(self.request))
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.request.user.is_authenticated:
+            context["store"] = get_user_store(self.request)
+        return context
+
+    def perform_create(self, serializer):
+        serializer.save(store=get_user_store(self.request))
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.rooms.exists() or instance.cast_preferences.exists() or instance.shift_assignments.exists():
+            return Response(
+                {"detail": "部屋・希望エリア・シフトで使用中のエリアは削除できません。先に紐づけ先を変更してください。"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 class ExtensionViewSet(viewsets.ModelViewSet):
@@ -4408,9 +4451,6 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
                     "end_day_offset": item.get("end_day_offset", 0),
                     "memo": item.get("memo", data["memo"]),
                 }
-                desired_room = item.get("desired_room", data.get("desired_room"))
-                if desired_room is not None:
-                    request_data["desired_room"] = desired_room.pk
                 request_items.append(request_data)
         else:
             common_data = {
@@ -4419,8 +4459,6 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
                 "end_day_offset": data["end_day_offset"],
                 "memo": data["memo"],
             }
-            if data.get("desired_room") is not None:
-                common_data["desired_room"] = data["desired_room"].pk
             request_items = [
                 {"date": request_date, **common_data}
                 for request_date in data["dates"]
@@ -4471,13 +4509,14 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
 def _apply_shift_request_approval(
     obj,
     store,
-    room,
+    requested_area,
     date,
     start_time,
     end_time,
     end_day_offset,
     admin_memo,
     user,
+    room=None,
 ):
     """ShiftRequest承認の共通処理（ShiftAssignment作成 + ShiftRequestの承認内容/履歴保存）。
     OpShiftRequestViewSet.approve() と シフト申請CSV戻し承認(import_apply) の両方から呼ばれる。
@@ -4487,13 +4526,21 @@ def _apply_shift_request_approval(
     sa_data = {
         "date": date,
         "cast": obj.cast_id,
-        "room": room.id if room else None,
         "start_time": start_time,
         "start_day_offset": 0,
         "end_time": end_time,
         "end_day_offset": end_day_offset,
     }
-    sa_serializer = ShiftAssignmentSerializer(data=sa_data, context={"store": store})
+    if room is not None:
+        # Existing CSV approvals retain their already-reviewed concrete room.
+        # New UI flows do not send this field.
+        sa_data["room"] = room.id
+    else:
+        sa_data["requested_area"] = requested_area.id if requested_area else None
+    sa_serializer = ShiftAssignmentSerializer(
+        data=sa_data,
+        context={"store": store, "allow_direct_room": room is not None},
+    )
     if not sa_serializer.is_valid():
         messages = []
         for field, errs in sa_serializer.errors.items():
@@ -4567,16 +4614,14 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        room_id = request.data.get("room")
-        room = None
-        if room_id:
-            try:
-                room = Room.objects.get(pk=room_id, store=store)
-            except Room.DoesNotExist:
-                return Response(
-                    {"detail": "指定された部屋が見つかりません"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        requested_area_id = request.data.get("requested_area")
+        requested_area = None
+        if requested_area_id not in (None, ""):
+            requested_area = Area.objects.filter(
+                pk=requested_area_id, store=store, is_active=True,
+            ).first()
+            if requested_area is None:
+                return Response({"detail": "同じ店舗の有効なエリアを指定してください"}, status=status.HTTP_400_BAD_REQUEST)
 
         admin_memo = request.data.get("admin_memo", "")
 
@@ -4588,7 +4633,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         ok, err = _apply_shift_request_approval(
             obj,
             store,
-            room,
+            requested_area,
             date,
             start_time,
             end_time,
@@ -4901,13 +4946,14 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 )
 
                 ok, err = _apply_shift_request_approval(
-                    obj, store, room,
+                    obj, store, room.area if room else None,
                     row_for_validation["approved_date"],
                     row_for_validation["approved_start_time"],
                     end_t,
                     end_day_offset,
                     row_for_validation["admin_memo"],
                     request.user,
+                    room=room,
                 )
                 if not ok:
                     validated["can_apply"] = False
@@ -7501,22 +7547,33 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
                 continue
             code = msg.get("text", "").strip().upper()
 
+            source_type = source.get("type", "")
+            source_recipient_id = {
+                Store.LineOperationsRecipientType.USER: source.get("userId", ""),
+                Store.LineOperationsRecipientType.GROUP: source.get("groupId", ""),
+                Store.LineOperationsRecipientType.ROOM: source.get("roomId", ""),
+            }.get(source_type, "")
+
+            # 通知先として登録済みのトークでは、通常会話を連携コードとして扱わない。
+            # 返信も行わず、通知専用のトークとして静かに受け流す。
+            if (
+                store
+                and source_recipient_id
+                and source_type == store.line_operations_recipient_type
+                and source_recipient_id == store.line_operations_recipient_id
+            ):
+                continue
+
             # 運営通知先の使い切りコード。store別webhookでのみ受け付ける。
             if store and code == store.line_operations_link_code:
-                source_type = source.get("type", "")
-                recipient_id = {
-                    Store.LineOperationsRecipientType.USER: source.get("userId", ""),
-                    Store.LineOperationsRecipientType.GROUP: source.get("groupId", ""),
-                    Store.LineOperationsRecipientType.ROOM: source.get("roomId", ""),
-                }.get(source_type, "")
-                if not recipient_id:
+                if not source_recipient_id:
                     _line_reply(
                         channel_token,
                         reply_token,
                         "このトークは運営通知先として登録できませんでした。",
                     )
                     continue
-                store.line_operations_recipient_id = recipient_id
+                store.line_operations_recipient_id = source_recipient_id
                 store.line_operations_recipient_type = source_type
                 store.line_operations_linked_at = timezone.now()
                 store.line_operations_link_code = generate_line_operations_link_code()
@@ -7536,8 +7593,7 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
             # 既に別 Cast に連携済みの LINE userId か
             existing = Cast.objects.filter(line_user_id=line_user_id).first()
             if existing:
-                _line_reply(channel_token, reply_token,
-                            f"既に {existing.name} さんとして連携済みです。\n再連携が必要な場合は管理者にお問い合わせください。")
+                # 連携済みのキャストの通常会話は、無効なコード等を返さず受け流す。
                 continue
 
             # コード照合 — store 指定がある場合はその store のキャストのみ
@@ -8324,6 +8380,7 @@ class WeeklyShiftView(APIView):
                 "date": d.isoformat(),
                 "cast": cast.id,
                 "room": item.get("room"),
+                "requested_area": item.get("requested_area"),
                 "start_time": item.get("start_time"),
                 "start_day_offset": item.get("start_day_offset", 0),
                 "end_time": item.get("end_time"),

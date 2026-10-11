@@ -6,6 +6,9 @@ import { api } from '../../api.js'
 const loading = ref(true)
 const error = ref('')
 const rooms = ref([])
+const areas = ref([])
+const newAreaName = ref('')
+const areaSaving = ref(false)
 
 // Form
 const showForm = ref(false)
@@ -17,7 +20,7 @@ const saving = ref(false)
 function emptyForm() {
   return {
     name: '', address: '', map_url: '', sms_notice: '',
-    sort_order: 0, background_color: '', area_name: '',
+    sort_order: 0, background_color: '', area: null,
   }
 }
 
@@ -34,7 +37,18 @@ async function loadRooms() {
   }
 }
 
-onMounted(() => loadRooms())
+async function loadAreas() {
+  const data = await api.getAreas()
+  areas.value = Array.isArray(data) ? data : []
+}
+
+onMounted(async () => {
+  try {
+    await Promise.all([loadRooms(), loadAreas()])
+  } catch (e) {
+    error.value = e.message
+  }
+})
 
 function openCreate() {
   editingId.value = null
@@ -52,7 +66,7 @@ function openEdit(r) {
     sms_notice: r.sms_notice || '',
     sort_order: r.sort_order ?? 0,
     background_color: r.background_color || '',
-    area_name: r.area_name || '',
+    area: r.area || null,
   }
   formError.value = ''
   showForm.value = true
@@ -69,7 +83,7 @@ async function onSave() {
       sms_notice: form.value.sms_notice || '',
       sort_order: form.value.sort_order,
       background_color: form.value.background_color || '',
-      area_name: form.value.area_name || '',
+      area: form.value.area || null,
     }
     if (editingId.value) {
       await api.updateRoom(editingId.value, payload)
@@ -82,6 +96,44 @@ async function onSave() {
     formError.value = e.message
   } finally {
     saving.value = false
+  }
+}
+
+async function addArea() {
+  if (!newAreaName.value.trim()) return
+  areaSaving.value = true
+  error.value = ''
+  try {
+    await api.createArea({ name: newAreaName.value.trim() })
+    newAreaName.value = ''
+    await loadAreas()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    areaSaving.value = false
+  }
+}
+
+async function renameArea(area) {
+  const name = window.prompt('エリア名を変更', area.name)
+  if (name === null || name.trim() === area.name) return
+  error.value = ''
+  try {
+    await api.updateArea(area.id, { name: name.trim() })
+    await Promise.all([loadAreas(), loadRooms()])
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function deleteArea(area) {
+  if (!confirm(`エリア「${area.name}」を削除しますか？\n部屋・希望エリア・シフトで使用中の場合は削除できません。`)) return
+  error.value = ''
+  try {
+    await api.deleteArea(area.id)
+    await loadAreas()
+  } catch (e) {
+    error.value = e.message
   }
 }
 
@@ -104,6 +156,25 @@ async function onDelete(r) {
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
     <div class="card mb-4">
+      <div class="card-header"><i class="ti ti-map-pin"></i> エリア管理</div>
+      <div class="card-body">
+        <p class="small text-muted">先にエリアを作成し、各ルーム・キャスト希望・シフトで選択します。表記ゆれを防ぐため、直接入力はできません。</p>
+        <div class="input-group mb-3">
+          <input v-model="newAreaName" class="form-control" maxlength="50" placeholder="例: 高田馬場" @keyup.enter="addArea">
+          <button class="btn btn-outline-primary" :disabled="areaSaving || !newAreaName.trim()" @click="addArea">追加</button>
+        </div>
+        <div v-if="!areas.length" class="text-muted small">エリアが未登録です。先に追加してください。</div>
+        <div v-else class="d-flex flex-wrap gap-2">
+          <span v-for="area in areas" :key="area.id" class="badge bg-light text-dark border py-2">
+            {{ area.name }}
+            <button class="btn btn-link btn-sm p-0 ms-2" @click="renameArea(area)">変更</button>
+            <button class="btn btn-link btn-sm p-0 ms-1 text-danger" @click="deleteArea(area)">削除</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="ti ti-door"></i> ルーム一覧</span>
         <button class="btn btn-primary btn-sm" @click="openCreate">
@@ -119,44 +190,46 @@ async function onDelete(r) {
           ルームが登録されていません
         </div>
 
-        <table v-else class="table table-hover mb-0">
-          <thead>
-            <tr>
-              <th>名前</th>
-              <th style="width: 120px;">エリア</th>
-              <th style="width: 100px;">表示順</th>
-              <th style="width: 50px;"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in rooms" :key="r.id">
-              <td>
-                <div>{{ r.name }}</div>
-                <div v-if="r.address" class="small text-muted">{{ r.address }}</div>
-                <a
-                  v-if="r.map_url"
-                  :href="r.map_url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="small"
-                ><i class="ti ti-map-pin"></i> 地図を確認</a>
-                <div v-if="r.sms_notice" class="small text-warning-emphasis">
-                  <i class="ti ti-alert-triangle"></i> {{ r.sms_notice }}
-                </div>
-              </td>
-              <td>
-                <span v-if="r.area_name" class="badge bg-light text-dark border">{{ r.area_name }}</span>
-                <span v-else class="text-muted small">未設定</span>
-              </td>
-              <td>{{ r.sort_order }}</td>
-              <td>
-                <button class="btn btn-link p-0" @click="openEdit(r)">
-                  <i class="ti ti-edit" style="font-size: 1.25rem;"></i>
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-else class="table-responsive">
+          <table class="table table-hover mb-0 rooms-table">
+            <thead>
+              <tr>
+                <th>名前</th>
+                <th style="width: 120px;">エリア</th>
+                <th style="width: 100px;">表示順</th>
+                <th style="width: 50px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in rooms" :key="r.id">
+                <td>
+                  <div>{{ r.name }}</div>
+                  <div v-if="r.address" class="room-address small text-muted">{{ r.address }}</div>
+                  <a
+                    v-if="r.map_url"
+                    :href="r.map_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="small"
+                  ><i class="ti ti-map-pin"></i> 地図を確認</a>
+                  <div v-if="r.sms_notice" class="small text-warning-emphasis">
+                    <i class="ti ti-alert-triangle"></i> {{ r.sms_notice }}
+                  </div>
+                </td>
+                <td>
+                  <span v-if="r.area_name" class="badge bg-light text-dark border">{{ r.area_name }}</span>
+                  <span v-else class="text-muted small">未設定</span>
+                </td>
+                <td>{{ r.sort_order }}</td>
+                <td>
+                  <button class="btn btn-link p-0" @click="openEdit(r)">
+                    <i class="ti ti-edit" style="font-size: 1.25rem;"></i>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -207,8 +280,11 @@ async function onDelete(r) {
             </div>
             <div class="mb-3">
               <label class="form-label">エリア（任意）</label>
-              <input v-model="form.area_name" type="text" class="form-control" placeholder="例: 新宿・池袋・渋谷・五反田（空欄可）" />
-              <div class="form-text">売上集計画面でエリア別に集計されます。空欄の場合は「未設定」として集計されます。</div>
+              <select v-model="form.area" class="form-select">
+                <option :value="null">未設定</option>
+                <option v-for="area in areas.filter(a => a.is_active)" :key="area.id" :value="area.id">{{ area.name }}</option>
+              </select>
+              <div class="form-text">エリア管理で作成済みのエリアから選択します。空欄の場合は「未設定」として集計されます。</div>
             </div>
             <div class="mb-3">
               <label class="form-label">背景色</label>
@@ -236,3 +312,40 @@ async function onDelete(r) {
     </div>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.rooms-table {
+  min-width: 620px;
+}
+
+@media (max-width: 575.98px) {
+  .rooms-table {
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .rooms-table th:nth-child(1),
+  .rooms-table td:nth-child(1) {
+    width: 47%;
+  }
+
+  .rooms-table th:nth-child(2),
+  .rooms-table td:nth-child(2) {
+    width: 27% !important;
+  }
+
+  .rooms-table th:nth-child(3),
+  .rooms-table td:nth-child(3) {
+    width: 14% !important;
+  }
+
+  .rooms-table th:nth-child(4),
+  .rooms-table td:nth-child(4) {
+    width: 12% !important;
+  }
+
+  .room-address {
+    display: none;
+  }
+}
+</style>

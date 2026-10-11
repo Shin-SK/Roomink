@@ -106,6 +106,8 @@ export function callApi(callId) {
     getPaymentFeeSettings: () => send('GET', '/op/payment-fee-settings/'),
     getSchedule: (date) => send('GET', `/op/schedule/?date=${encodeURIComponent(date)}`),
     getCustomer: (id) => send('GET', `/customers/${id}/`),
+    searchCustomerByPhone: (phone) => list(`/customers/?phone=${encodeURIComponent(phone)}`),
+    searchCustomers: (query) => list(`/customers/?search=${encodeURIComponent(query)}`),
     createCustomer: (body) => send('POST', '/customers/', body),
     createOrder: (body) => send('POST', '/orders/', body),
     confirmOrder: (id) => send('POST', `/orders/${id}/confirm/`),
@@ -237,6 +239,7 @@ export const api = {
     if (!normalized || normalized.length < 6) return []
     return listRequest('GET', `/customers/?phone=${encodeURIComponent(normalized)}`)
   },
+  searchCustomers: (query) => listRequest('GET', `/customers/?search=${encodeURIComponent(query)}`),
 
   // Casts
   getCasts: () => listRequest('GET', '/casts/?limit=200'),
@@ -267,6 +270,10 @@ export const api = {
   createRoom: (body) => request('POST', '/rooms/', body),
   updateRoom: (id, body) => request('PATCH', `/rooms/${id}/`, body),
   deleteRoom: (id) => request('DELETE', `/rooms/${id}/`),
+  getAreas: () => listRequest('GET', '/areas/?limit=200'),
+  createArea: (body) => request('POST', '/areas/', body),
+  updateArea: (id, body) => request('PATCH', `/areas/${id}/`, body),
+  deleteArea: (id) => request('DELETE', `/areas/${id}/`),
 
   // Extensions
   getExtensions: () => listRequest('GET', '/extensions/?limit=200'),
