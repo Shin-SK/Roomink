@@ -721,7 +721,7 @@ class WorkDeviceVoiceTokenView(APIView):
     authentication_classes = [WorkDeviceAuthentication]
     permission_classes = [IsWorkDevice]
 
-    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @extend_schema(request=None, responses=OpenApiTypes.OBJECT)
     def post(self, request):
         device = request.work_device
         if device.status != WorkDevice.Status.ACTIVE or not entitled_subscriptions(
