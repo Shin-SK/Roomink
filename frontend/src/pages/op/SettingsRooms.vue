@@ -190,44 +190,46 @@ async function onDelete(r) {
           ルームが登録されていません
         </div>
 
-        <table v-else class="table table-hover mb-0">
-          <thead>
-            <tr>
-              <th>名前</th>
-              <th style="width: 120px;">エリア</th>
-              <th style="width: 100px;">表示順</th>
-              <th style="width: 50px;"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in rooms" :key="r.id">
-              <td>
-                <div>{{ r.name }}</div>
-                <div v-if="r.address" class="small text-muted">{{ r.address }}</div>
-                <a
-                  v-if="r.map_url"
-                  :href="r.map_url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="small"
-                ><i class="ti ti-map-pin"></i> 地図を確認</a>
-                <div v-if="r.sms_notice" class="small text-warning-emphasis">
-                  <i class="ti ti-alert-triangle"></i> {{ r.sms_notice }}
-                </div>
-              </td>
-              <td>
-                <span v-if="r.area_name" class="badge bg-light text-dark border">{{ r.area_name }}</span>
-                <span v-else class="text-muted small">未設定</span>
-              </td>
-              <td>{{ r.sort_order }}</td>
-              <td>
-                <button class="btn btn-link p-0" @click="openEdit(r)">
-                  <i class="ti ti-edit" style="font-size: 1.25rem;"></i>
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-else class="table-responsive">
+          <table class="table table-hover mb-0 rooms-table">
+            <thead>
+              <tr>
+                <th>名前</th>
+                <th style="width: 120px;">エリア</th>
+                <th style="width: 100px;">表示順</th>
+                <th style="width: 50px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in rooms" :key="r.id">
+                <td>
+                  <div>{{ r.name }}</div>
+                  <div v-if="r.address" class="small text-muted">{{ r.address }}</div>
+                  <a
+                    v-if="r.map_url"
+                    :href="r.map_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="small"
+                  ><i class="ti ti-map-pin"></i> 地図を確認</a>
+                  <div v-if="r.sms_notice" class="small text-warning-emphasis">
+                    <i class="ti ti-alert-triangle"></i> {{ r.sms_notice }}
+                  </div>
+                </td>
+                <td>
+                  <span v-if="r.area_name" class="badge bg-light text-dark border">{{ r.area_name }}</span>
+                  <span v-else class="text-muted small">未設定</span>
+                </td>
+                <td>{{ r.sort_order }}</td>
+                <td>
+                  <button class="btn btn-link p-0" @click="openEdit(r)">
+                    <i class="ti ti-edit" style="font-size: 1.25rem;"></i>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -310,3 +312,9 @@ async function onDelete(r) {
     </div>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.rooms-table {
+  min-width: 620px;
+}
+</style>
