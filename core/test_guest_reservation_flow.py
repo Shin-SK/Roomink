@@ -26,6 +26,7 @@ class GuestReservationFlowTest(TestCase):
             slug="guest-reservation-test",
             card_payment_url="https://pay.example/store",
             guest_contact_phone="03-1234-5678",
+            reservation_confirmation_notice="●ご予約時間に遅れる場合は、必ず店舗へご連絡ください。",
         )
         self.manager = User.objects.create_user("guest_flow_manager")
         UserProfile.objects.create(
@@ -98,6 +99,10 @@ class GuestReservationFlowTest(TestCase):
         self.assertEqual(guest.data["room_address"], self.room.address)
         self.assertEqual(guest.data["payment_method_label"], "現金")
         self.assertEqual(guest.data["contact_phone"], "03-1234-5678")
+        self.assertEqual(
+            guest.data["confirmation_notice"],
+            self.store.reservation_confirmation_notice,
+        )
         access.refresh_from_db()
         self.assertEqual(access.open_count, 1)
         self.assertEqual(access.last_seen_state, "CONFIRMED")
@@ -141,6 +146,7 @@ class GuestReservationFlowTest(TestCase):
         self.assertEqual(pending.data["state"], "PAYMENT_REQUIRED")
         self.assertEqual(pending.data["room_address"], "")
         self.assertEqual(pending.data["payment_url"], self.store.card_payment_url)
+        self.assertEqual(pending.data["confirmation_notice"], "")
         first_log = SmsLog.objects.get(
             order=order,
             template_type=SmsLog.TemplateType.CARD_PAYMENT_REQUEST,

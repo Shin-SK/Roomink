@@ -12,6 +12,7 @@ const success = ref('')
 const storeName = ref('')
 const bookingUrl = ref('')
 const notice = ref('')
+const confirmationNotice = ref('')
 const storeSlug = ref('')
 const contactPhone = ref('')
 const contactPhoneMemo = ref('')
@@ -25,6 +26,7 @@ async function load() {
     storeName.value = data.store_name || ''
     bookingUrl.value = data.public_booking_url || ''
     notice.value = data.public_booking_notice || ''
+    confirmationNotice.value = data.reservation_confirmation_notice || ''
     storeSlug.value = data.store_slug || ''
     contactPhone.value = data.guest_contact_phone || ''
     contactPhoneMemo.value = data.guest_contact_phone_memo || ''
@@ -43,12 +45,14 @@ async function save() {
   try {
     const data = await api.updatePublicBookingSettings({
       public_booking_notice: notice.value,
+      reservation_confirmation_notice: confirmationNotice.value,
       store_slug: storeSlug.value,
       guest_contact_phone: contactPhone.value,
       guest_contact_phone_memo: contactPhoneMemo.value,
       public_booking_notification_email: notificationEmail.value,
     })
     notice.value = data.public_booking_notice || ''
+    confirmationNotice.value = data.reservation_confirmation_notice || ''
     storeSlug.value = data.store_slug || ''
     bookingUrl.value = data.public_booking_url || ''
     contactPhone.value = data.guest_contact_phone || ''
@@ -187,7 +191,7 @@ onMounted(load)
         </div>
       </div>
 
-      <div class="card">
+      <div class="card mb-3">
         <div class="card-header"><i class="ti ti-alert-circle"></i> 予約前の注意事項</div>
         <div class="card-body">
           <textarea
@@ -202,6 +206,24 @@ onMounted(load)
             <span>{{ notice.length }}/3000</span>
           </div>
           <div v-if="notice" class="booking-notice-preview mt-3">{{ notice }}</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><i class="ti ti-clipboard-check"></i> 予約確定後の注意事項</div>
+        <div class="card-body">
+          <textarea
+            v-model="confirmationNotice"
+            class="form-control"
+            rows="8"
+            maxlength="3000"
+            placeholder="予約確定SMSのリンク先で、お客様に確認してほしい注意事項を入力してください。"
+          ></textarea>
+          <div class="d-flex justify-content-between form-text">
+            <span>予約確定後の予約確認URL内にのみ表示します。SMS本文には追加しません。</span>
+            <span>{{ confirmationNotice.length }}/3000</span>
+          </div>
+          <div v-if="confirmationNotice" class="booking-notice-preview mt-3">{{ confirmationNotice }}</div>
         </div>
       </div>
 

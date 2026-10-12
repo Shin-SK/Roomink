@@ -14,6 +14,7 @@ const route = useRoute()
 const customer = ref(null)
 const loading = ref(true)
 const error = ref('')
+const casts = ref([])
 
 const isNew = computed(() => props.id === 'new')
 const hasPhoneDuplicate = computed(() => createWarnings.value.some(w => w.reason === '電話番号一致'))
@@ -22,7 +23,7 @@ const hasPhoneDuplicate = computed(() => createWarnings.value.some(w => w.reason
 const editing = ref(false)
 const saving = ref(false)
 const editError = ref('')
-const form = ref({ phone: '', display_name: '', email: '', legacy_usage_history: '', flag: 'NONE', ban_type: 'NONE', memo: '', staff_memo: '' })
+const form = ref({ phone: '', display_name: '', email: '', legacy_usage_history: '', flag: 'NONE', ban_type: 'NONE', online_booking_ng: false, ng_casts: [], memo: '', staff_memo: '' })
 const duplicates = ref([])
 const createWarnings = ref([])
 const isManager = computed(() => getAuthRole() === 'manager')
@@ -109,11 +110,16 @@ const flagMap = {
 
 const banTypeMap = {
   NONE: 'なし',
-  STORE_BAN: '店出禁',
-  CAST_NG: '個別セラピNG',
+  STORE_BAN: '店NG',
+  CAST_NG: '個別セラピストNG',
 }
 
 onMounted(async () => {
+  try {
+    casts.value = await api.getCasts()
+  } catch (_) {
+    casts.value = []
+  }
   if (isNew.value) {
     editing.value = true
     const qPhone = route.query.phone
@@ -146,6 +152,8 @@ function startEdit() {
     legacy_usage_history: customer.value.legacy_usage_history || '',
     flag: customer.value.flag || 'NONE',
     ban_type: customer.value.ban_type || 'NONE',
+    online_booking_ng: Boolean(customer.value.online_booking_ng),
+    ng_casts: Array.isArray(customer.value.ng_casts) ? [...customer.value.ng_casts] : [],
     memo: customer.value.memo || '',
     staff_memo: customer.value.staff_memo || '',
   }
@@ -165,6 +173,12 @@ async function save() {
   editError.value = ''
   saving.value = true
   try {
+    const restrictionFields = {
+      online_booking_ng: Boolean(form.value.online_booking_ng),
+      ng_casts: form.value.flag === 'BAN' && form.value.ban_type === 'CAST_NG'
+        ? form.value.ng_casts.map(Number)
+        : [],
+    }
     if (isNew.value) {
       const body = {
         phone: form.value.phone,
@@ -173,6 +187,7 @@ async function save() {
         legacy_usage_history: form.value.legacy_usage_history,
         flag: form.value.flag,
         ban_type: form.value.ban_type,
+        ...restrictionFields,
         memo: form.value.memo,
         staff_memo: form.value.staff_memo,
       }
@@ -190,6 +205,7 @@ async function save() {
         legacy_usage_history: form.value.legacy_usage_history,
         flag: form.value.flag,
         ban_type: form.value.ban_type,
+        ...restrictionFields,
         memo: form.value.memo,
         staff_memo: form.value.staff_memo,
       }
@@ -297,6 +313,19 @@ function formatInvitationDate(value) {
                 <th>出禁種別</th>
                 <td>{{ banTypeMap[customer.ban_type] || 'なし' }}</td>
               </tr>
+              <tr v-if="customer.flag === 'BAN' && customer.ban_type === 'CAST_NG'">
+                <th>個別NG対象</th>
+                <td>
+                  {{ casts.filter(cast => (customer.ng_casts || []).includes(cast.id)).map(cast => cast.name).join('、') || '対象未設定' }}
+                </td>
+              </tr>
+              <tr>
+                <th>ネット予約</th>
+                <td>
+                  <span v-if="customer.online_booking_ng" class="badge bg-dark">ネット予約NG</span>
+                  <span v-else class="text-muted">制限なし</span>
+                </td>
+              </tr>
               <tr>
                 <th>お客様備考</th>
                 <td style="white-space: pre-wrap;">{{ customer.memo || '—' }}</td>
@@ -382,9 +411,29 @@ function formatInvitationDate(value) {
               <label class="form-label">出禁種別</label>
               <select v-model="form.ban_type" class="form-select">
                 <option value="NONE">なし</option>
-                <option value="STORE_BAN">店出禁</option>
-                <option value="CAST_NG">個別セラピNG</option>
+                <option value="STORE_BAN">店NG</option>
+                <option value="CAST_NG">個別セラピストNG</option>
               </select>
+            </div>
+            <div v-if="form.flag === 'BAN' && form.ban_type === 'CAST_NG'" class="mb-3">
+              <label class="form-label">個別NGの対象セラピスト</label>
+              <div v-if="casts.length" class="row g-2">
+                <div v-for="cast in casts" :key="cast.id" class="col-sm-6 col-lg-4">
+                  <label class="form-check border rounded p-2 h-100">
+                    <input v-model="form.ng_casts" class="form-check-input ms-0 me-2" type="checkbox" :value="cast.id">
+                    <span class="form-check-label">{{ cast.name }}</span>
+                  </label>
+                </div>
+              </div>
+              <div v-else class="alert alert-warning py-2 small">対象セラピストを読み込めませんでした。</div>
+              <div class="form-text">未設定のまま保存した場合、予約画面では「対象未設定」と警告します。</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-check border rounded p-3">
+                <input v-model="form.online_booking_ng" class="form-check-input" type="checkbox">
+                <span class="form-check-label fw-bold">ネット予約NG</span>
+                <span class="d-block small text-muted mt-1">現段階では予約受付画面と着信画面に注意表示します。</span>
+              </label>
             </div>
             <div class="mb-3">
               <label class="form-label">お客様備考</label>

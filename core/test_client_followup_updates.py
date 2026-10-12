@@ -298,7 +298,10 @@ class ClientFollowupUpdatesTest(TestCase):
         get_response = manager_client.get("/api/op/public-booking-settings/")
         patch_response = manager_client.patch(
             "/api/op/public-booking-settings/",
-            {"public_booking_notice": "●SMSが届かない場合は店舗へご連絡ください。"},
+            {
+                "public_booking_notice": "●SMSが届かない場合は店舗へご連絡ください。",
+                "reservation_confirmation_notice": "●予約時間に遅れる場合はご連絡ください。",
+            },
             format="json",
         )
         forbidden_response = staff_client.patch(
@@ -326,6 +329,10 @@ class ClientFollowupUpdatesTest(TestCase):
             "old@example.com",
         )
         self.assertEqual(patch_response.status_code, 200, patch_response.data)
+        self.assertEqual(
+            patch_response.data["reservation_confirmation_notice"],
+            "●予約時間に遅れる場合はご連絡ください。",
+        )
         self.assertEqual(forbidden_response.status_code, 403, forbidden_response.data)
         self.assertEqual(public_response.status_code, 200, public_response.data)
         self.assertEqual(

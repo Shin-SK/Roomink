@@ -106,6 +106,7 @@ export function callApi(callId) {
     getPaymentFeeSettings: () => send('GET', '/op/payment-fee-settings/'),
     getSchedule: (date) => send('GET', `/op/schedule/?date=${encodeURIComponent(date)}`),
     getCustomer: (id) => send('GET', `/customers/${id}/`),
+    getCustomerReservationContext: (id) => send('GET', `/customers/${id}/reservation-context/`),
     searchCustomerByPhone: (phone) => list(`/customers/?phone=${encodeURIComponent(phone)}`),
     searchCustomers: (query) => list(`/customers/?search=${encodeURIComponent(query)}`),
     createCustomer: (body) => send('POST', '/customers/', body),
@@ -222,6 +223,7 @@ export const api = {
   // Customers
   getCustomers: (params = '') => listRequest('GET', `/customers/${params ? '?' + params : '?limit=1000'}`),
   getCustomer: (id) => request('GET', `/customers/${id}/`),
+  getCustomerReservationContext: (id) => request('GET', `/customers/${id}/reservation-context/`),
   createCustomer: (body) => request('POST', '/customers/', body),
   updateCustomer: (id, body) => request('PATCH', `/customers/${id}/`, body),
   getCustomerInvitation: (id) => request('GET', `/op/customers/${id}/invitation/`),

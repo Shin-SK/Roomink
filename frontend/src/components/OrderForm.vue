@@ -88,7 +88,11 @@ const customerSearch = ref('')
 const searchedCustomers = ref([])
 const searchingCustomers = ref(false)
 const customerSearchLoaded = ref(false)
+const customerContext = ref(null)
+const customerContextLoading = ref(false)
+const customerContextError = ref('')
 let customerSearchRequest = 0
+let customerContextRequest = 0
 
 const normalizedQuery = computed(() => normalizePhone(customerSearch.value))
 
@@ -158,7 +162,54 @@ function selectCustomer(c) {
 
 function clearCustomer() {
   form.value.customer = ''
+  customerContext.value = null
+  customerContextError.value = ''
 }
+
+async function loadCustomerContext(customerId) {
+  const requestId = ++customerContextRequest
+  if (!customerId || isEdit.value) {
+    customerContext.value = null
+    customerContextError.value = ''
+    return
+  }
+  customerContextLoading.value = true
+  customerContextError.value = ''
+  try {
+    const data = await api.getCustomerReservationContext(customerId)
+    if (requestId === customerContextRequest) customerContext.value = data
+  } catch (e) {
+    if (requestId === customerContextRequest) {
+      customerContext.value = null
+      customerContextError.value = e.message || '利用履歴と注意事項を確認できませんでした。'
+    }
+  } finally {
+    if (requestId === customerContextRequest) customerContextLoading.value = false
+  }
+}
+
+const castHistoryById = computed(() => Object.fromEntries(
+  (customerContext.value?.cast_history || []).map(row => [Number(row.cast_id), row]),
+))
+
+function castHistory(cast) {
+  return castHistoryById.value[Number(cast.id)] || null
+}
+
+function isCustomerNgForCast(cast) {
+  return (customerContext.value?.restrictions?.ng_casts || [])
+    .some(item => Number(item.id) === Number(cast.id))
+}
+
+const hasCustomerAttention = computed(() => {
+  const restrictions = customerContext.value?.restrictions
+  return Boolean(
+    customerContext.value?.staff_memo
+    || restrictions?.store_ng
+    || restrictions?.individual_cast_ng
+    || restrictions?.online_booking_ng
+  )
+})
 
 const filteredCasts = computed(() => {
   const q = castSearch.value.trim()
@@ -353,6 +404,10 @@ onMounted(async () => {
 
 watch(() => form.value.startDate, (val) => {
   if (!isEdit.value) loadShiftCasts(val)
+})
+
+watch(() => form.value.customer, (customerId) => {
+  loadCustomerContext(customerId)
 })
 
 watch(() => props.initialPhone, (val) => {
@@ -557,7 +612,9 @@ function formatYen(n) {
               <div class="fw-bold">
                 {{ selectedCustomer.display_name || selectedCustomer.phone }}
                 <span v-if="selectedCustomer.flag === 'ATTENTION'" class="badge bg-warning text-dark ms-1">要注意</span>
-                <span v-if="selectedCustomer.flag === 'BAN'" class="badge bg-danger ms-1">BAN</span>
+                <span v-if="selectedCustomer.flag === 'BAN' && selectedCustomer.ban_type === 'STORE_BAN'" class="badge bg-danger ms-1">店NG</span>
+                <span v-if="selectedCustomer.flag === 'BAN' && selectedCustomer.ban_type === 'CAST_NG'" class="badge bg-danger ms-1">個別セラピストNG</span>
+                <span v-if="selectedCustomer.online_booking_ng" class="badge bg-dark ms-1">ネット予約NG</span>
               </div>
               <div class="text-muted small">{{ selectedCustomer.phone }}</div>
             </div>
@@ -596,7 +653,9 @@ function formatYen(n) {
                 <div>
                   <span class="fw-bold">{{ c.display_name || c.phone }}</span>
                   <span v-if="c.flag === 'ATTENTION'" class="badge bg-warning text-dark ms-1">要注意</span>
-                  <span v-if="c.flag === 'BAN'" class="badge bg-danger ms-1">BAN</span>
+                  <span v-if="c.flag === 'BAN' && c.ban_type === 'STORE_BAN'" class="badge bg-danger ms-1">店NG</span>
+                  <span v-if="c.flag === 'BAN' && c.ban_type === 'CAST_NG'" class="badge bg-danger ms-1">個別セラピストNG</span>
+                  <span v-if="c.online_booking_ng" class="badge bg-dark ms-1">ネット予約NG</span>
                 </div>
                 <div class="text-muted small">{{ c.phone }}</div>
               </button>
@@ -645,6 +704,27 @@ function formatYen(n) {
         <div class="card-header">{{ isEdit || callBound ? '予約内容' : 'STEP 2: 予約内容入力' }}</div>
         <div class="card-body">
           <form @submit.prevent="submit">
+            <div v-if="customerContextLoading" class="alert alert-light border py-2 px-3 small">
+              利用履歴と注意事項を確認しています…
+            </div>
+            <div v-else-if="customerContextError" class="alert alert-warning py-2 px-3 small" role="alert">
+              <i class="ti ti-alert-triangle me-1"></i>{{ customerContextError }} 予約前に顧客詳細を確認してください。
+            </div>
+            <div v-else-if="hasCustomerAttention" class="customer-attention-panel" role="alert">
+              <div class="customer-attention-panel__title"><i class="ti ti-alert-triangle"></i> 予約前に確認</div>
+              <div class="d-flex flex-wrap gap-1 mb-2">
+                <span v-if="customerContext.restrictions.store_ng" class="badge bg-danger">店NG</span>
+                <span v-if="customerContext.restrictions.individual_cast_ng" class="badge bg-danger">個別セラピストNG</span>
+                <span v-if="customerContext.restrictions.online_booking_ng" class="badge bg-dark">ネット予約NG</span>
+              </div>
+              <div v-if="customerContext.restrictions.ng_casts?.length" class="small mb-1">
+                対象：{{ customerContext.restrictions.ng_casts.map(item => item.name).join('、') }}
+              </div>
+              <div v-else-if="customerContext.restrictions.individual_cast_ng_target_missing" class="small mb-1">
+                個別NGの対象セラピストが未設定です。顧客詳細を確認してください。
+              </div>
+              <div v-if="customerContext.staff_memo" class="customer-attention-panel__memo">{{ customerContext.staff_memo }}</div>
+            </div>
             <!-- create: 日付＋開始時刻 / edit: 開始日時＋終了日時 -->
             <div v-if="!isEdit" class="row">
               <div class="col-md-6">
@@ -692,7 +772,12 @@ function formatYen(n) {
                   role="button"
                   tabindex="0"
                   :aria-pressed="form.cast === c.id"
-                  :class="{ active: form.cast === c.id, 'is-off-shift': isCastOffShift(c) }"
+                  :class="{
+                    active: form.cast === c.id,
+                    'is-off-shift': isCastOffShift(c),
+                    'has-customer-history': castHistory(c),
+                    'is-customer-ng': isCustomerNgForCast(c),
+                  }"
                   @click="form.cast = c.id"
                   @keydown.enter.prevent="form.cast = c.id"
                   @keydown.space.prevent="form.cast = c.id"
@@ -707,6 +792,13 @@ function formatYen(n) {
                     <i class="ti ti-user"></i>
                   </div>
                   <span class="cast-chip__name">{{ c.name }}</span>
+                  <span v-if="isCustomerNgForCast(c)" class="cast-chip__customer-ng">個別NG</span>
+                  <span v-if="castHistory(c)" class="cast-chip__history">利用 {{ castHistory(c).visit_count }}回</span>
+                  <span
+                    v-for="label in castHistory(c)?.nomination_labels || []"
+                    :key="`${c.id}-${label}`"
+                    class="cast-chip__nomination"
+                  >{{ label }}</span>
                   <span v-if="isCastOffShift(c)" class="cast-chip__off-shift">シフト外</span>
                 </div>
                 <div v-if="filteredCasts.length === 0" class="text-muted small py-2 px-1">
@@ -1063,6 +1155,16 @@ function formatYen(n) {
     filter: grayscale(0.8);
   }
 
+  &.has-customer-history:not(.active) {
+    border-color: #f2a23a;
+    background: #fff8eb;
+  }
+
+  &.is-customer-ng {
+    border-color: #dc3545;
+    background: #fff1f2;
+  }
+
   &__avatar {
     width: 60px;
     height: 60px;
@@ -1095,6 +1197,36 @@ function formatYen(n) {
     color: #64748b;
     line-height: 1;
   }
+
+  &__history,
+  &__nomination,
+  &__customer-ng {
+    max-width: 68px;
+    padding: 2px 5px;
+    border-radius: 999px;
+    font-size: 0.58rem;
+    font-weight: 700;
+    line-height: 1.1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__history { background: #f7a928; color: #3f2a00; }
+  &__nomination { background: #ffead0; color: #8a4b00; }
+  &__customer-ng { background: #dc3545; color: #fff; }
+}
+
+.customer-attention-panel {
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  border: 2px solid #dc3545;
+  border-radius: 12px;
+  background: #fff5f5;
+  color: #5e1f27;
+
+  &__title { margin-bottom: 0.5rem; font-weight: 800; }
+  &__memo { white-space: pre-wrap; font-size: 0.82rem; line-height: 1.6; }
 }
 
 .select-grid {

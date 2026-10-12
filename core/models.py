@@ -138,6 +138,11 @@ class Store(models.Model):
         default="",
         help_text="店舗別のWeb予約画面へ表示する注意事項",
     )
+    reservation_confirmation_notice = models.TextField(
+        blank=True,
+        default="",
+        help_text="予約確定後のお客様向け予約確認URLに表示する注意事項",
+    )
     public_booking_notification_email = models.EmailField(
         blank=True,
         default="",
@@ -384,6 +389,16 @@ class Customer(models.Model):
     ban_type = models.CharField(
         max_length=12, choices=BanType.choices, default=BanType.NONE,
         help_text="出禁種別（flag=BAN 時に参照）",
+    )
+    online_booking_ng = models.BooleanField(
+        default=False,
+        help_text="ネット予約NG。現段階では受付画面の注意表示に使用する。",
+    )
+    ng_casts = models.ManyToManyField(
+        Cast,
+        blank=True,
+        related_name="ng_customers",
+        help_text="個別セラピストNGの対象。flag=BAN / ban_type=CAST_NG 時に参照する。",
     )
     memo = models.TextField(blank=True, default="")
     staff_memo = models.TextField(blank=True, default="", help_text="運営専用メモ（manager/staffのみ閲覧可）")
