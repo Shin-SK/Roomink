@@ -4509,7 +4509,6 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
 def _apply_shift_request_approval(
     obj,
     store,
-    requested_area,
     date,
     start_time,
     end_time,
@@ -4531,15 +4530,10 @@ def _apply_shift_request_approval(
         "end_time": end_time,
         "end_day_offset": end_day_offset,
     }
-    if room is not None:
-        # Existing CSV approvals retain their already-reviewed concrete room.
-        # New UI flows do not send this field.
-        sa_data["room"] = room.id
-    else:
-        sa_data["requested_area"] = requested_area.id if requested_area else None
+    sa_data["room"] = room.id if room else None
     sa_serializer = ShiftAssignmentSerializer(
         data=sa_data,
-        context={"store": store, "allow_direct_room": room is not None},
+        context={"store": store},
     )
     if not sa_serializer.is_valid():
         messages = []
@@ -4614,14 +4608,12 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        requested_area_id = request.data.get("requested_area")
-        requested_area = None
-        if requested_area_id not in (None, ""):
-            requested_area = Area.objects.filter(
-                pk=requested_area_id, store=store, is_active=True,
-            ).first()
-            if requested_area is None:
-                return Response({"detail": "同じ店舗の有効なエリアを指定してください"}, status=status.HTTP_400_BAD_REQUEST)
+        room_id = request.data.get("room")
+        room = None
+        if room_id not in (None, ""):
+            room = Room.objects.filter(pk=room_id, store=store).first()
+            if room is None:
+                return Response({"detail": "同じ店舗のルームを指定してください"}, status=status.HTTP_400_BAD_REQUEST)
 
         admin_memo = request.data.get("admin_memo", "")
 
@@ -4633,13 +4625,13 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         ok, err = _apply_shift_request_approval(
             obj,
             store,
-            requested_area,
             date,
             start_time,
             end_time,
             end_day_offset,
             admin_memo,
             request.user,
+            room=room,
         )
         if not ok:
             return Response({"detail": err}, status=status.HTTP_400_BAD_REQUEST)
@@ -4946,7 +4938,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 )
 
                 ok, err = _apply_shift_request_approval(
-                    obj, store, room.area if room else None,
+                    obj, store,
                     row_for_validation["approved_date"],
                     row_for_validation["approved_start_time"],
                     end_t,

@@ -58,7 +58,6 @@ class RoomOptionalTest(TestCase):
         payload = {
             "date": self.target_date.isoformat(),
             "cast": self.cast.id,
-            "room": None,
             "start_time": "18:00",
             "end_time": "23:00",
         }
@@ -124,7 +123,49 @@ class RoomOptionalTest(TestCase):
         self.assertEqual(response.data["room"], self.shinjuku.id)
         self.assertFalse(response.data["room_auto_assigned"])
 
-    def test_weekly_input_auto_assigns_by_preferred_area(self):
+    def test_operator_room_overrides_area_and_clears_area_selection(self):
+        response = self.client.post(
+            "/api/shifts/",
+            self.shift_payload(room=self.shinjuku.id, requested_area=self.shibuya_area.id),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["room"], self.shinjuku.id)
+        self.assertIsNone(response.data["requested_area"])
+        self.assertFalse(response.data["room_auto_assigned"])
+
+    def test_operator_can_leave_room_undecided(self):
+        response = self.client.post(
+            "/api/shifts/", self.shift_payload(room=None), format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIsNone(response.data["room"])
+        self.assertFalse(response.data["room_auto_assigned"])
+
+    def test_operator_cannot_assign_an_occupied_room(self):
+        self.block_room_with_shift(self.shinjuku)
+
+        response = self.client.post(
+            "/api/shifts/", self.shift_payload(room=self.shinjuku.id), format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("使用中", str(response.data))
+
+    def test_operator_cannot_assign_another_stores_room(self):
+        other_store = Store.objects.create(name="別店舗", timezone="Asia/Tokyo")
+        other_room = Room.objects.create(store=other_store, name="別店舗のルーム")
+
+        response = self.client.post(
+            "/api/shifts/", self.shift_payload(room=other_room.id), format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("他店舗", str(response.data))
+
+    def test_weekly_input_uses_selected_room(self):
         response = self.client.post(
             "/api/op/shifts/weekly/",
             {
@@ -134,6 +175,7 @@ class RoomOptionalTest(TestCase):
                     {
                         "date": self.target_date.isoformat(),
                         "enabled": True,
+                        "room": self.shibuya.id,
                         "start_time": "18:00",
                         "end_time": "23:00",
                     },
@@ -143,10 +185,10 @@ class RoomOptionalTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(response.data["created"][0]["room"], self.shinjuku.id)
-        self.assertTrue(response.data["created"][0]["room_auto_assigned"])
+        self.assertEqual(response.data["created"][0]["room"], self.shibuya.id)
+        self.assertFalse(response.data["created"][0]["room_auto_assigned"])
 
-    def test_shift_request_approval_auto_assigns_by_preferred_area(self):
+    def test_shift_request_approval_uses_selected_room(self):
         request_obj = ShiftRequest.objects.create(
             store=self.store,
             cast=self.cast,
@@ -157,17 +199,17 @@ class RoomOptionalTest(TestCase):
 
         response = self.client.post(
             f"/api/op/shift-requests/{request_obj.id}/approve/",
-            {},
+            {"room": self.shibuya.id},
             format="json",
         )
 
         self.assertEqual(response.status_code, 200, response.data)
         request_obj.refresh_from_db()
-        self.assertEqual(request_obj.approved_room, self.shinjuku)
+        self.assertEqual(request_obj.approved_room, self.shibuya)
         self.assertTrue(
             ShiftAssignment.objects.filter(
                 cast=self.cast,
-                room=self.shinjuku,
+                room=self.shibuya,
                 date=self.target_date,
             ).exists()
         )

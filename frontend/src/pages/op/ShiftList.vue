@@ -8,7 +8,6 @@ const error = ref('')
 const shifts = ref([])
 const casts = ref([])
 const rooms = ref([])
-const areas = ref([])
 
 const today = new Date().toISOString().slice(0, 10)
 
@@ -42,14 +41,13 @@ const filteredCasts = computed(() => {
 })
 
 function emptyForm() {
-  return { date: today, cast: '', requested_area: '', start_time: '', end_time: '', daily_memo: '', is_absent: false }
+  return { date: today, cast: '', room: '', start_time: '', end_time: '', daily_memo: '', is_absent: false }
 }
 
 async function loadMasters() {
-  const [c, r, a] = await Promise.all([api.getCasts(), api.getRooms(), api.getAreas()])
+  const [c, r] = await Promise.all([api.getCasts(), api.getRooms()])
   casts.value = Array.isArray(c) ? c : []
   rooms.value = Array.isArray(r) ? r : []
-  areas.value = Array.isArray(a) ? a.filter(area => area.is_active) : []
 }
 
 function buildParams() {
@@ -157,7 +155,7 @@ function openEdit(s) {
   form.value = {
     date: s.date,
     cast: s.cast,
-    requested_area: s.requested_area || '',
+    room: s.room || '',
     start_time: s.start_time_extended || s.start_time?.slice(0, 5) || '',
     end_time: s.end_time_extended || s.end_time?.slice(0, 5) || '',
     daily_memo: s.daily_memo || '',
@@ -185,7 +183,8 @@ async function onSave() {
     const body = {
       date: form.value.date,
       cast: Number(form.value.cast),
-      requested_area: form.value.requested_area || null,
+      room: form.value.room ? Number(form.value.room) : null,
+      requested_area: null,
       start_time: start.time,
       start_day_offset: start.dayOffset,
       end_time: end.time,
@@ -610,12 +609,12 @@ async function onClearClockIn(s) {
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">割当エリア</label>
-              <select v-model="form.requested_area" class="form-select">
-                <option value="">希望エリア順で自動割当</option>
-                <option v-for="area in areas" :key="area.id" :value="area.id">{{ area.name }}</option>
+              <label class="form-label">ルーム（任意）</label>
+              <select v-model="form.room" class="form-select">
+                <option value="">未定（後から割り当て）</option>
+                <option v-for="room in rooms" :key="room.id" :value="room.id">{{ room.name }}{{ room.area_name ? `（${room.area_name}）` : '' }}</option>
               </select>
-              <div class="form-text">部屋名は選びません。希望エリア内に空きがなければ未割当として保存します。</div>
+              <div class="form-text">予約に使うルームを直接選択します。未定のまま保存して後から割り当てることもできます。</div>
             </div>
             <div class="row">
               <div class="col-6 mb-3">

@@ -9,7 +9,7 @@ const isManager = computed(() => getAuthRole() === 'manager')
 const loading = ref(true)
 const error = ref('')
 const requests = ref([])
-const areas = ref([])
+const rooms = ref([])
 
 const filterStatus = ref('REQUESTED')
 const viewMode = ref('list')
@@ -33,9 +33,9 @@ const groupedByCast = computed(() => {
   return Object.keys(map).sort().map((key) => ({ key, items: map[key] }))
 })
 
-async function loadAreas() {
-  const a = await api.getAreas()
-  areas.value = Array.isArray(a) ? a.filter(area => area.is_active) : []
+async function loadRooms() {
+  const data = await api.getRooms()
+  rooms.value = Array.isArray(data) ? data : []
 }
 
 async function load() {
@@ -53,7 +53,7 @@ async function load() {
 }
 
 onMounted(async () => {
-  try { await loadAreas() } catch (e) { error.value = e.message }
+  try { await loadRooms() } catch (e) { error.value = e.message }
   await load()
 })
 
@@ -65,7 +65,7 @@ const approveTarget = ref(null)
 const approveDate = ref('')
 const approveStartTime = ref('')
 const approveEndTime = ref('')
-const approveArea = ref('')
+const approveRoom = ref('')
 const approveAdminMemo = ref('')
 const approveError = ref('')
 const approving = ref(false)
@@ -91,7 +91,7 @@ function openApprove(r) {
   approveDate.value = r.date || ''
   approveStartTime.value = r.start_time?.slice(0, 5) || ''
   approveEndTime.value = r.end_time_extended || r.end_time?.slice(0, 5) || ''
-  approveArea.value = ''
+  approveRoom.value = r.desired_room || ''
   approveAdminMemo.value = ''
   approveError.value = ''
   showApprove.value = true
@@ -115,7 +115,7 @@ async function doApprove() {
       date: approveDate.value,
       start_time: approveStartTime.value,
       ...normalizedEnd,
-      requested_area: approveArea.value || null,
+      room: approveRoom.value ? Number(approveRoom.value) : null,
       admin_memo: approveAdminMemo.value,
     })
     showApprove.value = false
@@ -512,12 +512,12 @@ async function doApply() {
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">割当エリア</label>
-              <select v-model="approveArea" class="form-select">
-                <option value="">希望エリア順で自動割当</option>
-                <option v-for="area in areas" :key="area.id" :value="area.id">{{ area.name }}</option>
+              <label class="form-label">ルーム</label>
+              <select v-model="approveRoom" class="form-select">
+                <option value="">未定（後から割り当て）</option>
+                <option v-for="room in rooms" :key="room.id" :value="room.id">{{ room.name }}{{ room.area_name ? `（${room.area_name}）` : '' }}</option>
               </select>
-              <div class="form-text">空きがない場合は部屋を自動で変更せず、未割当として運営が判断します。</div>
+              <div class="form-text">承認するシフトのルームを直接選択します。</div>
             </div>
             <div class="mb-3">
               <label class="form-label">管理者メモ（任意）</label>

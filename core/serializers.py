@@ -853,10 +853,16 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             except BusinessDateTimeError as exc:
                 raise serializers.ValidationError(str(exc)) from exc
 
+        room_selected = "room" in data
         area_selected = "requested_area" in data and data.get("requested_area") is not None
         requested_area = data.get("requested_area", getattr(self.instance, "requested_area", None))
         room = data.get("room", getattr(self.instance, "room", None))
-        if area_selected:
+        if room_selected:
+            # A concrete room, including an explicit "undecided" choice, is the
+            # operator's decision and must not be replaced by area assignment.
+            requested_area = None
+            data["requested_area"] = None
+        elif area_selected:
             # An area selection replaces any historical concrete-room choice.
             room = None
             data["room"] = None
@@ -874,10 +880,9 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("無効なエリアは指定できません")
 
         if store and cast and date and start_at and end_at:
-            # Normal scheduling is area-based.  A concrete room is chosen only
-            # after an area is known, and never from an unrequested area.
-            # Existing assignments may still retain their historical room.
-            if room is None and (self.instance is None or area_selected):
+            # Legacy requests without a room may still use area preferences.
+            # An operator's explicit room choice (including null) takes priority.
+            if room is None and not room_selected and (self.instance is None or area_selected):
                 suggested_room = suggest_room_for_shift(
                     store,
                     cast,
@@ -914,6 +919,30 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         "このキャストの既存シフトと時間が重複しています"
                     )
+
+            if room is not None:
+                occupied_shifts = ShiftAssignment.objects.filter(
+                    store=store,
+                    room=room,
+                    date__range=(date - timedelta(days=1), date + timedelta(days=1)),
+                    is_absent=False,
+                )
+                if self.instance:
+                    occupied_shifts = occupied_shifts.exclude(pk=self.instance.pk)
+                for existing in occupied_shifts:
+                    try:
+                        existing_start, existing_end = build_business_interval(
+                            existing.date,
+                            existing.start_time,
+                            existing.end_time,
+                            start_day_offset=existing.start_day_offset,
+                            end_day_offset=existing.end_day_offset,
+                            timezone_name=store.timezone,
+                        )
+                    except BusinessDateTimeError:
+                        continue
+                    if intervals_overlap(start_at, end_at, existing_start, existing_end):
+                        raise serializers.ValidationError("このルームは既存シフトで使用中です")
 
             room_pending_orders = Order.objects.filter(
                 store=store,
