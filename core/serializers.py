@@ -13,7 +13,7 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError as Django
 from django.db import transaction
 
 from .security import validate_password_for_role
-from .store_access import get_request_profile
+from .store_access import get_request_profile, get_user_store
 
 from .models import (
     Area,
@@ -304,6 +304,11 @@ class CastAccountProvisionSerializer(serializers.Serializer):
 
 class CustomerSerializer(serializers.ModelSerializer):
     store_name = serializers.CharField(source="store.name", read_only=True)
+    ng_casts = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Cast.objects.all(),
+        required=False,
+    )
 
     class Meta:
         model = Customer
@@ -323,6 +328,30 @@ class CustomerSerializer(serializers.ModelSerializer):
                 "この電話番号は既に登録されています。既存顧客を選択してください。"
             )
         return phone
+
+    def validate_ng_casts(self, casts):
+        request = self.context.get("request")
+        store = getattr(self.instance, "store", None) or self.context.get("store")
+        if store is None and request is not None:
+            store = get_user_store(request)
+        if store is not None and any(cast.store_id != store.id for cast in casts):
+            raise serializers.ValidationError("同じ店舗のセラピストだけを指定してください。")
+        return casts
+
+    def validate(self, attrs):
+        flag = attrs.get("flag", getattr(self.instance, "flag", Customer.Flag.NONE))
+        ban_type = attrs.get(
+            "ban_type",
+            getattr(self.instance, "ban_type", Customer.BanType.NONE),
+        )
+        ng_casts = attrs.get("ng_casts")
+        if ng_casts and not (
+            flag == Customer.Flag.BAN and ban_type == Customer.BanType.CAST_NG
+        ):
+            raise serializers.ValidationError({
+                "ng_casts": "個別セラピストNGを選択した場合だけ対象を指定できます。",
+            })
+        return attrs
 
 
 class CourseSerializer(serializers.ModelSerializer):

@@ -224,6 +224,11 @@ def serialize_guest_reservation(access):
         and order.room_id is not None
     )
     payment_required = state == GuestReservationState.PAYMENT_REQUIRED
+    confirmation_notice_visible = state in (
+        GuestReservationState.CONFIRMED,
+        GuestReservationState.IN_PROGRESS,
+        GuestReservationState.COMPLETED,
+    )
     payment_amount = 0
     cash_due = 0
     if order.payment_method == Order.PaymentMethod.CARD:
@@ -234,6 +239,10 @@ def serialize_guest_reservation(access):
         "state_label": copy["label"],
         "title": copy["title"],
         "message": copy["message"],
+        "confirmation_notice": (
+            order.store.reservation_confirmation_notice
+            if confirmation_notice_visible else ""
+        ),
         "store_name": order.store.name,
         "contact_phone": contact_phone,
         "start": order.start,

@@ -415,6 +415,26 @@ class CtiWorkQueueTest(RoomankOpsSmokeTestBase):
         self.assertEqual(history["legacy_usage_history"], "旧システム: 63回利用")
         self.assertEqual(history["inquiries"][0]["notes"], ["希望時間が埋まっていたため折り返し"])
 
+    def test_context_includes_named_booking_restrictions(self):
+        self.customer.flag = Customer.Flag.BAN
+        self.customer.ban_type = Customer.BanType.CAST_NG
+        self.customer.online_booking_ng = True
+        self.customer.save(update_fields=["flag", "ban_type", "online_booking_ng"])
+        self.customer.ng_casts.add(self.cast_a)
+
+        response = self.client_as(self.manager_a).get(
+            f"/api/op/cti/calls/{self.call_a.id}/context/"
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        restrictions = response.data["customer_attention"]["restrictions"]
+        self.assertTrue(restrictions["individual_cast_ng"])
+        self.assertTrue(restrictions["online_booking_ng"])
+        self.assertEqual(
+            restrictions["ng_casts"],
+            [{"id": self.cast_a.id, "name": self.cast_a.name}],
+        )
+
     def test_context_keeps_inquiry_memos_for_new_callers_without_member_history(self):
         earlier = CallLog.objects.create(
             store=self.store_b, contact_id="new-caller-inquiry",

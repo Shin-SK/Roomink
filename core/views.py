@@ -46,7 +46,7 @@ from .models import (
     Area,
     StoreMembership, StoreInvitation,
     CallLog, CallLogReadReceipt, CallNote, Cast, CastAck, CastAdjustment, CastCheckoutExpenseSnapshot,
-    CastUnavailableTime,
+    CastUnavailableTime, CastCustomerMemo,
     CastDailyCheckout, CastExpense, CastExpenseTemplate, CastOfficeCashReceipt, RoomCashCount,
     CastExpenseTemplateHistory, CastNote, Course, Customer,
     CustomerMergeLog, DailySettlement, DailySettlementAuditEvent, Discount, Extension, Medium,
@@ -1291,6 +1291,147 @@ class CastTodayView(APIView):
             "line_link_code": cast.line_link_code if cast.store.line_is_operational else "",
             "line_add_friend_url": cast.store.line_add_friend_url if cast.store.line_is_operational else "",
         })
+
+
+def _cast_customer_orders(cast, customer):
+    return (
+        Order.objects
+        .filter(cast=cast, status=Order.Status.DONE)
+        .filter(
+            Q(service_recipient_customer=customer)
+            | Q(service_recipient_customer__isnull=True, customer=customer)
+        )
+        .order_by("-start", "-id")
+    )
+
+
+@document_object_api_view
+class CastCustomerListView(APIView):
+    """キャスト本人が実際に担当し、完了した顧客のみを表示する。"""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        history = defaultdict(lambda: {
+            "visit_count": 0,
+            "last_visit_at": None,
+            "nomination_labels": set(),
+        })
+        for order in (
+            Order.objects
+            .filter(cast=cast, status=Order.Status.DONE)
+            .select_related("customer", "service_recipient_customer")
+            .order_by("-start", "-id")
+        ):
+            customer = order.service_recipient_customer or order.customer
+            if customer is None or customer.store_id != cast.store_id:
+                continue
+            row = history[customer.id]
+            row["visit_count"] += 1
+            if row["last_visit_at"] is None:
+                row["last_visit_at"] = order.start
+            if order.nomination_fee_name:
+                row["nomination_labels"].add(order.nomination_fee_name)
+
+        customer_ids = list(history)
+        customers = {
+            customer.id: customer
+            for customer in Customer.objects.filter(id__in=customer_ids, store=cast.store)
+        }
+        memos = {
+            memo.customer_id: memo
+            for memo in CastCustomerMemo.objects.filter(
+                cast=cast,
+                customer_id__in=customer_ids,
+            )
+        }
+        query = request.query_params.get("q", "").strip().lower()
+        items = []
+        for customer_id, row in history.items():
+            customer = customers.get(customer_id)
+            if customer is None:
+                continue
+            display_name = customer.display_name or "名前未登録"
+            if query and query not in display_name.lower():
+                continue
+            items.append({
+                "id": customer.id,
+                "display_name": display_name,
+                "visit_count": row["visit_count"],
+                "last_visit_at": row["last_visit_at"],
+                "nomination_labels": sorted(row["nomination_labels"]),
+                "memo": memos.get(customer.id).memo if customer.id in memos else "",
+            })
+        items.sort(key=lambda item: item["last_visit_at"], reverse=True)
+        return Response({"customers": items})
+
+
+@document_object_api_view
+class CastCustomerDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_context(self, request, customer_id):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            return None, None, Response(
+                {"detail": "このユーザーにキャストが紐づいていません"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        customer = Customer.objects.filter(pk=customer_id, store=cast.store).first()
+        if customer is None or not _cast_customer_orders(cast, customer).exists():
+            return cast, None, Response(
+                {"detail": "顧客情報が見つかりません"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return cast, customer, None
+
+    def get(self, request, customer_id):
+        cast, customer, error = self._get_context(request, customer_id)
+        if error:
+            return error
+        memo = CastCustomerMemo.objects.filter(cast=cast, customer=customer).first()
+        history = [{
+            "id": order.id,
+            "start": order.start,
+            "course_name": order.course_name,
+            "nomination_label": order.nomination_fee_name,
+        } for order in _cast_customer_orders(cast, customer)]
+        return Response({
+            "id": customer.id,
+            "display_name": customer.display_name or "名前未登録",
+            "memo": memo.memo if memo else "",
+            "history": history,
+        })
+
+    def patch(self, request, customer_id):
+        cast, customer, error = self._get_context(request, customer_id)
+        if error:
+            return error
+        memo_text = request.data.get("memo", "")
+        if not isinstance(memo_text, str):
+            return Response(
+                {"detail": "顧客メモを文字列で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        memo_text = memo_text.strip()
+        if len(memo_text) > 2000:
+            return Response(
+                {"detail": "顧客メモは2000文字以内で入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        memo, _ = CastCustomerMemo.objects.update_or_create(
+            cast=cast,
+            customer=customer,
+            defaults={"memo": memo_text},
+        )
+        return Response({"memo": memo.memo, "updated_at": memo.updated_at})
 
 
 @document_object_api_view
@@ -2738,9 +2879,30 @@ class CastUnavailableTimeViewSet(viewsets.ModelViewSet):
         serializer.save(updated_by=self.request.user)
 
 
+def _customer_restriction_context(customer):
+    ng_casts = list(customer.ng_casts.order_by("name", "id").values("id", "name"))
+    return {
+        "store_ng": (
+            customer.flag == Customer.Flag.BAN
+            and customer.ban_type == Customer.BanType.STORE_BAN
+        ),
+        "individual_cast_ng": (
+            customer.flag == Customer.Flag.BAN
+            and customer.ban_type == Customer.BanType.CAST_NG
+        ),
+        "online_booking_ng": customer.online_booking_ng,
+        "ng_casts": ng_casts,
+        "individual_cast_ng_target_missing": (
+            customer.flag == Customer.Flag.BAN
+            and customer.ban_type == Customer.BanType.CAST_NG
+            and not ng_casts
+        ),
+    }
+
+
 class CustomerViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsManagerOrStaff]
-    queryset = Customer.objects.order_by("id")
+    queryset = Customer.objects.prefetch_related("ng_casts").order_by("id")
     serializer_class = CustomerSerializer
     filterset_fields = {
         "flag": ["exact"],
@@ -2805,6 +2967,40 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 "phone": "この電話番号は既に登録されています。既存顧客を選択してください。"
             }) from exc
 
+    @action(detail=True, methods=["get"], url_path="reservation-context")
+    def reservation_context(self, request, pk=None):
+        """予約受付で使うNG区分と、担当セラピスト別の完了済み利用履歴。"""
+        customer = self.get_object()
+        completed_orders = (
+            Order.objects
+            .filter(store=customer.store, status=Order.Status.DONE)
+            .filter(Q(customer=customer) | Q(service_recipient_customer=customer))
+        )
+        history_rows = completed_orders.values("cast_id").annotate(
+            visit_count=Count("id", distinct=True),
+            last_visit_at=Max("start"),
+        )
+        nomination_labels = defaultdict(set)
+        for cast_id, label in completed_orders.exclude(
+            nomination_fee_name="",
+        ).values_list("cast_id", "nomination_fee_name"):
+            nomination_labels[cast_id].add(label)
+
+        return Response({
+            "customer_id": customer.id,
+            "restrictions": _customer_restriction_context(customer),
+            "staff_memo": customer.staff_memo or "",
+            "cast_history": [
+                {
+                    "cast_id": row["cast_id"],
+                    "visit_count": row["visit_count"],
+                    "last_visit_at": row["last_visit_at"],
+                    "nomination_labels": sorted(nomination_labels[row["cast_id"]]),
+                }
+                for row in history_rows
+            ],
+        })
+
     @action(detail=False, methods=["get"], url_path="check-duplicate")
     def check_duplicate(self, request):
         """GET /api/customers/check-duplicate/?phone=...&name=... — 新規作成前の重複チェック"""
@@ -2864,6 +3060,9 @@ class CustomerViewSet(viewsets.ModelViewSet):
             snap_name = merge_customer.display_name or ""
             snap_phone = merge_customer.phone or ""
             snap_id = merge_customer.pk
+            merged_ng_cast_ids = list(
+                merge_customer.ng_casts.filter(store=store).values_list("id", flat=True)
+            )
 
             # 1) FK 付け替え
             orders_moved = Order.objects.filter(customer=merge_customer).update(customer=keep)
@@ -2885,6 +3084,9 @@ class CustomerViewSet(viewsets.ModelViewSet):
             ban_priority = {"STORE_BAN": 3, "CAST_NG": 2, "NONE": 1}
             if ban_priority.get(merge_customer.ban_type, 0) > ban_priority.get(keep.ban_type, 0):
                 keep.ban_type = merge_customer.ban_type
+            keep.online_booking_ng = (
+                keep.online_booking_ng or merge_customer.online_booking_ng
+            )
 
             # 4) user 引き継ぎ
             if not keep.user and merge_customer.user:
@@ -2893,6 +3095,25 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 merge_customer.save(update_fields=["user"])
 
             keep.save()
+            if merged_ng_cast_ids:
+                keep.ng_casts.add(*merged_ng_cast_ids)
+
+            # キャスト個人の顧客メモも統合先へ引き継ぐ。
+            for source_memo in CastCustomerMemo.objects.filter(customer=merge_customer):
+                destination_memo = CastCustomerMemo.objects.filter(
+                    cast=source_memo.cast,
+                    customer=keep,
+                ).first()
+                if destination_memo:
+                    if source_memo.memo and source_memo.memo not in destination_memo.memo:
+                        destination_memo.memo = "\n\n".join(filter(None, [
+                            destination_memo.memo,
+                            source_memo.memo,
+                        ]))
+                        destination_memo.save(update_fields=["memo", "updated_at"])
+                else:
+                    source_memo.customer = keep
+                    source_memo.save(update_fields=["customer", "updated_at"])
 
             # 5) merge 顧客を削除
             merge_customer.delete()
@@ -5409,11 +5630,13 @@ def _cti_call_payload(call, *, include_attention=False):
         "updated_at": call.updated_at,
     }
     if include_attention:
+        restrictions = _customer_restriction_context(customer) if customer else None
         payload["customer_attention"] = (
             {
                 "flag": customer.flag,
                 "ban_type": customer.ban_type,
                 "staff_memo": customer.staff_memo,
+                "restrictions": restrictions,
             }
             if customer else None
         )
@@ -8030,6 +8253,7 @@ class StorePublicBookingSettingsView(APIView):
             "store_name": store.name,
             "store_slug": store.slug,
             "public_booking_notice": store.public_booking_notice,
+            "reservation_confirmation_notice": store.reservation_confirmation_notice,
             "public_booking_notification_email": store.public_booking_notification_email,
             "guest_contact_phone": store.guest_contact_phone,
             "guest_contact_phone_memo": store.guest_contact_phone_memo,
@@ -8053,6 +8277,21 @@ class StorePublicBookingSettingsView(APIView):
         if len(notice) > 3000:
             return Response(
                 {"detail": "注意事項は3000文字以内で入力してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        confirmation_notice = request.data.get(
+            "reservation_confirmation_notice",
+            store.reservation_confirmation_notice,
+        )
+        if not isinstance(confirmation_notice, str):
+            return Response(
+                {"detail": "予約確定後の注意事項を文字列で指定してください。"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        confirmation_notice = confirmation_notice.strip()
+        if len(confirmation_notice) > 3000:
+            return Response(
+                {"detail": "予約確定後の注意事項は3000文字以内で入力してください。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         contact_phone = request.data.get("guest_contact_phone", store.guest_contact_phone)
@@ -8108,6 +8347,7 @@ class StorePublicBookingSettingsView(APIView):
                 )
         update_fields = [
             "public_booking_notice",
+            "reservation_confirmation_notice",
             "public_booking_notification_email",
             "guest_contact_phone",
             "guest_contact_phone_memo",
@@ -8136,6 +8376,7 @@ class StorePublicBookingSettingsView(APIView):
                 store.slug = new_slug
                 update_fields.append("slug")
         store.public_booking_notice = notice
+        store.reservation_confirmation_notice = confirmation_notice
         store.public_booking_notification_email = notification_email
         store.guest_contact_phone = contact_phone
         store.guest_contact_phone_memo = contact_phone_memo

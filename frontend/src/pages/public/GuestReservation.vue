@@ -170,6 +170,12 @@ onMounted(() => {
           </dl>
         </section>
 
+        <section v-if="reservation.confirmation_notice" class="confirmation-notice-card">
+          <div class="section-kicker">IMPORTANT</div>
+          <h2>ご予約にあたっての注意事項</h2>
+          <p>{{ reservation.confirmation_notice }}</p>
+        </section>
+
         <section v-if="reservation.room_name || reservation.room_address" class="room-card">
           <div class="section-kicker">GUIDANCE</div>
           <h2>当日のご案内</h2>
@@ -244,7 +250,7 @@ onMounted(() => {
 .guest-loading p { margin: 14px 0 0; color: #66736f; }
 .guest-error i { font-size: 2.6rem; color: #9a5a5a; }
 .guest-error h1 { margin: 16px 0 10px; font-size: 1.35rem; }
-.status-card, .payment-card, .detail-card, .room-card, .guidance-pending-card, .timeline-card, .contact-card { margin-bottom: 14px; padding: 24px; border: 1px solid #dfe7e4; border-radius: 20px; background: #fff; box-shadow: 0 7px 24px rgba(18, 40, 33, .045); }
+.status-card, .payment-card, .detail-card, .confirmation-notice-card, .room-card, .guidance-pending-card, .timeline-card, .contact-card { margin-bottom: 14px; padding: 24px; border: 1px solid #dfe7e4; border-radius: 20px; background: #fff; box-shadow: 0 7px 24px rgba(18, 40, 33, .045); }
 .status-card { border: 0; color: #fff; background: #63736e; }
 .status-card.is-payment { background: linear-gradient(135deg, #9c6b19, #c18a2e); }
 .status-card.is-confirmed { background: linear-gradient(135deg, #197c6e, #2a9d8f); }
@@ -256,6 +262,8 @@ onMounted(() => {
 .section-kicker { margin-bottom: 5px; color: #2a9d8f; font-size: .68rem; font-weight: 900; letter-spacing: .14em; }
 h2 { margin: 0 0 18px; font-size: 1.15rem; font-weight: 900; }
 .payment-card { border-color: #e2c58e; background: #fffdf8; }
+.confirmation-notice-card { border-color: #f0d294; background: #fffbf2; }
+.confirmation-notice-card p { margin: 0; white-space: pre-wrap; line-height: 1.8; color: #5d4a22; }
 .payment-amount { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; padding: 14px 0; border-block: 1px solid #eee1c8; }
 .payment-amount span { color: #76674e; font-size: .85rem; }
 .payment-amount strong { font-size: 1.65rem; }
