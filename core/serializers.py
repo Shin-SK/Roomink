@@ -1231,6 +1231,14 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
         date = data.get("date", getattr(self.instance, "date", None))
         start_at = end_at = None
         if cast and date and start_time and end_time:
+            store = Store.objects.only("timezone", "shift_request_start_hour").get(pk=cast.store_id)
+            if start_time.hour < store.shift_request_start_hour:
+                raise serializers.ValidationError({
+                    "start_time": (
+                        "開始時間は店舗設定の"
+                        f"{store.shift_request_start_hour:02d}:00以降を指定してください"
+                    )
+                })
             try:
                 format_extended_time(end_time, end_day_offset)
                 start_at, end_at = build_business_interval(
@@ -1238,7 +1246,7 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
                     start_time,
                     end_time,
                     end_day_offset=end_day_offset,
-                    timezone_name=cast.store.timezone,
+                    timezone_name=store.timezone,
                 )
             except BusinessDateTimeError as exc:
                 raise serializers.ValidationError(str(exc)) from exc
@@ -1257,7 +1265,7 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
                         existing.start_time,
                         existing.end_time,
                         end_day_offset=existing.end_day_offset,
-                        timezone_name=cast.store.timezone,
+                        timezone_name=store.timezone,
                     )
                 except BusinessDateTimeError:
                     continue

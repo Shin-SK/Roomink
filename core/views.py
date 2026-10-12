@@ -587,13 +587,16 @@ class RoomScheduleView(APIView):
 
 @document_object_api_view
 class StoreBusinessDaySettingsView(APIView):
-    """タイムラインの営業日切替時刻。変更はマネージャーだけが行える。"""
+    """営業日切替とシフト申請時刻の設定。変更はマネージャーだけが行える。"""
 
     permission_classes = [IsAuthenticated, IsManagerOrStaffReadOnlyManagerWrite]
 
     @staticmethod
     def _payload(store):
-        return {"business_day_boundary_hour": store.business_day_boundary_hour}
+        return {
+            "business_day_boundary_hour": store.business_day_boundary_hour,
+            "shift_request_start_hour": store.shift_request_start_hour,
+        }
 
     def get(self, request):
         return Response(self._payload(get_user_store(request)))
@@ -602,13 +605,24 @@ class StoreBusinessDaySettingsView(APIView):
         _require_manager(request)
         store = get_user_store(request)
         try:
-            hour = int(request.data.get("business_day_boundary_hour"))
+            boundary_hour = int(
+                request.data.get("business_day_boundary_hour", store.business_day_boundary_hour)
+            )
         except (TypeError, ValueError):
             return Response({"detail": "切替時刻は0〜5の整数で指定してください。"}, status=400)
-        if not 0 <= hour <= 5:
+        if not 0 <= boundary_hour <= 5:
             return Response({"detail": "切替時刻は0〜5の範囲で指定してください。"}, status=400)
-        store.business_day_boundary_hour = hour
-        store.save(update_fields=["business_day_boundary_hour"])
+        try:
+            shift_request_start_hour = int(
+                request.data.get("shift_request_start_hour", store.shift_request_start_hour)
+            )
+        except (TypeError, ValueError):
+            return Response({"detail": "シフト申請開始時刻は0〜23の整数で指定してください。"}, status=400)
+        if not 0 <= shift_request_start_hour <= 23:
+            return Response({"detail": "シフト申請開始時刻は0〜23の範囲で指定してください。"}, status=400)
+        store.business_day_boundary_hour = boundary_hour
+        store.shift_request_start_hour = shift_request_start_hour
+        store.save(update_fields=["business_day_boundary_hour", "shift_request_start_hour"])
         return Response(self._payload(store))
 
 
@@ -4616,6 +4630,24 @@ class CastPointSummaryView(APIView):
 # ──────────────────────────────────────
 # ShiftRequest — Cast API
 # ──────────────────────────────────────
+
+class CastShiftRequestTimeSettingsView(APIView):
+    """キャスト本人の店舗に適用されるシフト申請開始時刻を返す。"""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="cast_shift_request_time_settings_get",
+        responses=OpenApiTypes.OBJECT,
+    )
+    def get(self, request):
+        cast = getattr(request.user, "cast_profile", None)
+        if cast is None:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("このユーザーにキャストが紐づいていません")
+        store = Store.objects.only("shift_request_start_hour").get(pk=cast.store_id)
+        return Response({"shift_request_start_hour": store.shift_request_start_hour})
+
 
 class CastShiftRequestViewSet(viewsets.ModelViewSet):
     serializer_class = CastShiftRequestSerializer

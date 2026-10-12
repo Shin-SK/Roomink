@@ -455,6 +455,7 @@ export const api = {
   updatePaymentFeeSettings: (body) => request('PATCH', '/op/payment-fee-settings/', body),
 
   getCastShiftRequests: (params = '') => listRequest('GET', `/cast/shift-requests/${params ? '?' + params : '?limit=200'}`),
+  getCastShiftRequestTimeSettings: () => request('GET', '/cast/shift-request-time-settings/'),
   createCastShiftRequest: (body) => request('POST', '/cast/shift-requests/', body),
   createCastShiftRequestsBulk: (body) => request('POST', '/cast/shift-requests/bulk-create/', body),
   updateCastShiftRequest: (id, body) => request('PATCH', `/cast/shift-requests/${id}/`, body),

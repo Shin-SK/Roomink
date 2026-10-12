@@ -62,10 +62,14 @@ class ExtendedShiftStartAndBusinessDaySettingsTest(TestCase):
         self.assertEqual(timeline.data["orders"], [])
 
         settings = self.client.patch(
-            "/api/op/business-day-settings/", {"business_day_boundary_hour": 5}, format="json",
+            "/api/op/business-day-settings/", {
+                "business_day_boundary_hour": 5,
+                "shift_request_start_hour": 13,
+            }, format="json",
         )
         self.assertEqual(settings.status_code, 200, settings.data)
         self.assertEqual(settings.data["business_day_boundary_hour"], 5)
+        self.assertEqual(settings.data["shift_request_start_hour"], 13)
 
     def test_staff_can_read_but_cannot_change_business_day_boundary(self):
         staff = User.objects.create_user("extended_shift_staff", password="pass")
@@ -76,6 +80,9 @@ class ExtendedShiftStartAndBusinessDaySettingsTest(TestCase):
         self.assertEqual(readable.status_code, 200, readable.data)
 
         update = self.client.patch(
-            "/api/op/business-day-settings/", {"business_day_boundary_hour": 4}, format="json",
+            "/api/op/business-day-settings/", {
+                "business_day_boundary_hour": 4,
+                "shift_request_start_hour": 12,
+            }, format="json",
         )
         self.assertEqual(update.status_code, 403, update.data)

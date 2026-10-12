@@ -72,6 +72,41 @@ class ShiftRequestExtendedTimeTest(TestCase):
         self.assertEqual(request.end_time, time(5, 0))
         self.assertEqual(request.end_day_offset, 1)
 
+    def test_store_start_hour_is_exposed_to_cast_and_enforced(self):
+        settings = self.manager_client.patch(
+            "/api/op/business-day-settings/",
+            {
+                "business_day_boundary_hour": 5,
+                "shift_request_start_hour": 13,
+            },
+            format="json",
+        )
+        self.assertEqual(settings.status_code, 200, settings.data)
+
+        time_settings = self.cast_client.get("/api/cast/shift-request-time-settings/")
+        self.assertEqual(time_settings.status_code, 200, time_settings.data)
+        self.assertEqual(time_settings.data["shift_request_start_hour"], 13)
+
+        before_open = self.cast_client.post(
+            "/api/cast/shift-requests/",
+            self.request_payload(start_time="12:30", end_time="23:00", end_day_offset=0),
+            format="json",
+        )
+        self.assertEqual(before_open.status_code, 400, before_open.data)
+        self.assertIn("13:00", str(before_open.data))
+
+        at_open = self.cast_client.post(
+            "/api/cast/shift-requests/",
+            self.request_payload(start_time="13:00", end_time="23:00", end_day_offset=0),
+            format="json",
+        )
+        self.assertEqual(at_open.status_code, 201, at_open.data)
+
+    def test_default_shift_request_start_hour_is_11(self):
+        time_settings = self.cast_client.get("/api/cast/shift-request-time-settings/")
+        self.assertEqual(time_settings.status_code, 200, time_settings.data)
+        self.assertEqual(time_settings.data["shift_request_start_hour"], 11)
+
     def test_cast_request_after_29_is_rejected(self):
         response = self.cast_client.post(
             "/api/cast/shift-requests/",

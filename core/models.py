@@ -82,6 +82,11 @@ class Store(models.Model):
         validators=[MinValueValidator(0), MaxValueValidator(5)],
         help_text="この時刻から次の営業日として扱う（例: 5=29:00まで前営業日）",
     )
+    shift_request_start_hour = models.PositiveSmallIntegerField(
+        default=11,
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+        help_text="キャストがシフト申請で選択できる最も早い開始時刻",
+    )
     line_add_friend_url = models.URLField(blank=True, default="")
     line_channel_secret = models.TextField(blank=True, default="")
     line_channel_access_token = models.TextField(blank=True, default="")

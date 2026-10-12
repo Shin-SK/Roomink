@@ -6,6 +6,7 @@ import { api } from '../../api.js'
 const loading = ref(true)
 const error = ref('')
 const requests = ref([])
+const shiftRequestStartHour = ref(11)
 
 const showForm = ref(false)
 const form = ref(emptyForm())
@@ -62,9 +63,9 @@ function weekdayClass(value) {
   return { 'weekly-day-button--sunday': day === 0, 'weekly-day-button--saturday': day === 6 }
 }
 
-function buildTimeOptions(maxHour) {
+function buildTimeOptions(maxHour, minHour = 0) {
   const options = []
-  for (let hour = 0; hour <= maxHour; hour += 1) {
+  for (let hour = minHour; hour <= maxHour; hour += 1) {
     for (const minute of [0, 30]) {
       if (hour === maxHour && minute > 0) break
       options.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`)
@@ -73,7 +74,7 @@ function buildTimeOptions(maxHour) {
   return options
 }
 
-const startTimeOptions = buildTimeOptions(23)
+const startTimeOptions = computed(() => buildTimeOptions(23, shiftRequestStartHour.value))
 const endTimeOptions = buildTimeOptions(29)
 
 function changeWeek(offset) {
@@ -99,8 +100,15 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await api.getCastShiftRequests()
-    requests.value = Array.isArray(data) ? data : []
+    const [requestsData, timeSettings] = await Promise.all([
+      api.getCastShiftRequests(),
+      api.getCastShiftRequestTimeSettings(),
+    ])
+    requests.value = Array.isArray(requestsData) ? requestsData : []
+    const configuredHour = Number(timeSettings?.shift_request_start_hour)
+    shiftRequestStartHour.value = Number.isInteger(configuredHour) && configuredHour >= 0 && configuredHour <= 23
+      ? configuredHour
+      : 11
   } catch (e) {
     error.value = e.message
   } finally {
