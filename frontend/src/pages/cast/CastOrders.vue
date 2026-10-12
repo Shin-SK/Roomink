@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 
@@ -14,10 +14,18 @@ const processingOrderId = ref(null)
 const optionEditorId = ref(null)
 const optionDraftIds = ref([])
 const actionErrors = ref({})
+const selectedDate = ref('')
+const currentBusinessDate = ref('')
 
-onMounted(async () => {
+const isCurrentBusinessDate = computed(() => selectedDate.value === currentBusinessDate.value)
+
+async function loadOrders(date = '') {
+  loading.value = true
+  error.value = ''
   try {
-    const data = await api.getCastToday()
+    const data = await api.getCastToday(date)
+    if (!currentBusinessDate.value) currentBusinessDate.value = data.date
+    selectedDate.value = data.date
     shift.value = data.shift
     orders.value = data.orders
     totalOrders.value = data.total_orders
@@ -27,8 +35,31 @@ onMounted(async () => {
     error.value = e.message
   } finally {
     loading.value = false
+    await nextTick()
+    layoutBlocks()
   }
-})
+}
+
+function moveDate(days) {
+  const [year, month, day] = selectedDate.value.split('-').map(Number)
+  const next = new Date(year, month - 1, day + days)
+  const date = [
+    next.getFullYear(),
+    String(next.getMonth() + 1).padStart(2, '0'),
+    String(next.getDate()).padStart(2, '0'),
+  ].join('-')
+  loadOrders(date)
+}
+
+function selectedDateLabel() {
+  if (!selectedDate.value) return ''
+  const [year, month, day] = selectedDate.value.split('-').map(Number)
+  return new Intl.DateTimeFormat('ja-JP', {
+    month: 'long', day: 'numeric', weekday: 'short',
+  }).format(new Date(year, month - 1, day))
+}
+
+onMounted(() => loadOrders())
 
 async function doAck(order) {
   try {
@@ -184,12 +215,24 @@ onMounted(() => {
     <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
 
     <template v-else>
+      <div class="card mb-3">
+        <div class="card-body p-3">
+          <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+            <button class="btn btn-outline-secondary" type="button" aria-label="前日" @click="moveDate(-1)"><i class="ti ti-chevron-left"></i></button>
+            <strong>{{ selectedDateLabel() }}</strong>
+            <button class="btn btn-outline-secondary" type="button" aria-label="翌日" @click="moveDate(1)"><i class="ti ti-chevron-right"></i></button>
+          </div>
+          <input v-model="selectedDate" type="date" class="form-control" aria-label="表示する予約日" @change="loadOrders(selectedDate)">
+          <button v-if="!isCurrentBusinessDate" class="btn btn-sm btn-link w-100 mt-1" type="button" @click="loadOrders(currentBusinessDate)">本日に戻る</button>
+        </div>
+      </div>
+
       <!-- サマリー -->
       <div class="row g-2 mb-3">
         <div class="col-6">
           <div class="card text-center mb-0">
             <div class="card-body p-3">
-              <div class="small text-muted mb-1">本日の予約</div>
+              <div class="small text-muted mb-1">{{ isCurrentBusinessDate ? '本日' : '選択日' }}の予約</div>
               <div class="fs-4 fw-bold">{{ totalOrders }}本</div>
             </div>
           </div>
@@ -205,7 +248,7 @@ onMounted(() => {
       </div>
 
       <!-- 未確認警告 -->
-      <div v-if="unconfirmedCount > 0" class="alert alert-warning d-flex align-items-center gap-3 mb-4">
+      <div v-if="unconfirmedCount > 0 && isCurrentBusinessDate" class="alert alert-warning d-flex align-items-center gap-3 mb-4">
         <i class="ti ti-alert-triangle fs-4 flex-shrink-0"></i>
         <div class="flex-grow-1">
           <div class="fw-bold mb-1">未確認の予約があります</div>
@@ -260,7 +303,7 @@ onMounted(() => {
           </div>
 
           <button
-            v-if="availableOptions.length"
+            v-if="availableOptions.length && isCurrentBusinessDate"
             class="btn btn-sm btn-outline-secondary w-100 mb-2"
             :disabled="processingOrderId === order.id"
             @click="openOptionEditor(order)"
@@ -288,7 +331,14 @@ onMounted(() => {
           </div>
 
           <button
-            v-if="order.is_unconfirmed"
+            v-if="!isCurrentBusinessDate"
+            class="btn btn-light w-100 ca-order__done"
+            disabled
+          >
+            <i class="ti ti-eye"></i> 予約詳細を表示中
+          </button>
+          <button
+            v-else-if="order.is_unconfirmed"
             class="btn btn-warning w-100 fw-bold"
             @click="doAck(order)"
           >
@@ -313,7 +363,7 @@ onMounted(() => {
       </div>
 
       <div v-if="orders.length === 0" class="text-muted text-center py-4">
-        本日の予約はありません
+        {{ isCurrentBusinessDate ? '本日' : '選択日' }}の予約はありません
       </div>
 
       <!-- タイムライン -->
