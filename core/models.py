@@ -415,6 +415,24 @@ class Customer(models.Model):
         return self.display_name or self.phone
 
 
+class CastCustomerMemo(models.Model):
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="customer_memos")
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="cast_memos")
+    memo = models.TextField(blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("cast", "customer"),
+                name="core_cast_customer_memo_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.cast} / {self.customer}"
+
+
 class ShiftAssignment(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="shift_assignments")
     date = models.DateField()

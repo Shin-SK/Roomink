@@ -147,6 +147,12 @@ urlpatterns = [
 
     # cast
     path("cast/today/", views.CastTodayView.as_view(), name="cast-today"),
+    path("cast/customers/", views.CastCustomerListView.as_view(), name="cast-customers"),
+    path(
+        "cast/customers/<int:customer_id>/",
+        views.CastCustomerDetailView.as_view(),
+        name="cast-customer-detail",
+    ),
     path("cast/schedule/", views.CastScheduleView.as_view(), name="cast-schedule"),
     path("cast/today-sales/", views.CastTodaySalesView.as_view(), name="cast-today-sales"),
     path("cast/checkout/", views.CastCheckoutView.as_view(), name="cast-checkout"),

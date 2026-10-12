@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from core.models import (
-    Cast, Course, Customer, Order, Room, Store, UserProfile,
+    Cast, CastCustomerMemo, Course, Customer, Order, Room, Store, UserProfile,
 )
 
 
@@ -166,6 +166,16 @@ class CustomerReservationContextTest(TestCase):
             phone="09000000004",
             display_name="統合先顧客",
         )
+        CastCustomerMemo.objects.create(
+            cast=self.cast,
+            customer=keep,
+            memo="統合先メモ",
+        )
+        CastCustomerMemo.objects.create(
+            cast=self.cast,
+            customer=self.customer,
+            memo="統合元メモ",
+        )
         response = self.client.post(
             f"/api/customers/{keep.id}/merge/",
             {"merge_id": self.customer.id},
@@ -180,4 +190,8 @@ class CustomerReservationContextTest(TestCase):
         self.assertEqual(
             list(keep.ng_casts.values_list("id", flat=True)),
             [self.ng_cast.id],
+        )
+        self.assertEqual(
+            CastCustomerMemo.objects.get(cast=self.cast, customer=keep).memo,
+            "統合先メモ\n\n統合元メモ",
         )

@@ -18,6 +18,7 @@ onMounted(async () => {
 const sidebarItems = [
   { to: '/cast/mypage', icon: 'ti-home', label: 'ホーム' },
   { to: '/cast/orders', icon: 'ti-calendar-event', label: '予約' },
+  { to: '/cast/customers', icon: 'ti-users', label: 'お客様' },
   { to: '/cast/schedule', icon: 'ti-calendar-week', label: '出勤予定' },
   { to: '/cast/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請' },
   { to: '/cast/profile', icon: 'ti-user', label: 'プロフィール' },
@@ -28,6 +29,7 @@ const sidebarItems = [
 const footerItems = [
   { to: '/cast/mypage', icon: 'ti-home', label: 'ホーム' },
   { to: '/cast/orders', icon: 'ti-calendar-event', label: '予約' },
+  { to: '/cast/customers', icon: 'ti-users', label: 'お客様' },
   { to: '/cast/schedule', icon: 'ti-calendar-week', label: '出勤予定' },
   { to: '/cast/shift-requests', icon: 'ti-calendar-check', label: 'シフト申請' },
 ]
@@ -118,7 +120,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
       <!-- Footer -->
       <footer class="footer position-fixed bottom-0 w-100 p-3 bg-white border-top">
-        <div class="container" style="display: grid; grid-template-columns: repeat(4, 1fr);">
+        <div class="container" style="display: grid; grid-template-columns: repeat(5, 1fr);">
           <button
             v-for="item in footerItems"
             :key="item.to"

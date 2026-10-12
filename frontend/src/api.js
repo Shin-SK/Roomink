@@ -374,6 +374,16 @@ export const api = {
     'GET',
     date ? `/cast/today/?date=${date}` : '/cast/today/',
   ),
+  getCastCustomers: (query = '') => request(
+    'GET',
+    `/cast/customers/${query ? `?q=${encodeURIComponent(query)}` : ''}`,
+  ),
+  getCastCustomer: (id) => request('GET', `/cast/customers/${id}/`),
+  updateCastCustomerMemo: (id, memo) => request(
+    'PATCH',
+    `/cast/customers/${id}/`,
+    { memo },
+  ),
   getCastSchedule: (date = '', weekStart = '') => request(
     'GET',
     date
