@@ -1,7 +1,7 @@
 import uuid
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -71,36 +71,6 @@ class WorkDeviceFoundationTest(TestCase):
         client.credentials(HTTP_AUTHORIZATION=f"RoominkWork {token}")
         return client
 
-    def test_voice_token_requires_separate_voice_configuration(self):
-        login = self.client.post(
-            "/api/work/personal-login/",
-            {
-                "username": self.manager.username,
-                "password": "Strong-pass-123",
-                "device_key": str(uuid.uuid4()),
-                "label": "Voice test iPhone",
-                "platform": "ios",
-                "store_ids": [self.store_a.pk],
-            },
-            format="json",
-            REMOTE_ADDR="198.51.100.42",
-        )
-        self.assertEqual(login.status_code, 200)
-        client = self.device_client(login.data["token"])
-        unavailable = client.post("/api/work/voice-token/", {}, format="json")
-        self.assertEqual(unavailable.status_code, 503)
-
-        with override_settings(
-            TWILIO_ACCOUNT_SID="AC" + "1" * 32,
-            TWILIO_VOICE_API_KEY_SID="SK" + "2" * 32,
-            TWILIO_VOICE_API_KEY_SECRET="voice-api-secret",
-            TWILIO_VOICE_PUSH_CREDENTIAL_SID="CR" + "3" * 32,
-        ):
-            configured = client.post("/api/work/voice-token/", {}, format="json")
-        self.assertEqual(configured.status_code, 200)
-        self.assertTrue(configured.data["token"])
-        self.assertEqual(configured.data["expires_in"], 3600)
-
     def test_personal_login_issues_hashed_device_token_for_owned_stores(self):
         response = self.personal_login()
         self.assertEqual(response.status_code, 200)
@@ -116,32 +86,6 @@ class WorkDeviceFoundationTest(TestCase):
 
         forbidden = self.personal_login(store_ids=[self.store_c.pk])
         self.assertEqual(forbidden.status_code, 403)
-
-    def test_personal_store_lookup_only_returns_the_authenticated_users_stores(self):
-        response = self.client.post(
-            "/api/work/personal-stores/",
-            {"username": self.manager.username, "password": "Strong-pass-123"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            {row["id"] for row in response.data["stores"]},
-            {self.store_a.pk, self.store_b.pk},
-        )
-        rejected = self.client.post(
-            "/api/work/personal-stores/",
-            {"username": self.manager.username, "password": "not-the-password"},
-            format="json",
-        )
-        self.assertEqual(rejected.status_code, 403)
-        staff = self.client.post(
-            "/api/work/personal-stores/",
-            {"username": self.staff.username, "password": "Strong-pass-456"},
-            format="json",
-            REMOTE_ADDR="192.0.2.2",
-        )
-        self.assertEqual(staff.status_code, 200)
-        self.assertEqual([row["id"] for row in staff.data["stores"]], [self.store_b.pk])
 
     def test_personal_membership_removal_stops_store_calls_immediately(self):
         login = self.personal_login()
@@ -187,86 +131,6 @@ class WorkDeviceFoundationTest(TestCase):
         store_a = next(row for row in response.data["stores"] if row["id"] == self.store_a.pk)
         self.assertFalse(store_a["is_receiving"])
         self.assertTrue(store_a["is_entitled"])
-
-    def test_history_remains_available_when_receiving_is_paused_but_other_store_is_hidden(self):
-        login = self.personal_login(store_ids=[self.store_a.pk])
-        client = self.device_client(login.data["token"])
-        customer = Customer.objects.create(
-            store=self.store_a, display_name="History caller", phone="09000000001",
-            flag=Customer.Flag.BAN, staff_memo="要確認",
-        )
-        own = CallLog.objects.create(
-            store=self.store_a, contact_id="CA-history-a", from_phone="09000000001",
-            to_phone="05000000001", status=CallLog.Status.MISSED, customer=customer,
-        )
-        CallLog.objects.create(
-            store=self.store_c, contact_id="CA-history-c", from_phone="09000000003",
-            to_phone="05000000003", status=CallLog.Status.DONE,
-        )
-        client.post(
-            "/api/work/receiving/",
-            {"stores": [{"store_id": self.store_a.pk, "is_receiving": False}]},
-            format="json",
-        )
-        response = client.get("/api/work/history/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual([row["id"] for row in response.data["calls"]], [own.pk])
-        self.assertEqual(response.data["calls"][0]["customer_attention"]["flag"], "BAN")
-
-    def test_history_cursor_pages_beyond_300_calls_without_cross_store_leak(self):
-        # Keep this added login off the shared test throttle bucket.
-        self.client.defaults["REMOTE_ADDR"] = "192.0.2.40"
-        login = self.personal_login(store_ids=[self.store_a.pk])
-        client = self.device_client(login.data["token"])
-        CallLog.objects.bulk_create([
-            CallLog(
-                store=self.store_a, contact_id=f"CA-page-{index}",
-                from_phone="09000000000", to_phone="05000000000",
-                status=CallLog.Status.MISSED if index % 3 == 0 else CallLog.Status.DONE,
-            ) for index in range(305)
-        ])
-        CallLog.objects.create(
-            store=self.store_c, contact_id="CA-page-other", from_phone="09000000000",
-            to_phone="05000000000", status=CallLog.Status.MISSED,
-        )
-        cursor = None
-        seen = []
-        for expected_count in (100, 100, 100, 5):
-            response = client.get("/api/work/history/", {"cursor": cursor} if cursor else {})
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(len(response.data["calls"]), expected_count)
-            seen.extend(row["id"] for row in response.data["calls"])
-            self.assertTrue(all(row["store_id"] == self.store_a.pk for row in response.data["calls"]))
-            cursor = response.data["next_cursor"]
-        self.assertIsNone(cursor)
-        self.assertEqual(len(set(seen)), 305)
-
-        missed = client.get("/api/work/history/", {"status": "missed"})
-        self.assertEqual(missed.status_code, 200)
-        self.assertEqual(len(missed.data["calls"]), 100)
-        self.assertTrue(all(row["status"] == CallLog.Status.MISSED for row in missed.data["calls"]))
-        self.assertIsNotNone(missed.data["next_cursor"])
-        tail = client.get("/api/work/history/", {"status": "missed", "cursor": missed.data["next_cursor"]})
-        self.assertEqual(len(tail.data["calls"]), 2)
-        self.assertIsNone(tail.data["next_cursor"])
-        self.assertEqual(client.get("/api/work/history/", {"cursor": "invalid!"}).status_code, 400)
-        self.assertEqual(client.get("/api/work/history/", {"status": "unknown"}).status_code, 400)
-
-    def test_current_calls_include_only_same_store_customer_attention(self):
-        login = self.personal_login(store_ids=[self.store_a.pk])
-        client = self.device_client(login.data["token"])
-        customer = Customer.objects.create(
-            store=self.store_a, display_name="Attention caller", phone="09000000001",
-            flag=Customer.Flag.BAN, staff_memo="受付時に責任者へ確認",
-        )
-        CallLog.objects.create(
-            store=self.store_a, contact_id="CA-attention-a", from_phone=customer.phone,
-            to_phone="05000000001", customer=customer,
-        )
-        response = client.get("/api/work/calls/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["calls"][0]["customer_attention"]["flag"], "BAN")
-        self.assertEqual(response.data["calls"][0]["customer_attention"]["staff_memo"], "受付時に責任者へ確認")
 
     def test_shared_device_one_time_link_claim_and_authority_loss(self):
         request_response = self.client.post(

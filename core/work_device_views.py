@@ -1,23 +1,20 @@
 """Roomink Work Phase 2 device identity and store-subscription foundation."""
 
 import hashlib
-import base64
 import secrets
 import string
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from django.conf import settings
 from django.contrib.auth import authenticate
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.authentication import BaseAuthentication
-from rest_framework.exceptions import APIException, AuthenticationFailed, PermissionDenied, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
@@ -39,12 +36,6 @@ from .store_access import is_operation_group_manager, operator_memberships
 TOKEN_TTL = timedelta(days=90)
 LINK_TTL = timedelta(minutes=10)
 LINK_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-
-
-class VoiceConfigurationUnavailable(APIException):
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    default_detail = "通話受信の設定はまだ利用できません。"
-    default_code = "voice_configuration_unavailable"
 
 
 def _hash_secret(value):
@@ -141,17 +132,6 @@ def _device_payload(device, *, operation_group_id=None):
     }
 
 
-def _call_customer_payload(call):
-    customer = call.customer if call.customer and call.customer.store_id == call.store_id else None
-    return {
-        "customer_name": str(customer) if customer else None,
-        "customer_attention": (
-            {"flag": customer.flag, "ban_type": customer.ban_type, "staff_memo": customer.staff_memo}
-            if customer else None
-        ),
-    }
-
-
 class PublicWorkThrottle(SimpleRateThrottle):
     scope = "roomink_work_public"
     rate = "20/hour"
@@ -235,13 +215,6 @@ class PersonalLoginInput(serializers.Serializer):
         if len(value) != len(set(value)):
             raise serializers.ValidationError("店舗が重複しています。")
         return value
-
-
-class PersonalStoreLookupInput(serializers.Serializer):
-    """Verify an individual user's credentials before exposing their own stores."""
-
-    username = serializers.CharField(max_length=150)
-    password = serializers.CharField(trim_whitespace=False)
 
 
 class SharedLinkInput(serializers.Serializer):
@@ -333,33 +306,6 @@ class PersonalDeviceLoginView(APIView):
             token = _issue_credential(device)
             WorkDeviceEvent.objects.create(device=device, actor=user, action="personal_login")
         return Response({"token": token, "device": _device_payload(device)})
-
-
-class PersonalStoreLookupView(APIView):
-    """List only the stores the supplied operator may use on a personal device."""
-
-    authentication_classes = []
-    permission_classes = [AllowAny]
-    throttle_classes = [WorkLoginThrottle]
-
-    @extend_schema(request=PersonalStoreLookupInput, responses=OpenApiTypes.OBJECT)
-    def post(self, request):
-        serializer = PersonalStoreLookupInput(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = authenticate(request, **serializer.validated_data)
-        if not user or not user.is_active:
-            raise AuthenticationFailed("ユーザー名またはパスワードが正しくありません。")
-        memberships = operator_memberships(user).filter(
-            role__in=("manager", "staff")
-        ).select_related("store").order_by("store__name", "store_id")
-        return Response(
-            {
-                "stores": [
-                    {"id": membership.store_id, "name": membership.store.name}
-                    for membership in memberships
-                ]
-            }
-        )
 
 
 class SharedLinkRequestCreateView(APIView):
@@ -623,7 +569,7 @@ class WorkDeviceCallsView(APIView):
                         "store_id": call.store_id,
                         "store_name": call.store.name,
                         "from_phone": call.from_phone,
-                        **_call_customer_payload(call),
+                        "customer_name": str(call.customer) if call.customer else None,
                         "status": call.status,
                         "created_at": call.created_at,
                     }
@@ -631,62 +577,6 @@ class WorkDeviceCallsView(APIView):
                 ]
             }
         )
-
-
-class WorkDeviceHistoryView(APIView):
-    authentication_classes = [WorkDeviceAuthentication]
-    permission_classes = [IsWorkDevice]
-
-    @extend_schema(responses=OpenApiTypes.OBJECT)
-    def get(self, request):
-        # Pausing reception must not remove permission to inspect existing history.
-        store_ids = [sub.store_id for sub in entitled_subscriptions(request.work_device)]
-        missed_only = request.query_params.get("status") == "missed"
-        if request.query_params.get("status") not in (None, "missed"):
-            raise ValidationError({"status": "無効な絞り込みです。"})
-        calls = (
-            CallLog.objects.filter(
-                store_id__in=store_ids,
-                status__in=[CallLog.Status.DONE, CallLog.Status.MISSED],
-            )
-            .select_related("store", "customer")
-            .order_by("-created_at", "-id")
-        )
-        if missed_only:
-            calls = calls.filter(status=CallLog.Status.MISSED)
-        cursor = request.query_params.get("cursor")
-        if cursor:
-            if len(cursor) > 160:
-                raise ValidationError({"cursor": "無効なページ位置です。"})
-            try:
-                raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode("ascii")
-                timestamp, call_id = raw.rsplit("|", 1)
-                created_at = datetime.fromisoformat(timestamp)
-                call_id = int(call_id)
-                if not timezone.is_aware(created_at) or call_id < 1:
-                    raise ValueError
-            except (ValueError, UnicodeError, base64.binascii.Error) as exc:
-                raise ValidationError({"cursor": "無効なページ位置です。"}) from exc
-            calls = calls.filter(Q(created_at__lt=created_at) | Q(created_at=created_at, id__lt=call_id))
-        page = list(calls[:101])
-        has_more = len(page) > 100
-        page = page[:100]
-        last = page[-1] if has_more else None
-        next_cursor = base64.urlsafe_b64encode(
-            f"{last.created_at.isoformat()}|{last.pk}".encode("ascii")
-        ).decode("ascii").rstrip("=") if last else None
-        return Response({"calls": [
-            {
-                "id": call.pk,
-                "store_id": call.store_id,
-                "store_name": call.store.name,
-                "from_phone": call.from_phone,
-                **_call_customer_payload(call),
-                "status": call.status,
-                "created_at": call.created_at,
-            }
-            for call in page
-        ], "next_cursor": next_cursor})
 
 
 class WorkDeviceRotateTokenView(APIView):
@@ -709,46 +599,3 @@ class WorkDeviceRotateTokenView(APIView):
                 action="credential_rotated",
             )
         return Response({"token": token, "expires_in_days": TOKEN_TTL.days})
-
-
-class WorkDeviceVoiceTokenView(APIView):
-    """Issue an incoming-only Voice token for one active Work device.
-
-    This intentionally does not read or alter the existing BYOC/Groundwire
-    provisioning. It stays unavailable until its separate credentials exist.
-    """
-
-    authentication_classes = [WorkDeviceAuthentication]
-    permission_classes = [IsWorkDevice]
-
-    @extend_schema(request=None, responses=OpenApiTypes.OBJECT)
-    def post(self, request):
-        device = request.work_device
-        if device.status != WorkDevice.Status.ACTIVE or not entitled_subscriptions(
-            device, receiving_only=True
-        ):
-            raise PermissionDenied("受付中の利用可能な店舗がないため、着信登録できません。")
-        required = (
-            settings.TWILIO_ACCOUNT_SID,
-            settings.TWILIO_VOICE_API_KEY_SID,
-            settings.TWILIO_VOICE_API_KEY_SECRET,
-            settings.TWILIO_VOICE_PUSH_CREDENTIAL_SID,
-        )
-        if not all(required):
-            raise VoiceConfigurationUnavailable()
-
-        from twilio.jwt.access_token import AccessToken
-        from twilio.jwt.access_token.grants import VoiceGrant
-
-        token = AccessToken(
-            settings.TWILIO_ACCOUNT_SID,
-            settings.TWILIO_VOICE_API_KEY_SID,
-            settings.TWILIO_VOICE_API_KEY_SECRET,
-            identity=f"roomink-work-{device.pk}",
-            ttl=3600,
-        )
-        token.add_grant(VoiceGrant(
-            incoming_allow=True,
-            push_credential_sid=settings.TWILIO_VOICE_PUSH_CREDENTIAL_SID,
-        ))
-        return Response({"token": token.to_jwt(), "expires_in": 3600})
