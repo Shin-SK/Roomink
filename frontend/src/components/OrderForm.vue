@@ -845,6 +845,30 @@ function formatYen(n) {
               </div>
             </div>
 
+            <div v-if="callBound && nominationFees.length" class="mb-3">
+              <label class="form-label">指名</label>
+              <div class="select-grid">
+                <button
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.nomination_fee === '' ? 'active' : ''"
+                  @click="form.nomination_fee = ''"
+                >
+                  指名なし
+                </button>
+                <button
+                  v-for="nomination in nominationFees"
+                  :key="nomination.id"
+                  type="button"
+                  class="btn btn-sm select-btn"
+                  :class="form.nomination_fee == nomination.id ? 'active' : ''"
+                  @click="form.nomination_fee = nomination.id"
+                >
+                  {{ nomination.name }}<br><small>+{{ formatYen(nomination.price) }}</small>
+                </button>
+              </div>
+            </div>
+
             <component :is="callBound ? 'details' : 'div'" class="reservation-extras">
               <summary v-if="callBound">その他の項目</summary>
             <div class="mb-3">
@@ -860,7 +884,7 @@ function formatYen(n) {
               <div class="form-text">予約者ご本人の場合は空欄で構いません</div>
             </div>
 
-            <div class="mb-3" v-if="nominationFees.length">
+            <div class="mb-3" v-if="!callBound && nominationFees.length">
               <label class="form-label">指名</label>
               <div class="select-grid">
                 <button
