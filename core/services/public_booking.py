@@ -64,7 +64,7 @@ def serialize_public_booking_options(store, business_date=None):
         shift_summaries = []
         for shift in shifts_by_cast.get(cast.id, []):
             shift_summaries.append({
-                "room_name": shift.room.name,
+                "room_name": shift.room.name if shift.room else "未定",
                 "area_name": (shift.room.area.name if shift.room and shift.room.area_id else "その他"),
                 "start": shift.start_time.strftime("%H:%M"),
                 "end": (

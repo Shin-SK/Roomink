@@ -143,6 +143,42 @@ class PublicWebBookingTest(TestCase):
         )
         self.assertEqual(slots.data["slots"][0]["end"], "14:00")
 
+    def test_room_undecided_shift_remains_bookable_without_crashing_options(self):
+        undecided_cast = Cast.objects.create(
+            store=self.store,
+            name="ルーム未定キャスト",
+        )
+        ShiftAssignment.objects.create(
+            store=self.store,
+            date=self.business_date,
+            cast=undecided_cast,
+            room=None,
+            start_time=time(12, 0),
+            end_time=time(15, 0),
+        )
+
+        options = self.client.get(
+            "/api/public/booking/options/",
+            {"store": self.store.id, "date": self.business_date.isoformat()},
+        )
+        slots = self.client.get(
+            "/api/public/booking/slots/",
+            {
+                "store": self.store.id,
+                "cast": undecided_cast.id,
+                "course": self.course.id,
+                "date": self.business_date.isoformat(),
+            },
+        )
+
+        self.assertEqual(options.status_code, 200, options.data)
+        undecided = next(
+            cast for cast in options.data["casts"] if cast["id"] == undecided_cast.id
+        )
+        self.assertEqual(undecided["shift_summaries"][0]["room_name"], "未定")
+        self.assertEqual(slots.status_code, 200, slots.data)
+        self.assertTrue(slots.data["slots"])
+
     def test_sms_verification_request_creates_no_customer_or_order_and_hides_code(self):
         response = self.request_code()
 
@@ -208,6 +244,32 @@ class PublicWebBookingTest(TestCase):
         self.assertEqual(
             notification.target_path,
             f"/op/schedule?date=2030-01-15&highlight={order.id}",
+        )
+
+    def test_room_undecided_booking_keeps_existing_confirmation_flow(self):
+        ShiftAssignment.objects.filter(store=self.store, cast=self.cast).update(room=None)
+
+        requested = self.request_code()
+        confirmed = self.client.post(
+            "/api/public/booking/confirm/",
+            {
+                "verification_id": requested.data["verification_id"],
+                "code": "123456",
+            },
+            format="json",
+        )
+
+        self.assertEqual(requested.status_code, 201, requested.data)
+        self.assertEqual(confirmed.status_code, 201, confirmed.data)
+        self.assertEqual(confirmed.data["status"], Order.Status.CONFIRMED)
+        self.assertEqual(confirmed.data["room_name"], "")
+        self.assertIsNone(Order.objects.get().room)
+        self.assertEqual(
+            SmsLog.objects.get(
+                order=Order.objects.get(),
+                template_type=SmsLog.TemplateType.RESERVATION_CONFIRMATION,
+            ).status,
+            SmsLog.Status.DUMMY,
         )
 
     def test_confirm_sends_store_email_when_notification_address_is_configured(self):
