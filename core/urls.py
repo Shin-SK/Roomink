@@ -8,6 +8,7 @@ from . import (
     support_views,
     views,
     work_device_views,
+    work_voice_views,
 )
 
 router = DefaultRouter()
@@ -75,6 +76,11 @@ urlpatterns = [
     path("work/shared-links/", work_device_views.SharedLinkRequestCreateView.as_view()),
     path("work/shared-links/<uuid:request_id>/claim/", work_device_views.SharedLinkClaimView.as_view()),
     path("work/me/", work_device_views.WorkDeviceMeView.as_view()),
+    path("work/personal-stores/", work_device_views.PersonalStoreLookupView.as_view()),
+    path("work/history/", work_device_views.WorkDeviceHistoryView.as_view()),
+    path("work/voice-token/", work_device_views.WorkDeviceVoiceTokenView.as_view()),
+    path("work/voice-test/incoming/", work_voice_views.incoming),
+    path("work/voice-test/finished/", work_voice_views.finished),
     path("work/heartbeat/", work_device_views.WorkDeviceHeartbeatView.as_view()),
     path("work/receiving/", work_device_views.WorkDeviceReceivingView.as_view()),
     path("work/calls/", work_device_views.WorkDeviceCallsView.as_view()),
