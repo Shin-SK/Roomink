@@ -123,7 +123,7 @@ onMounted(load)
     <section class="card mb-4">
       <div class="card-body p-3 p-md-4">
         <h2 class="h5">店舗の受信先</h2>
-        <p class="small text-muted">切り替えは次の着信から有効です。Workの受信端末が使えない場合は既存のGroundwireへ接続します。</p>
+        <p class="small text-muted">切り替えは次の着信から有効です。受信ONの有効なWork端末がない場合は既存のGroundwireへ接続します。端末が鳴らない・声が聞こえない場合は、ここでGroundwireへ戻してください。</p>
         <div v-for="store in routes.stores" :key="store.id" class="d-flex flex-wrap align-items-center gap-2 border-top py-3">
           <strong class="me-auto">{{ store.name }}</strong>
           <span>{{ store.voice_receiver === 'work' ? 'Roomink Work' : 'Groundwire' }}</span>
