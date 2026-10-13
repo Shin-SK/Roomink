@@ -2,6 +2,9 @@ from django.test import TestCase, override_settings
 from django.core.cache import cache
 from twilio.request_validator import RequestValidator
 from .models import CallLog, WorkDevice
+from .models import WorkDeviceStore
+from .work_device_views import _issue_credential
+import uuid
 from . import test_work_devices as foundation
 
 
@@ -80,6 +83,53 @@ class WorkVoiceIsolationTest(TestCase):
             self.assertContains(self.signed('/api/work/voice-test/incoming/', data), '<Client')
         self.assertContains(self.signed('/api/work/voice-test/incoming/'), '<Reject')
         self.assertEqual(CallLog.objects.count(), 5)
+
+    def additional_device(self, *, owner=None, store=None, receiving=True, status='active'):
+        device = WorkDevice.objects.create(device_key=uuid.uuid4(), kind='personal',
+            owner=owner or self.manager, platform='ios', label='Additional test phone', status=status)
+        WorkDeviceStore.objects.create(device=device, store=store or self.store_a,
+                                       is_receiving=receiving)
+        _issue_credential(device)
+        return device
+
+    def test_three_entitled_devices_share_one_parent_call(self):
+        second = self.additional_device()
+        third = self.additional_device()
+        response = self.signed('/api/work/voice-test/incoming/')
+        for device in (self.device, second, third):
+            self.assertContains(response, 'roomink_work_' + device.pk.hex)
+        self.assertEqual(response.content.count(b'<Client '), 3)
+        self.assertEqual(CallLog.objects.count(), 1)
+
+    def test_off_paused_revoked_credentials_and_foreign_store_devices_do_not_ring(self):
+        excluded = [self.additional_device(receiving=False),
+                    self.additional_device(status='paused'),
+                    self.additional_device(store=self.store_c),
+                    self.additional_device(owner=self.outsider),
+                    self.additional_device()]
+        from django.utils import timezone
+        excluded[-1].credentials.update(revoked_at=timezone.now())
+        response = self.signed('/api/work/voice-test/incoming/')
+        for device in excluded:
+            self.assertNotContains(response, 'roomink_work_' + device.pk.hex)
+        self.assertContains(response, 'roomink_work_' + self.device.pk.hex)
+
+    def test_losing_child_does_not_mark_answered_parent_missed(self):
+        self.additional_device()
+        self.signed('/api/work/voice-test/incoming/')
+        path = '/api/work/voice-test/finished/?parent=' + self.data['CallSid']
+        self.signed(path, {**self.data, 'CallStatus': 'in-progress'})
+        self.signed(path, {**self.data, 'CallSid': 'CA' + '5' * 32, 'CallStatus': 'canceled'})
+        self.assertEqual(CallLog.objects.get().status, CallLog.Status.IN_PROGRESS)
+        self.signed(path, {**self.data, 'CallStatus': 'completed', 'CallDuration': '9'})
+        self.signed(path, {**self.data, 'CallSid': 'CA' + '5' * 32, 'CallStatus': 'busy'})
+        self.assertEqual(CallLog.objects.get().status, CallLog.Status.DONE)
+
+    def test_more_than_ten_receivers_fail_closed(self):
+        for _ in range(10):
+            self.additional_device()
+        self.assertContains(self.signed('/api/work/voice-test/incoming/'), '<Reject')
+        self.assertFalse(CallLog.objects.exists())
 
     def test_caller_hangup_and_delayed_child_completion_leave_correct_history(self):
         self.signed('/api/work/voice-test/incoming/')
