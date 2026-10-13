@@ -557,6 +557,26 @@ class WorkDeviceMeView(APIView):
         return Response(payload)
 
 
+class WorkDeviceLogoutView(APIView):
+    authentication_classes = [WorkDeviceAuthentication]
+    permission_classes = [IsWorkDevice]
+
+    @extend_schema(request=None, responses=OpenApiTypes.OBJECT)
+    def post(self, request):
+        with transaction.atomic():
+            device = WorkDevice.objects.select_for_update().get(pk=request.work_device.pk)
+            if not device.credentials.filter(pk=request.auth.pk, revoked_at__isnull=True, expires_at__gt=timezone.now()).exists():
+                raise AuthenticationFailed("端末認証は既に失効しています。")
+            now = timezone.now()
+            device.credentials.filter(revoked_at__isnull=True).update(revoked_at=now)
+            device.store_subscriptions.update(is_receiving=False)
+            device.status = WorkDevice.Status.REVOKED
+            device.revoked_at = now
+            device.save(update_fields=["status", "revoked_at", "updated_at"])
+            WorkDeviceEvent.objects.create(device=device, actor=device.owner or device.approved_by, action="device_logout")
+        return Response({"detail": "この端末の受信を停止してログアウトしました。"})
+
+
 class WorkDeviceHeartbeatView(APIView):
     authentication_classes = [WorkDeviceAuthentication]
     permission_classes = [IsWorkDevice]

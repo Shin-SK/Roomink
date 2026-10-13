@@ -6,7 +6,7 @@ const deviceKey = 'roomink-work.device-key';
 const pendingLinkKey = 'roomink-work.pending-link';
 
 export type Store = { id: number; name: string; is_receiving?: boolean; is_entitled?: boolean };
-export type Device = { label: string; status: string; stores: Store[] };
+export type Device = { label: string; status: string; stores: Store[]; owner?: string | null; kind?: string };
 export type WorkCall = {
   id: number;
   contact_id?: string;

@@ -25,6 +25,7 @@ export default function HomeScreen() {
   const [missedLoaded, setMissedLoaded] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
+  const sessionGenerationRef = useRef(0);
   const historyInitializedRef = useRef(false);
   const missedInitializedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +37,7 @@ export default function HomeScreen() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [link, setLink] = useState<PendingLink | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceRegistrationState | null>(null);
   const deviceConnected = device !== null;
   const canReceiveVoice = device?.status === 'active' && device.stores.some(
@@ -43,23 +45,28 @@ export default function HomeScreen() {
   );
 
   const refreshMissed = useCallback(async () => {
+    const generation = sessionGenerationRef.current;
     const page = await workRequest<{ calls: WorkCall[]; next_cursor: string | null }>('/work/history/?status=missed');
+    if (generation !== sessionGenerationRef.current) return;
     setMissedHistory((previous) => mergeHistory(previous, page.calls));
     if (!missedInitializedRef.current) { setMissedCursor(page.next_cursor); missedInitializedRef.current = true; }
     setMissedLoaded(true);
   }, []);
 
   const refresh = useCallback(async () => {
+    const generation = sessionGenerationRef.current;
     setError(null);
     try {
       const nextDevice = await workRequest<Device>('/work/me/');
       const nextCalls = await workRequest<{ calls: WorkCall[] }>('/work/calls/');
       const nextHistory = await workRequest<{ calls: WorkCall[]; next_cursor: string | null }>('/work/history/');
+      if (generation !== sessionGenerationRef.current) return;
       setDevice(nextDevice); setCalls(nextCalls.calls);
       setHistory((previous) => mergeHistory(previous, nextHistory.calls));
       if (!historyInitializedRef.current) { setHistoryCursor(nextHistory.next_cursor); historyInitializedRef.current = true; }
       await workRequest('/work/heartbeat/', { method: 'POST', body: '{}' });
     } catch (reason) {
+      if (generation !== sessionGenerationRef.current) return;
       if (reason instanceof WorkApiError && (reason.status === 401 || reason.status === 403)) {
         await clearToken();
         setDevice(null); setCalls([]); setHistory([]); setMissedHistory([]); setHistoryCursor(null); setMissedCursor(null); setMissedLoaded(false);
@@ -73,6 +80,7 @@ export default function HomeScreen() {
 
   async function loadMoreHistory(missedOnly: boolean) {
     if (loadingMoreRef.current) return;
+    const generation = sessionGenerationRef.current;
     const cursor = missedOnly ? missedCursor : historyCursor;
     if (!cursor) return;
     loadingMoreRef.current = true;
@@ -80,6 +88,7 @@ export default function HomeScreen() {
     try {
       const query = `cursor=${encodeURIComponent(cursor)}${missedOnly ? '&status=missed' : ''}`;
       const page = await workRequest<{ calls: WorkCall[]; next_cursor: string | null }>(`/work/history/?${query}`);
+      if (generation !== sessionGenerationRef.current) return;
       if (missedOnly) { setMissedHistory((previous) => mergeHistory(previous, page.calls)); setMissedCursor(page.next_cursor); }
       else { setHistory((previous) => mergeHistory(previous, page.calls)); setHistoryCursor(page.next_cursor); }
     } catch (reason) { setError(reason instanceof Error ? reason.message : '履歴を読み込めませんでした。'); }
@@ -96,7 +105,7 @@ export default function HomeScreen() {
   })(); }, [refresh]);
 
   useEffect(() => {
-    if (!deviceConnected) return;
+    if (!deviceConnected || loggingOut) return;
     let inFlight = false;
     const tick = async () => {
       if (AppState.currentState !== 'active' || inFlight) return;
@@ -106,9 +115,10 @@ export default function HomeScreen() {
     const interval = setInterval(() => { void tick(); }, 15000);
     const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') void tick(); });
     return () => { clearInterval(interval); subscription.remove(); };
-  }, [deviceConnected, refresh]);
+  }, [deviceConnected, loggingOut, refresh]);
 
   useEffect(() => {
+    if (loggingOut) return;
     if (!canReceiveVoice || Platform.OS === 'web') {
       void unregisterIncomingCalls().catch(() => {});
       return;
@@ -131,7 +141,27 @@ export default function HomeScreen() {
     void configureVoice();
     const timer = setInterval(() => { void configureVoice(); }, 50 * 60 * 1000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [canReceiveVoice]);
+  }, [canReceiveVoice, loggingOut]);
+
+  async function logoutDevice() {
+    if (busy) return;
+    sessionGenerationRef.current += 1;
+    setBusy(true); setLoggingOut(true); setError(null);
+    try {
+      try { await workRequest('/work/logout/', { method: 'POST', body: '{}' }); }
+      catch (reason) {
+        // An already-invalid credential cannot receive new routed calls.
+        if (!(reason instanceof WorkApiError && [401, 403].includes(reason.status))) throw reason;
+      }
+      try { await unregisterIncomingCalls(); } catch { /* Server revocation already prevents delivery. */ }
+      await clearToken();
+      setDevice(null); setCalls([]); setHistory([]); setMissedHistory([]);
+      setHistoryCursor(null); setMissedCursor(null); setMissedLoaded(false);
+      historyInitializedRef.current = false; missedInitializedRef.current = false;
+    } catch {
+      setError('受信停止を確認できませんでした。通信を確認して、ログアウトをもう一度お試しください。');
+    } finally { setBusy(false); setLoggingOut(false); }
+  }
 
   async function findStores() {
     setBusy(true); setError(null);
@@ -182,7 +212,7 @@ export default function HomeScreen() {
   const voiceNotice = !canReceiveVoice ? null : voiceState?.kind === 'registering'
       ? 'iPhoneの着信登録を準備しています。'
       : voiceState?.kind === 'error' ? voiceState.message : null;
-  return <View style={{ flex: 1 }}><VoiceControls state={voiceState} /><CallListScreen device={device} calls={calls} history={history} missedHistory={missedHistory} missedLoaded={missedLoaded} hasMoreAll={historyCursor !== null} hasMoreMissed={missedCursor !== null} loadingMore={loadingMore} onLoadMore={loadMoreHistory} onMissedOnlyChange={async (value) => { if (value && !missedLoaded) { try { await refreshMissed(); } catch (reason) { setError(reason instanceof Error ? reason.message : '不在着信を読み込めませんでした。'); } } }} busy={busy} error={error || voiceNotice} onRefresh={async () => { await refresh(); if (missedLoaded) await refreshMissed(); }} onToggleStore={toggleStore} onLogout={async () => { try { await unregisterIncomingCalls(); } catch { /* Local logout must still revoke the app session. */ } await clearToken(); setDevice(null); setCalls([]); setHistory([]); setMissedHistory([]); setHistoryCursor(null); setMissedCursor(null); setMissedLoaded(false); historyInitializedRef.current = false; missedInitializedRef.current = false; }} /></View>;
+  return <View style={{ flex: 1 }}><VoiceControls state={voiceState} /><CallListScreen device={device} calls={calls} history={history} missedHistory={missedHistory} missedLoaded={missedLoaded} hasMoreAll={historyCursor !== null} hasMoreMissed={missedCursor !== null} loadingMore={loadingMore} onLoadMore={loadMoreHistory} onMissedOnlyChange={async (value) => { if (value && !missedLoaded) { try { await refreshMissed(); } catch (reason) { setError(reason instanceof Error ? reason.message : '不在着信を読み込めませんでした。'); } } }} busy={busy} error={error || voiceNotice} onRefresh={async () => { await refresh(); if (missedLoaded) await refreshMissed(); }} onToggleStore={toggleStore} onLogout={logoutDevice} /></View>;
 }
 
 type AuthScreenProps = {
@@ -210,6 +240,7 @@ type AuthScreenProps = {
 
 function AuthScreen(props: AuthScreenProps) {
   const personalReady = props.stores.length > 0;
+  const [showPassword, setShowPassword] = useState(false);
   const webPreview = Platform.OS === 'web';
   const dark = useColorScheme() === 'dark';
   const surface = dark ? '#171e1e' : '#ffffff';
@@ -223,7 +254,8 @@ function AuthScreen(props: AuthScreenProps) {
     <TextInput value={props.label} onChangeText={props.setLabel} placeholder="端末名" placeholderTextColor={muted} style={[styles.input, { backgroundColor: surface, color: foreground }]} />
     {props.mode === 'personal' ? <>
       <TextInput value={props.username} editable={!webPreview} onChangeText={(value) => { props.setUsername(value); props.setStores([]); props.setSelectedIds([]); }} placeholder="ユーザー名" placeholderTextColor={muted} autoCapitalize="none" style={[styles.input, { backgroundColor: surface, color: foreground }]} />
-      <TextInput value={props.password} editable={!webPreview} onChangeText={(value) => { props.setPassword(value); props.setStores([]); props.setSelectedIds([]); }} placeholder="パスワード" placeholderTextColor={muted} secureTextEntry style={[styles.input, { backgroundColor: surface, color: foreground }]} />
+      <TextInput value={props.password} editable={!webPreview} onChangeText={(value) => { props.setPassword(value); props.setStores([]); props.setSelectedIds([]); }} placeholder="パスワード" placeholderTextColor={muted} secureTextEntry={!showPassword} autoCapitalize="none" autoCorrect={false} style={[styles.input, { backgroundColor: surface, color: foreground }]} />
+      <Pressable accessibilityRole="button" onPress={() => setShowPassword((value) => !value)}><Text style={{ color: accent }}>{showPassword ? 'パスワードを隠す' : 'パスワードを表示'}</Text></Pressable>
       {!personalReady ? <Primary label="所属店舗を確認" disabled={webPreview || !props.username || !props.password || props.busy} onPress={props.findStores} /> : <>
         <Text style={[styles.section, { color: foreground }]}>この端末で受ける店舗</Text>{props.stores.map((store: Store) => <Pressable key={store.id} onPress={() => props.setSelectedIds(props.selectedIds.includes(store.id) ? props.selectedIds.filter((id: number) => id !== store.id) : [...props.selectedIds, store.id])} style={styles.checkRow}><Text style={{ color: foreground }}>{props.selectedIds.includes(store.id) ? '✓' : '○'}</Text><Text style={[styles.storeName, { color: foreground }]}>{store.name}</Text></Pressable>)}<Primary label="この端末を連携" disabled={webPreview || !props.selectedIds.length || props.busy} onPress={props.completePersonalLogin} /></>}
     </> : <>{!props.link ? <Primary label="連携コードを表示" disabled={webPreview || !props.label || props.busy} onPress={props.startSharedLink} /> : <View style={[styles.linkBox, { backgroundColor: surface }]}><Text style={[styles.meta, { color: muted }]}>管理画面で次のコードを承認してください</Text><Text style={[styles.code, { color: foreground }]}>{props.link.code}</Text><Primary label="承認状態を確認" disabled={webPreview || props.busy} onPress={props.checkSharedLink} /><Pressable onPress={async () => { await clearPendingLink(); props.setLink(null); }}><Text style={{ color: accent }}>連携をやり直す</Text></Pressable></View>}</>}

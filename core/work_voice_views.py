@@ -84,6 +84,37 @@ def incoming(request):
                     status_callback_event="answered completed", status_callback_method="POST")
     return _xml(response)
 
+
+@csrf_exempt
+@require_POST
+def routed_finished(request):
+    """Production-style call audio status, separate from operator completion."""
+    from .views import _is_valid_twilio_request
+    if not _is_valid_twilio_request(request):
+        return HttpResponse(status=403)
+    parent = request.GET.get("parent", request.POST.get("CallSid", ""))
+    with transaction.atomic():
+        call = CallLog.objects.select_for_update().filter(contact_id=parent).first()
+        if call and call.status != CallLog.Status.DONE:
+            child = bool(request.GET.get("parent"))
+            dial_status = request.POST.get("DialCallStatus")
+            call_status = request.POST.get("CallStatus")
+            if child and call_status in ("in-progress", "completed"):
+                call.status = CallLog.Status.IN_PROGRESS
+            elif not child and dial_status == "completed":
+                call.status = CallLog.Status.IN_PROGRESS
+            elif not child and call.status != CallLog.Status.IN_PROGRESS and dial_status in ("no-answer", "busy", "failed", "canceled"):
+                call.status = CallLog.Status.MISSED
+            # A losing child never overwrites the shared call status or duration.
+            if (child and call_status == "completed") or (not child and dial_status == "completed"):
+                duration = request.POST.get("DialCallDuration", request.POST.get("CallDuration", "0"))
+                if duration.isdigit():
+                    call.duration_seconds = max(call.duration_seconds, int(duration))
+            call.save(update_fields=["status", "duration_seconds", "updated_at"])
+    response = VoiceResponse()
+    response.hangup()
+    return _xml(response)
+
 @csrf_exempt
 @require_POST
 def finished(request):

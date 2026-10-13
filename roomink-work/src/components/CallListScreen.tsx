@@ -110,12 +110,13 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.deviceRow}><Text style={styles.deviceName}>{device.label}</Text><Text style={styles.deviceStatus}>{device.status === 'active' ? `${receivingCount}店舗で受付中` : '受付停止中'}</Text></View>
       <Text style={styles.groupTitle}>着信を受ける店舗</Text>
+      <Text style={styles.description}>アカウント：{device.owner || '共用端末'}</Text>
       <Text style={styles.description}>休みの店舗でも履歴は確認できます。</Text>
       <View style={styles.group}>{device.stores.filter((store) => store.is_entitled !== false).map((store) => <Pressable key={store.id} onPress={() => onToggleStore(store)} disabled={busy} style={styles.settingRow}><View style={styles.grow}><Text style={styles.settingName}>{store.name}</Text><Text style={styles.secondary}>{store.is_receiving ? '受付中' : '休み'}</Text></View><Text style={[styles.settingAction, !store.is_receiving && styles.paused]}>{store.is_receiving ? '休みにする' : '受付を再開'}</Text></Pressable>)}</View>
       {preview ? <Pressable onPress={() => setPreviewDark((value) => !value)} style={styles.themeToggle}><Text style={styles.settingName}>画面確認用：{dark ? 'ダーク' : 'ライト'}表示</Text><Text style={styles.settingAction}>切り替え</Text></Pressable> : null}
       <Text style={styles.description}>アプリから発信はできません。折り返しは店舗の受付回線から行ってください。</Text>
       {__DEV__ ? <Link href="/lab" style={styles.developerLink}>開発用の模擬着信テスト</Link> : null}
-      {onLogout ? <Pressable onPress={onLogout} style={styles.logout}><Text style={styles.secondary}>この端末からログアウト</Text></Pressable> : null}
+      {onLogout ? <Pressable onPress={onLogout} disabled={busy} style={styles.logout}><Text style={styles.secondary}>この端末からログアウト</Text></Pressable> : null}
     </ScrollView> : detail ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       {preview ? <Text style={styles.preview}>画面プレビュー · 架空データ／実際の電話は鳴りません</Text> : null}
       <Text style={styles.detailPhone}>{detail.from_phone}</Text><Text style={styles.detailName}>{detail.customer_name || '新規のお客さま'}</Text>

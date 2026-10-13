@@ -9,6 +9,7 @@ const error = ref('')
 const message = ref('')
 const data = ref({ stores: [], devices: [] })
 const approval = ref({ code: '', store_ids: [] })
+const routes = ref({ stores: [], work_available: false })
 
 const allStoresSelected = computed(() => (
   data.value.stores.length > 0 && approval.value.store_ids.length === data.value.stores.length
@@ -19,6 +20,7 @@ async function load() {
   error.value = ''
   try {
     data.value = await api.getWorkDevices()
+    routes.value = await api.getVoiceRoutes()
   } catch (e) {
     error.value = e.message
   } finally {
@@ -28,6 +30,18 @@ async function load() {
 
 function normalizeCode() {
   approval.value.code = approval.value.code.toUpperCase().replace(/[^23456789A-HJ-NP-Z]/g, '').slice(0, 8)
+}
+
+async function changeReceiver(store) {
+  const receiver = store.voice_receiver === 'work' ? 'groundwire' : 'work'
+  if (!window.confirm(`「${store.name}」の次の着信から、${receiver === 'work' ? 'Roomink Work' : 'Groundwire'}で受けます。切り替えますか？`)) return
+  saving.value = true; error.value = ''; message.value = ''
+  try {
+    const result = await api.setVoiceRoute(store.id, receiver)
+    store.voice_receiver = result.voice_receiver
+    message.value = '受信先を切り替えました。進行中の通話は変更されません。'
+  } catch (e) { error.value = e.message }
+  finally { saving.value = false }
 }
 
 function toggleAllStores() {
@@ -102,9 +116,24 @@ onMounted(load)
       <i class="ti ti-info-circle"></i>
       <div>
         <strong>受信アプリ用の端末管理</strong>
-        <p class="mb-0">ここではRoomink Workの端末連携と受付状態を管理します。現在はサーバー基盤の確認段階で、受信アプリ本体は今後追加されます。</p>
+        <p class="mb-0">店舗の受信先とRoomink Workの端末を管理します。Groundwireの接続は、受信先を切り替えても維持されます。</p>
       </div>
     </div>
+
+    <section class="card mb-4">
+      <div class="card-body p-3 p-md-4">
+        <h2 class="h5">店舗の受信先</h2>
+        <p class="small text-muted">切り替えは次の着信から有効です。Workの受信端末が使えない場合は既存のGroundwireへ接続します。</p>
+        <div v-for="store in routes.stores" :key="store.id" class="d-flex flex-wrap align-items-center gap-2 border-top py-3">
+          <strong class="me-auto">{{ store.name }}</strong>
+          <span>{{ store.voice_receiver === 'work' ? 'Roomink Work' : 'Groundwire' }}</span>
+          <button class="btn btn-outline-primary btn-sm" :disabled="saving || (!routes.work_available && store.voice_receiver !== 'work')" @click="changeReceiver(store)">
+            {{ store.voice_receiver === 'work' ? 'Groundwireに戻す' : 'Workに切り替える' }}
+          </button>
+        </div>
+        <p v-if="!routes.work_available" class="small text-muted mb-0">Workへの切り替えは準備中です。Groundwireへの切り戻しは利用できます。</p>
+      </div>
+    </section>
 
     <section class="card approval-card mb-4">
       <div class="card-body p-3 p-md-4">
