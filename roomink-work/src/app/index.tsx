@@ -179,9 +179,7 @@ export default function HomeScreen() {
 
   if (loading) return <Centered><ActivityIndicator color={colors.green} /></Centered>;
   if (!device) return <AuthScreen {...{ mode, setMode, username, setUsername, password, setPassword, label, setLabel, stores, setStores, selectedIds, setSelectedIds, link, setLink, busy, error, findStores, completePersonalLogin, startSharedLink, checkSharedLink }} />;
-  const voiceNotice = !canReceiveVoice ? null : voiceState?.kind === 'registered'
-    ? 'iPhoneの着信登録が完了しました。'
-    : voiceState?.kind === 'registering'
+  const voiceNotice = !canReceiveVoice ? null : voiceState?.kind === 'registering'
       ? 'iPhoneの着信登録を準備しています。'
       : voiceState?.kind === 'error' ? voiceState.message : null;
   return <View style={{ flex: 1 }}><VoiceControls state={voiceState} /><CallListScreen device={device} calls={calls} history={history} missedHistory={missedHistory} missedLoaded={missedLoaded} hasMoreAll={historyCursor !== null} hasMoreMissed={missedCursor !== null} loadingMore={loadingMore} onLoadMore={loadMoreHistory} onMissedOnlyChange={async (value) => { if (value && !missedLoaded) { try { await refreshMissed(); } catch (reason) { setError(reason instanceof Error ? reason.message : '不在着信を読み込めませんでした。'); } } }} busy={busy} error={error || voiceNotice} onRefresh={async () => { await refresh(); if (missedLoaded) await refreshMissed(); }} onToggleStore={toggleStore} onLogout={async () => { try { await unregisterIncomingCalls(); } catch { /* Local logout must still revoke the app session. */ } await clearToken(); setDevice(null); setCalls([]); setHistory([]); setMissedHistory([]); setHistoryCursor(null); setMissedCursor(null); setMissedLoaded(false); historyInitializedRef.current = false; missedInitializedRef.current = false; }} /></View>;
