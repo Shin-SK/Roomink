@@ -77,6 +77,21 @@ class WorkVoiceIsolationTest(TestCase):
     def test_trial_stops_after_five_unique_calls(self):
         for index in range(5):
             data = {**self.data, 'CallSid': 'CA' + format(index, '032x')}
-            self.assertContains(self.signed('/api/work/voice-test/incoming/', data), '<Client>')
+            self.assertContains(self.signed('/api/work/voice-test/incoming/', data), '<Client')
         self.assertContains(self.signed('/api/work/voice-test/incoming/'), '<Reject')
         self.assertEqual(CallLog.objects.count(), 5)
+
+    def test_caller_hangup_and_delayed_child_completion_leave_correct_history(self):
+        self.signed('/api/work/voice-test/incoming/')
+        self.signed('/api/work/voice-test/finished/', {**self.data, 'CallStatus': 'completed'})
+        call = CallLog.objects.get()
+        self.assertEqual(call.status, CallLog.Status.MISSED)
+        child_path = '/api/work/voice-test/finished/?parent=' + self.data['CallSid']
+        self.signed(child_path, {**self.data, 'CallSid': 'CA' + '4' * 32,
+                                 'CallStatus': 'completed', 'CallDuration': '8'})
+        call.refresh_from_db()
+        self.assertEqual(call.status, CallLog.Status.DONE)
+        self.assertEqual(call.duration_seconds, 8)
+        self.signed('/api/work/voice-test/finished/', {**self.data, 'CallStatus': 'completed'})
+        call.refresh_from_db()
+        self.assertEqual(call.status, CallLog.Status.DONE)

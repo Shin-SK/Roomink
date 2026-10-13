@@ -66,7 +66,9 @@ def incoming(request):
         return _xml(response)
     dial = response.dial(timeout=20, time_limit=120, answer_on_bridge=True,
                          action=PUBLIC_BASE + "/api/work/voice-test/finished/", method="POST")
-    dial.client("roomink_work_" + device.pk.hex)
+    dial.client("roomink_work_" + device.pk.hex,
+                status_callback=PUBLIC_BASE + "/api/work/voice-test/finished/?parent=" + sid,
+                status_callback_event="answered completed", status_callback_method="POST")
     return _xml(response)
 
 @csrf_exempt
@@ -80,13 +82,23 @@ def finished(request):
         return HttpResponse(status=403)
     with transaction.atomic():
         call = CallLog.objects.select_for_update().filter(
-            contact_id="work-test:" + request.POST.get("CallSid", ""), store_id=store_id,
+            contact_id="work-test:" + request.GET.get("parent", request.POST.get("CallSid", "")),
+            store_id=store_id,
         ).first()
-        if call and call.status not in (CallLog.Status.DONE, CallLog.Status.MISSED):
-            answered = request.POST.get("DialCallStatus") == "completed"
-            call.status = CallLog.Status.DONE if answered else CallLog.Status.MISSED
-            duration = request.POST.get("DialCallDuration", "0")
-            call.duration_seconds = min(int(duration), 120) if duration.isdigit() else 0
+        if call:
+            dial_status = request.POST.get("DialCallStatus")
+            call_status = request.POST.get("CallStatus")
+            child_callback = bool(request.GET.get("parent"))
+            answered = dial_status == "completed" or (child_callback and call_status == "completed")
+            if answered:
+                call.status = CallLog.Status.DONE
+                duration = request.POST.get("DialCallDuration", request.POST.get("CallDuration", "0"))
+                if duration.isdigit():
+                    call.duration_seconds = max(call.duration_seconds, min(int(duration), 120))
+            elif child_callback and call_status == "in-progress" and call.status == CallLog.Status.NEW:
+                call.status = CallLog.Status.IN_PROGRESS
+            elif call.status != CallLog.Status.DONE and (dial_status or call_status in ("completed", "failed", "busy", "no-answer", "canceled")):
+                call.status = CallLog.Status.DONE if call.status == CallLog.Status.IN_PROGRESS and not dial_status else CallLog.Status.MISSED
             call.save(update_fields=["status", "duration_seconds", "updated_at"])
     response = VoiceResponse()
     response.hangup()
