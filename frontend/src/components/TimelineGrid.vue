@@ -401,7 +401,7 @@ const unavailableBlocks = computed(() => (props.unavailableTimes || []).map(item
 })))
 
 function readVar(name, fallback) {
-  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name))
+  const v = parseFloat(getComputedStyle(gridRef.value || document.documentElement).getPropertyValue(name))
   return isFinite(v) && v > 0 ? v : fallback
 }
 
