@@ -1,7 +1,8 @@
 import re
-from datetime import datetime, timedelta
+from datetime import date as date_type, datetime, timedelta
 from collections import defaultdict
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
@@ -57,6 +58,7 @@ from .services.business_datetime import (
     business_date_for_datetime,
     business_day_range,
     build_business_interval,
+    build_store_datetime,
     format_business_time,
     format_extended_time,
     intervals_overlap,
@@ -1395,6 +1397,9 @@ def build_customer_label(customer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    business_date = serializers.SerializerMethodField()
+    start_time_extended = serializers.SerializerMethodField()
+    end_time_extended = serializers.SerializerMethodField()
     customer_label = serializers.SerializerMethodField()
     options = serializers.SerializerMethodField()
     option_ids = serializers.SerializerMethodField()
@@ -1426,6 +1431,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "cast_name", "room_name", "course_name", "customer_label", "service_recipient_name",
             "service_recipient_customer", "service_recipient_customer_label",
             "start", "end", "status", "timeline_status", "timeline_status_label",
+            "business_date", "start_time_extended", "end_time_extended",
             "options", "option_ids", "is_unconfirmed",
             "is_past_business_day", "can_modify", "is_off_shift", "is_room_pending", "memo",
             "course_price", "options_price",
@@ -1520,6 +1526,50 @@ class OrderSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         return can_modify_order(request.user if request else None, obj)
 
+    def get_business_date(self, obj) -> str:
+        return business_date_for_datetime(
+            obj.start, obj.store.timezone, obj.store.business_day_boundary_hour,
+        ).isoformat()
+
+    def get_start_time_extended(self, obj) -> str:
+        return self._display_order_time(obj, obj.start)
+
+    def get_end_time_extended(self, obj) -> str:
+        return self._display_order_time(obj, obj.end)
+
+    def _display_order_time(self, obj, value):
+        # Existing reservations can include seconds or extend beyond the input range.
+        # Display their time without changing the stored timestamp or rejecting reads.
+        local = value.astimezone(ZoneInfo(obj.store.timezone))
+        business_date = date_type.fromisoformat(self.get_business_date(obj))
+        hour = local.hour + (local.date() - business_date).days * 24
+        return f"{hour:02d}:{local.minute:02d}"
+
+
+def apply_order_extended_datetime(data, store, *, creating=False):
+    """Convert the explicit reservation date and 24+ hour input using the store timezone.
+
+    Existing clients may still submit start/end timestamps, but cannot mix the two formats.
+    """
+    fields = ("business_date", "start_time_extended", "end_time_extended")
+    if any(field in data for field in fields):
+        if "business_date" not in data or "start_time_extended" not in data:
+            raise serializers.ValidationError("予約日と開始時刻を両方指定してください。")
+        if "start" in data or "end" in data:
+            raise serializers.ValidationError("日時と予約日・時刻を同時に指定できません。")
+        business_date = data.pop("business_date")
+        for field, target in (("start_time_extended", "start"), ("end_time_extended", "end")):
+            if field not in data:
+                continue
+            value = data.pop(field)
+            try:
+                local_time, offset = parse_extended_time(value)
+                data[target] = build_store_datetime(business_date, local_time, offset, store.timezone)
+            except BusinessDateTimeError as exc:
+                raise serializers.ValidationError({field: str(exc)}) from exc
+    if creating and "start" not in data:
+        raise serializers.ValidationError({"start": "開始日時または予約日・開始時刻を指定してください。"})
+
 
 class ServiceRecipientCustomerLinkSerializer(serializers.Serializer):
     customer_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
@@ -1530,6 +1580,9 @@ class ServiceRecipientCustomerLinkSerializer(serializers.Serializer):
 # ──────────────────────────────────────
 
 class OrderCreateSerializer(serializers.ModelSerializer):
+    business_date = serializers.DateField(write_only=True, required=False)
+    start_time_extended = serializers.CharField(write_only=True, required=False)
+    end_time_extended = serializers.CharField(write_only=True, required=False)
     options = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Option.objects.all(), required=False,
     )
@@ -1558,8 +1611,10 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             "cast", "customer", "course", "start", "end",
             "service_recipient_name", "memo", "options", "extension", "extension_duration", "extension_price",
             "nomination_fee", "medium", "discount", "payment_method", "card_include_options",
+            "business_date", "start_time_extended", "end_time_extended",
         ]
         extra_kwargs = {
+            "start": {"required": False},
             "end": {"required": False},
             "memo": {"required": False, "default": ""},
             "payment_method": {"required": False},
@@ -1575,6 +1630,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             if data["customer"].phone != call.from_phone:
                 raise serializers.ValidationError({"customer": "着信元の顧客を選択してください。"})
         data["store"] = store
+        apply_order_extended_datetime(data, store, creating=True)
 
         settlement_date = business_date_for_datetime(data["start"], store.timezone)
         if is_daily_settlement_locked(store, settlement_date):
@@ -1812,6 +1868,9 @@ class ExtensionApplySerializer(serializers.Serializer):
 # ──────────────────────────────────────
 
 class OrderUpdateSerializer(serializers.ModelSerializer):
+    business_date = serializers.DateField(write_only=True, required=False)
+    start_time_extended = serializers.CharField(write_only=True, required=False)
+    end_time_extended = serializers.CharField(write_only=True, required=False)
     options = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Option.objects.all(), required=False,
     )
@@ -1825,6 +1884,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
             "cast", "course", "start", "end", "service_recipient_name",
             "memo", "options", "nomination_fee", "payment_method", "card_include_options",
             "timeline_status",
+            "business_date", "start_time_extended", "end_time_extended",
         ]
 
     def validate_service_recipient_name(self, value):
@@ -1841,6 +1901,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         instance = self.instance
+        apply_order_extended_datetime(data, instance.store)
         cast = data.get("cast", instance.cast)
         start = data.get("start", instance.start)
         end = data.get("end", instance.end)
@@ -2093,6 +2154,8 @@ class ScheduleOrderSerializer(serializers.Serializer):
     customer_label = serializers.CharField()
     service_recipient_name = serializers.CharField(allow_blank=True)
     course_name = serializers.CharField()
+    nomination_fee_name = serializers.CharField(allow_blank=True)
+    extension_duration = serializers.IntegerField()
     start = serializers.DateTimeField()
     end = serializers.DateTimeField()
     start_time_extended = serializers.CharField()
@@ -2208,6 +2271,8 @@ def build_schedule_data(store, date):
             "customer_label": build_customer_label(o.customer),
             "service_recipient_name": o.service_recipient_name,
             "course_name": o.course_name,
+            "nomination_fee_name": o.nomination_fee_name,
+            "extension_duration": o.extension_duration,
             "start": o.start,
             "end": o.end,
             "start_time_extended": format_business_time(o.start, date, store.timezone),

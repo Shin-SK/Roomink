@@ -637,7 +637,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         PastOrderManagerOnlyPermission,
     ]
     queryset = Order.objects.select_related(
-        "cast", "room", "customer", "service_recipient_customer", "course",
+        "store", "cast", "room", "customer", "service_recipient_customer", "course",
         "created_by", "updated_by", "cancelled_by", "guest_access",
     ).prefetch_related("options").order_by("start")
 
@@ -7786,8 +7786,9 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
         line_user_id = source.get("userId", "")
 
         if event_type == "follow":
-            _line_reply(channel_token, reply_token,
-                        "Roomink LINE連携へようこそ！\n管理画面に表示されている連携コード（6桁）を送信してください。")
+            # Customers and job applicants also add the store's official LINE.
+            # Registration begins only when the user explicitly sends 「登録」.
+            continue
 
         elif event_type == "message":
             msg = event.get("message", {})
@@ -7838,30 +7839,10 @@ def _handle_line_webhook(request, channel_secret, channel_token, store=None):
                 )
                 continue
 
-            # 既に別 Cast に連携済みの LINE userId か
-            existing = Cast.objects.filter(line_user_id=line_user_id).first()
-            if existing:
-                # 連携済みのキャストの通常会話は、無効なコード等を返さず受け流す。
-                continue
-
-            # コード照合 — store 指定がある場合はその store のキャストのみ
-            cast_qs = Cast.objects.filter(line_link_code=code, line_user_id__isnull=True)
-            if store:
-                cast_qs = cast_qs.filter(store=store)
-            cast = cast_qs.first()
-            if cast is None:
-                _line_reply(channel_token, reply_token,
-                            "無効なコードです。コードをご確認のうえ、再度お試しください。")
-                continue
-
-            # 連携実行
-            cast.line_user_id = line_user_id
-            cast.line_linked_at = timezone.now()
-            cast.save(update_fields=["line_user_id", "line_linked_at"])
-
-            app_url = os.getenv("FRONTEND_URL", "https://app.roomink.net")
-            _line_reply(channel_token, reply_token,
-                        f"連携が完了しました！\n{cast.name}さん、よろしくお願いします。\n出勤リマインド通知をお届けします。\n\nアプリに戻る:\n{app_url}/cast/mypage")
+            from .services.line_registration import handle_cast_registration
+            reply = handle_cast_registration(code, source, channel_secret, store)
+            if reply:
+                _line_reply(channel_token, reply_token, reply)
 
     return Response({"ok": True})
 

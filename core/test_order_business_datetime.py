@@ -10,6 +10,7 @@ from core.models import (
     Course,
     Customer,
     Order,
+    NominationFee,
     Room,
     ShiftAssignment,
     Store,
@@ -212,3 +213,57 @@ class OrderBusinessDateTimeTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 201, response.data)
+
+    def test_extended_input_rolls_over_month_and_returns_editable_business_time(self):
+        response = self.manager_client.post("/api/orders/", {
+            "customer": self.customer.id, "cast": self.cast.id, "course": self.course.id,
+            "business_date": "2026-07-31", "start_time_extended": "25:00",
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        order = Order.objects.get(pk=response.data["id"])
+        self.assertEqual(order.start.astimezone(TOKYO), datetime(2026, 8, 1, 1, 0, tzinfo=TOKYO))
+        self.assertEqual(response.data["business_date"], "2026-07-31")
+        self.assertEqual(response.data["start_time_extended"], "25:00")
+        updated = self.manager_client.patch(f"/api/orders/{order.pk}/", {
+            "business_date": "2026-07-31", "start_time_extended": "26:00", "end_time_extended": "27:00",
+        }, format="json")
+        self.assertEqual(updated.status_code, 200, updated.data)
+        order.refresh_from_db()
+        self.assertEqual(order.start.astimezone(TOKYO).hour, 2)
+        self.assertEqual(order.end.astimezone(TOKYO).hour, 3)
+
+    def test_invalid_extended_input_and_mixed_formats_never_create_orders(self):
+        base = {"customer": self.customer.id, "cast": self.cast.id, "course": self.course.id}
+        for payload in (
+            {"business_date": "2026-07-31", "start_time_extended": "29:01"},
+            {"business_date": "2026-07-31", "start_time_extended": "25:60"},
+            {"start_time_extended": "25:00"},
+            {"business_date": "2026-07-31", "start_time_extended": "25:00", "start": "2026-07-31T20:00:00+09:00"},
+            {},
+        ):
+            response = self.manager_client.post("/api/orders/", base | payload, format="json")
+            self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_schedule_preserves_nomination_and_extension_and_cancelled_orders_are_excluded(self):
+        fee = NominationFee.objects.create(store=self.store, name="本指名", price=1000)
+        response = self.manager_client.post("/api/orders/", {
+            "customer": self.customer.id, "cast": self.cast.id, "course": self.course.id,
+            "business_date": "2026-07-31", "start_time_extended": "25:00",
+            "nomination_fee": fee.pk, "extension_duration": 40, "extension_price": 4000,
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        schedule = self.manager_client.get("/api/op/schedule/?date=2026-07-31")
+        self.assertEqual(schedule.status_code, 200, schedule.data)
+        row = next(item for item in schedule.data["orders"] if item["id"] == response.data["id"])
+        self.assertEqual(row["nomination_fee_name"], "本指名")
+        self.assertEqual(row["extension_duration"], 40)
+        self.assertEqual(row["end_time_extended"], "26:40")
+        order = Order.objects.get(pk=response.data["id"])
+        order.status = Order.Status.CANCELLED
+        order.save(update_fields=["status"])
+        schedule = self.manager_client.get("/api/op/schedule/?date=2026-07-31")
+        self.assertFalse(schedule.data["orders"])
+
+    def test_customer_cannot_use_operator_extended_date_input_to_access_schedule(self):
+        self.assertEqual(self.customer_client.get("/api/op/schedule/?date=2026-07-31").status_code, 403)

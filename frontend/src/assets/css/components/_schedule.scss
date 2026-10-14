@@ -568,6 +568,23 @@
     text-overflow: ellipsis;
   }
 
+  &__details {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    font-size: 0.625rem;
+    font-weight: 700;
+    line-height: 1.4;
+    margin-bottom: 2px;
+
+    span {
+      padding: 1px 4px;
+      background: rgba(255, 255, 255, 0.75);
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+  }
+
   &__meta {
     font-size: 0.6875rem;
     opacity: 0.72;
