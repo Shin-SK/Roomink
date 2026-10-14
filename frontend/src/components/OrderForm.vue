@@ -534,7 +534,7 @@ async function submitCreate() {
         await api.confirmOrder(order.id)
       } catch (e) { confirmationError = e.message || 'タイムラインから予約の確定状況をご確認ください。' }
     }
-    emit('created', { order, startDate: form.value.startDate, confirmationError })
+    emit('created', { order, startDate: order.business_date || form.value.startDate, confirmationError })
   } catch (e) {
     errorMsg.value = e.message
   } finally {

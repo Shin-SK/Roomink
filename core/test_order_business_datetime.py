@@ -245,6 +245,18 @@ class OrderBusinessDateTimeTest(TestCase):
             self.assertEqual(response.status_code, 400, response.data)
         self.assertEqual(Order.objects.count(), 0)
 
+    def test_business_day_boundary_returns_the_day_that_should_open_after_save(self):
+        response = self.manager_client.post("/api/orders/", {
+            "customer": self.customer.id, "cast": self.cast.id, "course": self.course.id,
+            "business_date": "2026-07-31", "start_time_extended": "29:00",
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["business_date"], "2026-08-01")
+        self.assertEqual(response.data["start_time_extended"], "05:00")
+        for date, expected in (("2026-07-31", False), ("2026-08-01", True)):
+            schedule = self.manager_client.get(f"/api/op/schedule/?date={date}")
+            self.assertEqual(any(o["id"] == response.data["id"] for o in schedule.data["orders"]), expected)
+
     def test_schedule_preserves_nomination_and_extension_and_cancelled_orders_are_excluded(self):
         fee = NominationFee.objects.create(store=self.store, name="本指名", price=1000)
         response = self.manager_client.post("/api/orders/", {
