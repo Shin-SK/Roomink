@@ -5,6 +5,8 @@ repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$repo_dir"
 exec env -u DYNO \
   DATABASE_URL= USE_POSTGRES=0 DJANGO_ENV=local \
+  DJANGO_CORS_ALLOWED_ORIGINS=http://localhost:5175,http://127.0.0.1:5175 \
+  DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:5175,http://127.0.0.1:5175 \
   SMS_DUMMY_MODE=1 DJANGO_EMAIL_BACKEND=django.core.mail.backends.dummy.EmailBackend \
   WORK_VOICE_TEST_ENABLED=0 WORK_VOICE_ROUTING_ENABLED=0 \
   TWILIO_ACCOUNT_SID= TWILIO_AUTH_TOKEN= TWILIO_WORK_ACCOUNT_SID= TWILIO_WORK_AUTH_TOKEN= \
