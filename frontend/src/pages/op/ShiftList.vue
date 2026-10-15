@@ -9,7 +9,11 @@ const shifts = ref([])
 const casts = ref([])
 const rooms = ref([])
 
-const today = new Date().toISOString().slice(0, 10)
+function localToday() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const today = ref(localToday())
 
 // 現在時刻（1分ごとに更新して未出勤判定をリアクティブに）
 const now = ref(new Date())
@@ -21,7 +25,7 @@ const shiftAlertsLoading = ref(true)
 
 // Filter: 'all' | 'upcoming' | 'today' | 'date'
 const viewMode = ref('all')
-const filterDate = ref(today)
+const filterDate = ref(today.value)
 const searchQuery = ref('')
 
 // Form
@@ -41,7 +45,7 @@ const filteredCasts = computed(() => {
 })
 
 function emptyForm() {
-  return { date: today, cast: '', room: '', start_time: '', end_time: '', daily_memo: '', is_absent: false }
+  return { date: today.value, cast: '', room: '', start_time: '', end_time: '', daily_memo: '', is_absent: false }
 }
 
 async function loadMasters() {
@@ -51,8 +55,8 @@ async function loadMasters() {
 }
 
 function buildParams() {
-  if (viewMode.value === 'today') return `date=${today}&limit=500`
-  if (viewMode.value === 'upcoming') return `date__gte=${today}&limit=500`
+  if (viewMode.value === 'today') return `date=${today.value}&limit=500`
+  if (viewMode.value === 'upcoming') return `date__gte=${today.value}&limit=500`
   if (viewMode.value === 'date') return `date=${filterDate.value}&limit=500`
   return 'limit=500' // all
 }
@@ -73,7 +77,7 @@ async function loadShifts() {
 }
 
 function scrollToToday() {
-  const el = document.getElementById(`shift-date-${today}`)
+  const el = document.getElementById(`shift-date-${today.value}`)
   if (el && typeof el.scrollIntoView === 'function') {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
@@ -130,6 +134,10 @@ onMounted(async () => {
   await loadShiftAlerts()
   nowTimer = setInterval(() => {
     now.value = new Date()
+    if (today.value !== localToday()) {
+      today.value = localToday()
+      loadShifts()
+    }
     loadShiftAlerts()
   }, 60 * 1000)
 })
@@ -146,6 +154,7 @@ watch(filterDate, () => {
 function openCreate() {
   editingId.value = null
   form.value = emptyForm()
+  castSearch.value = ''
   formError.value = ''
   showForm.value = true
 }
@@ -166,6 +175,11 @@ function openEdit(s) {
 }
 
 async function onSave() {
+  if (saving.value) return
+  if (!Number.isInteger(Number(form.value.cast)) || Number(form.value.cast) <= 0) {
+    formError.value = 'キャストを選択してください'
+    return
+  }
   saving.value = true
   formError.value = ''
   saveNotice.value = ''
@@ -236,7 +250,7 @@ const groupedShifts = computed(() => {
     if (!map.has(s.date)) map.set(s.date, [])
     map.get(s.date).push(s)
   }
-  const keys = Array.from(map.keys()).sort((a, b) => b.localeCompare(a))
+  const keys = Array.from(map.keys()).sort((a, b) => a.localeCompare(b))
   return keys.map(date => ({ date, items: map.get(date) }))
 })
 
@@ -258,12 +272,12 @@ function formatDateLabel(dateStr) {
   const dt = new Date(y, m - 1, d)
   const w = WEEK[dt.getDay()]
   let label = `${m}月${d}日 (${w})`
-  if (dateStr === today) label += ' ・ 今日'
+  if (dateStr === today.value) label += ' ・ 今日'
   return label
 }
 
 function isPast(dateStr) {
-  return dateStr < today
+  return dateStr < today.value
 }
 
 function formatClockedAt(iso) {
@@ -276,7 +290,7 @@ function formatClockedAt(iso) {
 
 // 今日のシフトで「開始時刻を過ぎているのに未出勤」 = 来てない
 function isLate(s) {
-  if (s.date !== today) return false
+  if (s.date !== today.value) return false
   if (s.clocked_in_at) return false
   if (!s.start_time) return false
   const [h, m] = s.start_time.split(':').map(Number)
@@ -287,7 +301,7 @@ function isLate(s) {
 
 // 今日のサマリ
 const todaySummary = computed(() => {
-  const items = shifts.value.filter(s => s.date === today)
+  const items = shifts.value.filter(s => s.date === today.value)
   const total = items.length
   const done = items.filter(s => s.clocked_in_at).length
   const late = items.filter(s => isLate(s)).length

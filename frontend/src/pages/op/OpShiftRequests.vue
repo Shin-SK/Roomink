@@ -577,6 +577,9 @@ async function doApply() {
               CSVエクスポートしたファイルをExcel等で編集し（approved_date / approved_start_time / approved_end_time / approved_room_id / admin_memo）、
               ここでアップロードしてください。まず検証結果（プレビュー）を確認し、問題のない行だけを選択して「反映する」を押すと承認されます。
               自動一括承認ではなく、必ず内容を確認してから反映してください。
+              日付はYYYY-MM-DDまたはYYYY/MM/DD、時刻はHH:MMまたはHH:MM:00で入力できます。
+              ルームIDの代わりにapproved_room_nameへ下記のルーム名を入力することもできます（同名がある場合はIDを指定）。
+              <div class="mt-2">ルーム名とID：<span v-for="room in rooms" :key="room.id" class="me-3">{{ room.name }}：{{ room.id }}</span></div>
             </div>
             <div v-if="importError" class="alert alert-danger">{{ importError }}</div>
 

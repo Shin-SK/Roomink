@@ -48,6 +48,8 @@ const ordersAdapter = computed(() =>
     cast_id: o.room_id,
     customer_label: `${o.cast_name}`,
     course_name: o.course_name,
+    nomination_fee_name: o.nomination_fee_name,
+    extension_duration: o.extension_duration,
     start: o.start,
     end: o.end,
     start_time_extended: o.start_time_extended,

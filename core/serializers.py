@@ -1660,7 +1660,10 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
         # A) BAN check
         customer = data["customer"]
-        if customer.flag == Customer.Flag.BAN:
+        from .services.booking_restrictions import customer_booking_blocked
+        profile = get_request_profile(request) if request else None
+        operator = profile is not None and profile.role in (UserProfile.Role.MANAGER, UserProfile.Role.STAFF)
+        if customer_booking_blocked(customer, data["cast"].pk, online=not operator):
             raise serializers.ValidationError("このお客様は予約を受け付けられません")
 
         extension = data.get("extension")
@@ -1752,6 +1755,8 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         discount = data.get("discount")
         if discount is not None and discount.store_id != store.id:
             raise serializers.ValidationError("他店舗の割引は使用できません")
+        if discount is not None and not discount.is_active:
+            raise serializers.ValidationError("無効な割引は使用できません")
 
         return data
 

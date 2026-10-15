@@ -432,7 +432,7 @@ function formatInvitationDate(value) {
               <label class="form-check border rounded p-3">
                 <input v-model="form.online_booking_ng" class="form-check-input" type="checkbox">
                 <span class="form-check-label fw-bold">ネット予約NG</span>
-                <span class="d-block small text-muted mt-1">現段階では予約受付画面と着信画面に注意表示します。</span>
+                <span class="d-block small text-muted mt-1">お客様からのネット予約を受け付けません。店舗の予約受付画面にも注意表示します。</span>
               </label>
             </div>
             <div class="mb-3">

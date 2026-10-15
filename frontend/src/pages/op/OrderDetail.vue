@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import OrderForm from '../../components/OrderForm.vue'
@@ -53,6 +53,40 @@ const smsLogs = ref([])
 const smsLogsLoading = ref(true)
 const smsLogsError = ref('')
 const expandedSmsIds = ref([])
+const guidance = ref(null)
+const guidanceLoading = ref(false)
+const guidanceError = ref('')
+const copyNotice = ref('')
+watch(order, () => { guidance.value = null; copyNotice.value = '' })
+
+async function loadGuidance() {
+  guidanceLoading.value = true
+  guidanceError.value = ''
+  guidance.value = null
+  copyNotice.value = ''
+  try { guidance.value = await api.getOrderGuidance(props.id) }
+  catch (e) { guidanceError.value = e.message }
+  finally { guidanceLoading.value = false }
+}
+
+async function copyGuidance(kind) {
+  copyNotice.value = ''
+  try {
+    await navigator.clipboard.writeText(guidance.value[kind])
+    copyNotice.value = 'コピーしました。送信先と内容を確認してお送りください。'
+  } catch (_) {
+    const field = document.getElementById(`guidance-${kind}`)
+    field?.focus()
+    field?.select()
+    copyNotice.value = '自動コピーできませんでした。選択された文章を手動でコピーしてください。'
+  }
+}
+
+function smsDeliveryLabel(log) {
+  if (log.delivered_at || log.provider_status === 'delivered') return '配達済み'
+  if (log.status === 'SENT') return '送信受付済み・配達未確認'
+  return log.status_label
+}
 const cardSmsActing = ref(false)
 const timelineStatusSaving = ref(false)
 const timelineStatusError = ref('')
@@ -161,7 +195,7 @@ onMounted(async () => {
     order.value = o
     extensions.value = Array.isArray(exts) ? exts : []
     nominationFees.value = Array.isArray(nfs) ? nfs : []
-    discounts.value = Array.isArray(dcs) ? dcs : []
+    discounts.value = Array.isArray(dcs) ? dcs.filter(d => d.is_active) : []
     selectedExtension.value = o.extension ?? null
     extensionDuration.value = o.extension_duration || 0
     extensionPrice.value = o.extension_price || 0
@@ -714,6 +748,23 @@ async function saveRecipientCustomerLink() {
             </div>
           </div>
 
+          <div class="card mb-4" v-if="canEdit && order.status !== 'REQUESTED'">
+            <div class="card-header">手動送信用の案内文</div>
+            <div class="card-body">
+              <p class="small text-muted">現在の予約内容から文章を作成します。SMSは送信されません。予約変更後は作り直してください。</p>
+              <button class="btn btn-outline-primary mb-2" :disabled="guidanceLoading" @click="loadGuidance">{{ guidanceLoading ? '作成中…' : '最新の案内文を作成' }}</button>
+              <div v-if="guidanceError" class="alert alert-danger">{{ guidanceError }}</div>
+              <template v-if="guidance">
+                <div v-for="(label, kind) in { customer: 'お客様向け', therapist: 'セラピスト向け' }" :key="kind" class="mb-3">
+                  <label :for="`guidance-${kind}`" class="form-label">{{ label }}</label>
+                  <textarea :id="`guidance-${kind}`" :value="guidance[kind]" readonly rows="7" class="form-control mb-2"></textarea>
+                  <button class="btn btn-outline-secondary" @click="copyGuidance(kind)">{{ label }}をコピー</button>
+                </div>
+                <p role="status" class="small">{{ copyNotice }}</p>
+              </template>
+            </div>
+          </div>
+
           <!-- SMS送信履歴（表示のみ） -->
           <div class="card mb-4">
             <div class="card-header d-flex align-items-center justify-content-between">
@@ -739,7 +790,7 @@ async function saveRecipientCustomerLink() {
                   <div class="d-flex align-items-center justify-content-between">
                     <div class="sms-row__meta">
                       <span class="badge me-1" :class="smsStatusCls[log.status] || 'bg-secondary'">
-                        {{ log.status_label }}
+                        {{ smsDeliveryLabel(log) }}
                       </span>
                       <span class="fw-bold">{{ formatDt(log.sent_at) }}</span>
                     </div>
@@ -845,7 +896,7 @@ async function saveRecipientCustomerLink() {
           <!-- addon 適用 -->
           <div class="card mb-4">
             <div class="card-header">
-              <i class="ti ti-adjustments"></i> addon 適用
+              <i class="ti ti-adjustments"></i> 延長・指名・割引の変更
             </div>
             <div class="card-body">
               <div v-if="addonError" class="alert alert-danger py-2 px-3 mb-3" style="font-size:0.875rem;">{{ addonError }}</div>
@@ -898,8 +949,8 @@ async function saveRecipientCustomerLink() {
                 </div>
               </div>
 
-              <div class="mb-0">
-                <label class="form-label small fw-bold">割引</label>
+              <div id="order-discount" class="mb-0" style="scroll-margin-top: 100px;">
+                <label class="form-label small fw-bold">割引の変更</label>
                 <div class="d-flex gap-2">
                   <select v-model="selectedDiscount" class="form-select form-select-sm">
                     <option :value="null">なし</option>

@@ -22,7 +22,12 @@ export function normalizePhone(raw) {
   return s
 }
 
-async function request(method, path, body, callId = null) {
+function csrfRejected(status, data) {
+  return status === 403 && typeof data?.detail === 'string'
+    && /^CSRF Failed: CSRF token .* incorrect\.$/.test(data.detail)
+}
+
+async function request(method, path, body, callId = null, retried = false) {
   const opts = {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -46,8 +51,12 @@ async function request(method, path, body, callId = null) {
   }
 
   if (!res.ok) {
+    if (method !== 'GET' && !retried && csrfRejected(res.status, data)) {
+      await request('GET', '/auth/csrf/')
+      return request(method, path, body, callId, true)
+    }
     const msg =
-      data?.detail ||
+      (csrfRejected(res.status, data) ? 'ログイン情報が更新されています。画面を再読み込みしてから、もう一度お試しください。' : '') || data?.detail ||
       (typeof data === 'object' && data !== null
         ? Object.values(data).flat().join('\n')
         : '') ||
@@ -62,7 +71,7 @@ async function request(method, path, body, callId = null) {
   return data
 }
 
-async function upload(path, formData) {
+async function upload(path, formData, retried = false) {
   const opts = {
     method: 'POST',
     headers: { 'X-CSRFToken': csrfToken || getCookie('csrftoken') },
@@ -73,6 +82,10 @@ async function upload(path, formData) {
   const res = await fetch(`${BASE}${path}`, opts)
   const data = await res.json().catch(() => null)
   if (!res.ok) {
+    if (!retried && csrfRejected(res.status, data)) {
+      await request('GET', '/auth/csrf/')
+      return upload(path, formData, true)
+    }
     const msg = data?.detail || `Error ${res.status}`
     const err = new Error(msg)
     err.data = data
@@ -86,14 +99,25 @@ async function upload(path, formData) {
 // Refresh first; retry only a CSRF rejection, which occurs before processing.
 async function shiftCsvRequest(send) {
   await request('GET', '/auth/csrf/')
-  try {
-    return await send()
-  } catch (err) {
-    if (err.status !== 403 || typeof err.data?.detail !== 'string'
-      || !/^CSRF Failed: CSRF token .* incorrect\.$/.test(err.data.detail)) throw err
-    await request('GET', '/auth/csrf/')
-    return send()
+  return send()
+}
+
+async function allShifts(params) {
+  let path = `/shifts/${params ? '?' + params : '?limit=500'}`
+  const rows = []
+  const visited = new Set()
+  while (path) {
+    if (visited.has(path)) throw new Error('シフト一覧を読み込めませんでした。再読み込みしてください。')
+    visited.add(path)
+    const data = await request('GET', path)
+    if (Array.isArray(data)) return data
+    rows.push(...(data?.results || []))
+    if (!data?.next) break
+    const next = new URL(data.next, 'https://roomink.invalid')
+    if (next.pathname !== '/api/shifts/') throw new Error('シフト一覧の続きを読み込めませんでした')
+    path = `/shifts/${next.search}`
   }
+  return rows
 }
 
 // ページネーション対応: results 配列があればそちらを返す
@@ -339,7 +363,7 @@ export const api = {
   getCastExpenseTemplateHistoriesByTemplate: (templateId) => listRequest('GET', `/cast-expense-template-histories/?template=${templateId}&limit=200`),
 
   // Shifts
-  getShifts: (params = '') => listRequest('GET', `/shifts/${params ? '?' + params : '?limit=500'}`),
+  getShifts: (params = '') => allShifts(params),
   createShift: (body) => request('POST', '/shifts/', body),
   updateShift: (id, body) => request('PATCH', `/shifts/${id}/`, body),
   deleteShift: (id) => request('DELETE', `/shifts/${id}/`),
@@ -384,6 +408,7 @@ export const api = {
   issueSipReceptionDeviceLink: (id) => request('POST', `/op/sip-reception-devices/${id}/provision/`, {}),
   deactivateSipReceptionDevice: (id) => request('POST', `/op/sip-reception-devices/${id}/deactivate/`, {}),
   getOrderSmsLogs: (id) => request('GET', `/op/orders/${id}/sms-logs/`),
+  getOrderGuidance: (id) => request('POST', `/orders/${id}/manual-guidance/`, {}),
   getGuestReservation: (token) => request('GET', `/public/reservations/${encodeURIComponent(token)}/`),
 
   // Cast
