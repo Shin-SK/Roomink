@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="store", name="nomination_fullback_enabled",
-            field=models.BooleanField(default=False, help_text="指名料を種類に関わらず全額キャストへバックする"),
+            field=models.BooleanField(default=False, db_default=False, help_text="指名料を種類に関わらず全額キャストへバックする"),
         ),
         migrations.RunPython(enable_confirmed_policy, migrations.RunPython.noop),
     ]

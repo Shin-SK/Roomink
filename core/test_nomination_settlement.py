@@ -3,6 +3,8 @@ import io
 from datetime import timedelta
 
 from django.test import TestCase
+from django.db import connection
+from django.db.migrations.loader import MigrationLoader
 
 from core.models import Order
 from core.test_sales_allocation import SalesAllocationTest
@@ -78,3 +80,10 @@ class NominationSettlementTest(TestCase):
 
     def test_csv_permission_boundaries(self):
         self.assertEqual(self.cast_client.get(f"/api/op/daily-settlement/export/?date={self.day}").status_code, 403)
+
+    def test_old_store_model_can_insert_without_new_settlement_column(self):
+        state = MigrationLoader(connection).project_state([("core", "0093_line_registration_session")])
+        old_store = state.apps.get_model("core", "Store")
+        row = old_store.objects.create(name="旧モデル互換検証", slug="old-model-coexist-qa")
+        from core.models import Store
+        self.assertFalse(Store.objects.get(pk=row.pk).nomination_fullback_enabled)
