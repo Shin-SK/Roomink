@@ -894,7 +894,7 @@ async function saveRecipientCustomerLink() {
           </div>
 
           <!-- addon 適用 -->
-          <div class="card mb-4">
+          <div class="card order-addons">
             <div class="card-header">
               <i class="ti ti-adjustments"></i> 延長・指名・割引の変更
             </div>
@@ -910,7 +910,7 @@ async function saveRecipientCustomerLink() {
                       {{ e.name }}（{{ e.duration }}分 / {{ e.price.toLocaleString() }}円）
                     </option>
                   </select>
-                  <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyExtension">適用</button>
+                  <button class="btn btn-outline-primary btn-sm flex-shrink-0 text-nowrap" :disabled="addonActing" @click="doApplyExtension">適用</button>
                 </div>
                 <div class="form-text">候補を選んだ後でも、時間と料金を変更できます。</div>
                 <div class="d-flex flex-wrap gap-2 mt-2">
@@ -945,7 +945,7 @@ async function saveRecipientCustomerLink() {
                       {{ n.name }}（{{ n.price.toLocaleString() }}円）
                     </option>
                   </select>
-                  <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyNominationFee">適用</button>
+                  <button class="btn btn-outline-primary btn-sm flex-shrink-0 text-nowrap" :disabled="addonActing" @click="doApplyNominationFee">適用</button>
                 </div>
               </div>
 
@@ -958,7 +958,7 @@ async function saveRecipientCustomerLink() {
                       {{ d.name }}（{{ d.discount_type === 'percent' ? d.value + '%' : d.value.toLocaleString() + '円' }}引き）
                     </option>
                   </select>
-                  <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyDiscount">適用</button>
+                  <button class="btn btn-outline-primary btn-sm flex-shrink-0 text-nowrap" :disabled="addonActing" @click="doApplyDiscount">適用</button>
                 </div>
               </div>
             </div>
@@ -972,6 +972,9 @@ async function saveRecipientCustomerLink() {
 </template>
 
 <style scoped>
+.order-addons {
+  margin-bottom: 8rem;
+}
 .timeline-display-card {
   border-color: #cbd5e1;
   background: #f8fafc;
