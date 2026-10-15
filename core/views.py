@@ -4733,6 +4733,11 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
         cast = self.request.user.cast_profile
         serializer.save(cast=cast, store=cast.store)
 
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        Store.objects.select_for_update().get(pk=request.user.cast_profile.store_id)
+        return super().update(request, *args, **kwargs)
+
     def perform_update(self, serializer):
         if serializer.instance.status != ShiftRequest.Status.REQUESTED:
             from rest_framework.exceptions import ValidationError
@@ -4802,7 +4807,9 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def cancel(self, request, pk=None):
+        Store.objects.select_for_update().get(pk=request.user.cast_profile.store_id)
         obj = self.get_object()
         if obj.status != ShiftRequest.Status.REQUESTED:
             return Response(

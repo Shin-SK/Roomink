@@ -1,15 +1,15 @@
 import csv
 import io
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, Event
 from unittest import skipUnless
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.test import TransactionTestCase
-from django.db import connection, close_old_connections
+from django.db import connection, close_old_connections, transaction
 from django.core.files.uploadedfile import SimpleUploadedFile
-from core.models import Cast, Discount, Order, ShiftAssignment, ShiftRequest, SmsLog
+from core.models import Cast, Discount, Order, ShiftAssignment, ShiftRequest, SmsLog, Store
 from core import test_card_payment_sms_flow as card_fixtures
 from core import test_shift_request_extended_time as shift_fixtures
 from core import test_public_web_booking as public_fixtures
@@ -198,6 +198,41 @@ class PublicNgQaFixesTest(TestCase):
 
 @skipUnless(connection.vendor == "postgresql", "Row-lock competition requires PostgreSQL")
 class ConcurrentShiftQaTest(TransactionTestCase):
+    def test_cast_cancel_and_edit_wait_for_in_flight_approval(self):
+        from rest_framework.test import APIClient
+        f = shift_fixtures.ShiftRequestExtendedTimeTest()
+        f.setUp()
+        for operation in ("cancel", "edit"):
+            with self.subTest(operation=operation):
+                ShiftAssignment.objects.all().delete()
+                req = ShiftRequest.objects.create(store=f.store, cast=f.cast, date=f.shift_date, start_time="18:00", end_time="23:00")
+                started = Event()
+                def mutate():
+                    close_old_connections()
+                    try:
+                        client = APIClient()
+                        client.force_authenticate(f.cast_user)
+                        started.set()
+                        url = f"/api/cast/shift-requests/{req.pk}/"
+                        response = client.post(url + "cancel/", {}, format="json") if operation == "cancel" else client.patch(url, {"memo": "同時編集"}, format="json")
+                        return response.status_code
+                    finally:
+                        close_old_connections()
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    with transaction.atomic():
+                        Store.objects.select_for_update().get(pk=f.store.pk)
+                        future = pool.submit(mutate)
+                        self.assertTrue(started.wait(timeout=5))
+                        with self.assertRaises(TimeoutError):
+                            future.result(timeout=1)
+                        approved, _ = _apply_shift_request_approval(req, f.store, f.shift_date, "18:00", "23:00", 0, "", f.manager, room=f.room)
+                        self.assertTrue(approved)
+                    self.assertEqual(future.result(timeout=10), 400)
+                req.refresh_from_db()
+                self.assertEqual(req.status, "APPROVED")
+                self.assertEqual(req.memo, "")
+                self.assertEqual(ShiftAssignment.objects.count(), 1)
+
     def test_two_approvers_cannot_split_one_request_into_two_shifts(self):
         f = shift_fixtures.ShiftRequestExtendedTimeTest()
         f.setUp()
