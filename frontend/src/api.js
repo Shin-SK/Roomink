@@ -74,9 +74,26 @@ async function upload(path, formData) {
   const data = await res.json().catch(() => null)
   if (!res.ok) {
     const msg = data?.detail || `Error ${res.status}`
-    throw new Error(msg)
+    const err = new Error(msg)
+    err.data = data
+    err.status = res.status
+    throw err
   }
   return data
+}
+
+// CSV preview/apply may run in a tab opened before another tab logged in.
+// Refresh first; retry only a CSRF rejection, which occurs before processing.
+async function shiftCsvRequest(send) {
+  await request('GET', '/auth/csrf/')
+  try {
+    return await send()
+  } catch (err) {
+    if (err.status !== 403 || typeof err.data?.detail !== 'string'
+      || !/^CSRF Failed: CSRF token .* incorrect\.$/.test(err.data.detail)) throw err
+    await request('GET', '/auth/csrf/')
+    return send()
+  }
 }
 
 // ページネーション対応: results 配列があればそちらを返す
@@ -473,9 +490,9 @@ export const api = {
   importShiftRequestsPreview: (file) => {
     const fd = new FormData()
     fd.append('file', file)
-    return upload('/op/shift-requests/import_preview/', fd)
+    return shiftCsvRequest(() => upload('/op/shift-requests/import_preview/', fd))
   },
-  applyShiftRequestsImport: (rows) => request('POST', '/op/shift-requests/import_apply/', { rows }),
+  applyShiftRequestsImport: (rows) => shiftCsvRequest(() => request('POST', '/op/shift-requests/import_apply/', { rows })),
 
   // Customer
   customerLogin: (phone, password, storeSlug = '') => request('POST', '/cu/login/', { phone, password, store_slug: storeSlug }),

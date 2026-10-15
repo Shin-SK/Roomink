@@ -401,7 +401,7 @@ const unavailableBlocks = computed(() => (props.unavailableTimes || []).map(item
 })))
 
 function readVar(name, fallback) {
-  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name))
+  const v = parseFloat(getComputedStyle(gridRef.value || document.documentElement).getPropertyValue(name))
   return isFinite(v) && v > 0 ? v : fallback
 }
 
@@ -491,7 +491,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="rk-schedule">
+  <section class="rk-schedule" style="--rk-row-hour-h: 112px">
     <div class="rk-sheet-scroll">
       <div
         class="rk-sheet"
@@ -596,11 +596,16 @@ onBeforeUnmount(() => {
             :data-start="orderStartTime(order)"
             :data-end="orderEndTime(order)"
             @click.prevent.stop="emit('block-click', order)"
+            :title="`${orderPartyLabel(order)} / ${order.course_name} / ${order.nomination_fee_name || '指名未設定'}${order.extension_duration ? ` / ＋${order.extension_duration}分延長` : ''} / ${blockMeta(order)}`"
           >
             <div v-if="timelineStatusLabel(order)" class="rk-block__state">
               {{ timelineStatusLabel(order) }}
             </div>
             <div class="rk-block__title">{{ orderPartyLabel(order) }} ({{ order.course_name }})</div>
+            <div class="rk-block__details">
+              <span>{{ order.nomination_fee_name || '指名未設定' }}</span>
+              <span v-if="order.extension_duration">＋{{ order.extension_duration }}分延長</span>
+            </div>
             <div class="rk-block__meta">{{ blockMeta(order) }}</div>
           </a>
 

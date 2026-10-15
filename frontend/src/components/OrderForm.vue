@@ -1,6 +1,7 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, useId } from 'vue'
 import { api as defaultApi, normalizePhone } from '../api.js'
+import { reservationDateTime } from '../reservationTime.js'
 
 const props = defineProps({
   apiClient: { type: Object, default: null },
@@ -22,6 +23,7 @@ const props = defineProps({
 
 const emit = defineEmits(['created', 'updated', 'cancel'])
 const api = props.apiClient || defaultApi
+const formId = useId()
 const loadError = ref('')
 const newCustomerName = ref('')
 const creatingCustomer = ref(false)
@@ -46,6 +48,7 @@ const courses = ref([])
 const options = ref([])
 const extensions = ref([])
 const nominationFees = ref([])
+const nominationTouched = ref(false)
 const media = ref([])
 const discounts = ref([])
 const paymentFeeRates = ref({ card_fee_rate: 10, paypay_fee_rate: 5 })
@@ -61,8 +64,7 @@ const form = ref({
   course: '',
   startDate: props.initialDate || new Date().toISOString().slice(0, 10),
   startTime: props.initialStartTime || '15:00',
-  start: '', // edit用 datetime-local
-  end: '',   // edit用 datetime-local
+  endTime: '',
   options: [],
   extension: '',
   extension_duration: 0,
@@ -104,6 +106,18 @@ const filteredCustomers = computed(() => {
 const selectedCustomer = computed(() =>
   customers.value.find(c => c.id === form.value.customer)
 )
+
+const startDateTime = computed(() => reservationDateTime(form.value.startDate, form.value.startTime))
+const endDateTime = computed(() => reservationDateTime(form.value.startDate, form.value.endTime))
+const selectedNominationLabel = computed(() => {
+  if (!form.value.nomination_fee) {
+    return isEdit.value && !nominationTouched.value
+      ? props.initialOrder?.nomination_fee_name || '未設定'
+      : 'フリー'
+  }
+  return nominationFees.value.find(n => n.id === Number(form.value.nomination_fee))?.name
+    || props.initialOrder?.nomination_fee_name || '未設定'
+})
 
 const editCustomerLabel = computed(() => {
   if (!isEdit.value || !props.initialOrder) return ''
@@ -315,6 +329,7 @@ function toLocalInput(dt) {
 function applyInitialOrder() {
   const o = props.initialOrder
   if (!o) return
+  nominationTouched.value = false
   form.value.customer = o.customer ?? ''
   form.value.cast = o.cast ?? ''
   form.value.course = o.course ?? ''
@@ -326,8 +341,9 @@ function applyInitialOrder() {
   form.value.memo = o.memo || ''
   form.value.payment_method = o.payment_method || 'UNSET'
   form.value.card_include_options = Boolean(o.card_include_options)
-  form.value.start = toLocalInput(o.start)
-  form.value.end = toLocalInput(o.end)
+  form.value.startDate = o.business_date || toLocalInput(o.start).slice(0, 10)
+  form.value.startTime = o.start_time_extended || toLocalInput(o.start).slice(11, 16)
+  form.value.endTime = o.end_time_extended || toLocalInput(o.end).slice(11, 16)
 }
 
 async function loadMasters() {
@@ -474,6 +490,10 @@ async function submit() {
 }
 
 async function submitCreate() {
+  if (!startDateTime.value) {
+    errorMsg.value = '予約日と開始時刻を確認してください。時刻は00:00〜29:00で入力できます。'
+    return
+  }
   if (!form.value.customer || !form.value.cast || !form.value.course) {
     errorMsg.value = '顧客・キャスト・コースは必須です'
     return
@@ -486,12 +506,12 @@ async function submitCreate() {
   if (form.value.payment_method === 'UNSET' && !confirm('支払い方法が未設定です。このまま予約を作成しますか？')) {
     return
   }
-  const startDt = `${form.value.startDate}T${form.value.startTime}:00`
   const body = {
     customer: Number(form.value.customer),
     cast: Number(form.value.cast),
     course: Number(form.value.course),
-    start: startDt,
+    business_date: form.value.startDate,
+    start_time_extended: startDateTime.value.normalizedTime,
     service_recipient_name: form.value.service_recipient_name,
     memo: form.value.memo,
   }
@@ -514,7 +534,7 @@ async function submitCreate() {
         await api.confirmOrder(order.id)
       } catch (e) { confirmationError = e.message || 'タイムラインから予約の確定状況をご確認ください。' }
     }
-    emit('created', { order, startDate: form.value.startDate, confirmationError })
+    emit('created', { order, startDate: order.business_date || form.value.startDate, confirmationError })
   } catch (e) {
     errorMsg.value = e.message
   } finally {
@@ -527,22 +547,29 @@ async function submitEdit() {
     errorMsg.value = 'キャスト・コースは必須です'
     return
   }
-  if (!form.value.start || !form.value.end) {
-    errorMsg.value = '開始日時・終了日時は必須です'
+  if (!startDateTime.value || !endDateTime.value) {
+    errorMsg.value = '予約日と開始・終了時刻を確認してください。時刻は00:00〜29:00で入力できます。'
+    return
+  }
+  if (endDateTime.value.actual <= startDateTime.value.actual) {
+    errorMsg.value = '終了時刻は開始時刻より後にしてください。翌日は24:00以降で入力できます。'
     return
   }
   const body = {
     cast: Number(form.value.cast),
     course: Number(form.value.course),
-    start: form.value.start,
-    end: form.value.end,
+    business_date: form.value.startDate,
+    start_time_extended: startDateTime.value.normalizedTime,
+    end_time_extended: endDateTime.value.normalizedTime,
     service_recipient_name: form.value.service_recipient_name,
     options: form.value.options,
-    nomination_fee: form.value.nomination_fee ? Number(form.value.nomination_fee) : null,
     memo: form.value.memo,
     medium: form.value.medium ? Number(form.value.medium) : null,
     payment_method: form.value.payment_method || 'UNSET',
     card_include_options: Boolean(form.value.card_include_options),
+  }
+  if (nominationTouched.value || form.value.nomination_fee) {
+    body.nomination_fee = form.value.nomination_fee ? Number(form.value.nomination_fee) : null
   }
   submitting.value = true
   try {
@@ -725,35 +752,34 @@ function formatYen(n) {
               </div>
               <div v-if="customerContext.staff_memo" class="customer-attention-panel__memo">{{ customerContext.staff_memo }}</div>
             </div>
-            <!-- create: 日付＋開始時刻 / edit: 開始日時＋終了日時 -->
-            <div v-if="!isEdit" class="row">
+            <div class="row">
               <div class="col-md-6">
                 <div class="mb-3">
-                  <label class="form-label">予約日</label>
-                  <input type="date" class="form-control" v-model="form.startDate">
+                  <label class="form-label" :for="`${formId}-date`">予約日</label>
+                  <input :id="`${formId}-date`" type="date" class="form-control" v-model="form.startDate" required>
                 </div>
               </div>
               <div class="col-md-3">
                 <div class="mb-3">
-                  <label class="form-label">開始時刻</label>
-                  <input type="time" step="300" class="form-control" v-model="form.startTime">
+                  <label class="form-label" :for="`${formId}-start`">開始時刻</label>
+                  <input :id="`${formId}-start`" type="text" inputmode="text" maxlength="5" placeholder="例: 25:00" class="form-control" v-model="form.startTime" required :aria-describedby="`${formId}-time-help`">
+                </div>
+              </div>
+              <div v-if="isEdit" class="col-md-3">
+                <div class="mb-3">
+                  <label class="form-label" :for="`${formId}-end`">終了時刻</label>
+                  <input :id="`${formId}-end`" type="text" inputmode="text" maxlength="5" placeholder="例: 26:00" class="form-control" v-model="form.endTime" required :aria-describedby="`${formId}-time-help`">
                 </div>
               </div>
             </div>
-
-            <div v-else class="row">
-              <div class="col-md-6">
-                <div class="mb-3">
-                  <label class="form-label">開始日時</label>
-                  <input type="datetime-local" step="300" class="form-control" v-model="form.start" required>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="mb-3">
-                  <label class="form-label">終了日時</label>
-                  <input type="datetime-local" step="300" class="form-control" v-model="form.end" required>
-                </div>
-              </div>
+            <div :id="`${formId}-time-help`" class="small text-muted mb-3">
+              24時以降は24:00〜29:00で入力できます（25:00＝翌日1:00）。
+              <div v-if="startDateTime">実際の開始日時：{{ startDateTime.actual }}</div>
+              <div v-if="isEdit && endDateTime">実際の終了日時：{{ endDateTime.actual }}</div>
+            </div>
+            <div class="order-form__nomination-summary mb-3" role="status">
+              <i class="ti ti-star me-1" aria-hidden="true"></i>指名種別：<strong>{{ selectedNominationLabel }}</strong>
+              <span v-if="isEdit && props.initialOrder?.extension_duration" class="ms-2">＋{{ props.initialOrder.extension_duration }}分延長</span>
             </div>
 
             <div class="mb-3">
@@ -852,7 +878,7 @@ function formatYen(n) {
                   type="button"
                   class="btn btn-sm select-btn"
                   :class="form.nomination_fee === '' ? 'active' : ''"
-                  @click="form.nomination_fee = ''"
+                  @click="form.nomination_fee = ''; nominationTouched = true"
                 >
                   指名なし
                 </button>
@@ -862,7 +888,7 @@ function formatYen(n) {
                   type="button"
                   class="btn btn-sm select-btn"
                   :class="form.nomination_fee == nomination.id ? 'active' : ''"
-                  @click="form.nomination_fee = nomination.id"
+                  @click="form.nomination_fee = nomination.id; nominationTouched = true"
                 >
                   {{ nomination.name }}<br><small>+{{ formatYen(nomination.price) }}</small>
                 </button>
@@ -891,7 +917,7 @@ function formatYen(n) {
                   type="button"
                   class="btn btn-sm select-btn"
                   :class="form.nomination_fee === '' ? 'active' : ''"
-                  @click="form.nomination_fee = ''"
+                  @click="form.nomination_fee = ''; nominationTouched = true"
                 >
                   指名なし
                 </button>
@@ -901,7 +927,7 @@ function formatYen(n) {
                   type="button"
                   class="btn btn-sm select-btn"
                   :class="form.nomination_fee == nomination.id ? 'active' : ''"
-                  @click="form.nomination_fee = nomination.id"
+                  @click="form.nomination_fee = nomination.id; nominationTouched = true"
                 >
                   {{ nomination.name }}<br><small>+{{ formatYen(nomination.price) }}</small>
                 </button>

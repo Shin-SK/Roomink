@@ -40,6 +40,14 @@ def generate_order_guest_token():
     return secrets.token_urlsafe(16)
 
 
+class LineRegistrationSession(models.Model):
+    """Short-lived opt-in to code entry; no raw LINE identifier or message is retained."""
+
+    identity_key = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField(db_index=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+
+
 class OperationGroup(models.Model):
     """Internal contract boundary for safely managing multiple stores.
 
@@ -56,7 +64,12 @@ class OperationGroup(models.Model):
 
 
 class Store(models.Model):
-    voice_receiver = models.CharField(max_length=12, choices=[("groundwire", "Groundwire"), ("work", "Roomink Work")], default="groundwire")
+    voice_receiver = models.CharField(
+        max_length=12,
+        choices=[("groundwire", "Groundwire"), ("work", "Roomink Work")],
+        default="groundwire",
+        db_default="groundwire",
+    )
     class LineOperationsRecipientType(models.TextChoices):
         USER = "user", "個人トーク"
         GROUP = "group", "グループ"

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pin this entry point to local SQLite even if a parent shell exports a DB URL.
+set -eu
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$repo_dir"
+exec env -u DYNO \
+  DATABASE_URL= USE_POSTGRES=0 DJANGO_ENV=local \
+  SMS_DUMMY_MODE=1 DJANGO_EMAIL_BACKEND=django.core.mail.backends.dummy.EmailBackend \
+  WORK_VOICE_TEST_ENABLED=0 WORK_VOICE_ROUTING_ENABLED=0 \
+  TWILIO_ACCOUNT_SID= TWILIO_AUTH_TOKEN= TWILIO_WORK_ACCOUNT_SID= TWILIO_WORK_AUTH_TOKEN= \
+  TWILIO_VOICE_API_KEY_SID= TWILIO_VOICE_API_KEY_SECRET= TWILIO_VOICE_PUSH_CREDENTIAL_SID= \
+  "$repo_dir/.venv/bin/python" manage.py "$@"

@@ -848,7 +848,26 @@ function formatMonthDay(dateStr) {
                 <div class="line-step">
                   <div class="line-step-num">1</div>
                   <div class="line-step-content">
-                    <div class="fw-bold mb-2">連携コードをコピー</div>
+                    <div class="fw-bold mb-2">お店の公式LINEを友だち追加</div>
+                    <button class="btn w-100 text-white fw-bold" style="background: #06C755;" @click="openLineFriend">
+                      <i class="ti ti-brand-line me-1"></i> 友だち追加する
+                    </button>
+                  </div>
+                </div>
+
+                <div class="line-step">
+                  <div class="line-step-num">2</div>
+                  <div class="line-step-content">
+                    <div class="fw-bold mb-2">トークで「登録」と送信</div>
+                    <div class="border rounded bg-light p-2 text-center fw-bold fs-5 mb-2">登録</div>
+                    <div class="small text-muted">まず「登録」の2文字だけを送ってください。連携コードの入力案内が届きます。</div>
+                  </div>
+                </div>
+
+                <div class="line-step">
+                  <div class="line-step-num">3</div>
+                  <div class="line-step-content">
+                    <div class="fw-bold mb-2">案内が届いたら、連携コードを送信</div>
                     <div class="line-code-box" @click="copyCode">
                       <span class="line-code">{{ lineLinkCode }}</span>
                       <span class="line-code-copy" :class="{ copied: codeCopied }">
@@ -856,22 +875,12 @@ function formatMonthDay(dateStr) {
                         {{ codeCopied ? 'コピー済' : 'コピー' }}
                       </span>
                     </div>
+                    <div class="small text-muted mt-2">コピーした6文字のコードを10分以内に送ってください。時間が過ぎたら、もう一度「登録」と送信してください。</div>
                   </div>
                 </div>
 
                 <div class="line-step">
-                  <div class="line-step-num">2</div>
-                  <div class="line-step-content">
-                    <div class="fw-bold mb-2">公式LINEを友だち追加してコードを送信</div>
-                    <button class="btn w-100 text-white fw-bold" style="background: #06C755;" @click="openLineFriend">
-                      <i class="ti ti-brand-line me-1"></i> 友だち追加する
-                    </button>
-                    <div class="small text-muted mt-2">友だち追加後、トーク画面でコピーしたコードを送信してください</div>
-                  </div>
-                </div>
-
-                <div class="line-step">
-                  <div class="line-step-num">3</div>
+                  <div class="line-step-num">4</div>
                   <div class="line-step-content">
                     <div class="fw-bold">連携完了！</div>
                     <div class="small text-muted mb-2">コード送信後、自動で連携されます。</div>
