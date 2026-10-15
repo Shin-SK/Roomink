@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'expo-router';
-import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import Constants from 'expo-constants';
+import { FlatList, Image, Pressable, ScrollView, StyleSheet, Switch, Text, useColorScheme, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { callList } from '../lib/call-list';
@@ -77,7 +78,6 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
   const rows = useMemo(() => callList(device, calls, missedOnly ? [...(missedHistory ?? []), ...history] : history, selectedStore, missedOnly), [device, calls, history, missedHistory, selectedStore, missedOnly]);
   const detail = rows.find((row) => row.id === selectedCall);
   const hasMore = missedOnly ? hasMoreMissed : hasMoreAll;
-  const receivingCount = device.stores.filter((store) => store.is_receiving && store.is_entitled !== false).length;
 
   const header = <>
     {preview ? <Text style={styles.preview}>画面プレビュー · 架空データ／実際の電話は鳴りません</Text> : null}
@@ -108,11 +108,11 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
     {section === 'settings' ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       {preview ? <Text style={styles.preview}>画面プレビュー · 架空データ／実際の電話は鳴りません</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <View style={styles.deviceRow}><Text style={styles.deviceName}>{device.label}</Text><Text style={styles.deviceStatus}>{device.status === 'active' ? `${receivingCount}店舗で受付中` : '受付停止中'}</Text></View>
-      <Text style={styles.groupTitle}>着信を受ける店舗</Text>
+      <Text style={styles.groupTitle}>この端末で着信を受ける店舗</Text>
       <Text style={styles.description}>アカウント：{device.owner || '共用端末'}</Text>
-      <Text style={styles.description}>休みの店舗でも履歴は確認できます。</Text>
-      <View style={styles.group}>{device.stores.filter((store) => store.is_entitled !== false).map((store) => <Pressable key={store.id} onPress={() => onToggleStore(store)} disabled={busy} style={styles.settingRow}><View style={styles.grow}><Text style={styles.settingName}>{store.name}</Text><Text style={styles.secondary}>{store.is_receiving ? '受付中' : '休み'}</Text></View><Text style={[styles.settingAction, !store.is_receiving && styles.paused]}>{store.is_receiving ? '休みにする' : '受付を再開'}</Text></Pressable>)}</View>
+      <Text style={styles.description}>検証版 {Constants.expoConfig?.extra?.workBuildLabel || Constants.expoConfig?.version || '開発中'}</Text>
+      <Text style={styles.description}>OFFでも着信履歴は確認できます。店舗の営業状態は変わりません。</Text>
+      <View style={styles.group}>{device.stores.filter((store) => store.is_entitled !== false).map((store) => <View key={store.id} style={styles.settingRow}><View style={styles.grow}><Text style={styles.settingName}>{store.name}</Text><Text style={styles.secondary}>{store.is_receiving ? '着信 ON' : '着信 OFF'}</Text></View><Switch value={Boolean(store.is_receiving)} onValueChange={() => onToggleStore(store)} disabled={busy} trackColor={{ false: palette.border, true: palette.accent }} ios_backgroundColor={palette.border} accessibilityLabel={`${store.name}の着信受付`} accessibilityHint="この端末での着信受付を切り替えます" /></View>)}</View>
       {preview ? <Pressable onPress={() => setPreviewDark((value) => !value)} style={styles.themeToggle}><Text style={styles.settingName}>画面確認用：{dark ? 'ダーク' : 'ライト'}表示</Text><Text style={styles.settingAction}>切り替え</Text></Pressable> : null}
       <Text style={styles.description}>アプリから発信はできません。折り返しは店舗の受付回線から行ってください。</Text>
       {__DEV__ ? <Link href="/lab" style={styles.developerLink}>開発用の模擬着信テスト</Link> : null}

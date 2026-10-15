@@ -16,6 +16,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_ROOMINK_API_BASE_URL": "https://api-staging.roomink.net/api"
       },

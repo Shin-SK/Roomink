@@ -4,7 +4,7 @@ const usesDistributionPush = ['development', 'preview', 'testflight'].includes(p
 module.exports = {
   name: 'Roomink Work',
   slug: 'roomink-work',
-  version: '1.0.0',
+  version: '1.0.1',
   scheme: 'roomink-work',
   orientation: 'portrait',
   icon: './assets/icon.png',
@@ -29,6 +29,7 @@ module.exports = {
   },
   web: { favicon: './assets/favicon.png' },
   extra: {
+    workBuildLabel: '2026.10.15-2',
     eas: { projectId: 'a0245d29-73b8-440e-9b45-8197a7c88273' },
   },
   plugins: [
