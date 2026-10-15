@@ -1620,6 +1620,8 @@ def _compute_cast_done_sales(cast, d):
     course_back = math.floor(course_sales * cast.course_back_rate / 100)
     option_back = math.floor(options_sales * cast.option_back_rate / 100)
     estimated_pay = course_back + option_back
+    if cast.store.nomination_fullback_enabled:
+        estimated_pay += sum(o.nomination_fee_price for o in done_orders)
 
     return {
         "done_count": done_count,
@@ -7416,6 +7418,8 @@ class DailySettlementView(APIView):
             course_back = math.floor(course_sales * cast.course_back_rate / 100)
             option_back = math.floor(options_sales * cast.option_back_rate / 100)
             back_amount = course_back + option_back
+            if store.nomination_fullback_enabled:
+                back_amount += sum(o.nomination_fee_price for o in cast_orders)
 
             payment_summary = payment_financial_summary(store, cast_orders)
             cast_sales = payment_summary["total_sales"]
@@ -7437,6 +7441,13 @@ class DailySettlementView(APIView):
             cash_orders = [o for o in cast_orders if o.payment_method == Order.PaymentMethod.CASH]
             cash_order_count = len(cash_orders)
             cash_sales_total = sum(o.total_price for o in cash_orders)
+            # Card orders may collect their options in cash. The customer card
+            # surcharge is received by the store and never enters cast cash.
+            from .services.reservation_access import card_payment_amount
+            cash_sales_total += sum(
+                card_payment_amount(o)[1] for o in cast_orders
+                if o.payment_method == Order.PaymentMethod.CARD
+            )
 
             net_pay = back_amount - expense_total + point_total - cash_sales_total
 
@@ -7467,6 +7478,7 @@ class DailySettlementView(APIView):
                 "cash_order_count": cash_order_count,
                 "cash_sales_total": cash_sales_total,
                 "net_pay": net_pay,
+                "cash_settlement_amount": -net_pay,
             })
 
             total_course += course_sales
@@ -7510,6 +7522,7 @@ class DailySettlementView(APIView):
                 "cash_order_count": total_cash_count,
                 "cash_sales_total": total_cash_sales,
                 "net_pay": total_net,
+                "cash_settlement_amount": -total_net,
             },
         })
 
@@ -7660,6 +7673,7 @@ class DailySettlementExportView(APIView):
             "バック額", "雑費", "ポイント",
             "現金件数", "現金預り", "振込額",
             "売上", "カード決済加算", "お客様決済額", "店舗側決済手数料見込み", "固定雑費", "当日雑費", "報酬", "店舗配分",
+            "現金精算額（正＝店へ残す／負＝店から支払う）",
         ])
 
         for r in rows:
@@ -7685,6 +7699,7 @@ class DailySettlementExportView(APIView):
                 r.get("daily_expense_total", ""),
                 r.get("compensation", ""),
                 r.get("store_allocation", ""),
+                r.get("cash_settlement_amount", ""),
             ])
 
         # 合計行
@@ -7707,6 +7722,7 @@ class DailySettlementExportView(APIView):
             totals.get("daily_expense_total", ""),
             totals.get("compensation", ""),
             totals.get("store_allocation", ""),
+            totals.get("cash_settlement_amount", ""),
         ])
 
         # 状態行
