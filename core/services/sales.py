@@ -234,6 +234,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
             orders=Count("id"),
             course_sales=Sum("course_price"),
             options_sales=Sum("options_price"),
+            nomination_sales=Sum("nomination_fee_price"),
         )
         .order_by("-sales")
     )
@@ -257,7 +258,9 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
             "course_back_rate": cast.course_back_rate,
             "option_back_rate": cast.option_back_rate,
             "option_fullback_enabled": cast.option_fullback_enabled,
-            "estimated_pay": course_back + option_back,
+            "estimated_pay": course_back + option_back + (
+                (row["nomination_sales"] or 0) if store.nomination_fullback_enabled else 0
+            ),
         })
 
     # 部屋別
@@ -405,6 +408,7 @@ def get_sales_cast_detail(
     cumulative_options_sales = 0
     allocated_course_pay = 0
     allocated_option_pay = 0
+    nomination_pay = 0
 
     for order in orders:
         business_date = business_date_for_datetime(order.start, store.timezone)
@@ -423,6 +427,9 @@ def get_sales_cast_detail(
             course_pay_total - allocated_course_pay
             + option_pay_total - allocated_option_pay
         )
+        if store.nomination_fullback_enabled:
+            order_pay += order.nomination_fee_price
+            nomination_pay += order.nomination_fee_price
         allocated_course_pay = course_pay_total
         allocated_option_pay = option_pay_total
 
@@ -472,7 +479,7 @@ def get_sales_cast_detail(
         add_sales(medium_map, order.medium_name or "未設定", order.medium_name or "未設定", order.total_price)
 
     payment_summary = payment_financial_summary(store, orders)
-    estimated_pay = allocated_course_pay + allocated_option_pay
+    estimated_pay = allocated_course_pay + allocated_option_pay + nomination_pay
 
     def amount_rows(values):
         return sorted(values.values(), key=lambda row: (-row["amount"], row["name"]))

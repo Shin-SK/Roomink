@@ -11,6 +11,7 @@ from django.test import TestCase, TransactionTestCase
 
 from .models import Store, WorkDevice, WorkDeviceCredential, WorkDeviceStore
 from .work_device_views import _issue_credential
+from .test_migration_helpers import migrate_test_schema
 
 
 class LegacyStoreWriteCompatibilityTest(TestCase):
@@ -25,6 +26,7 @@ class LegacyStoreWriteCompatibilityTest(TestCase):
         self.assertNotIn("voice_receiver", {f.name for f in self.LegacyStore._meta.fields})
         legacy = self.LegacyStore.objects.create(name="Legacy registration")
         self.assertEqual(Store.objects.get(pk=legacy.pk).voice_receiver, "groundwire")
+        self.assertFalse(Store.objects.get(pk=legacy.pk).nomination_fullback_enabled)
 
     def test_legacy_bulk_insert_uses_database_default(self):
         self.LegacyStore.objects.bulk_create([
@@ -35,13 +37,15 @@ class LegacyStoreWriteCompatibilityTest(TestCase):
                          ["groundwire", "groundwire"])
 
     def test_legacy_update_preserves_existing_work_selection(self):
-        store = Store.objects.create(name="Existing Work store", voice_receiver="work")
+        store = Store.objects.create(name="Existing Work store", voice_receiver="work",
+                                     nomination_fullback_enabled=True)
         legacy = self.LegacyStore.objects.get(pk=store.pk)
         legacy.name = "Renamed by ordinary Roomink"
         legacy.save()
         store.refresh_from_db()
         self.assertEqual(store.name, legacy.name)
         self.assertEqual(store.voice_receiver, "work")
+        self.assertTrue(store.nomination_fullback_enabled)
 
     def test_explicit_selection_remains_explicit(self):
         store = Store.objects.create(name="Explicit Work", voice_receiver="work")
@@ -50,18 +54,21 @@ class LegacyStoreWriteCompatibilityTest(TestCase):
     def test_work_and_line_migrations_have_one_leaf(self):
         loader = MigrationExecutor(connection).loader
         self.assertEqual(loader.graph.leaf_nodes("core"),
-                         [("core", "0095_store_voice_receiver_db_default")])
+                         [("core", "0096_merge_work_settlement")])
         ancestors = loader.graph.forwards_plan(("core", "0094_merge_work_line"))
         self.assertIn(("core", "0093_line_registration_session"), ancestors)
         self.assertIn(("core", "0093_store_voice_receiver_voicerouteevent"), ancestors)
+        merged = loader.graph.forwards_plan(("core", "0096_merge_work_settlement"))
+        self.assertIn(("core", "0095_store_voice_receiver_db_default"), merged)
+        self.assertIn(("core", "0094_store_nomination_fullback"), merged)
 
 
 class StoreMigrationPathTest(TransactionTestCase):
     """Only the disposable test DB is reset to exercise both migration paths."""
-    latest = ("core", "0095_store_voice_receiver_db_default")
+    latest = ("core", "0096_merge_work_settlement")
 
     def setUp(self):
-        MigrationExecutor(connection).migrate([("core", "0092_store_shift_request_start_hour")])
+        migrate_test_schema([("core", "0092_store_shift_request_start_hour")])
 
     def tearDown(self):
         try:
@@ -103,3 +110,23 @@ class StoreMigrationPathTest(TransactionTestCase):
         created = legacy_store.objects.create(name="Ordinary after Work", slug="ordinary-new",
                                              line_webhook_token=uuid.uuid4().hex)
         self.assertEqual(Store.objects.get(pk=created.pk).voice_receiver, "groundwire")
+
+    def test_settlement_first_upgrade_preserves_enabled_policy(self):
+        executor = MigrationExecutor(connection)
+        ordinary = ("core", "0094_store_nomination_fullback")
+        executor.migrate([ordinary])
+        legacy_store = executor.loader.project_state([ordinary]).apps.get_model("core", "Store")
+        existing = legacy_store.objects.create(
+            name="Approved settlement policy", slug="settlement-policy",
+            line_webhook_token=uuid.uuid4().hex, nomination_fullback_enabled=True,
+        )
+        MigrationExecutor(connection).migrate([self.latest])
+        restored = Store.objects.get(pk=existing.pk)
+        self.assertTrue(restored.nomination_fullback_enabled)
+        self.assertEqual(restored.voice_receiver, "groundwire")
+        inserted = legacy_store.objects.create(
+            name="Ordinary after resume", slug="settlement-new",
+            line_webhook_token=uuid.uuid4().hex,
+        )
+        self.assertEqual(Store.objects.get(pk=inserted.pk).voice_receiver, "groundwire")
+        self.assertFalse(Store.objects.get(pk=inserted.pk).nomination_fullback_enabled)

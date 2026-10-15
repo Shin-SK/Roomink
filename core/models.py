@@ -142,6 +142,10 @@ class Store(models.Model):
     cash_fee_rate = models.PositiveSmallIntegerField(default=0, help_text="現金決済手数料率（%・参考値）")
     paypay_fee_rate = models.PositiveSmallIntegerField(default=5, help_text="PayPay決済手数料率（%・参考値）")
     card_fee_rate = models.PositiveSmallIntegerField(default=10, help_text="カード決済時の顧客上乗せ率（%）")
+    nomination_fullback_enabled = models.BooleanField(
+        default=False, db_default=False,
+        help_text="指名料を種類に関わらず全額キャストへバックする",
+    )
     card_payment_url = models.URLField(
         max_length=500,
         blank=True,

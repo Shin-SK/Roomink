@@ -175,6 +175,7 @@ function formatDt(iso) {
           <div v-for="row in rows" :key="'allocation-' + row.cast_id" class="d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom py-2 small">
             <strong>{{ row.cast_name }}</strong>
             <span>売上 {{ yen(row.total_sales) }}　お客様決済 {{ yen(row.customer_payment_total ?? row.total_sales) }}　報酬 <b class="text-primary">{{ yen(row.compensation) }}</b>　店舗配分 <b>{{ yen(row.store_allocation) }}</b></span>
+            <span v-if="row.cash_settlement_amount != null">現金精算 <b>{{ yen(row.cash_settlement_amount) }}</b>（正＝店へ残す／負＝店から支払う）</span>
           </div>
           <div class="small text-muted mt-2">報酬＝バック額−固定雑費−当日雑費。店舗配分＝お客様決済額−店舗側決済手数料−報酬。カードの上乗せ分は店舗配分に含まれます。</div>
         </div>
@@ -253,7 +254,7 @@ function formatDt(iso) {
 
         <div v-if="rows.length" class="mt-3 text-muted" style="font-size: 0.75rem;">
           <i class="ti ti-info-circle"></i>
-          振込額 = 報酬 + ポイント - 現金預り。現金払いはキャスト預かり分として控除。マイナス = キャスト手元残。
+          振込額 = 報酬 + ポイント - 現金預り。現金預りには、カード払いの際に現金で受け取るオプション代も含みます。現金精算額は振込額の符号を反転した金額で、カード上乗せ分は含みません。
           <span v-if="settlementStatus === 'LOCKED'" class="fw-bold"> この日は確定済みのため、スナップショットを表示しています。</span>
         </div>
       </div>
