@@ -13,6 +13,7 @@ from core.models import (
     Cast,
     Course,
     Customer,
+    NominationFee,
     Option,
     Order,
     PublicBookingVerification,
@@ -104,6 +105,7 @@ def serialize_public_booking_options(store, business_date=None):
         "casts": casts,
         "courses": courses,
         "options": options,
+        "nomination_fees": list(NominationFee.objects.filter(store=store, is_active=True).order_by("id").values("id", "name", "price")),
     }
 
 
@@ -222,6 +224,24 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False):
     if len(memo) > 1000:
         raise PublicBookingError("備考は1000文字以内で入力してください。")
 
+    payment_method = data.get("payment_method")
+    if payment_method not in (Order.PaymentMethod.CASH, Order.PaymentMethod.CARD):
+        raise PublicBookingError("支払い方法は現金またはカードを選択してください。")
+    fees = NominationFee.objects.filter(store=store, is_active=True)
+    nomination_fee = None
+    if data.get("nomination_fee") is not None:
+        raw_fee_id = data["nomination_fee"]
+        if isinstance(raw_fee_id, bool) or not str(raw_fee_id).isascii() or not str(raw_fee_id).isdigit():
+            raise PublicBookingError("指名区分を選び直してください。")
+        try:
+            nomination_fee = fees.filter(pk=int(raw_fee_id)).first()
+        except (ValueError, TypeError):
+            pass
+        if nomination_fee is None:
+            raise PublicBookingError("指名区分を選び直してください。")
+    elif fees.exists():
+        raise PublicBookingError("指名区分を選択してください。")
+
     return {
         "cast": cast,
         "course": course,
@@ -229,6 +249,8 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False):
         "start": start,
         "options": options,
         "memo": memo,
+        "payment_method": payment_method,
+        "nomination_fee": nomination_fee,
         "slot": matching_slot,
     }
 
@@ -242,6 +264,8 @@ def _booking_payload(selection):
         "start": selection["start"].isoformat(),
         "options": [option.id for option in selection["options"]],
         "memo": selection["memo"],
+        "payment_method": selection["payment_method"],
+        "nomination_fee": selection["nomination_fee"].pk if selection["nomination_fee"] else None,
     }
 
 
@@ -414,7 +438,8 @@ def confirm_public_booking(verification_id, code):
                 "options": [option.id for option in selection["options"]],
                 "memo": selection["memo"],
                 "service_recipient_name": "",
-                "payment_method": Order.PaymentMethod.UNSET,
+                "payment_method": selection["payment_method"],
+                "nomination_fee": selection["nomination_fee"].pk if selection["nomination_fee"] else None,
             })
             if not serializer.is_valid():
                 raise PublicBookingError(
@@ -444,7 +469,10 @@ def confirm_public_booking(verification_id, code):
         "start": order.start.isoformat(),
         "end": order.end.isoformat(),
         "total_price": order.total_price,
-        "room_name": order.room.name if order.room else "",
-        "room_address": order.room.address if order.room else "",
+        "payment_method": order.payment_method,
+        "nomination_fee_name": order.nomination_fee_name,
+        "nomination_fee_price": order.nomination_fee_price,
+        "room_name": order.room.name if order.room and order.payment_method != Order.PaymentMethod.CARD else "",
+        "room_address": order.room.address if order.room and order.payment_method != Order.PaymentMethod.CARD else "",
         "sms_status": customer_sms.status,
     }

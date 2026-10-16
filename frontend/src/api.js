@@ -238,6 +238,7 @@ export const api = {
   getOrders: (params = '') => listRequest('GET', `/orders/${params ? '?' + params : '?limit=200'}`),
   getOrder: (id) => request('GET', `/orders/${id}/`),
   updateOrder: (id, body) => request('PATCH', `/orders/${id}/`, body),
+  correctOrderAccounting: (id, body) => request('POST', `/orders/${id}/correct-accounting/`, body),
   createOrder: (body) => request('POST', '/orders/', body),
   confirmOrder: (id) => request('POST', `/orders/${id}/confirm/`),
   sendCardPaymentRequest: (id) => request('POST', `/orders/${id}/send-card-payment-request/`),
