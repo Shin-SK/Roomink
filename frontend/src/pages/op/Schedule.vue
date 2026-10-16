@@ -706,6 +706,9 @@ onBeforeUnmount(() => {
         <button v-if="canViewAllocation" type="button" class="btn btn-sm btn-outline-primary" @click="openAllocation">
           <i class="ti ti-calculator me-1"></i>売上配分
         </button>
+        <router-link v-if="canViewAllocation" :to="{ path: '/op/room-cash', query: { date: selectedDate } }" class="btn btn-sm btn-outline-primary">
+          <i class="ti ti-cash-banknote me-1"></i>ルーム現金
+        </router-link>
       </div>
 
       <!-- 検索アコーディオン -->

@@ -808,6 +808,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response(OrderSerializer(order, context={"request": request}).data)
 
         with transaction.atomic():
+            Store.objects.select_for_update().get(pk=order.store_id)
             locked_order = Order.objects.select_for_update().get(pk=order.pk)
             previous = locked_order.service_recipient_customer
             locked_order.service_recipient_customer = linked_customer
@@ -1879,37 +1880,8 @@ def _suggest_checkout_room(cast, d):
 
 
 def _room_cash_summary(store, d):
-    """ルームの実残高と、売上・日次精算から導く予定残を返す。"""
-    summaries = []
-    for room in Room.objects.filter(store=store).order_by("sort_order", "id"):
-        previous_count = RoomCashCount.objects.filter(store=store, room=room, date__lt=d).order_by("-date").first()
-        opening = previous_count.actual_cash_amount if previous_count else 0
-        cash_sales = sum(
-            get_done_orders_for_business_range(store, d, d)
-            .filter(room=room, payment_method=Order.PaymentMethod.CASH)
-            .values_list("total_price", flat=True)
-        )
-        checkouts = CastDailyCheckout.objects.filter(store=store, room=room, date=d).exclude(
-            status=CastDailyCheckout.Status.RETURNED,
-        )
-        cash_taken = sum(checkouts.values_list("room_cash_taken_amount", flat=True))
-        cash_returned = sum(checkouts.values_list("cash_returned_to_room_amount", flat=True))
-        expected = opening + cash_sales - cash_taken + cash_returned
-        count = RoomCashCount.objects.filter(store=store, room=room, date=d).first()
-        actual = count.actual_cash_amount if count else None
-        summaries.append({
-            "room": room.id,
-            "room_name": room.name,
-            "opening_cash_amount": opening,
-            "cash_sales_amount": cash_sales,
-            "room_cash_taken_amount": cash_taken,
-            "cash_returned_amount": cash_returned,
-            "expected_cash_amount": expected,
-            "actual_cash_amount": actual,
-            "difference_amount": actual - expected if actual is not None else None,
-            "memo": count.memo if count else "",
-        })
-    return summaries
+    from .services.room_cash import room_cash_summary
+    return room_cash_summary(store, d)
 
 
 @document_object_api_view
@@ -2058,6 +2030,7 @@ class CastCheckoutView(APIView):
             instance.cast_memo = cast_memo
             instance.status = CastDailyCheckout.Status.SUBMITTED
             instance.submitted_at = timezone.now()
+            instance._cash_recorded_by_id = request.user.pk
             instance.save()
 
             CastCheckoutExpenseSnapshot.objects.bulk_create([
@@ -3987,6 +3960,7 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         if "room_cash_taken_amount" in updates:
             instance.actual_take_home_amount = instance.room_cash_taken_amount
             updates.append("actual_take_home_amount")
+        instance._cash_recorded_by_id = request.user.pk
         instance.save(update_fields=[*updates, "updated_at"])
         return Response(CastDailyCheckoutSerializer(instance).data)
 
@@ -4048,25 +4022,46 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         except ValueError:
             return Response({"detail": "日付の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
         store = get_user_store(request)
+        # All cash-source saves take this same lock. The count and its source
+        # snapshot are therefore one consistent instant, including on GET.
+        Store.objects.select_for_update().get(pk=store.pk)
         if request.method == "POST":
+            import uuid
+            from .models import RoomCashCheckpoint, RoomCashMovement
+            if target_date != business_date_for_datetime(timezone.now(), store.timezone):
+                return Response({"detail": "実残は本日の現在時点でのみ登録できます"}, status=400)
             try:
+                raw_amount = request.data.get("actual_cash_amount")
+                if isinstance(raw_amount, bool) or not isinstance(raw_amount, (int, str)) or (isinstance(raw_amount, str) and not raw_amount.isdecimal()):
+                    raise ValueError
                 room_id = int(request.data.get("room"))
-                actual_amount = int(request.data.get("actual_cash_amount"))
+                actual_amount = int(raw_amount)
+                request_id = uuid.UUID(str(request.data.get("request_id") or ""))
             except (TypeError, ValueError):
-                return Response({"detail": "ルームまたは実残高の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
-            if actual_amount < 0:
-                return Response({"detail": "実残高は0以上で入力してください"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": "ルーム・実残高・リクエストIDの形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
+            if not 0 <= actual_amount <= 2147483647:
+                return Response({"detail": "実残高は0〜2,147,483,647円の整数で入力してください"}, status=status.HTTP_400_BAD_REQUEST)
             room = Room.objects.filter(id=room_id, store=store).first()
             if room is None:
                 return Response({"detail": "対象ルームが見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
-            RoomCashCount.objects.update_or_create(
-                store=store, room=room, date=target_date,
-                defaults={
-                    "actual_cash_amount": actual_amount,
-                    "memo": request.data.get("memo", "") or "",
-                    "counted_by": request.user,
-                },
-            )
+            memo = request.data.get("memo", "") or ""
+            if not isinstance(memo, str) or len(memo) > 1000:
+                return Response({"detail": "メモは1000文字以内で入力してください"}, status=400)
+            existing = RoomCashCheckpoint.objects.filter(store=store, request_id=request_id).first()
+            if existing:
+                if (existing.room_id, existing.actual_cash_amount, existing.memo, existing.date) != (room_id, actual_amount, memo, target_date):
+                    return Response({"detail": "同じリクエストIDで別のカウントは登録できません"}, status=409)
+            else:
+                row = next(item for item in _room_cash_summary(store, target_date) if item["room"] == room_id)
+                if request.data.get("expected_revision") != row["revision"]:
+                    return Response({"detail": "現金に関わる記録が更新されています。入力を残したまま最新の内容を確認してください"}, status=409)
+                RoomCashCheckpoint.objects.create(
+                    store=store, room=room, date=target_date,
+                    actual_cash_amount=actual_amount, source_cash_amount=row["source_cash_amount"],
+                    expected_cash_amount=row["expected_cash_amount"], source_revision=row["revision"],
+                    movement_cursor=RoomCashMovement.objects.filter(store=store, room=room).order_by("-id").values_list("id", flat=True).first() or 0,
+                    request_id=request_id, memo=memo, counted_by=request.user,
+                )
         return Response({"date": target_date.isoformat(), "rooms": _room_cash_summary(store, target_date)})
 
     @action(detail=False, methods=["get"])
