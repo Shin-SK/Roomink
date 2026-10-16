@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { attendanceCards } from '../src/attendanceCards.js'
+import { localBusinessDate } from '../src/businessDate.js'
 
 const casts = [
   { id: 1, name: '同じ名前', avatar_url: 'https://example.test/a.jpg', shifts: [{ id: 10, start_time_extended: '25:00', room_name: 'A' }] },
@@ -25,4 +26,11 @@ test('unclocked and unconfirmed warnings become one card; a confirmed shift can 
 test('absent shifts, two-hour alerts and stale clock-in responses do not create attendance warnings', () => {
   const current = [{ name: 'A', shifts: [{ id: 10, is_absent: true }, { id: 20, clocked_in_at: '2026-10-16T10:00:00Z' }] }]
   assert.deepEqual(attendanceCards([alert(10), { ...alert(30), alert_level: 'TWO_HOURS' }], current, [{ id: 10 }, { id: 20 }, { id: 99 }]), [])
+})
+
+test('dashboard attendance and reservations use the configured business day at midnight and month rollover', () => {
+  assert.equal(localBusinessDate(new Date(2027, 0, 1, 4, 59), 5), '2026-12-31')
+  assert.equal(localBusinessDate(new Date(2027, 0, 1, 5, 0), 5), '2027-01-01')
+  assert.equal(localBusinessDate(new Date(2027, 0, 1, 0, 0), 0), '2027-01-01')
+  assert.equal(localBusinessDate(new Date(2028, 2, 1, 1, 0), 2), '2028-02-29')
 })

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import AttendanceCards from '../../components/AttendanceCards.vue'
 import { attendanceCards } from '../../attendanceCards.js'
+import { localBusinessDate } from '../../businessDate.js'
 import { api } from '../../api.js'
 import { getAuthRole } from '../../router.js'
 
@@ -27,6 +28,7 @@ const updatedAt = ref(null)
 let refreshRequest = 0
 let refreshTimer = null
 let mounted = true
+let businessDayBoundaryHour = null
 const roomPendingOrders = computed(() => allOrders.value.filter(
   o => o.is_room_pending && o.status !== 'CANCELLED' && o.status !== 'DONE'
 ))
@@ -114,14 +116,27 @@ watch(attentionGroups, groups => {
 })
 
 function today() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return localBusinessDate(new Date(), businessDayBoundaryHour)
 }
 
 async function refreshDashboard() {
   if (refreshing.value) return
   const request = ++refreshRequest
   refreshing.value = true
+  if (businessDayBoundaryHour === null) {
+    try {
+      const settings = await api.getBusinessDaySettings()
+      if (!mounted || request !== refreshRequest) return
+      if (!Number.isInteger(settings.business_day_boundary_hour)) throw new Error('Invalid boundary')
+      businessDayBoundaryHour = settings.business_day_boundary_hour
+    } catch (_) {
+      if (!mounted || request !== refreshRequest) return
+      refreshErrors.value = ['営業日の設定']
+      refreshing.value = false
+      loading.value = false
+      return
+    }
+  }
   const date = today()
   const results = await Promise.allSettled([
     api.getSchedule(date), api.getLineAlerts(), api.getShiftEndAlerts(), api.getShiftConfirmAlerts(date),
