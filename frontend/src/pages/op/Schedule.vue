@@ -32,8 +32,13 @@ async function loadShiftAlerts() {
   try {
     const data = await api.getShiftConfirmAlerts(date)
     if (request !== shiftAlertsRequest || date !== selectedDate.value) return
-    shiftAlerts.value = (data.alerts || []).filter(alert => alert.alert_level === 'ONE_HOUR')
+    const alerts = (data.alerts || []).filter(alert => alert.alert_level === 'ONE_HOUR')
+    const hasRemovedAlert = shiftAlerts.value.some(previous => !alerts.some(alert => alert.shift_id === previous.shift_id))
+    shiftAlerts.value = alerts
     shiftAlertsError.value = ''
+    // 確認済みになった警告とタイムライン内の確認アイコンを揃える。
+    // 入力中のフォームやタイムラインを隠さず、データだけ更新する。
+    if (hasRemovedAlert && viewMode.value === 'cast') fetchSchedule({ background: true })
   } catch (_) {
     if (request !== shiftAlertsRequest || date !== selectedDate.value) return
     shiftAlertsError.value = '出勤確認の最新情報を取得できませんでした。時間をおいて更新してください。'
@@ -170,10 +175,12 @@ function formatLocalDate(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-async function fetchSchedule() {
-  loading.value = true
+async function fetchSchedule({ background = false } = {}) {
+  const date = selectedDate.value
+  if (!background) loading.value = true
   try {
-    const data = await api.getSchedule(selectedDate.value)
+    const data = await api.getSchedule(date)
+    if (date !== selectedDate.value) return
     casts.value = data.casts
     orders.value = data.orders
     unavailableTimes.value = data.unavailable_times || []
@@ -193,7 +200,7 @@ async function fetchSchedule() {
   } catch (e) {
     console.error(e)
   } finally {
-    loading.value = false
+    if (!background && date === selectedDate.value) loading.value = false
   }
 }
 
