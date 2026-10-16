@@ -1068,7 +1068,7 @@ function formatYen(n) {
                       {{ d.name }}（{{ d.discount_type === 'percent' ? d.value + '%' : d.value.toLocaleString() + '円' }}引き）
                     </option>
                   </select>
-                  <div v-if="isEdit" class="form-text">編集時の割引変更は予約詳細から行ってください</div>
+                  <div v-if="isEdit" class="form-text"><a href="#order-discount">この画面の下にある「割引の変更」へ進む</a></div>
                 </div>
               </div>
             </div>

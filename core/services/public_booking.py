@@ -23,6 +23,7 @@ from core.models import (
 from core.serializers import OrderCreateSerializer
 from core.services.notify import notify_cast_order, notify_order_confirmed, send_sms
 from core.services.order_availability import build_available_order_slots
+from core.services.business_datetime import build_business_interval
 from core.utils.phone import normalize_phone
 
 
@@ -64,7 +65,7 @@ def serialize_public_booking_options(store, business_date=None):
         shift_summaries = []
         for shift in shifts_by_cast.get(cast.id, []):
             shift_summaries.append({
-                "room_name": shift.room.name,
+                "room_name": shift.room.name if shift.room else "ルーム未定",
                 "area_name": (shift.room.area.name if shift.room and shift.room.area_id else "その他"),
                 "start": shift.start_time.strftime("%H:%M"),
                 "end": (
@@ -113,7 +114,7 @@ def get_public_booking_slots(store, cast_id, course_id, business_date, now=None)
         return []
     if course.target_casts.exists() and not course.target_casts.filter(pk=cast.pk).exists():
         return []
-    return build_available_order_slots(
+    slots = build_available_order_slots(
         store,
         cast,
         business_date,
@@ -121,6 +122,17 @@ def get_public_booking_slots(store, cast_id, course_id, business_date, now=None)
         duration_minutes=course.duration,
         not_before=now or timezone.now(),
     )
+    assigned_intervals = [build_business_interval(
+        shift.date, shift.start_time, shift.end_time,
+        start_day_offset=shift.start_day_offset,
+        end_day_offset=shift.end_day_offset, timezone_name=store.timezone,
+    ) for shift in ShiftAssignment.objects.filter(
+        store=store, cast=cast, date=business_date, is_absent=False, room__isnull=False,
+    )]
+    return [slot for slot in slots if any(
+        start <= parse_datetime(slot["start_at"]) and parse_datetime(slot["end_at"]) <= end
+        for start, end in assigned_intervals
+    )]
 
 
 def _required_store(store_id=None, store_slug=None):
@@ -335,7 +347,8 @@ def _find_or_create_verified_customer(challenge):
         raise PublicBookingError("予約を受け付けられません。店舗へお問い合わせください。")
     if matching:
         customer = matching[0]
-        if customer.flag == Customer.Flag.BAN:
+        from .booking_restrictions import customer_booking_blocked
+        if customer_booking_blocked(customer, challenge.booking_payload.get("cast"), online=True):
             raise PublicBookingError("予約を受け付けられません。店舗へお問い合わせください。")
         if not customer.display_name:
             customer.display_name = challenge.display_name
