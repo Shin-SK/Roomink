@@ -17,6 +17,7 @@ const confirmedOrders = ref([])
 const pendingFinalizeOrders = ref([])
 const allOrders = ref([])
 const casts = ref([])
+const hasSchedule = ref(false)
 const shiftConfirmAlerts = ref([])
 const attendance = computed(() => attendanceCards(shiftConfirmAlerts.value, casts.value, notClockedIn.value))
 const castForOrder = order => casts.value.find(cast => cast.id === order.cast_id)?.name || order.cast_name
@@ -62,7 +63,7 @@ function makeAttentionGroup(key, label, tone, icon, to, entries) {
 
 const attentionGroups = computed(() => {
   const current = [
-    ...(unconfirmedOrders.value.length ? [makeAttentionGroup('cast-unconfirmed', 'キャスト未確認', 'warning', 'user-question', '/op/schedule', unconfirmedOrders.value.map(order => ({
+    ...(unconfirmedOrders.value.length ? [makeAttentionGroup('cast-unconfirmed', '予約未確認', 'warning', 'user-question', '/op/schedule', unconfirmedOrders.value.map(order => ({
       id: order.id,
       time: formatTime(order.start),
       title: orderPartyLabel(order),
@@ -146,6 +147,7 @@ async function refreshDashboard() {
     ? [['予約・シフト', '出勤・LINE', '受付終了', '出勤確認'][index]] : [])
   if (results[0].status === 'fulfilled') {
     const data = results[0].value
+    hasSchedule.value = true
     kpi.value = data.kpi
     casts.value = data.casts || []
     allOrders.value = data.orders
@@ -291,7 +293,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
           <div><span class="dashboard-attention__eyebrow">TODAY</span><h1>お知らせ・要対応</h1></div>
           <div class="dashboard-attention__update"><span v-if="updatedAt">{{ formatTime(updatedAt) }} 更新</span><button type="button" :disabled="refreshing" @click="refreshDashboard"><i class="ti ti-refresh" aria-hidden="true"></i>{{ refreshing ? '更新中…' : '更新' }}</button></div>
         </header>
-        <p v-if="refreshErrors.length" class="dashboard-attention__error" role="alert">{{ refreshErrors.join('・') }}の最新情報を取得できませんでした。表示中の情報は前回取得時のものです。更新して再確認してください。</p>
+        <p v-if="refreshErrors.length" class="dashboard-attention__error" role="alert">{{ refreshErrors.join('・') }}の最新情報を取得できませんでした。<template v-if="hasSchedule">表示中の情報は前回取得時のものです。</template>更新して再確認してください。</p>
         <AttendanceCards :cards="attendance" />
         <div v-if="attentionGroups.length" class="dashboard-attention__other" :class="{ 'has-attendance': attendance.length }">
           <h2>その他の要対応</h2>
@@ -306,7 +308,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
             </button>
           </div>
           <section v-if="expandedGroup" id="dashboard-attention-detail" class="dashboard-attention__detail" :aria-label="expandedGroup.label">
-            <header><h3>{{ expandedGroup.label }} <span>{{ expandedGroup.entries.length }}件</span></h3><button type="button" @click="expandedAttention = null">閉じる</button></header>
+            <header><h3>{{ expandedGroup.label }} <span>{{ expandedGroup.entries.length }}{{ ['shift-end', 'line-unlinked'].includes(expandedGroup.key) ? '名' : '件' }}</span></h3><button type="button" @click="expandedAttention = null">閉じる</button></header>
             <div class="dashboard-attention__rows">
               <router-link v-for="entry in expandedGroup.entries" :key="entry.id" :to="entry.to || expandedGroup.to" class="dashboard-attention__row">
                 <time>{{ entry.time }}</time><span><strong>{{ entry.title }}</strong><small>{{ entry.detail }}</small></span><i class="ti ti-chevron-right" aria-hidden="true"></i>
@@ -317,6 +319,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
         <p v-if="!attendance.length && !attentionGroups.length && !refreshErrors.length" class="dashboard-attention__empty"><i class="ti ti-circle-check" aria-hidden="true"></i>いま対応が必要なお知らせはありません。</p>
       </section>
 
+      <template v-if="hasSchedule">
       <!-- 統計カード -->
       <div class="row g-2 mb-5">
         <div class="col-12 col-sm-6 col-xl-3">
@@ -575,6 +578,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
           </ul>
         </div>
       </div>
+      </template>
     </template>
   </LayoutOperator>
 </template>
