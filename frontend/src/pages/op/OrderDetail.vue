@@ -38,39 +38,17 @@ const recipientCandidates = computed(() => {
 })
 
 const paymentFeeRates = ref({ card_fee_rate: 10, paypay_fee_rate: 5 })
-const correcting = ref(false)
-const correctionActing = ref(false)
-const correctionError = ref('')
-const correctionDiscounts = ref([])
-const correction = ref({ duration: 0, price: 0, discount: null, reason: '' })
-
-async function openAccountingCorrection() {
-  correctionError.value = ''
-  correctionActing.value = true
-  try {
-    const discounts = await api.getDiscounts()
-    correctionDiscounts.value = discounts.filter(item => item.is_active || item.id === order.value.discount)
-    correction.value = { duration: order.value.extension_duration || 0, price: order.value.extension_price || 0, discount: order.value.discount, reason: '' }
-    correcting.value = true
-  } catch (e) { correctionError.value = e.message }
-  finally { correctionActing.value = false }
-}
-
-async function saveAccountingCorrection() {
-  correctionError.value = ''
-  correctionActing.value = true
-  try {
-    const body = { reason: correction.value.reason, expected_updated_at: order.value.updated_at }
-    if (Number(correction.value.duration) !== order.value.extension_duration || Number(correction.value.price) !== order.value.extension_price) {
-      body.extension = null
-      body.extension_duration = correction.value.duration
-      body.extension_price = correction.value.price
-    }
-    if (correction.value.discount !== order.value.discount) body.discount = correction.value.discount
-    order.value = await api.correctOrderAccounting(props.id, body)
-    correcting.value = false
-  } catch (e) { correctionError.value = e.message }
-  finally { correctionActing.value = false }
+function correctionChanges(item) {
+  const labels = {
+    course_id: 'コース', nomination_fee_id: '指名', option_ids: 'オプション',
+    extension_duration: '延長', discount_id: '割引', payment_method: '支払い方法',
+    card_include_options: 'オプション代の支払い', cast_id: '担当', start: '日時',
+    end: '終了時刻', room_id: 'ルーム', medium_id: '媒体', notes_digest: '備考・実利用者名',
+    timeline_status: '対応状況',
+  }
+  return Object.entries(labels)
+    .filter(([key]) => JSON.stringify(item.before[key]) !== JSON.stringify(item.after[key]))
+    .map(([, label]) => label).join('・')
 }
 
 // SMS送信履歴（表示のみ。再送信は行わない）
@@ -822,26 +800,11 @@ async function saveRecipientCustomerLink() {
 
           <section v-if="order.status === 'DONE' && canModify" class="card mb-4">
             <div class="card-body">
-              <h6>終了後の延長・割引の訂正</h6>
-              <p class="small text-muted">売上への反映を保ったまま、日締め前は店舗側で訂正できます。退勤提出済みの金額も更新して再確認待ちに戻します。現金の受渡記録は変わりません。</p>
+              <h6>終了後の予約内容の訂正</h6>
+              <p class="small text-muted">日締め前はコース・指名・オプション・支払い方法・日時・担当などを訂正できます。売上と報酬を再計算し、退勤提出済みの場合は再確認待ちに戻します。現金の受渡記録は保持します。</p>
               <p v-if="isCardPayment" class="small text-muted">カードの追加請求・返金が必要な場合は、店舗で別途ご対応ください。</p>
               <div v-if="!order.can_correct_accounting" class="alert alert-secondary mb-0">日締め済みのため訂正できません。</div>
-              <button v-else-if="!correcting" class="btn btn-outline-primary" :disabled="correctionActing" @click="openAccountingCorrection">延長・割引を訂正する</button>
-              <form v-else @submit.prevent="saveAccountingCorrection">
-                <div class="row g-2 mb-3">
-                  <div class="col-sm-6"><label for="correction-duration" class="form-label">延長時間（分）</label><input id="correction-duration" v-model.number="correction.duration" type="number" min="0" max="180" step="5" class="form-control" required></div>
-                  <div class="col-sm-6"><label for="correction-price" class="form-label">延長料金（円）</label><input id="correction-price" v-model.number="correction.price" type="number" min="0" step="1" class="form-control" required></div>
-                </div>
-                <label for="correction-discount" class="form-label">割引</label>
-                <select id="correction-discount" v-model="correction.discount" class="form-select mb-3">
-                  <option :value="null">割引なし</option>
-                  <option v-for="item in correctionDiscounts" :key="item.id" :value="item.id">{{ item.name }}</option>
-                </select>
-                <label for="correction-reason" class="form-label">訂正理由（必須）</label>
-                <textarea id="correction-reason" v-model.trim="correction.reason" class="form-control mb-3" maxlength="500" rows="2" required></textarea>
-                <div class="d-flex gap-2"><button class="btn btn-primary" type="submit" :disabled="correctionActing">訂正を保存する</button><button class="btn btn-outline-secondary" type="button" :disabled="correctionActing" @click="correcting = false">戻る</button></div>
-              </form>
-              <div v-if="correctionError" class="alert alert-danger mt-3 mb-0">{{ correctionError }}</div>
+              <button v-else class="btn btn-outline-primary" @click="openEdit">予約内容を訂正する</button>
             </div>
           </section>
           <section v-if="order.accounting_corrections?.length" class="card mb-4">
@@ -849,6 +812,7 @@ async function saveRecipientCustomerLink() {
               <h6>会計の訂正履歴</h6>
               <div v-for="item in order.accounting_corrections" :key="item.id" class="border-top pt-2 mt-2">
                 <div>{{ item.before.total_price.toLocaleString() }}円 → {{ item.after.total_price.toLocaleString() }}円</div>
+                <div v-if="correctionChanges(item)" class="small text-muted">変更項目：{{ correctionChanges(item) }}</div>
                 <div class="small">{{ item.reason }}</div>
                 <div class="small text-muted">{{ formatDt(item.created_at) }} / {{ item.corrected_by_name }}</div>
               </div>
@@ -905,6 +869,8 @@ async function saveRecipientCustomerLink() {
             <div class="card-body">
               <OrderForm
                 mode="edit"
+                :completed-correction="order.status === 'DONE'"
+                :submit-label="order.status === 'DONE' ? '訂正を保存する' : ''"
                 :order-id="order.id"
                 :initial-order="order"
                 :embedded="true"

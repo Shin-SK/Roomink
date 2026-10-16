@@ -20,6 +20,7 @@ const props = defineProps({
   cancelLabel: { type: String, default: '' },
   submitLabel: { type: String, default: '' },
   showFlowHint: { type: Boolean, default: true },
+  completedCorrection: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['created', 'updated', 'cancel'])
@@ -42,6 +43,7 @@ async function registerCaller() {
 }
 
 const isEdit = computed(() => props.mode === 'edit')
+const correctionReason = ref('')
 
 const customers = ref([])
 const casts = ref([])
@@ -566,6 +568,10 @@ async function submitCreate() {
 }
 
 async function submitEdit() {
+  if (props.completedCorrection && !correctionReason.value.trim()) {
+    errorMsg.value = '訂正理由を入力してください'
+    return
+  }
   if (!form.value.cast || !form.value.course) {
     errorMsg.value = 'キャスト・コースは必須です'
     return
@@ -611,7 +617,9 @@ async function submitEdit() {
   }
   submitting.value = true
   try {
-    const order = await api.updateOrder(props.orderId, patch)
+    const order = props.completedCorrection
+      ? await api.correctOrderAccounting(props.orderId, { ...patch, reason: correctionReason.value.trim() })
+      : await api.updateOrder(props.orderId, patch)
     emit('updated', { order })
   } catch (e) {
     errorMsg.value = e.message
@@ -1135,6 +1143,11 @@ function formatYen(n) {
             </div>
 
             </component>
+
+            <div v-if="completedCorrection" class="mb-3">
+              <label :for="`${formId}-correction-reason`" class="form-label">訂正理由（必須）</label>
+              <textarea :id="`${formId}-correction-reason`" v-model.trim="correctionReason" class="form-control" maxlength="500" rows="2" required placeholder="入力漏れの訂正など"></textarea>
+            </div>
 
             <hr>
 

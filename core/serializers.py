@@ -1919,7 +1919,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "cast", "course", "start", "end", "service_recipient_name",
-            "memo", "options", "nomination_fee", "payment_method", "card_include_options",
+            "memo", "medium", "options", "nomination_fee", "payment_method", "card_include_options",
             "timeline_status", "expected_updated_at", "discount", "extension", "extension_duration", "extension_price",
             "business_date", "start_time_extended", "end_time_extended",
         ]
@@ -1976,7 +1976,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
                     "この営業日は日締め済みです。変更するには先に日締めを解除してください。"
                 )
 
-        for field_name in ("cast", "course"):
+        for field_name in ("cast", "course", "medium"):
             value = data.get(field_name)
             if value is not None and value.store_id != instance.store_id:
                 raise serializers.ValidationError({
