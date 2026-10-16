@@ -83,6 +83,7 @@ const form = ref({
   memo: '',
   payment_method: 'UNSET',
   card_include_options: false,
+  timeline_status: 'AUTO',
 })
 
 const paymentMethods = [
@@ -353,6 +354,7 @@ function applyInitialOrder(o = props.initialOrder) {
   form.value.memo = o.memo || ''
   form.value.payment_method = o.payment_method || 'UNSET'
   form.value.card_include_options = Boolean(o.card_include_options)
+  form.value.timeline_status = o.timeline_status || 'AUTO'
   form.value.startDate = o.business_date || toLocalInput(o.start).slice(0, 10)
   form.value.startTime = o.start_time_extended || toLocalInput(o.start).slice(11, 16)
   form.value.endTime = o.end_time_extended || toLocalInput(o.end).slice(11, 16)
@@ -598,6 +600,7 @@ async function submitEdit() {
     card_include_options: Boolean(form.value.card_include_options),
   }
   const discount = form.value.discount ? Number(form.value.discount) : null
+  if (props.completedCorrection) body.timeline_status = form.value.timeline_status
   if (discount !== (editBaseline.value?.discount ?? null)) body.discount = discount
   const extension = form.value.extension ? Number(form.value.extension) : null
   if (extension !== (editBaseline.value?.extension ?? null)
@@ -1145,6 +1148,13 @@ function formatYen(n) {
             </component>
 
             <div v-if="completedCorrection" class="mb-3">
+              <label :for="`${formId}-timeline-status`" class="form-label">タイムラインの対応状況</label>
+              <select :id="`${formId}-timeline-status`" v-model="form.timeline_status" class="form-select mb-3">
+                <option value="AUTO">自動表示</option>
+                <option value="SMS_SENT">SMS送信済み</option>
+                <option value="SMS_CONFIRMED">SMS確認済み</option>
+                <option value="CARD_PAID">カード決済済み</option>
+              </select>
               <label :for="`${formId}-correction-reason`" class="form-label">訂正理由（必須）</label>
               <textarea :id="`${formId}-correction-reason`" v-model.trim="correctionReason" class="form-control" maxlength="500" rows="2" required placeholder="入力漏れの訂正など"></textarea>
             </div>

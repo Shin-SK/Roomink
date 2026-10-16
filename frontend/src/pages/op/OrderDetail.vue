@@ -457,7 +457,7 @@ async function saveRecipientCustomerLink() {
                 <select
                   :value="order.timeline_status || 'AUTO'"
                   class="form-select form-select-sm timeline-display-card__select"
-                  :disabled="timelineStatusSaving"
+                  :disabled="timelineStatusSaving || order.status === 'DONE'"
                   @change="updateTimelineStatus"
                 >
                   <option v-for="item in timelineStatusOptions" :key="item.value" :value="item.value">
@@ -470,6 +470,7 @@ async function saveRecipientCustomerLink() {
                   <i :style="{ backgroundColor: item.color }"></i>{{ item.label }}
                 </span>
               </div>
+              <button v-if="order.can_correct_accounting" type="button" class="btn btn-link btn-sm px-0" @click="openEdit">対応状況を訂正する</button>
               <div v-if="timelineStatusError" class="text-danger small mt-2">{{ timelineStatusError }}</div>
             </div>
           </div>
@@ -533,7 +534,7 @@ async function saveRecipientCustomerLink() {
                         :value="order.payment_method || 'UNSET'"
                         class="form-select form-select-sm d-inline-block"
                         style="width: auto;"
-                        :disabled="!canModify || paymentMethodSaving"
+                        :disabled="!canModify || paymentMethodSaving || order.status === 'DONE'"
                         @change="updatePaymentMethod"
                       >
                         <option value="UNSET">未設定</option>
@@ -541,6 +542,7 @@ async function saveRecipientCustomerLink() {
                         <option value="CASH">現金</option>
                         <option value="PAYPAY">PayPay</option>
                       </select>
+                      <button v-if="order.can_correct_accounting" type="button" class="btn btn-link btn-sm" @click="openEdit">支払い方法を訂正する</button>
                       <div v-if="paymentMethodError" class="alert alert-warning mt-2 mb-0 small" role="alert">
                         {{ paymentMethodError }}
                         <button type="button" class="btn btn-outline-secondary btn-sm d-block mt-2" :disabled="paymentMethodSaving" @click="reloadPaymentOrder">最新の予約を確認</button>
