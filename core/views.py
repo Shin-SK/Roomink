@@ -7827,9 +7827,11 @@ class DailySettlementExportView(APIView):
             "コースバック率(%)", "OPバック率(%)",
             "バック額", "雑費", "ポイント",
             "現金件数", "現金預り", "振込額",
-            "売上", "カード決済加算", "お客様決済額", "店舗側決済手数料見込み", "固定雑費", "当日雑費", "報酬", "店舗配分",
+            "売上", "固定雑費", "当日雑費", "報酬", "店落ち",
             "現金精算額（正＝店へ残す／負＝店から支払う）",
         ])
+
+        from .services.sales import settlement_store_share
 
         for r in rows:
             writer.writerow([
@@ -7847,13 +7849,10 @@ class DailySettlementExportView(APIView):
                 r.get("cash_sales_total", 0),
                 r.get("net_pay", 0),
                 r.get("total_sales", ""),
-                r.get("customer_payment_surcharge", ""),
-                r.get("customer_payment_total", ""),
-                r.get("payment_fee_estimate", ""),
                 r.get("fixed_expense_total", ""),
                 r.get("daily_expense_total", ""),
                 r.get("compensation", ""),
-                r.get("store_allocation", ""),
+                settlement_store_share(r),
                 r.get("cash_settlement_amount", ""),
             ])
 
@@ -7870,13 +7869,10 @@ class DailySettlementExportView(APIView):
             totals.get("cash_sales_total", 0),
             totals.get("net_pay", 0),
             totals.get("total_sales", ""),
-            totals.get("customer_payment_surcharge", ""),
-            totals.get("customer_payment_total", ""),
-            totals.get("payment_fee_estimate", ""),
             totals.get("fixed_expense_total", ""),
             totals.get("daily_expense_total", ""),
             totals.get("compensation", ""),
-            totals.get("store_allocation", ""),
+            settlement_store_share(totals),
             totals.get("cash_settlement_amount", ""),
         ])
 
