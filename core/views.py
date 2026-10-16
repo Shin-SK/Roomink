@@ -27,7 +27,7 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework import parsers, viewsets, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes, throttle_classes
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
@@ -133,6 +133,7 @@ from .services.cast_user import (
 from .services.customer_context import resolve_customer
 from .services.operator_notifications import send_public_booking_test_email
 from .services.pricing import recalculate_order_total
+from .services.order_editing import require_current_order, order_edit_snapshot, record_order_edit
 from .services.sales import (
     get_sales_summary, get_sales_csv,
     get_sales_dashboard, get_sales_dashboard_csv,
@@ -807,6 +808,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response(OrderSerializer(order, context={"request": request}).data)
 
         with transaction.atomic():
+            Store.objects.select_for_update().get(pk=order.store_id)
             locked_order = Order.objects.select_for_update().get(pk=order.pk)
             previous = locked_order.service_recipient_customer
             locked_order.service_recipient_customer = linked_customer
@@ -1262,6 +1264,7 @@ def _serialize_cast_today_order(order, cast, business_date, *, is_unconfirmed):
         "course_name": order.course_name,
         "course_price": order.course_price,
         "option_ids": [row["id"] for row in option_rows],
+        "updated_at": order.updated_at,
         "options": option_rows,
         "options_price": order.options_price,
         "nomination_fee_name": order.nomination_fee_name,
@@ -1877,37 +1880,60 @@ def _suggest_checkout_room(cast, d):
 
 
 def _room_cash_summary(store, d):
-    """ルームの実残高と、売上・日次精算から導く予定残を返す。"""
-    summaries = []
-    for room in Room.objects.filter(store=store).order_by("sort_order", "id"):
-        previous_count = RoomCashCount.objects.filter(store=store, room=room, date__lt=d).order_by("-date").first()
-        opening = previous_count.actual_cash_amount if previous_count else 0
-        cash_sales = sum(
-            get_done_orders_for_business_range(store, d, d)
-            .filter(room=room, payment_method=Order.PaymentMethod.CASH)
-            .values_list("total_price", flat=True)
-        )
-        checkouts = CastDailyCheckout.objects.filter(store=store, room=room, date=d).exclude(
-            status=CastDailyCheckout.Status.RETURNED,
-        )
-        cash_taken = sum(checkouts.values_list("room_cash_taken_amount", flat=True))
-        cash_returned = sum(checkouts.values_list("cash_returned_to_room_amount", flat=True))
-        expected = opening + cash_sales - cash_taken + cash_returned
-        count = RoomCashCount.objects.filter(store=store, room=room, date=d).first()
-        actual = count.actual_cash_amount if count else None
-        summaries.append({
-            "room": room.id,
-            "room_name": room.name,
-            "opening_cash_amount": opening,
-            "cash_sales_amount": cash_sales,
-            "room_cash_taken_amount": cash_taken,
-            "cash_returned_amount": cash_returned,
-            "expected_cash_amount": expected,
-            "actual_cash_amount": actual,
-            "difference_amount": actual - expected if actual is not None else None,
-            "memo": count.memo if count else "",
-        })
-    return summaries
+    from .services.room_cash import room_cash_summary
+    return room_cash_summary(store, d)
+
+
+@document_object_api_view
+@method_decorator(transaction.atomic, name="dispatch")
+class CastRoomCashView(APIView):
+    """本人の当日担当ルームのみ。管理者向け情報を明示DTOで除外する。"""
+    permission_classes = [IsAuthenticated]
+
+    def _context(self, request):
+        from .services.room_cash import cast_room_cash_ids
+        profile = get_request_profile(request)
+        cast = getattr(request.user, "cast_profile", None)
+        if profile is None or profile.role != UserProfile.Role.CAST or cast is None or profile.store_id != cast.store_id:
+            raise PermissionDenied("この操作は所属店舗のセラピスト本人だけ利用できます")
+        source = request.data if request.method == "POST" else request.query_params
+        allowed_keys = {"date", "room", "actual_cash_amount", "memo", "expected_revision", "request_id"} if request.method == "POST" else {"date", "room"}
+        if not hasattr(source, "keys") or set(source.keys()) - allowed_keys:
+            raise ValidationError({"detail": "指定できない項目が含まれています"})
+        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
+        try:
+            target = date_type.fromisoformat(source["date"]) if source.get("date") else today
+        except (ValueError, TypeError):
+            raise ValidationError({"detail": "日付の形式が不正です"})
+        if target != today:
+            raise ValidationError({"detail": "本日の担当ルームだけ確認できます"})
+        Store.objects.select_for_update().get(pk=cast.store_id)
+        allowed_ids = cast_room_cash_ids(cast, today)
+        room_id = None
+        if source.get("room") is not None:
+            value = source.get("room")
+            try:
+                if isinstance(value, bool) or not isinstance(value, (int, str)) or (isinstance(value, str) and not value.isdecimal()):
+                    raise ValueError
+                room_id = int(value)
+            except (TypeError, ValueError):
+                raise ValidationError({"detail": "ルームの形式が不正です"})
+            if room_id not in allowed_ids:
+                raise PermissionDenied("本日担当しているルームだけ利用できます")
+        return cast, today, allowed_ids, room_id
+
+    def get(self, request):
+        from .services.room_cash import cast_room_cash_summary
+        cast, today, allowed_ids, room_id = self._context(request)
+        return Response(cast_room_cash_summary(cast, today, allowed_ids, room_id))
+
+    def post(self, request):
+        from .services.room_cash import cast_room_cash_summary, save_room_cash_checkpoint
+        cast, today, allowed_ids, room_id = self._context(request)
+        if room_id is None:
+            raise ValidationError({"detail": "確認したルームを選択してください"})
+        save_room_cash_checkpoint(cast.store, today, request.data, request.user, allowed_room_ids=allowed_ids)
+        return Response(cast_room_cash_summary(cast, today, allowed_ids, room_id))
 
 
 @document_object_api_view
@@ -2056,6 +2082,7 @@ class CastCheckoutView(APIView):
             instance.cast_memo = cast_memo
             instance.status = CastDailyCheckout.Status.SUBMITTED
             instance.submitted_at = timezone.now()
+            instance._cash_recorded_by_id = request.user.pk
             instance.save()
 
             CastCheckoutExpenseSnapshot.objects.bulk_create([
@@ -2224,6 +2251,8 @@ class CastOrderOptionsView(APIView):
                     {"detail": "カード決済確認済みのため、店舗へオプション変更を依頼してください"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            require_current_order(order, request.data.get("expected_updated_at"), required=True)
+            before = order_edit_snapshot(order)
             OrderOption.objects.filter(order=order).delete()
             for option in options:
                 OrderOption.objects.create(order=order, option=option)
@@ -2231,6 +2260,8 @@ class CastOrderOptionsView(APIView):
             order.updated_by = request.user
             order.save(update_fields=["options_price", "updated_by", "updated_at"])
             recalculate_order_total(order)
+
+            record_order_edit(order, before, request.user, "cast")
 
         order.refresh_from_db()
         return _cast_order_response(order, cast)
@@ -3981,6 +4012,7 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         if "room_cash_taken_amount" in updates:
             instance.actual_take_home_amount = instance.room_cash_taken_amount
             updates.append("actual_take_home_amount")
+        instance._cash_recorded_by_id = request.user.pk
         instance.save(update_fields=[*updates, "updated_at"])
         return Response(CastDailyCheckoutSerializer(instance).data)
 
@@ -4042,25 +4074,12 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         except ValueError:
             return Response({"detail": "日付の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
         store = get_user_store(request)
+        # All cash-source saves take this same lock. The count and its source
+        # snapshot are therefore one consistent instant, including on GET.
+        Store.objects.select_for_update().get(pk=store.pk)
         if request.method == "POST":
-            try:
-                room_id = int(request.data.get("room"))
-                actual_amount = int(request.data.get("actual_cash_amount"))
-            except (TypeError, ValueError):
-                return Response({"detail": "ルームまたは実残高の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
-            if actual_amount < 0:
-                return Response({"detail": "実残高は0以上で入力してください"}, status=status.HTTP_400_BAD_REQUEST)
-            room = Room.objects.filter(id=room_id, store=store).first()
-            if room is None:
-                return Response({"detail": "対象ルームが見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
-            RoomCashCount.objects.update_or_create(
-                store=store, room=room, date=target_date,
-                defaults={
-                    "actual_cash_amount": actual_amount,
-                    "memo": request.data.get("memo", "") or "",
-                    "counted_by": request.user,
-                },
-            )
+            from .services.room_cash import save_room_cash_checkpoint
+            save_room_cash_checkpoint(store, target_date, request.data, request.user)
         return Response({"date": target_date.isoformat(), "rooms": _room_cash_summary(store, target_date)})
 
     @action(detail=False, methods=["get"])
@@ -7899,9 +7918,11 @@ class DailySettlementExportView(APIView):
             "コースバック率(%)", "OPバック率(%)",
             "バック額", "雑費", "ポイント",
             "現金件数", "現金預り", "振込額",
-            "売上", "カード決済加算", "お客様決済額", "店舗側決済手数料見込み", "固定雑費", "当日雑費", "報酬", "店舗配分",
+            "売上", "固定雑費", "当日雑費", "報酬", "店落ち",
             "現金精算額（正＝店へ残す／負＝店から支払う）",
         ])
+
+        from .services.sales import settlement_store_share
 
         for r in rows:
             writer.writerow([
@@ -7919,13 +7940,10 @@ class DailySettlementExportView(APIView):
                 r.get("cash_sales_total", 0),
                 r.get("net_pay", 0),
                 r.get("total_sales", ""),
-                r.get("customer_payment_surcharge", ""),
-                r.get("customer_payment_total", ""),
-                r.get("payment_fee_estimate", ""),
                 r.get("fixed_expense_total", ""),
                 r.get("daily_expense_total", ""),
                 r.get("compensation", ""),
-                r.get("store_allocation", ""),
+                settlement_store_share(r),
                 r.get("cash_settlement_amount", ""),
             ])
 
@@ -7942,13 +7960,10 @@ class DailySettlementExportView(APIView):
             totals.get("cash_sales_total", 0),
             totals.get("net_pay", 0),
             totals.get("total_sales", ""),
-            totals.get("customer_payment_surcharge", ""),
-            totals.get("customer_payment_total", ""),
-            totals.get("payment_fee_estimate", ""),
             totals.get("fixed_expense_total", ""),
             totals.get("daily_expense_total", ""),
             totals.get("compensation", ""),
-            totals.get("store_allocation", ""),
+            settlement_store_share(totals),
             totals.get("cash_settlement_amount", ""),
         ])
 

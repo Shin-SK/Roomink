@@ -86,7 +86,7 @@ class SalesAllocationTest(TestCase):
         self.assertEqual(csv_response.status_code, 200)
         csv_rows = list(csv.DictReader(io.StringIO(csv_response.content.decode("utf-8-sig"))))
         self.assertEqual(csv_rows[0]["報酬"], "8000")
-        self.assertEqual(csv_rows[0]["店舗配分"], "16000")
+        self.assertEqual(csv_rows[0]["店落ち"], "16000")
 
     def test_lock_recalculates_instead_of_trusting_client_values(self):
         response = self.manager_client.post(

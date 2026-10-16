@@ -1,9 +1,11 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
+import RoomCashPanel from '../../components/RoomCashPanel.vue'
 import { api } from '../../api.js'
 import { sanitizeNoteHtml } from '../../noteContent.js'
 import { roomMapHref } from '../../roomMap.js'
+import { checkoutBalanceDisplay } from '../../checkoutBalance.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -30,6 +32,9 @@ const availableOptions = ref([])
 const processingOrderId = ref(null)
 const optionEditorId = ref(null)
 const optionDraftIds = ref([])
+const optionVersion = ref(null)
+const optionConflict = ref(false)
+const latestOptionOrder = ref(null)
 const actionErrors = ref({})
 const expandedOrderDetails = ref({})
 const activeInfoTab = ref('earnings')
@@ -73,6 +78,7 @@ const CHECKLIST_ITEMS = [
 ]
 
 const checkoutData = ref(null)
+const checkoutRoomCashPanel = ref(null)
 const showCheckoutModal = ref(false)
 const showCheckoutSales = ref(false)
 const showCheckoutCalculation = ref(false)
@@ -98,11 +104,15 @@ const checkoutIsReadOnly = computed(() => {
 const checkoutCarryover = computed(() => {
   const opening = Number(checkoutData.value?.checkout?.carryover_opening_amount ?? checkoutData.value?.carryover_opening_amount ?? 0)
   const compensation = Number(checkoutData.value?.checkout?.compensation_amount ?? checkoutData.value?.compensation ?? 0)
-  const roomCash = Number(checkoutData.value?.checkout?.room_cash_taken_amount ?? checkoutForm.value.room_cash_taken_amount ?? 0)
+  const roomCash = Number((checkoutIsReadOnly.value ? checkoutData.value?.checkout?.room_cash_taken_amount : checkoutForm.value.room_cash_taken_amount) ?? 0)
   const officeCash = Number(checkoutData.value?.checkout?.office_cash_paid_amount ?? 0)
   const available = opening + compensation
   return { opening, compensation, available, roomCash, officeCash, closing: available - roomCash - officeCash }
 })
+
+const checkoutBalance = computed(() => checkoutBalanceDisplay(
+  checkoutCarryover.value.available, checkoutCarryover.value.roomCash, checkoutCarryover.value.officeCash,
+))
 
 const checkoutReadyToSubmit = computed(() => (
   CHECKLIST_ITEMS.every(item => checkoutForm.value.checklist_json?.[item.key])
@@ -163,6 +173,7 @@ onUnmounted(() => {
 async function loadCheckout() {
   try {
     checkoutData.value = await api.getCastCheckout()
+    await checkoutRoomCashPanel.value?.refreshWhenIdle()
   } catch (_) { /* 取得失敗は致命的でない */ }
 }
 
@@ -315,6 +326,9 @@ function openOptionEditor(order) {
   }
   optionEditorId.value = order.id
   optionDraftIds.value = [...(order.option_ids || [])]
+  optionVersion.value = order.updated_at
+  optionConflict.value = false
+  latestOptionOrder.value = null
 }
 
 function toggleOrderDetails(orderId) {
@@ -322,17 +336,44 @@ function toggleOrderDetails(orderId) {
 }
 
 async function saveOptions(order) {
+  if (optionConflict.value || processingOrderId.value === order.id) return
   processingOrderId.value = order.id
   actionErrors.value[order.id] = ''
   try {
-    const updated = await api.updateCastOrderOptions(order.id, optionDraftIds.value)
+    const updated = await api.updateCastOrderOptions(order.id, optionDraftIds.value, optionVersion.value)
     replaceOrder(updated)
-    optionEditorId.value = null
+    if (optionEditorId.value === order.id) optionEditorId.value = null
+  } catch (e) {
+    actionErrors.value[order.id] = e.message
+    if (optionEditorId.value === order.id) optionConflict.value = e.status === 409
+  } finally {
+    processingOrderId.value = null
+  }
+}
+
+async function checkLatestOptions(order) {
+  processingOrderId.value = order.id
+  try {
+    const data = await api.getCastToday(todayBusinessDate.value)
+    if (optionEditorId.value !== order.id) return
+    latestOptionOrder.value = data.orders.find(item => item.id === order.id) || null
+    if (!latestOptionOrder.value) actionErrors.value[order.id] = '予約は終了または変更されています。一覧を再読み込みしてください。'
   } catch (e) {
     actionErrors.value[order.id] = e.message
   } finally {
     processingOrderId.value = null
   }
+}
+
+function restartOptions(order) {
+  if (latestOptionOrder.value?.id !== order.id || !confirm('選択中の変更を取り消して、最新の予約内容に切り替えますか？')) return
+  const latest = latestOptionOrder.value
+  replaceOrder(latest)
+  optionDraftIds.value = [...(latest.option_ids || [])]
+  optionVersion.value = latest.updated_at
+  optionConflict.value = false
+  latestOptionOrder.value = null
+  actionErrors.value[order.id] = ''
 }
 
 async function startService(order) {
@@ -356,8 +397,8 @@ async function completeService(order) {
     orders.value = orders.value.filter(item => item.id !== order.id)
     totalOrders.value = orders.value.length
     unconfirmedCount.value = orders.value.filter(item => item.is_unconfirmed).length
-    todaySales.value = await api.getCastTodaySales()
     await loadCheckout()
+    todaySales.value = await api.getCastTodaySales()
   } catch (e) {
     actionErrors.value[order.id] = e.message
   } finally {
@@ -533,9 +574,18 @@ function formatMonthDay(dateStr) {
                 </label>
                 <button
                   class="btn btn-sm btn-primary w-100 mt-2"
-                  :disabled="processingOrderId === order.id"
+                  :disabled="processingOrderId === order.id || optionConflict"
                   @click="saveOptions(order)"
                 >選択内容を保存</button>
+                <div v-if="optionConflict" class="alert alert-warning mt-2 mb-0 small" role="alert">
+                  <div class="mb-2">予約が更新されています。選択中の内容は残しています。</div>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="processingOrderId === order.id" @click="checkLatestOptions(order)">最新の予約を確認</button>
+                  <div v-if="latestOptionOrder" class="mt-2">
+                    <div>最新のオプション：{{ latestOptionOrder.options?.length ? latestOptionOrder.options.map(option => option.name).join('、') : 'なし' }}</div>
+                    <div>最新の合計：{{ formatYen(latestOptionOrder.total_price) }}</div>
+                    <button type="button" class="btn btn-outline-primary btn-sm mt-2" @click="restartOptions(order)">最新の内容で選び直す</button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -629,6 +679,9 @@ function formatMonthDay(dateStr) {
             <div class="small text-muted">セラピスト側で「接客終了・売上へ反映」まで完了した予約を元にした見込みです。予約時間を過ぎただけでは反映されません。</div>
           </div>
         </div>
+
+        <div class="rk-section-header"><i class="ti ti-cash-banknote"></i> 精算</div>
+        <RoomCashPanel v-if="todayBusinessDate" ref="checkoutRoomCashPanel" :date="todayBusinessDate" cast-mode />
 
         <!-- ポイントカード -->
         <div v-if="totalPoints !== 0 || pointHistory.length" class="card mb-3">
@@ -947,10 +1000,11 @@ function formatMonthDay(dateStr) {
                   <div class="small text-muted mb-1">今日の受取可能額</div>
                   <div class="fs-2 fw-bold text-primary">{{ formatYen(checkoutCarryover.available) }}</div>
                   <div class="d-flex justify-content-between align-items-end border-top mt-3 pt-3">
-                    <span class="small text-muted">今回の受取残</span>
-                    <strong class="fs-5 text-warning">{{ formatYen(checkoutCarryover.closing) }}</strong>
+                    <span class="small text-muted">受け取り状況</span>
+                    <strong class="fs-5 text-end" :class="checkoutBalance.tone" role="status" aria-live="polite">{{ checkoutBalance.label }}{{ checkoutBalance.amount.toLocaleString('ja-JP') }}円</strong>
                   </div>
-                  <div v-if="checkoutCarryover.closing > 0" class="text-muted mt-2" style="font-size: .75rem;">どうしても今日受け取りたい場合は、運営に相談してください。</div>
+                  <div v-if="checkoutBalance.isShortage" class="text-muted mt-2" style="font-size: .75rem;">不足分は次回以降に受け取れます。今日の受け取りを希望する場合は、運営に相談してください。</div>
+                  <div v-else-if="checkoutCarryover.closing < 0" class="text-muted mt-2" style="font-size: .75rem;">金額を確認し、運営に相談してください。</div>
                 </div>
 
                 <div v-if="checkoutData?.sales_items?.length" class="mb-3">
@@ -987,7 +1041,7 @@ function formatMonthDay(dateStr) {
                     <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">今日の受取可能額</span><strong class="text-primary">{{ formatYen(checkoutCarryover.available) }}</strong></div>
                     <div class="d-flex justify-content-between mt-2"><span>今回ルームで受け取る額</span><strong>-{{ formatYen(checkoutCarryover.roomCash) }}</strong></div>
                     <div v-if="checkoutCarryover.officeCash" class="d-flex justify-content-between"><span>事務所で受け取った額</span><strong>-{{ formatYen(checkoutCarryover.officeCash) }}</strong></div>
-                    <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">今回の受取残</span><strong class="text-warning">{{ formatYen(checkoutCarryover.closing) }}</strong></div>
+                    <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">受け取り状況</span><strong :class="checkoutBalance.tone">{{ checkoutBalance.label }}{{ checkoutBalance.amount.toLocaleString('ja-JP') }}円</strong></div>
                   </div>
                 </div>
 
@@ -1029,9 +1083,9 @@ function formatMonthDay(dateStr) {
                 <!-- 入力フォーム（未提出 or 差戻し後） -->
                 <template v-else>
                   <div class="mb-3">
-                    <label class="form-label small fw-bold">受取可能額</label>
-                    <input v-model.number="checkoutForm.room_cash_taken_amount" type="number" min="0" :max="Math.max(0, checkoutCarryover.available)" class="form-control" />
-                    <div class="form-text">ルーム内の現金に合わせて入力してください。受け取らなかった分は、次回以降に受け取れます。</div>
+                    <label for="checkout-room-cash" class="form-label small fw-bold">今回ルームで受け取る金額</label>
+                    <input id="checkout-room-cash" v-model.number="checkoutForm.room_cash_taken_amount" type="number" min="0" :max="Math.max(0, checkoutCarryover.available)" class="form-control" />
+                    <div class="form-text">ルーム内の現金から、実際に受け取る金額を入力してください。受け取らなかった分は、次回以降に受け取れます。</div>
                   </div>
                   <div class="mb-3">
                     <label class="form-label small fw-bold">退勤チェック <span class="text-danger">（すべて確認してください）</span></label>

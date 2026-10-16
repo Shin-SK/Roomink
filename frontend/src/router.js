@@ -7,6 +7,7 @@ import Login from './pages/op/Login.vue'
 
 // Lazy: それ以外は遅延ロード
 const Schedule = () => import('./pages/op/Schedule.vue')
+const RoomCash = () => import('./pages/op/RoomCash.vue')
 const Phone = () => import('./pages/op/Phone.vue')
 const OrderDetail = () => import('./pages/op/OrderDetail.vue')
 const CustomerList = () => import('./pages/op/CustomerList.vue')
@@ -108,6 +109,7 @@ const routes = [
   { path: '/op/rooms', name: 'room-schedule', component: RoomSchedule },
   { path: '/op/cast-expenses', name: 'cast-expenses', component: CastExpenses },
   { path: '/op/cast-checkouts', name: 'cast-checkouts', component: CastCheckouts, meta: { managerOnly: true } },
+  { path: '/op/room-cash', name: 'room-cash', component: RoomCash, meta: { managerOnly: true } },
   { path: '/op/cast-adjustments', name: 'cast-adjustments', component: CastAdjustments, meta: { managerOnly: true } },
   { path: '/op/cast-notes', name: 'cast-notes', component: CastNotes },
   { path: '/op/support', name: 'support-inbox', component: SupportInbox, meta: { managerOnly: true } },

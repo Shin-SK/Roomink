@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch, useId } from 'vue'
 import { api as defaultApi, normalizePhone } from '../api.js'
 import { reservationDateTime, courseEndTime } from '../reservationTime.js'
+import { changedOrderFields } from '../orderEdit.js'
 
 const props = defineProps({
   apiClient: { type: Object, default: null },
@@ -55,6 +56,10 @@ const paymentFeeRates = ref({ card_fee_rate: 10, paypay_fee_rate: 5 })
 const loading = ref(true)
 const submitting = ref(false)
 const errorMsg = ref('')
+const editBaseline = ref(null)
+const editConflict = ref(false)
+const latestOrder = ref(null)
+const refreshingOrder = ref(false)
 const phoneHint = ref(props.initialPhone || '')
 const shiftCastIds = ref(null) // null=未取得（絞り込みなし）, Set=取得済み
 
@@ -326,9 +331,11 @@ function toLocalInput(dt) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function applyInitialOrder() {
-  const o = props.initialOrder
+function applyInitialOrder(o = props.initialOrder) {
   if (!o) return
+  editBaseline.value = { ...o, option_ids: [...(o.option_ids || [])] }
+  editConflict.value = false
+  latestOrder.value = null
   nominationTouched.value = false
   form.value.customer = o.customer ?? ''
   form.value.cast = o.cast ?? ''
@@ -585,11 +592,11 @@ async function submitEdit() {
     card_include_options: Boolean(form.value.card_include_options),
   }
   const discount = form.value.discount ? Number(form.value.discount) : null
-  if (discount !== (props.initialOrder?.discount ?? null)) body.discount = discount
+  if (discount !== (editBaseline.value?.discount ?? null)) body.discount = discount
   const extension = form.value.extension ? Number(form.value.extension) : null
-  if (extension !== (props.initialOrder?.extension ?? null)
-    || Number(form.value.extension_duration) !== (props.initialOrder?.extension_duration || 0)
-    || Number(form.value.extension_price) !== (props.initialOrder?.extension_price || 0)) {
+  if (extension !== (editBaseline.value?.extension ?? null)
+    || Number(form.value.extension_duration) !== (editBaseline.value?.extension_duration || 0)
+    || Number(form.value.extension_price) !== (editBaseline.value?.extension_price || 0)) {
     body.extension = extension
     body.extension_duration = Number(form.value.extension_duration) || 0
     body.extension_price = Number(form.value.extension_price) || 0
@@ -597,15 +604,38 @@ async function submitEdit() {
   if (nominationTouched.value) {
     body.nomination_fee = form.value.nomination_fee ? Number(form.value.nomination_fee) : null
   }
+  const patch = changedOrderFields(editBaseline.value, body)
+  if (!Object.keys(patch).length) {
+    emit('cancel')
+    return
+  }
   submitting.value = true
   try {
-    const order = await api.updateOrder(props.orderId, body)
+    const order = await api.updateOrder(props.orderId, patch)
     emit('updated', { order })
   } catch (e) {
     errorMsg.value = e.message
+    editConflict.value = e.status === 409
   } finally {
     submitting.value = false
   }
+}
+
+async function checkLatestOrder() {
+  refreshingOrder.value = true
+  try {
+    latestOrder.value = await api.getOrder(props.orderId)
+  } catch (e) {
+    errorMsg.value = e.message
+  } finally {
+    refreshingOrder.value = false
+  }
+}
+
+function restartWithLatestOrder() {
+  if (!confirm('入力中の変更を取り消して、最新の予約内容に切り替えますか？')) return
+  applyInitialOrder(latestOrder.value)
+  errorMsg.value = ''
 }
 
 function onCancel() {
@@ -1140,9 +1170,19 @@ function formatYen(n) {
             <div v-if="errorMsg" class="alert alert-danger py-2 mb-2">
               <i class="ti ti-alert-circle me-1"></i>{{ errorMsg }}
             </div>
+            <div v-if="editConflict" class="alert alert-warning" role="alert">
+              <p class="mb-2">入力中の変更は残っています。最新の内容と比べてから変更し直してください。</p>
+              <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="refreshingOrder" @click="checkLatestOrder">最新の予約を確認</button>
+              <div v-if="latestOrder" class="mt-2">
+                <div>現在のオプション：{{ latestOrder.options?.join('、') || 'なし' }}（{{ formatYen(latestOrder.options_price) }}）</div>
+                <div>現在の合計：{{ formatYen(latestOrder.total_price) }}</div>
+                <div>支払い方法：{{ paymentMethods.find(p => p.value === latestOrder.payment_method)?.label }}</div>
+                <button type="button" class="btn btn-outline-primary btn-sm mt-2" @click="restartWithLatestOrder">最新の内容で入力し直す</button>
+              </div>
+            </div>
             <div class="d-flex gap-2">
               <button type="button" class="btn btn-outline-secondary flex-fill" @click="onCancel">{{ resolvedCancelLabel }}</button>
-              <button type="submit" class="btn btn-success flex-fill" :disabled="submitting">
+              <button type="submit" class="btn btn-success flex-fill" :disabled="submitting || editConflict">
                 <span v-if="submitting" class="spinner-border spinner-border-sm me-1"></span>
                 <i v-else class="ti" :class="isEdit ? 'ti-device-floppy' : 'ti-check'"></i> {{ resolvedSubmitLabel }}
               </button>

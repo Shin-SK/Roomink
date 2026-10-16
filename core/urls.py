@@ -156,6 +156,7 @@ urlpatterns = [
     path("cast/schedule/", views.CastScheduleView.as_view(), name="cast-schedule"),
     path("cast/today-sales/", views.CastTodaySalesView.as_view(), name="cast-today-sales"),
     path("cast/checkout/", views.CastCheckoutView.as_view(), name="cast-checkout"),
+    path("cast/room-cash/", views.CastRoomCashView.as_view(), name="cast-room-cash"),
     path("cast/shift-confirm/", views.CastShiftConfirmView.as_view(), name="cast-shift-confirm"),
     path("cast/orders/<int:pk>/ack/", views.CastAckView.as_view(), name="cast-ack"),
     path("cast/orders/<int:pk>/options/", views.CastOrderOptionsView.as_view(), name="cast-order-options"),

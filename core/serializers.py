@@ -77,6 +77,7 @@ from .services.order_policy import (
     is_past_business_day_order,
 )
 from .services.daily_settlement_lock import is_daily_settlement_locked
+from .services.order_editing import require_current_order, order_edit_snapshot, record_order_edit
 
 User = get_user_model()
 
@@ -1899,6 +1900,7 @@ class ExtensionApplySerializer(serializers.Serializer):
 # ──────────────────────────────────────
 
 class OrderUpdateSerializer(serializers.ModelSerializer):
+    expected_updated_at = serializers.DateTimeField(write_only=True, required=False)
     business_date = serializers.DateField(write_only=True, required=False)
     start_time_extended = serializers.CharField(write_only=True, required=False)
     end_time_extended = serializers.CharField(write_only=True, required=False)
@@ -1918,7 +1920,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
         fields = [
             "cast", "course", "start", "end", "service_recipient_name",
             "memo", "options", "nomination_fee", "payment_method", "card_include_options",
-            "timeline_status", "discount", "extension", "extension_duration", "extension_price",
+            "timeline_status", "expected_updated_at", "discount", "extension", "extension_duration", "extension_price",
             "business_date", "start_time_extended", "end_time_extended",
         ]
 
@@ -2062,7 +2064,12 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         with transaction.atomic():
             store = Store.objects.select_for_update().get(pk=instance.store_id)
+            # Never save the stale object loaded before waiting for this lock.
             instance = Order.objects.select_for_update().get(pk=instance.pk, store=store)
+            require_current_order(
+                instance, validated_data.pop("expected_updated_at", None),
+                required="options" in validated_data,
+            )
             if instance.status == Order.Status.CANCELLED or (
                 instance.status == Order.Status.DONE and not self.context.get("allow_completed_addons")
             ):
@@ -2106,7 +2113,11 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
                     end__gt=target_start,
                 ).exclude(pk=instance.pk).exists():
                     raise serializers.ValidationError("指定ルームは使用中です")
-            return self._update_unlocked(instance, validated_data)
+            before = order_edit_snapshot(instance)
+            instance = self._update_unlocked(instance, validated_data)
+            request = self.context.get("request")
+            record_order_edit(instance, before, request.user if request else None, "operator")
+            return instance
 
     def _update_unlocked(self, instance, validated_data):
         option_objs = validated_data.pop("options", None)
@@ -2164,6 +2175,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
 class CastTodayOrderSerializer(serializers.Serializer):
     id = serializers.IntegerField()
+    updated_at = serializers.DateTimeField()
     start = serializers.DateTimeField()
     end = serializers.DateTimeField()
     start_time_extended = serializers.CharField()
