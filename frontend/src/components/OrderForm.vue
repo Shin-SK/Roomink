@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch, useId } from 'vue'
 import { api as defaultApi, normalizePhone } from '../api.js'
-import { reservationDateTime } from '../reservationTime.js'
+import { reservationDateTime, courseEndTime } from '../reservationTime.js'
 import { changedOrderFields } from '../orderEdit.js'
 
 const props = defineProps({
@@ -340,6 +340,9 @@ function applyInitialOrder(o = props.initialOrder) {
   form.value.customer = o.customer ?? ''
   form.value.cast = o.cast ?? ''
   form.value.course = o.course ?? ''
+  form.value.extension = o.extension ?? ''
+  form.value.extension_duration = o.extension_duration || 0
+  form.value.extension_price = o.extension_price || 0
   form.value.options = Array.isArray(o.option_ids) ? [...o.option_ids] : []
   form.value.nomination_fee = o.nomination_fee ?? ''
   form.value.medium = o.medium ?? ''
@@ -380,7 +383,14 @@ async function loadMasters() {
     const allMedia = Array.isArray(mdData) ? mdData : []
     media.value = allMedia.filter(m => m.is_active)
     const allDiscounts = Array.isArray(dcData) ? dcData : []
-    discounts.value = allDiscounts.filter(d => d.is_active)
+    discounts.value = allDiscounts
+      .filter(d => d.is_active || (isEdit.value && d.id === props.initialOrder?.discount))
+      .map(d => isEdit.value && d.id === props.initialOrder?.discount ? {
+        ...d,
+        name: props.initialOrder.discount_name,
+        discount_type: props.initialOrder.discount_type_snapshot,
+        value: props.initialOrder.discount_value_snapshot,
+      } : d)
     paymentFeeRates.value = {
       card_fee_rate: Number(feeData?.card_fee_rate ?? 10),
       paypay_fee_rate: Number(feeData?.paypay_fee_rate ?? 5),
@@ -444,6 +454,12 @@ watch(() => props.initialPhone, (val) => {
 watch(() => props.initialOrder, () => {
   if (isEdit.value) applyInitialOrder()
 })
+
+watch(() => [form.value.course, form.value.startTime, form.value.extension_duration], () => {
+  if (!isEdit.value || loading.value || !selectedCourse.value) return
+  const end = courseEndTime(form.value.startTime, selectedCourse.value.duration, form.value.extension_duration || 0)
+  if (end) form.value.endTime = end
+}, { flush: 'sync' })
 
 function toggleOption(optId) {
   const idx = form.value.options.indexOf(optId)
@@ -574,6 +590,16 @@ async function submitEdit() {
     medium: form.value.medium ? Number(form.value.medium) : null,
     payment_method: form.value.payment_method || 'UNSET',
     card_include_options: Boolean(form.value.card_include_options),
+  }
+  const discount = form.value.discount ? Number(form.value.discount) : null
+  if (discount !== (props.initialOrder?.discount ?? null)) body.discount = discount
+  const extension = form.value.extension ? Number(form.value.extension) : null
+  if (extension !== (props.initialOrder?.extension ?? null)
+    || Number(form.value.extension_duration) !== (props.initialOrder?.extension_duration || 0)
+    || Number(form.value.extension_price) !== (props.initialOrder?.extension_price || 0)) {
+    body.extension = extension
+    body.extension_duration = Number(form.value.extension_duration) || 0
+    body.extension_price = Number(form.value.extension_price) || 0
   }
   if (nominationTouched.value) {
     body.nomination_fee = form.value.nomination_fee ? Number(form.value.nomination_fee) : null
@@ -996,7 +1022,7 @@ function formatYen(n) {
               </div>
             </div>
 
-            <div class="mb-3" v-else-if="!isEdit">
+            <div class="mb-3" v-else>
               <label class="form-label">延長（任意）</label>
               <div class="form-text mt-0 mb-2">候補を選ぶか、時間と料金を直接入力できます。</div>
               <div class="select-grid">
@@ -1092,13 +1118,13 @@ function formatYen(n) {
               <div class="col-md-6">
                 <div class="mb-3">
                   <label class="form-label">割引</label>
-                  <select class="form-select" v-model="form.discount" :disabled="isEdit">
+                  <select class="form-select" v-model="form.discount">
                     <option value="">-- 割引なし --</option>
                     <option v-for="d in discounts" :key="d.id" :value="d.id">
                       {{ d.name }}（{{ d.discount_type === 'percent' ? d.value + '%' : d.value.toLocaleString() + '円' }}引き）
                     </option>
                   </select>
-                  <div v-if="isEdit" class="form-text"><a href="#order-discount">この画面の下にある「割引の変更」へ進む</a></div>
+                  <div v-if="isEdit" class="form-text">延長・指名・割引は、下の「保存」でまとめて反映されます。</div>
                 </div>
               </div>
             </div>

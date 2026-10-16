@@ -33,8 +33,9 @@ function formatYen(value) {
     <main class="complete-card">
       <img src="/logo.svg" alt="Roomink" class="complete-logo">
       <div class="complete-icon"><i class="ti ti-check"></i></div>
-      <p class="complete-kicker">RESERVATION CONFIRMED</p>
-      <h1>ご予約が確定しました</h1>
+      <p class="complete-kicker">{{ result?.payment_method === 'CARD' ? 'PAYMENT REQUIRED' : 'RESERVATION CONFIRMED' }}</p>
+      <h1>{{ result?.payment_method === 'CARD' ? '仮予約を受け付けました' : 'ご予約が確定しました' }}</h1>
+      <p v-if="result?.payment_method === 'CARD'" class="text-muted">SMSの案内ページでお支払いください。店舗の入金確認後に本予約が確定します。</p>
       <p class="text-muted">予約内容とお客様ページのご案内をSMSでお送りしました。</p>
 
       <div v-if="result" class="reservation-summary text-start">
@@ -43,6 +44,7 @@ function formatYen(value) {
         <div><span>日時</span><strong>{{ startText }}</strong></div>
         <div><span>担当</span><strong>{{ result.cast_name }}</strong></div>
         <div><span>コース</span><strong>{{ result.course_name }}</strong></div>
+        <div v-if="result.nomination_fee_name"><span>指名</span><strong>{{ result.nomination_fee_name }}（{{ formatYen(result.nomination_fee_price) }}）</strong></div>
         <div><span>料金</span><strong>{{ formatYen(result.total_price) }}</strong></div>
         <div v-if="result.room_name"><span>ルーム</span><strong>{{ result.room_name }}</strong></div>
         <div v-if="result.room_address"><span>住所</span><strong>{{ result.room_address }}</strong></div>
@@ -52,7 +54,7 @@ function formatYen(value) {
       </div>
 
       <div v-if="result?.sms_status && !['SENT', 'DUMMY'].includes(result.sms_status)" class="alert alert-warning text-start">
-        予約は確定していますが、案内SMSの送信を確認できませんでした。店舗へお問い合わせください。
+        予約は受け付けていますが、案内SMSの送信を確認できませんでした。店舗へお問い合わせください。
       </div>
       <router-link :to="storeSlug ? `/s/${storeSlug}/booking` : '/booking'" class="btn btn-outline-primary mt-3">別の予約をする</router-link>
     </main>

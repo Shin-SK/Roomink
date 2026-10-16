@@ -5,7 +5,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0094_store_nomination_fullback"),
+        ("core", "0095_order_accounting_correction"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

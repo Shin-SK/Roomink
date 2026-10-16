@@ -1845,6 +1845,20 @@ class CastDailyCheckout(models.Model):
         return f"{self.cast.name} {self.date} ({self.status})"
 
 
+class OrderAccountingCorrection(models.Model):
+    """日締め前の予約会計訂正。現金の受渡履歴とは分けて保存する。"""
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="accounting_corrections")
+    checkout = models.ForeignKey(CastDailyCheckout, null=True, blank=True, on_delete=models.SET_NULL)
+    reason = models.CharField(max_length=500)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    corrected_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
 class CastOfficeCashReceipt(models.Model):
     """事務所でキャストへ渡した現金の、消さない受取履歴。"""
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="cast_office_cash_receipts")

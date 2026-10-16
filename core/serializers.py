@@ -41,6 +41,7 @@ from .models import (
     Option,
     Order,
     OrderOption,
+    OrderAccountingCorrection,
     Room,
     ShiftAssignment,
     ShiftConfirmNotificationLog,
@@ -1398,6 +1399,8 @@ def build_customer_label(customer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    can_correct_accounting = serializers.SerializerMethodField()
+    accounting_corrections = serializers.SerializerMethodField()
     business_date = serializers.SerializerMethodField()
     start_time_extended = serializers.SerializerMethodField()
     end_time_extended = serializers.SerializerMethodField()
@@ -1447,11 +1450,34 @@ class OrderSerializer(serializers.ModelSerializer):
             "customer_reservation_state", "guest_first_opened_at",
             "guest_last_seen_state", "guest_open_count",
             "created_at", "updated_at",
+            "can_correct_accounting", "accounting_corrections",
         ]
 
         read_only_fields = [
             "created_by", "updated_by", "cancelled_by",
         ]
+
+    def get_can_correct_accounting(self, obj) -> bool:
+        request = self.context.get("request")
+        profile = get_request_profile(request) if request else None
+        if profile is None or profile.role not in ("manager", "staff"):
+            return False
+        return obj.status == Order.Status.DONE and self.get_can_modify(obj) and not is_daily_settlement_locked(
+            obj.store, business_date_for_datetime(obj.start, obj.store.timezone),
+        )
+
+    @extend_schema_field({"type": "array", "items": {"type": "object", "additionalProperties": True}})
+    def get_accounting_corrections(self, obj) -> list:
+        request = self.context.get("request")
+        profile = get_request_profile(request) if request else None
+        if profile is None or profile.role not in ("manager", "staff"):
+            return []
+        return [{
+            "id": item.pk, "reason": item.reason,
+            "before": item.before, "after": item.after,
+            "corrected_by_name": self._operator_name(item.corrected_by),
+            "created_at": item.created_at.isoformat(),
+        } for item in obj.accounting_corrections.select_related("corrected_by").all()]
 
     @staticmethod
     def _operator_name(user) -> str:
@@ -1884,13 +1910,17 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
     nomination_fee = serializers.PrimaryKeyRelatedField(
         queryset=NominationFee.objects.all(), required=False, allow_null=True,
     )
+    discount = serializers.PrimaryKeyRelatedField(queryset=Discount.objects.all(), required=False, allow_null=True)
+    extension = serializers.PrimaryKeyRelatedField(queryset=Extension.objects.all(), required=False, allow_null=True)
+    extension_duration = serializers.IntegerField(required=False, min_value=0, max_value=MAX_EXTENSION_DURATION_MINUTES)
+    extension_price = serializers.IntegerField(required=False, min_value=0)
 
     class Meta:
         model = Order
         fields = [
             "cast", "course", "start", "end", "service_recipient_name",
             "memo", "options", "nomination_fee", "payment_method", "card_include_options",
-            "timeline_status", "expected_updated_at",
+            "timeline_status", "expected_updated_at", "discount", "extension", "extension_duration", "extension_price",
             "business_date", "start_time_extended", "end_time_extended",
         ]
 
@@ -1908,10 +1938,34 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         instance = self.instance
+        if instance.status == Order.Status.CANCELLED or (
+            instance.status == Order.Status.DONE and not self.context.get("allow_completed_addons")
+        ):
+            raise serializers.ValidationError("会計完了またはキャンセル済みの予約は変更できません。")
         apply_order_extended_datetime(data, instance.store)
         cast = data.get("cast", instance.cast)
         start = data.get("start", instance.start)
         end = data.get("end", instance.end)
+
+        for field in ("discount", "extension"):
+            value = data.get(field)
+            if value is not None and (value.store_id != instance.store_id or not value.is_active):
+                raise serializers.ValidationError({field: "この店舗の有効な項目を選択してください"})
+        extension = data.get("extension", instance.extension)
+        if "extension" in data:
+            data.setdefault("extension_duration", extension.duration if extension else 0)
+            data.setdefault("extension_price", extension.price if extension else 0)
+        duration = data.get("extension_duration", instance.extension_duration)
+        price = data.get("extension_price", instance.extension_price)
+        validate_extension_duration_value(duration)
+        if extension is not None and duration == 0:
+            raise serializers.ValidationError({"extension_duration": "延長時間は1分以上にしてください"})
+        if duration == 0 and price:
+            raise serializers.ValidationError({"extension_price": "延長時間が0分の場合、料金は0円にしてください"})
+        course = data.get("course", instance.course)
+        if course.pk != instance.course_id or duration != instance.extension_duration:
+            end = start + timedelta(minutes=course.duration + duration)
+            data["end"] = end
 
         for business_date in {
             business_date_for_datetime(instance.start, instance.store.timezone),
@@ -1955,7 +2009,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
         # course changed → recalc end if not explicitly set
         if "course" in data and "end" not in data:
-            end = start + timedelta(minutes=data["course"].duration)
+            end = start + timedelta(minutes=data["course"].duration + duration)
             data["end"] = end
 
         if end <= start:
@@ -1968,6 +2022,10 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
             # ShiftAssignment → room auto-assign
             assignment = find_covering_shift(store, cast, start, end)
             if assignment is None:
+                if (instance.room_id is not None and cast.pk == instance.cast_id
+                        and start == instance.start
+                        and (course.pk != instance.course_id or duration != instance.extension_duration)):
+                    raise serializers.ValidationError("変更後の終了時刻がキャストのシフトを超えます")
                 profile = get_request_profile(request) if request else None
                 if profile is None or profile.role not in (
                     UserProfile.Role.MANAGER,
@@ -2012,7 +2070,9 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
                 instance, validated_data.pop("expected_updated_at", None),
                 required="options" in validated_data,
             )
-            if instance.status in (Order.Status.DONE, Order.Status.CANCELLED):
+            if instance.status == Order.Status.CANCELLED or (
+                instance.status == Order.Status.DONE and not self.context.get("allow_completed_addons")
+            ):
                 raise serializers.ValidationError("会計完了またはキャンセル済みの予約は変更できません。")
             target_start = validated_data.get("start", instance.start)
             for business_date in {
@@ -2061,6 +2121,18 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
     def _update_unlocked(self, instance, validated_data):
         option_objs = validated_data.pop("options", None)
+
+        if "discount" in validated_data:
+            discount = validated_data["discount"]
+            validated_data["discount_name"] = discount.name if discount else ""
+            validated_data["discount_type_snapshot"] = discount.discount_type if discount else ""
+            validated_data["discount_value_snapshot"] = discount.value if discount else 0
+        if any(field in validated_data for field in ("extension", "extension_duration", "extension_price")):
+            extension = validated_data.get("extension", instance.extension)
+            duration = validated_data.get("extension_duration", instance.extension_duration)
+            validated_data["extension_name"] = (
+                extension.name if extension and extension.duration == duration else f"{duration}分延長"
+            ) if duration else ""
 
         if "nomination_fee" in validated_data:
             nomination_fee = validated_data["nomination_fee"]

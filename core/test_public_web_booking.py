@@ -89,6 +89,7 @@ class PublicWebBookingTest(TestCase):
             "start": datetime(2030, 1, 15, 12, 30, tzinfo=TOKYO).isoformat(),
             "options": [self.option.id],
             "memo": "Web予約テスト",
+            "payment_method": "CASH",
         }
         data.update(overrides)
         return data
