@@ -20,6 +20,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, ProtectedError, Q, Sum
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.html import escape
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -53,7 +54,7 @@ from .models import (
     CustomerMergeLog, DailySettlement, DailySettlementAuditEvent, Discount, Extension, Medium,
     LineNotificationLog, NominationFee, OperatorNotification,
     OperatorNotificationReadReceipt, Option, Order, OrderOption, PointLog,
-    OrderServiceRecipientLinkLog,
+    OrderServiceRecipientLinkLog, OrderAccountingCorrection,
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
     SipProvisioningLink, SipReceptionDevice, SmsTemplate, Store, StorePhoneNumber,
     StoreSlugAlias, SystemAnnouncement, SystemAnnouncementReadReceipt, UserProfile,
@@ -698,6 +699,76 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         return None
+
+    @extend_schema(request=OpenApiTypes.OBJECT, responses=OrderSerializer)
+    @action(detail=True, methods=["post"], url_path="correct-accounting")
+    def correct_accounting(self, request, pk=None):
+        """完了状態と売上計上を維持し、日締め前の延長・割引だけを訂正する。"""
+        order = self.get_object()
+        allowed = {"extension", "extension_duration", "extension_price", "discount"}
+        if set(request.data) - allowed - {"reason", "expected_updated_at"}:
+            raise ValidationError("訂正できるのは延長と割引だけです。")
+        reason = request.data.get("reason")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+            raise ValidationError("訂正理由を500文字以内で入力してください。")
+        from django.utils.dateparse import parse_datetime
+        try:
+            expected = parse_datetime(str(request.data.get("expected_updated_at") or ""))
+        except ValueError:
+            expected = None
+        if expected is None:
+            raise ValidationError("予約を読み直してから訂正してください。")
+        fields = (
+            "extension_id", "extension_name", "extension_duration", "extension_price",
+            "discount_id", "discount_name", "discount_type_snapshot", "discount_value_snapshot",
+            "discount_amount", "total_price",
+        )
+        def snapshot(item):
+            return {**{field: getattr(item, field) for field in fields}, "end": item.end.isoformat()}
+
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(order)
+            if order.status != Order.Status.DONE:
+                raise ValidationError("完了済みの予約だけを訂正できます。")
+            if order.updated_at != expected:
+                return Response({"detail": "ほかの操作で予約が更新されています。読み直してから訂正してください。"}, status=409)
+            date = business_date_for_datetime(order.start, order.store.timezone)
+            checkout = CastDailyCheckout.objects.select_for_update().filter(store=order.store, cast=order.cast, date=date).first()
+            if checkout:
+                live_total = get_done_orders_for_business_range(order.store, date, date).filter(cast=order.cast).aggregate(value=Sum("total_price"))["value"] or 0
+                if checkout.total_sales != live_total:
+                    raise ValidationError("退勤提出と現在の売上が一致しません。先に退勤内容を確認してください。")
+            before = snapshot(order)
+            from .services.sales import payment_financial_summary
+            old_financial = payment_financial_summary(order.store, [order])
+            serializer = OrderUpdateSerializer(
+                order, data={key: request.data[key] for key in allowed if key in request.data}, partial=True,
+                context={**self.get_serializer_context(), "allow_completed_addons": True},
+            )
+            serializer.is_valid(raise_exception=True)
+            order = serializer.save(updated_by=request.user)
+            after = snapshot(order)
+            if before == after:
+                raise ValidationError("変更する延長または割引を入力してください。")
+            if checkout:
+                # 報酬の算定基礎（コース・オプション・指名）は今回変更しない。
+                # 受渡済み現金・雑費・報酬スナップショットを維持して決済額の差だけを反映する。
+                new_financial = payment_financial_summary(order.store, [order])
+                for field in old_financial:
+                    value = getattr(checkout, field) + new_financial[field] - old_financial[field]
+                    if field != "net_sales_after_payment_fee" and value < 0:
+                        raise ValidationError("退勤提出の売上と予約が一致しません。店舗管理者へ確認してください。")
+                    setattr(checkout, field, value)
+                if checkout.status != CastDailyCheckout.Status.RETURNED:
+                    checkout.status = CastDailyCheckout.Status.SUBMITTED
+                checkout.reviewed_at = None
+                checkout.reviewed_by = None
+                checkout.save(update_fields=[*old_financial, "status", "reviewed_at", "reviewed_by", "updated_at"])
+            OrderAccountingCorrection.objects.create(
+                order=order, checkout=checkout, reason=reason.strip(),
+                before=before, after=after, corrected_by=request.user,
+            )
+        return Response(OrderSerializer(order, context=self.get_serializer_context()).data)
 
     # --- status actions ---
 
@@ -1854,6 +1925,7 @@ class CastTodaySalesView(APIView):
 
 
 @document_object_api_view
+@method_decorator(transaction.atomic, name="dispatch")
 class CastCheckoutView(APIView):
     """
     GET /api/cast/checkout/ — 本日の見込み・固定雑費テンプレ・既存提出内容を返す
@@ -1910,7 +1982,8 @@ class CastCheckoutView(APIView):
             )
 
         today = business_date_for_datetime(timezone.now(), cast.store.timezone)
-        existing = CastDailyCheckout.objects.filter(cast=cast, date=today).first()
+        Store.objects.select_for_update().get(pk=cast.store_id)
+        existing = CastDailyCheckout.objects.select_for_update().filter(cast=cast, date=today).first()
         if existing is not None and existing.status != CastDailyCheckout.Status.RETURNED:
             return Response(
                 {"detail": "本日はすでに退勤提出済みです"},
@@ -3775,6 +3848,7 @@ class CastExpenseTemplateHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 # CastDailyCheckout — manager only（退勤提出の閲覧/確認, Phase 3-A）
 # ──────────────────────────────────────
 
+@method_decorator(transaction.atomic, name="dispatch")
 class CastCheckoutViewSet(viewsets.ModelViewSet):
     """退勤提出一覧/詳細の閲覧 + manager_memo編集 + 確認/差戻し/未確認に戻す — manager のみ。
     提出自体はキャスト側 CastCheckoutView からのみ行う（create/delete はここでは提供しない）。"""
@@ -3796,6 +3870,8 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         self.check_manager(self.request)
         store = get_user_store(self.request)
+        if self.request.method not in ("GET", "HEAD", "OPTIONS"):
+            Store.objects.select_for_update().get(pk=store.pk)
         return super().get_queryset().filter(store=store)
 
     def check_manager(self, request):

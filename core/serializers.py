@@ -41,6 +41,7 @@ from .models import (
     Option,
     Order,
     OrderOption,
+    OrderAccountingCorrection,
     Room,
     ShiftAssignment,
     ShiftConfirmNotificationLog,
@@ -1397,6 +1398,8 @@ def build_customer_label(customer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    can_correct_accounting = serializers.SerializerMethodField()
+    accounting_corrections = serializers.SerializerMethodField()
     business_date = serializers.SerializerMethodField()
     start_time_extended = serializers.SerializerMethodField()
     end_time_extended = serializers.SerializerMethodField()
@@ -1446,11 +1449,34 @@ class OrderSerializer(serializers.ModelSerializer):
             "customer_reservation_state", "guest_first_opened_at",
             "guest_last_seen_state", "guest_open_count",
             "created_at", "updated_at",
+            "can_correct_accounting", "accounting_corrections",
         ]
 
         read_only_fields = [
             "created_by", "updated_by", "cancelled_by",
         ]
+
+    def get_can_correct_accounting(self, obj) -> bool:
+        request = self.context.get("request")
+        profile = get_request_profile(request) if request else None
+        if profile is None or profile.role not in ("manager", "staff"):
+            return False
+        return obj.status == Order.Status.DONE and self.get_can_modify(obj) and not is_daily_settlement_locked(
+            obj.store, business_date_for_datetime(obj.start, obj.store.timezone),
+        )
+
+    @extend_schema_field({"type": "array", "items": {"type": "object", "additionalProperties": True}})
+    def get_accounting_corrections(self, obj) -> list:
+        request = self.context.get("request")
+        profile = get_request_profile(request) if request else None
+        if profile is None or profile.role not in ("manager", "staff"):
+            return []
+        return [{
+            "id": item.pk, "reason": item.reason,
+            "before": item.before, "after": item.after,
+            "corrected_by_name": self._operator_name(item.corrected_by),
+            "created_at": item.created_at.isoformat(),
+        } for item in obj.accounting_corrections.select_related("corrected_by").all()]
 
     @staticmethod
     def _operator_name(user) -> str:
@@ -1910,7 +1936,9 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         instance = self.instance
-        if instance.status in (Order.Status.DONE, Order.Status.CANCELLED):
+        if instance.status == Order.Status.CANCELLED or (
+            instance.status == Order.Status.DONE and not self.context.get("allow_completed_addons")
+        ):
             raise serializers.ValidationError("会計完了またはキャンセル済みの予約は変更できません。")
         apply_order_extended_datetime(data, instance.store)
         cast = data.get("cast", instance.cast)
@@ -2035,7 +2063,9 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             store = Store.objects.select_for_update().get(pk=instance.store_id)
             instance = Order.objects.select_for_update().get(pk=instance.pk, store=store)
-            if instance.status in (Order.Status.DONE, Order.Status.CANCELLED):
+            if instance.status == Order.Status.CANCELLED or (
+                instance.status == Order.Status.DONE and not self.context.get("allow_completed_addons")
+            ):
                 raise serializers.ValidationError("会計完了またはキャンセル済みの予約は変更できません。")
             target_start = validated_data.get("start", instance.start)
             for business_date in {
