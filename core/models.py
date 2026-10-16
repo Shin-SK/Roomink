@@ -1578,6 +1578,21 @@ class CustomerMergeLog(models.Model):
         return f"Merge#{self.pk} keep={self.keep_customer_id} merged={self.merged_customer_id}"
 
 
+class OrderEditLog(models.Model):
+    """Option/payment edits; written in the same transaction as the reservation."""
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="order_edit_logs")
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="edit_logs")
+    acted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    source = models.CharField(max_length=20)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+
 class OrderServiceRecipientLinkLog(models.Model):
     """予約と実利用者顧客の手動紐付け監査ログ。"""
 

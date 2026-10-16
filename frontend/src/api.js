@@ -434,7 +434,7 @@ export const api = {
   ),
   getCastTodaySales: () => request('GET', '/cast/today-sales/'),
   ackOrder: (id) => request('POST', `/cast/orders/${id}/ack/`),
-  updateCastOrderOptions: (id, optionIds) => request('POST', `/cast/orders/${id}/options/`, { option_ids: optionIds }),
+  updateCastOrderOptions: (id, optionIds, updatedAt) => request('POST', `/cast/orders/${id}/options/`, { option_ids: optionIds, expected_updated_at: updatedAt }),
   startCastOrder: (id) => request('POST', `/cast/orders/${id}/start/`, {}),
   completeCastOrder: (id) => request('POST', `/cast/orders/${id}/complete/`, {}),
   getCastLineLink: () => request('GET', '/cast/line-link/'),

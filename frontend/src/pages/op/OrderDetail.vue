@@ -15,6 +15,8 @@ const order = ref(null)
 const loading = ref(true)
 const error = ref('')
 const acting = ref(false)
+const paymentMethodSaving = ref(false)
+const paymentMethodError = ref('')
 const mode = ref('confirm') // 'confirm' | 'edit'
 const isManager = computed(() => getAuthRole() === 'manager')
 
@@ -411,11 +413,31 @@ async function doApplyDiscount() {
   }
 }
 
-async function updatePaymentMethod(value) {
+async function updatePaymentMethod(event) {
+  const value = event.target.value
+  paymentMethodSaving.value = true
+  paymentMethodError.value = ''
   try {
-    order.value = await api.updateOrder(props.id, { payment_method: value })
+    order.value = await api.updateOrder(props.id, { payment_method: value, expected_updated_at: order.value.updated_at })
   } catch (e) {
-    alert(e.message)
+    event.target.value = order.value.payment_method || 'UNSET'
+    paymentMethodError.value = e.status === 409
+      ? '予約が更新されています。最新の予約を確認してから、支払い方法を変更してください。'
+      : e.message
+  } finally {
+    paymentMethodSaving.value = false
+  }
+}
+
+async function reloadPaymentOrder() {
+  paymentMethodSaving.value = true
+  try {
+    order.value = await api.getOrder(props.id)
+    paymentMethodError.value = ''
+  } catch (e) {
+    paymentMethodError.value = e.message
+  } finally {
+    paymentMethodSaving.value = false
   }
 }
 
@@ -576,14 +598,18 @@ async function saveRecipientCustomerLink() {
                         :value="order.payment_method || 'UNSET'"
                         class="form-select form-select-sm d-inline-block"
                         style="width: auto;"
-                        :disabled="!canModify"
-                        @change="updatePaymentMethod($event.target.value)"
+                        :disabled="!canModify || paymentMethodSaving"
+                        @change="updatePaymentMethod"
                       >
                         <option value="UNSET">未設定</option>
                         <option value="CARD">カード</option>
                         <option value="CASH">現金</option>
                         <option value="PAYPAY">PayPay</option>
                       </select>
+                      <div v-if="paymentMethodError" class="alert alert-warning mt-2 mb-0 small" role="alert">
+                        {{ paymentMethodError }}
+                        <button type="button" class="btn btn-outline-secondary btn-sm d-block mt-2" :disabled="paymentMethodSaving" @click="reloadPaymentOrder">最新の予約を確認</button>
+                      </div>
                     </td>
                   </tr>
                   <tr v-if="isCardPayment && order.options_price > 0">

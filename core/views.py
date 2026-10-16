@@ -132,6 +132,7 @@ from .services.cast_user import (
 from .services.customer_context import resolve_customer
 from .services.operator_notifications import send_public_booking_test_email
 from .services.pricing import recalculate_order_total
+from .services.order_editing import require_current_order, order_edit_snapshot, record_order_edit
 from .services.sales import (
     get_sales_summary, get_sales_csv,
     get_sales_dashboard, get_sales_dashboard_csv,
@@ -1189,6 +1190,7 @@ def _serialize_cast_today_order(order, cast, business_date, *, is_unconfirmed):
         "course_name": order.course_name,
         "course_price": order.course_price,
         "option_ids": [row["id"] for row in option_rows],
+        "updated_at": order.updated_at,
         "options": option_rows,
         "options_price": order.options_price,
         "nomination_fee_name": order.nomination_fee_name,
@@ -2149,6 +2151,8 @@ class CastOrderOptionsView(APIView):
                     {"detail": "カード決済確認済みのため、店舗へオプション変更を依頼してください"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            require_current_order(order, request.data.get("expected_updated_at"), required=True)
+            before = order_edit_snapshot(order)
             OrderOption.objects.filter(order=order).delete()
             for option in options:
                 OrderOption.objects.create(order=order, option=option)
@@ -2156,6 +2160,8 @@ class CastOrderOptionsView(APIView):
             order.updated_by = request.user
             order.save(update_fields=["options_price", "updated_by", "updated_at"])
             recalculate_order_total(order)
+
+            record_order_edit(order, before, request.user, "cast")
 
         order.refresh_from_db()
         return _cast_order_response(order, cast)
