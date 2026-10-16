@@ -22,6 +22,7 @@ const stores = ref([])
 const casts = ref([])
 const courses = ref([])
 const options = ref([])
+const nominationFees = ref([])
 const slots = ref([])
 const selectedSlotStartAt = ref('')
 const castSearch = ref('')
@@ -51,6 +52,8 @@ const form = ref({
   time: '',
   options: [],
   memo: '',
+  nomination_fee: null,
+  payment_method: '',
 })
 
 const bookingDates = computed(() => Array.from({ length: 14 }, (_, index) => {
@@ -67,6 +70,7 @@ const bookingDates = computed(() => Array.from({ length: 14 }, (_, index) => {
 const selectedStore = computed(() => stores.value.find(item => item.store_id === Number(form.value.store)))
 const selectedCast = computed(() => casts.value.find(item => item.id === Number(form.value.cast)))
 const selectedCourse = computed(() => courses.value.find(item => item.id === Number(form.value.course)))
+const selectedNominationFee = computed(() => nominationFees.value.find(item => item.id === Number(form.value.nomination_fee)))
 const eligibleCourses = computed(() => courses.value.filter(item => (
   !item.target_cast_ids?.length || item.target_cast_ids.includes(Number(form.value.cast))
 )))
@@ -98,7 +102,7 @@ const totalPrice = computed(() => {
   for (const optionId of form.value.options) {
     total += options.value.find(item => item.id === optionId)?.price || 0
   }
-  return total
+  return total + (selectedNominationFee.value?.price || 0)
 })
 
 function formatYen(value) {
@@ -142,6 +146,8 @@ async function loadOptions() {
     casts.value = data.casts || []
     courses.value = data.courses || []
     options.value = data.options || []
+    nominationFees.value = data.nomination_fees || []
+    form.value.nomination_fee = (nominationFees.value.find(item => item.name.includes('写真')) || nominationFees.value[0])?.id ?? null
     form.value.cast = ''
     form.value.course = ''
     form.value.options = []
@@ -206,6 +212,8 @@ onMounted(async () => {
 })
 
 function validateBookingForm() {
+  if (!['CASH', 'CARD'].includes(form.value.payment_method)) return '支払い方法を選択してください。'
+  if (nominationFees.value.length && !selectedNominationFee.value) return '指名区分を選択してください。'
   if (!form.value.store || !form.value.display_name.trim() || !normalizePhone(form.value.phone)) {
     return '店舗、お名前、電話番号を入力してください。'
   }
@@ -473,7 +481,7 @@ async function confirmBooking() {
         <section class="booking-card">
           <div class="section-heading">
             <span>{{ options.length ? 5 : 4 }}</span>
-            <div><h2>お客様情報・確認</h2><p>SMS認証後、その場で予約が確定します</p></div>
+            <div><h2>お客様情報・確認</h2><p>SMS認証後に予約を受け付けます。カードは店舗の入金確認後に本予約となります。</p></div>
           </div>
 
           <div class="row g-3 mb-3">
@@ -494,6 +502,21 @@ async function confirmBooking() {
               >
             </div>
           </div>
+          <div v-if="nominationFees.length" class="mb-3">
+            <label class="form-label" for="public-nomination">指名区分</label>
+            <select id="public-nomination" v-model="form.nomination_fee" class="form-select" required>
+              <option v-for="fee in nominationFees" :key="fee.id" :value="fee.id">{{ fee.name }}（+{{ formatYen(fee.price) }}）</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="public-payment">支払い方法 <span class="required">必須</span></label>
+            <select id="public-payment" v-model="form.payment_method" class="form-select" required>
+              <option value="" disabled>選択してください</option>
+              <option value="CASH">現金</option>
+              <option value="CARD">カード</option>
+            </select>
+            <div v-if="form.payment_method === 'CARD'" class="form-text">カード上乗せ分と決済方法は、予約後の案内ページでご確認ください。オプション代は現金でのお支払いです。</div>
+          </div>
           <label class="form-label">ご要望（任意）</label>
           <textarea v-model="form.memo" class="form-control mb-3" rows="3" maxlength="1000" placeholder="ご要望があれば入力してください"></textarea>
 
@@ -502,11 +525,13 @@ async function confirmBooking() {
             <div><span>担当</span><strong>{{ selectedCast?.name || '-' }}</strong></div>
             <div><span>日時</span><strong>{{ form.date }} {{ form.time || '-' }}</strong></div>
             <div><span>コース</span><strong>{{ selectedCourse?.name || '-' }}</strong></div>
+            <div v-if="selectedNominationFee"><span>{{ selectedNominationFee.name }}</span><strong>{{ formatYen(selectedNominationFee.price) }}</strong></div>
+            <div><span>支払い方法</span><strong>{{ form.payment_method === 'CARD' ? 'カード' : form.payment_method === 'CASH' ? '現金' : '未選択' }}</strong></div>
             <div class="summary__total"><span>合計</span><strong>{{ formatYen(totalPrice) }}</strong></div>
           </div>
           <p class="confirmation-note">
             <i class="ti ti-lock"></i>
-            認証コード入力後に空き状況を再確認し、予約を確定します。
+            認証コード入力後に空き状況を再確認します。カードは仮予約となり、店舗の入金確認後に確定します。
           </p>
           <button type="submit" class="submit-button" :disabled="submitting">
             <span v-if="submitting" class="spinner-border spinner-border-sm me-2"></span>
@@ -534,7 +559,7 @@ async function confirmBooking() {
           >
           <button type="submit" class="submit-button mt-3" :disabled="submitting">
             <span v-if="submitting" class="spinner-border spinner-border-sm me-2"></span>
-            予約を確定する
+            {{ form.payment_method === 'CARD' ? '仮予約を申し込む' : '予約を確定する' }}
           </button>
           <button type="button" class="btn btn-link w-100 mt-2" :disabled="submitting" @click="step = 'booking'">
             予約内容を変更する

@@ -1,6 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { reservationDateTime } from '../src/reservationTime.js'
+import { reservationDateTime, courseEndTime } from '../src/reservationTime.js'
+
+test('course changes include extensions and preserve extended hours across midnight', () => {
+  assert.equal(courseEndTime('14:40', 120), '16:40')
+  assert.equal(courseEndTime('14:40', 70, 30), '16:20')
+  assert.equal(courseEndTime('23:30', 90, 30), '25:30')
+  assert.equal(courseEndTime('28:00', 60), '29:00')
+  assert.equal(reservationDateTime('2026-10-16', courseEndTime('28:30', 60)), null)
+  assert.equal(courseEndTime('12:99', 60), null)
+})
 
 test('24+ input previews the next calendar day across month/year and leap day', () => {
   for (const [date, time, actual] of [

@@ -35,17 +35,6 @@ const recipientCandidates = computed(() => {
   return items.slice(0, 100)
 })
 
-// Addon
-const addonError = ref('')
-const addonActing = ref(false)
-const extensions = ref([])
-const nominationFees = ref([])
-const discounts = ref([])
-const selectedExtension = ref(null)
-const extensionDuration = ref(0)
-const extensionPrice = ref(0)
-const selectedNominationFee = ref(null)
-const selectedDiscount = ref(null)
 const paymentFeeRates = ref({ card_fee_rate: 10, paypay_fee_rate: 5 })
 
 // SMS送信履歴（表示のみ。再送信は行わない）
@@ -185,22 +174,11 @@ const canOperateCardPayment = computed(() => (
 
 onMounted(async () => {
   try {
-    const [o, exts, nfs, dcs, feeData] = await Promise.all([
+    const [o, feeData] = await Promise.all([
       api.getOrder(props.id),
-      api.getExtensions(),
-      api.getNominationFees(),
-      api.getDiscounts(),
       api.getPaymentFeeSettings().catch(() => paymentFeeRates.value),
     ])
     order.value = o
-    extensions.value = Array.isArray(exts) ? exts : []
-    nominationFees.value = Array.isArray(nfs) ? nfs : []
-    discounts.value = Array.isArray(dcs) ? dcs.filter(d => d.is_active) : []
-    selectedExtension.value = o.extension ?? null
-    extensionDuration.value = o.extension_duration || 0
-    extensionPrice.value = o.extension_price || 0
-    selectedNominationFee.value = o.nomination_fee ?? null
-    selectedDiscount.value = o.discount ?? null
     paymentFeeRates.value = {
       card_fee_rate: Number(feeData?.card_fee_rate ?? 10),
       paypay_fee_rate: Number(feeData?.paypay_fee_rate ?? 5),
@@ -355,61 +333,6 @@ function formatTime(dt) {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
-async function doApplyExtension() {
-  addonError.value = ''
-  addonActing.value = true
-  try {
-    order.value = await api.applyExtension(props.id, {
-      extension_id: selectedExtension.value || null,
-      extension_duration: Number(extensionDuration.value) || 0,
-      extension_price: Number(extensionPrice.value) || 0,
-    })
-  } catch (e) {
-    addonError.value = e.message
-  } finally {
-    addonActing.value = false
-  }
-}
-
-function selectExtensionTemplate() {
-  const template = extensions.value.find(e => e.id === Number(selectedExtension.value))
-  if (template) {
-    extensionDuration.value = template.duration
-    extensionPrice.value = template.price
-  }
-}
-
-function setExtensionDuration(minutes) {
-  extensionDuration.value = minutes
-  if (minutes === 0) {
-    selectedExtension.value = null
-    extensionPrice.value = 0
-  }
-}
-
-async function doApplyNominationFee() {
-  addonError.value = ''
-  addonActing.value = true
-  try {
-    order.value = await api.applyNominationFee(props.id, selectedNominationFee.value)
-  } catch (e) {
-    addonError.value = e.message
-  } finally {
-    addonActing.value = false
-  }
-}
-
-async function doApplyDiscount() {
-  addonError.value = ''
-  addonActing.value = true
-  try {
-    order.value = await api.applyDiscount(props.id, selectedDiscount.value)
-  } catch (e) {
-    addonError.value = e.message
-  } finally {
-    addonActing.value = false
-  }
-}
 
 async function updatePaymentMethod(value) {
   try {
@@ -880,6 +803,9 @@ async function saveRecipientCustomerLink() {
           </div>
 
           <!-- 基本情報編集（共通 OrderForm 雛形を利用） -->
+          <div v-if="order.status === 'PENDING_FINALIZE'" class="alert alert-info">
+            施術終了後も、会計確定前なら延長・指名・割引を訂正できます。保存後に金額を確認して会計確定してください。
+          </div>
           <div class="card mb-4">
             <div class="card-body">
               <OrderForm
@@ -893,77 +819,6 @@ async function saveRecipientCustomerLink() {
             </div>
           </div>
 
-          <!-- addon 適用 -->
-          <div class="card order-addons">
-            <div class="card-header">
-              <i class="ti ti-adjustments"></i> 延長・指名・割引の変更
-            </div>
-            <div class="card-body">
-              <div v-if="addonError" class="alert alert-danger py-2 px-3 mb-3" style="font-size:0.875rem;">{{ addonError }}</div>
-
-              <div class="mb-3">
-                <label class="form-label small fw-bold">延長</label>
-                <div class="d-flex gap-2">
-                  <select v-model="selectedExtension" class="form-select form-select-sm" @change="selectExtensionTemplate">
-                    <option :value="null">なし</option>
-                    <option v-for="e in extensions" :key="e.id" :value="e.id">
-                      {{ e.name }}（{{ e.duration }}分 / {{ e.price.toLocaleString() }}円）
-                    </option>
-                  </select>
-                  <button class="btn btn-outline-primary btn-sm flex-shrink-0 text-nowrap" :disabled="addonActing" @click="doApplyExtension">適用</button>
-                </div>
-                <div class="form-text">候補を選んだ後でも、時間と料金を変更できます。</div>
-                <div class="d-flex flex-wrap gap-2 mt-2">
-                  <button
-                    v-for="minutes in [0, 15, 30, 60]"
-                    :key="minutes"
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary"
-                    @click="setExtensionDuration(minutes)"
-                  >
-                    {{ minutes === 0 ? '延長なし' : `${minutes}分` }}
-                  </button>
-                </div>
-                <div class="row g-2 mt-1">
-                  <div class="col-sm-6">
-                    <label class="form-label small">延長時間（分）</label>
-                    <input v-model.number="extensionDuration" type="number" min="0" max="180" step="5" class="form-control form-control-sm">
-                  </div>
-                  <div class="col-sm-6">
-                    <label class="form-label small">延長料金（円）</label>
-                    <input v-model.number="extensionPrice" type="number" min="0" step="100" class="form-control form-control-sm">
-                  </div>
-                </div>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label small fw-bold">指名料</label>
-                <div class="d-flex gap-2">
-                  <select v-model="selectedNominationFee" class="form-select form-select-sm">
-                    <option :value="null">なし</option>
-                    <option v-for="n in nominationFees" :key="n.id" :value="n.id">
-                      {{ n.name }}（{{ n.price.toLocaleString() }}円）
-                    </option>
-                  </select>
-                  <button class="btn btn-outline-primary btn-sm flex-shrink-0 text-nowrap" :disabled="addonActing" @click="doApplyNominationFee">適用</button>
-                </div>
-              </div>
-
-              <div id="order-discount" class="mb-0" style="scroll-margin-top: 100px;">
-                <label class="form-label small fw-bold">割引の変更</label>
-                <div class="d-flex gap-2">
-                  <select v-model="selectedDiscount" class="form-select form-select-sm">
-                    <option :value="null">なし</option>
-                    <option v-for="d in discounts" :key="d.id" :value="d.id">
-                      {{ d.name }}（{{ d.discount_type === 'percent' ? d.value + '%' : d.value.toLocaleString() + '円' }}引き）
-                    </option>
-                  </select>
-                  <button class="btn btn-outline-primary btn-sm flex-shrink-0 text-nowrap" :disabled="addonActing" @click="doApplyDiscount">適用</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
         </template>
 
       </main>
@@ -972,9 +827,6 @@ async function saveRecipientCustomerLink() {
 </template>
 
 <style scoped>
-.order-addons {
-  margin-bottom: 8rem;
-}
 .timeline-display-card {
   border-color: #cbd5e1;
   background: #f8fafc;
