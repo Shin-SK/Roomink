@@ -1,8 +1,11 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 
 const props = defineProps({ cards: { type: Array, default: () => [] } })
 const failedAvatars = ref(new Set())
+const selectedId = ref(null)
+const selected = computed(() => props.cards.find(card => card.id === selectedId.value))
+const detailId = useId()
 const lateCount = computed(() => props.cards.filter(card => card.late).length)
 const shortStatus = card => card.label.includes('未出勤') ? '未出勤' : '未確認'
 function avatarFailed(url) {
@@ -16,8 +19,13 @@ function avatarFailed(url) {
       <div class="attendance__title"><i class="ti ti-users" aria-hidden="true"></i><h2>出勤の確認</h2><span>{{ cards.length }}名</span></div>
       <div class="attendance__legend"><span v-if="lateCount" class="attendance__late-count">開始超過 {{ lateCount }}</span><span v-if="cards.length > lateCount">開始前 {{ cards.length - lateCount }}</span></div>
     </header>
+    <div v-if="selected" :id="detailId" class="attendance__detail" aria-live="polite">
+      <span><strong>{{ selected.name }}</strong> · {{ selected.time }}開始 · {{ selected.room }} · {{ selected.label }}</span>
+      <button type="button" aria-label="セラピストの詳細を閉じる" @click="selectedId = null"><i class="ti ti-x" aria-hidden="true"></i></button>
+    </div>
     <ul class="attendance__grid">
       <li v-for="card in cards" :key="card.id" class="attendance__person" :class="{ 'is-late': card.late }" :aria-label="`${card.name} ${card.time} ${card.room} ${card.label}`">
+        <button type="button" class="attendance__card" :aria-expanded="selectedId === card.id" :aria-controls="detailId" :title="`${card.room} · ${card.label}`" @click="selectedId = selectedId === card.id ? null : card.id">
         <div class="attendance__avatar" aria-hidden="true">
           <img v-if="card.avatar && !failedAvatars.has(card.avatar)" :src="card.avatar" alt="" loading="lazy" @error="avatarFailed(card.avatar)">
           <i v-else class="ti ti-user"></i>
@@ -25,8 +33,8 @@ function avatarFailed(url) {
         <div class="attendance__body">
           <strong>{{ card.name }}</strong>
           <div class="attendance__meta"><time>{{ card.time }}</time><span>{{ shortStatus(card) }}</span></div>
-          <span class="attendance__room" :title="card.room">{{ card.room }}</span>
         </div>
+        </button>
       </li>
     </ul>
   </section>
@@ -42,19 +50,24 @@ function avatarFailed(url) {
 .attendance__legend { gap: 12px; color: #946617; font-size: .7rem; }
 .attendance__late-count { color: #b03b4d; }
 .attendance__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 7px; list-style: none; margin: 0; padding: 0; }
-.attendance__person { display: flex; align-items: center; gap: 9px; padding: 9px 10px; min-width: 0; border-radius: 7px; background: #fff6df; color: #825b12; }
+.attendance__person { min-width: 0; border-radius: 7px; background: #fff6df; color: #825b12; }
 .attendance__person.is-late { background: #fff0f0; color: #a73548; }
-.attendance__avatar { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 50%; background: #f0deb9; display: grid; place-items: center; overflow: hidden; font-size: 21px; }
+.attendance__card { display: flex; align-items: center; gap: 9px; padding: 8px 10px; width: 100%; height: 100%; border: 0; border-radius: inherit; background: transparent; color: inherit; text-align: left; }
+.attendance__card:hover { background: rgb(110 80 25 / 5%); }
+.attendance__card[aria-expanded="true"] { box-shadow: inset 0 0 0 1px currentColor; }
+.attendance__avatar { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; background: #f0deb9; display: grid; place-items: center; overflow: hidden; font-size: 20px; }
 .is-late .attendance__avatar { background: #f5dadd; }
 .attendance__avatar img { width: 100%; height: 100%; object-fit: cover; }
 .attendance__body { min-width: 0; flex: 1; }
 .attendance__body > strong { display: block; color: #3f3934; font-size: .79rem; line-height: 1.4; overflow-wrap: anywhere; }
 .attendance__meta { display: flex; gap: 5px; align-items: baseline; flex-wrap: wrap; margin-top: 2px; font-size: .69rem; line-height: 1.5; }
 .attendance__meta time { font-weight: 700; font-size: .75rem; font-variant-numeric: tabular-nums; }
-.attendance__room { display: block; color: #7e7468; font-size: .69rem; line-height: 1.4; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.attendance__detail { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #f5f8f6; padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; color: #536b60; font-size: .75rem; }
+.attendance__detail > span { overflow-wrap: anywhere; }
+.attendance__detail button { flex-shrink: 0; border: 0; background: transparent; color: inherit; padding: 3px 6px; }
 @media (max-width: 575px) {
   .attendance__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-  .attendance__person { gap: 7px; padding: 8px; align-items: flex-start; }
+  .attendance__card { gap: 7px; padding: 8px; }
   .attendance__avatar { width: 27px; height: 27px; flex-basis: 27px; font-size: 18px; }
   .attendance__meta > span { font-size: .69rem; }
 }
