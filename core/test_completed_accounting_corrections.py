@@ -113,6 +113,11 @@ class CompletedAccountingCorrectionTest(TestCase):
             self.assertEqual(self.correct(**body).status_code, 400)
         self.assertEqual(self.manager_client.patch(f"/api/orders/{self.order.pk}/", {"memo": "迂回"}, format="json").status_code, 400)
 
+    def test_same_local_time_does_not_create_false_correction(self):
+        response = self.correct(business_date=str(self.day), start_time_extended="18:00", end_time_extended="19:00")
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertFalse(OrderAccountingCorrection.objects.exists())
+
     def test_cast_completion_still_posts_sales_and_operator_can_correct(self):
         self.order.status = "IN_PROGRESS"
         self.order.save()

@@ -734,7 +734,8 @@ class OrderViewSet(viewsets.ModelViewSet):
             from hashlib import sha256
             return {
                 **{field: getattr(item, field) for field in fields},
-                "start": item.start.isoformat(), "end": item.end.isoformat(),
+                "start": item.start.astimezone(ZoneInfo(item.store.timezone)).isoformat(),
+                "end": item.end.astimezone(ZoneInfo(item.store.timezone)).isoformat(),
                 "option_ids": sorted(item.options.values_list("id", flat=True)),
                 "notes_digest": sha256(f"{item.memo}\0{item.service_recipient_name}".encode()).hexdigest(),
             }
