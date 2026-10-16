@@ -90,6 +90,47 @@ test('operator conflict preserves the draft while latest data is inspected; repl
   }
 })
 
+test('after conflict recovery, removing a newly added discount and extension saves against the latest baseline', async () => {
+  const noExtras = { ...initial, discount: null, extension: null, extension_duration: 0, extension_price: 0 }
+  const withExtras = { ...latest, discount: 9, extension: 8, extension_duration: 30, extension_price: 5000, end_time_extended: '13:30' }
+  const patches = []
+  const api = {
+    getCustomers: async () => [{ id: 1 }], getCasts: async () => [{ id: 1 }],
+    getCourses: async () => [{ id: 1, name: '60分', price: 20000, duration: 60 }],
+    getOptions: async () => [], getExtensions: async () => [{ id: 8, duration: 30, price: 5000, is_active: true }],
+    getNominationFees: async () => [], getMedia: async () => [],
+    getDiscounts: async () => [{ id: 9, name: '割引', discount_type: 'fixed', value: 1000, is_active: true }],
+    getPaymentFeeSettings: async () => ({}), getCustomerReservationContext: async () => ({}),
+    getOrder: async () => withExtras,
+    updateOrder: async (id, patch) => { patches.push(patch); if (patches.length === 1) throw conflict(); return { ...withExtras, ...patch } },
+  }
+  const { state, unmount } = await mountSource('../src/components/OrderForm.vue', {
+    mode: 'edit', orderId: 1, initialOrder: noExtras, apiClient: api,
+  })
+  const previousConfirm = globalThis.confirm
+  try {
+    state.form.memo = '変更'
+    await state.submitEdit()
+    assert.equal(state.editConflict, true)
+    await state.checkLatestOrder()
+    globalThis.confirm = () => true
+    state.restartWithLatestOrder()
+    assert.equal(state.form.discount, 9)
+    assert.equal(state.form.extension, 8)
+    state.form.discount = ''
+    state.selectExtensionTemplate('')
+    await nextTick()
+    await state.submitEdit()
+    assert.equal(patches.length, 2)
+    assert.equal(patches[1].expected_updated_at, withExtras.updated_at)
+    assert.equal(patches[1].discount, null)
+    assert.equal(patches[1].extension, null)
+    assert.equal(patches[1].extension_duration, 0)
+    assert.equal(patches[1].extension_price, 0)
+    assert.equal('options' in patches[1], false)
+  } finally { globalThis.confirm = previousConfirm; unmount() }
+})
+
 test('cast conflict uses the version at editor-open and keeps selected options during latest-data inspection', async () => {
   const castInitial = { ...initial, options: [{ id: 3, name: '既存' }] }
   const castLatest = { ...latest, options: [{ id: 3, name: '既存' }, { id: 4, name: '追加' }] }

@@ -592,11 +592,11 @@ async function submitEdit() {
     card_include_options: Boolean(form.value.card_include_options),
   }
   const discount = form.value.discount ? Number(form.value.discount) : null
-  if (discount !== (props.initialOrder?.discount ?? null)) body.discount = discount
+  if (discount !== (editBaseline.value?.discount ?? null)) body.discount = discount
   const extension = form.value.extension ? Number(form.value.extension) : null
-  if (extension !== (props.initialOrder?.extension ?? null)
-    || Number(form.value.extension_duration) !== (props.initialOrder?.extension_duration || 0)
-    || Number(form.value.extension_price) !== (props.initialOrder?.extension_price || 0)) {
+  if (extension !== (editBaseline.value?.extension ?? null)
+    || Number(form.value.extension_duration) !== (editBaseline.value?.extension_duration || 0)
+    || Number(form.value.extension_price) !== (editBaseline.value?.extension_price || 0)) {
     body.extension = extension
     body.extension_duration = Number(form.value.extension_duration) || 0
     body.extension_price = Number(form.value.extension_price) || 0

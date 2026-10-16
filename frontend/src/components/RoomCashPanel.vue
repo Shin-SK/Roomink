@@ -69,7 +69,7 @@ async function save(row) {
     drafts.value[row.room] = { actual_cash_amount: '', memo: '', request_id: null }
     saved.value[row.room] = `${yen(amount)}を記録しました。`
   } catch (e) {
-    if (date !== props.date) return
+    if (request !== requestNumber || date !== props.date) return
     conflicts.value[row.room] = e.status === 409
     rowErrors.value[row.room] = e.status === 409 ? '現金の情報が更新されました。入力は残しています。最新内容を確認してから、もう一度記録してください。' : e.message || '保存できませんでした。'
     if (e.status === 409) draft.request_id = null

@@ -95,6 +95,31 @@ test('changing dates clears drafts and ignores a late response for the previous 
   } finally { unmount() }
 })
 
+test('an old save failure cannot mark the current draft as conflicted after leaving and returning to its date', async () => {
+  const previousWindow = globalThis.window
+  globalThis.window = { confirm: () => true }
+  let rejectSave
+  const props = reactive({ date: '2026-10-16' })
+  const { state, unmount } = await mountPanel({
+    getRoomCashSummary: async () => ({ rooms: [baseRoom] }),
+    saveRoomCashCount: () => new Promise((resolve, reject) => { rejectSave = reject }),
+  }, props)
+  try {
+    state.drafts[1].actual_cash_amount = '26000'
+    const pending = state.save(state.rooms[0])
+    props.date = '2026-10-15'
+    await nextTick(); await nextTick()
+    props.date = '2026-10-16'
+    await nextTick(); await nextTick()
+    state.drafts[1].actual_cash_amount = '12000'
+    rejectSave(Object.assign(new Error('old conflict'), { status: 409 }))
+    await pending
+    assert.equal(state.drafts[1].actual_cash_amount, '12000')
+    assert.equal(state.conflicts[1], undefined)
+    assert.equal(state.rowErrors[1], undefined)
+  } finally { unmount(); globalThis.window = previousWindow }
+})
+
 test('network retries reuse an ID only for identical contents; past days and failed refresh cannot save', async () => {
   const previousWindow = globalThis.window
   globalThis.window = { confirm: () => true }
