@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
+import AttendanceCards from '../../components/AttendanceCards.vue'
+import { attendanceCards } from '../../attendanceCards.js'
 import TimelineGrid from '../../components/TimelineGrid.vue'
 import CustomerInfoCard from '../../components/CustomerInfoCard.vue'
 import OrderForm from '../../components/OrderForm.vue'
@@ -20,6 +22,7 @@ const unavailableTimes = ref([])
 const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 0 })
 const loading = ref(true)
 const shiftAlerts = ref([])
+const attendance = computed(() => attendanceCards(shiftAlerts.value, casts.value))
 const shiftAlertsLoading = ref(false)
 const shiftAlertsError = ref('')
 let shiftAlertsRequest = 0
@@ -728,15 +731,11 @@ onBeforeUnmount(() => {
     <section
       v-if="shiftAlerts.length || shiftAlertsError"
       class="shift-confirm-alert"
-      aria-labelledby="shift-confirm-alert-title"
+      aria-label="出勤確認の警告"
       aria-live="polite"
     >
       <div class="shift-confirm-alert__header">
-        <div class="shift-confirm-alert__heading">
-          <i class="ti ti-alert-triangle" aria-hidden="true"></i>
-          <h2 id="shift-confirm-alert-title">出勤確認がまだのセラピスト</h2>
-          <span v-if="shiftAlerts.length" class="shift-confirm-alert__count">{{ shiftAlerts.length }}件</span>
-        </div>
+        <span>開始1時間前からの未確認シフト · 1分ごとに自動更新</span>
         <button
           type="button"
           class="btn btn-sm shift-confirm-alert__refresh"
@@ -744,21 +743,8 @@ onBeforeUnmount(() => {
           @click="loadShiftAlerts"
         ><i class="ti ti-refresh me-1" aria-hidden="true"></i>{{ shiftAlertsLoading ? '更新中…' : '更新' }}</button>
       </div>
-      <p class="shift-confirm-alert__description">出勤1時間前から、未確認のシフトを表示します。1分ごとに自動更新します。</p>
       <p v-if="shiftAlertsError" class="shift-confirm-alert__error" role="alert">{{ shiftAlertsError }}<template v-if="shiftAlerts.length"> 表示中の内容は前回取得時の情報です。</template></p>
-      <ul v-if="shiftAlerts.length" class="shift-confirm-alert__list">
-        <li v-for="alert in shiftAlerts" :key="alert.shift_id" class="shift-confirm-alert__item">
-          <div class="shift-confirm-alert__person">
-            <strong>{{ alert.cast_name }}</strong>
-            <span v-if="alert.room_name" class="shift-confirm-alert__room">{{ alert.room_name }}</span>
-          </div>
-          <div class="shift-confirm-alert__time">
-            <span><strong>{{ alert.start_time_extended || alert.start_time }}</strong> 出勤</span>
-            <span v-if="alert.has_started" class="shift-confirm-alert__late">開始時刻を過ぎています</span>
-            <span v-else class="shift-confirm-alert__pending">未確認</span>
-          </div>
-        </li>
-      </ul>
+      <AttendanceCards :cards="attendance" />
     </section>
 
     <!-- タイムライン -->
@@ -953,41 +939,22 @@ onBeforeUnmount(() => {
 .shift-confirm-alert {
   margin: 0 0 16px;
   padding: 16px 18px;
-  border: 1px solid #e8c572;
-  border-left: 4px solid #c48a16;
-  border-radius: 12px;
-  background: #fff9eb;
-  color: #684c12;
+  border: 1px solid #e2eae6;
+  border-radius: 10px;
+  background: #fff;
 }
-.shift-confirm-alert__header, .shift-confirm-alert__heading {
+.shift-confirm-alert__header {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
-.shift-confirm-alert__header { justify-content: space-between; gap: 12px; }
-.shift-confirm-alert__heading { flex-wrap: wrap; }
-.shift-confirm-alert__heading > i { font-size: 21px; }
-.shift-confirm-alert h2 { margin: 0; font-size: .95rem; font-weight: 700; line-height: 1.5; }
-.shift-confirm-alert__count { padding: 1px 8px; border-radius: 20px; background: #f4e3b9; font-size: .75rem; font-weight: 700; }
-.shift-confirm-alert__refresh { flex-shrink: 0; border: 1px solid #d9bd80; background: #fffdf6; color: #684c12; }
-.shift-confirm-alert__refresh:hover { background: #f6e9c9; }
-.shift-confirm-alert__description { margin: 6px 0 12px; font-size: .76rem; line-height: 1.6; }
-.shift-confirm-alert__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0; margin: 0; list-style: none; }
-.shift-confirm-alert__item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 13px; border: 1px solid #efdeb5; border-radius: 8px; background: #fff; }
-.shift-confirm-alert__person { min-width: 0; overflow-wrap: anywhere; }
-.shift-confirm-alert__person > strong { display: block; color: #3d3930; font-size: .9rem; }
-.shift-confirm-alert__room { display: block; margin-top: 3px; color: #746c5d; font-size: .74rem; }
-.shift-confirm-alert__time { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: .76rem; }
-.shift-confirm-alert__time strong { font-size: .95rem; }
-.shift-confirm-alert__pending { padding: 1px 8px; border-radius: 4px; background: #fff1cc; font-size: .7rem; }
-.shift-confirm-alert__late { color: #b13d33; font-size: .7rem; }
+.shift-confirm-alert__header { justify-content: space-between; gap: 12px; margin-bottom: 12px; color: #78877f; font-size: .7rem; }
+.shift-confirm-alert__refresh { flex-shrink: 0; border: 1px solid #dce7e0; background: #fff; color: #506b62; }
+.shift-confirm-alert__refresh:hover { background: #edf5f0; }
 .shift-confirm-alert__error { margin: 8px 0; color: #a13229; font-size: .8rem; }
 @media (max-width: 767px) {
   .shift-confirm-alert { padding: 12px; }
-  .shift-confirm-alert__list { grid-template-columns: minmax(0, 1fr); }
-  .shift-confirm-alert h2 { font-size: .85rem; }
-  .shift-confirm-alert__heading > i { font-size: 18px; }
 }
 .order-row {
   position: relative;
