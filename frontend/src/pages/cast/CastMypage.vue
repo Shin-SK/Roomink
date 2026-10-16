@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
+import RoomCashPanel from '../../components/RoomCashPanel.vue'
 import { api } from '../../api.js'
 import { sanitizeNoteHtml } from '../../noteContent.js'
 import { roomMapHref } from '../../roomMap.js'
@@ -634,6 +635,9 @@ function formatMonthDay(dateStr) {
             <div class="small text-muted">セラピスト側で「接客終了・売上へ反映」まで完了した予約を元にした見込みです。予約時間を過ぎただけでは反映されません。</div>
           </div>
         </div>
+
+        <div class="rk-section-header"><i class="ti ti-cash-banknote"></i> 精算</div>
+        <RoomCashPanel v-if="todayBusinessDate" :date="todayBusinessDate" cast-mode />
 
         <!-- ポイントカード -->
         <div v-if="totalPoints !== 0 || pointHistory.length" class="card mb-3">

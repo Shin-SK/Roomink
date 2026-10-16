@@ -27,7 +27,7 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework import parsers, viewsets, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes, throttle_classes
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
@@ -1882,6 +1882,58 @@ def _suggest_checkout_room(cast, d):
 def _room_cash_summary(store, d):
     from .services.room_cash import room_cash_summary
     return room_cash_summary(store, d)
+
+
+@document_object_api_view
+@method_decorator(transaction.atomic, name="dispatch")
+class CastRoomCashView(APIView):
+    """本人の当日担当ルームのみ。管理者向け情報を明示DTOで除外する。"""
+    permission_classes = [IsAuthenticated]
+
+    def _context(self, request):
+        from .services.room_cash import cast_room_cash_ids
+        profile = get_request_profile(request)
+        cast = getattr(request.user, "cast_profile", None)
+        if profile is None or profile.role != UserProfile.Role.CAST or cast is None or profile.store_id != cast.store_id:
+            raise PermissionDenied("この操作は所属店舗のセラピスト本人だけ利用できます")
+        source = request.data if request.method == "POST" else request.query_params
+        allowed_keys = {"date", "room", "actual_cash_amount", "memo", "expected_revision", "request_id"} if request.method == "POST" else {"date", "room"}
+        if not hasattr(source, "keys") or set(source.keys()) - allowed_keys:
+            raise ValidationError({"detail": "指定できない項目が含まれています"})
+        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
+        try:
+            target = date_type.fromisoformat(source["date"]) if source.get("date") else today
+        except (ValueError, TypeError):
+            raise ValidationError({"detail": "日付の形式が不正です"})
+        if target != today:
+            raise ValidationError({"detail": "本日の担当ルームだけ確認できます"})
+        Store.objects.select_for_update().get(pk=cast.store_id)
+        allowed_ids = cast_room_cash_ids(cast, today)
+        room_id = None
+        if source.get("room") is not None:
+            value = source.get("room")
+            try:
+                if isinstance(value, bool) or not isinstance(value, (int, str)) or (isinstance(value, str) and not value.isdecimal()):
+                    raise ValueError
+                room_id = int(value)
+            except (TypeError, ValueError):
+                raise ValidationError({"detail": "ルームの形式が不正です"})
+            if room_id not in allowed_ids:
+                raise PermissionDenied("本日担当しているルームだけ利用できます")
+        return cast, today, allowed_ids, room_id
+
+    def get(self, request):
+        from .services.room_cash import cast_room_cash_summary
+        cast, today, allowed_ids, room_id = self._context(request)
+        return Response(cast_room_cash_summary(cast, today, allowed_ids, room_id))
+
+    def post(self, request):
+        from .services.room_cash import cast_room_cash_summary, save_room_cash_checkpoint
+        cast, today, allowed_ids, room_id = self._context(request)
+        if room_id is None:
+            raise ValidationError({"detail": "確認したルームを選択してください"})
+        save_room_cash_checkpoint(cast.store, today, request.data, request.user, allowed_room_ids=allowed_ids)
+        return Response(cast_room_cash_summary(cast, today, allowed_ids, room_id))
 
 
 @document_object_api_view
@@ -4026,42 +4078,8 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         # snapshot are therefore one consistent instant, including on GET.
         Store.objects.select_for_update().get(pk=store.pk)
         if request.method == "POST":
-            import uuid
-            from .models import RoomCashCheckpoint, RoomCashMovement
-            if target_date != business_date_for_datetime(timezone.now(), store.timezone):
-                return Response({"detail": "実残は本日の現在時点でのみ登録できます"}, status=400)
-            try:
-                raw_amount = request.data.get("actual_cash_amount")
-                if isinstance(raw_amount, bool) or not isinstance(raw_amount, (int, str)) or (isinstance(raw_amount, str) and not raw_amount.isdecimal()):
-                    raise ValueError
-                room_id = int(request.data.get("room"))
-                actual_amount = int(raw_amount)
-                request_id = uuid.UUID(str(request.data.get("request_id") or ""))
-            except (TypeError, ValueError):
-                return Response({"detail": "ルーム・実残高・リクエストIDの形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
-            if not 0 <= actual_amount <= 2147483647:
-                return Response({"detail": "実残高は0〜2,147,483,647円の整数で入力してください"}, status=status.HTTP_400_BAD_REQUEST)
-            room = Room.objects.filter(id=room_id, store=store).first()
-            if room is None:
-                return Response({"detail": "対象ルームが見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
-            memo = request.data.get("memo", "") or ""
-            if not isinstance(memo, str) or len(memo) > 1000:
-                return Response({"detail": "メモは1000文字以内で入力してください"}, status=400)
-            existing = RoomCashCheckpoint.objects.filter(store=store, request_id=request_id).first()
-            if existing:
-                if (existing.room_id, existing.actual_cash_amount, existing.memo, existing.date) != (room_id, actual_amount, memo, target_date):
-                    return Response({"detail": "同じリクエストIDで別のカウントは登録できません"}, status=409)
-            else:
-                row = next(item for item in _room_cash_summary(store, target_date) if item["room"] == room_id)
-                if request.data.get("expected_revision") != row["revision"]:
-                    return Response({"detail": "現金に関わる記録が更新されています。入力を残したまま最新の内容を確認してください"}, status=409)
-                RoomCashCheckpoint.objects.create(
-                    store=store, room=room, date=target_date,
-                    actual_cash_amount=actual_amount, source_cash_amount=row["source_cash_amount"],
-                    expected_cash_amount=row["expected_cash_amount"], source_revision=row["revision"],
-                    movement_cursor=RoomCashMovement.objects.filter(store=store, room=room).order_by("-id").values_list("id", flat=True).first() or 0,
-                    request_id=request_id, memo=memo, counted_by=request.user,
-                )
+            from .services.room_cash import save_room_cash_checkpoint
+            save_room_cash_checkpoint(store, target_date, request.data, request.user)
         return Response({"date": target_date.isoformat(), "rooms": _room_cash_summary(store, target_date)})
 
     @action(detail=False, methods=["get"])

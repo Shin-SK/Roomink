@@ -442,6 +442,8 @@ export const api = {
   castLineLinkAction: (action) => request('POST', '/cast/line-link/', { action }),
   getCastPoints: () => request('GET', '/cast/points/'),
   getCastCheckout: () => request('GET', '/cast/checkout/'),
+  getCastRoomCash: (date, room = '') => request('GET', `/cast/room-cash/?date=${encodeURIComponent(date)}${room ? `&room=${encodeURIComponent(room)}` : ''}`),
+  saveCastRoomCashCount: (body) => request('POST', '/cast/room-cash/', body),
   submitCastCheckout: (body) => request('POST', '/cast/checkout/', body),
   getCastShiftConfirm: () => request('GET', '/cast/shift-confirm/'),
   confirmCastShift: (shiftId) => request('POST', '/cast/shift-confirm/', { shift_id: shiftId }),

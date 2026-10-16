@@ -23,14 +23,13 @@ onMounted(async () => {
 <template>
   <LayoutOperator>
     <template #title>ルーム現金</template>
-    <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
-      <div>
-        <h1 class="h4 mb-1">ルーム現金</h1>
-        <p class="text-muted small mb-0">ルームに残る現金と、セラピストへの受け渡し見込みを確認できます。</p>
+    <div class="card mb-4">
+      <div class="card-header"><i class="ti ti-cash-banknote"></i> ルーム現金</div>
+      <div class="card-body">
+        <div class="row g-2 mb-3"><div class="col-sm-6 col-md-3"><label for="room-cash-date" class="form-label small">営業日</label><input id="room-cash-date" v-model="date" type="date" class="form-control" /></div></div>
+        <div v-if="dateError && !date" class="alert alert-warning">{{ dateError }}</div>
+        <RoomCashPanel v-if="date" :date="date" />
       </div>
-      <div><label for="room-cash-date" class="form-label small mb-1">営業日</label><input id="room-cash-date" v-model="date" type="date" class="form-control" /></div>
     </div>
-    <div v-if="dateError && !date" class="alert alert-warning">{{ dateError }}</div>
-    <RoomCashPanel v-if="date" :date="date" />
   </LayoutOperator>
 </template>

@@ -77,7 +77,7 @@ def _hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def room_cash_summary(store, d):
+def room_cash_summary(store, d, *, room_ids=None, cast_id=None):
     from core.models import Room, RoomCashCheckpoint, RoomCashMovement, RoomCashCount
     from django.utils import timezone
 
@@ -90,10 +90,13 @@ def room_cash_summary(store, d):
             by_room[source["room"]].append(source)
         elif source["amount"]:
             missing_room = True
-    cast_rows = _cast_rows(store, d, orders, checkouts)
+    cast_rows = _cast_rows(store, d, orders, checkouts, only_cast_id=cast_id)
     today = business_date_for_datetime(timezone.now(), store.timezone)
     rows = []
-    for room in Room.objects.filter(store=store).order_by("sort_order", "id"):
+    rooms = Room.objects.filter(store=store)
+    if room_ids is not None:
+        rooms = rooms.filter(pk__in=room_ids)
+    for room in rooms.order_by("sort_order", "id"):
         items = by_room[room.pk]
         source_amount = sum(item["amount"] for item in items)
         checkpoint = RoomCashCheckpoint.objects.filter(store=store, room=room, date__lte=d).first()
@@ -184,7 +187,7 @@ def room_cash_summary(store, d):
     return rows
 
 
-def _cast_rows(store, d, orders, checkouts):
+def _cast_rows(store, d, orders, checkouts, *, only_cast_id=None):
     from core.models import Cast, CastDailyCheckout, ShiftAssignment
     from core.views import _compute_cast_done_sales, _cast_expense_totals, _cast_carryover_before, _checkout_compensation
     associations = defaultdict(set)
@@ -204,6 +207,8 @@ def _cast_rows(store, d, orders, checkouts):
         if item.room_id:
             associations[item.cast_id].add(item.room_id)
     rows = defaultdict(list)
+    if only_cast_id is not None:
+        ids.intersection_update({only_cast_id})
     pending_ids = set(CastDailyCheckout.objects.filter(store=store, date__lt=d, status=CastDailyCheckout.Status.RETURNED).values_list("cast_id", flat=True))
     for cast in Cast.objects.filter(store=store, pk__in=ids).order_by("id"):
         checkout = current_checkouts.get(cast.pk)
@@ -227,3 +232,101 @@ def _cast_rows(store, d, orders, checkouts):
         for room_id in associations[cast.pk]:
             rows[room_id].append(row)
     return rows
+
+
+def save_room_cash_checkpoint(store, d, payload, actor, *, allowed_room_ids=None):
+    """Common count write path. Caller holds the store lock inside a transaction."""
+    import uuid
+    from django.utils import timezone
+    from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+    from core.models import Room, RoomCashCheckpoint, RoomCashMovement
+
+    class Conflict(APIException):
+        status_code = 409
+
+    if d != business_date_for_datetime(timezone.now(), store.timezone):
+        raise ValidationError({"detail": "実残は本日の現在時点でのみ登録できます"})
+    try:
+        raw_amount, raw_room = payload.get("actual_cash_amount"), payload.get("room")
+        for value in (raw_amount, raw_room):
+            if isinstance(value, bool) or not isinstance(value, (int, str)) or (isinstance(value, str) and not value.isdecimal()):
+                raise ValueError
+        room_id, actual_amount = int(raw_room), int(raw_amount)
+        request_id = uuid.UUID(str(payload.get("request_id") or ""))
+    except (TypeError, ValueError):
+        raise ValidationError({"detail": "ルーム・実残高・リクエストIDの形式が不正です"})
+    if not 0 <= actual_amount <= 2147483647:
+        raise ValidationError({"detail": "実残高は0〜2,147,483,647円の整数で入力してください"})
+    if allowed_room_ids is not None and room_id not in allowed_room_ids:
+        raise PermissionDenied("本日担当しているルームだけ利用できます")
+    room = Room.objects.filter(id=room_id, store=store).first()
+    if room is None:
+        raise ValidationError({"detail": "対象ルームが見つかりません"})
+    memo = payload.get("memo", "") or ""
+    if not isinstance(memo, str) or len(memo) > 1000:
+        raise ValidationError({"detail": "メモは1000文字以内で入力してください"})
+    existing = RoomCashCheckpoint.objects.filter(store=store, request_id=request_id).first()
+    if existing:
+        if (existing.room_id, existing.actual_cash_amount, existing.memo, existing.date, existing.counted_by_id) != (room_id, actual_amount, memo, d, actor.pk):
+            raise Conflict("同じリクエストIDで別のカウントは登録できません")
+        return room_id
+    row = room_cash_summary(store, d, room_ids={room_id})[0]
+    if payload.get("expected_revision") != row["revision"]:
+        raise Conflict("現金に関わる記録が更新されています。入力を残したまま最新の内容を確認してください")
+    RoomCashCheckpoint.objects.create(
+        store=store, room=room, date=d, actual_cash_amount=actual_amount,
+        source_cash_amount=row["source_cash_amount"], expected_cash_amount=row["expected_cash_amount"],
+        source_revision=row["revision"],
+        movement_cursor=RoomCashMovement.objects.filter(store=store, room=room).order_by("-id").values_list("id", flat=True).first() or 0,
+        request_id=request_id, memo=memo, counted_by=actor,
+    )
+    return room_id
+
+
+def cast_room_cash_ids(cast, d):
+    """Never use another cast's checkout or a stale suggested room for access."""
+    from core.models import Room, ShiftAssignment
+    from .sales import get_done_orders_for_business_range
+    ids = set(ShiftAssignment.objects.filter(store=cast.store, cast=cast, date=d, is_absent=False, room__isnull=False).values_list("room_id", flat=True))
+    ids.update(get_done_orders_for_business_range(cast.store, d, d).filter(cast=cast, room__isnull=False).values_list("room_id", flat=True))
+    return set(Room.objects.filter(store=cast.store, pk__in=ids).values_list("pk", flat=True))
+
+
+def cast_room_cash_summary(cast, d, allowed_ids, selected_room=None):
+    """Explicit allowlist DTO: no manager memo, history, other cast or store totals."""
+    rows = room_cash_summary(cast.store, d, room_ids=({selected_room} if selected_room else allowed_ids), cast_id=cast.pk)
+    multiple = len(allowed_ids) > 1
+    result = []
+    for row in rows:
+        safe = {key: row[key] for key in (
+            "room", "room_name", "balance_known", "expected_cash_amount", "actual_cash_amount",
+            "difference_amount", "last_counted_at", "last_counted_date", "revision", "can_count", "requires_confirmation",
+        )}
+        # Manager warnings can contain other cast names. Never copy their text.
+        safe["warnings"] = []
+        if not row["balance_known"]:
+            safe["warnings"].append("開始残高が未確認です。実際に数えた現金を登録すると計算残高を確認できます。")
+        if row["requires_confirmation"]:
+            safe["warnings"].append("計算に確認が必要な記録があります。実際の現金を確認し、不明な場合は店舗へ連絡してください。")
+        own = next((item for item in row["casts"] if item["cast_id"] == cast.pk), None)
+        safe["settlement"] = None
+        if own:
+            safe["settlement"] = {key: own[key] for key in (
+                "compensation_amount", "carryover_opening_amount", "receivable_amount", "remaining_receivable_amount",
+                "room_cash_taken_amount", "office_cash_paid_amount", "suggested_take_amount", "projected_room_balance",
+                "shortage_amount", "status", "settlement_pending",
+            )}
+            if own["settlement_pending"]:
+                safe["warnings"].append("過去の退勤提出が差戻し中です。未受取額を店舗へ確認してください。")
+            # Explicit room selection allows a trial against that one room;
+            # a list of candidates must not silently choose or allocate cash.
+            trial_allowed = (selected_room is not None or not multiple) and row["balance_known"] and not own["settlement_pending"] and not row["requires_confirmation"]
+            take = min(max(0, row["expected_cash_amount"]), max(0, own["remaining_receivable_amount"])) if trial_allowed else None
+            safe["settlement"].update({
+                "suggested_take_amount": take,
+                "projected_room_balance": row["expected_cash_amount"] - take if take is not None else None,
+                "shortage_amount": max(0, own["remaining_receivable_amount"] - take) if take is not None else None,
+            })
+        result.append(safe)
+    return {"date": d.isoformat(), "requires_room_selection": multiple and selected_room is None,
+            "selected_room": selected_room or (next(iter(allowed_ids)) if len(allowed_ids) == 1 else None), "rooms": result}

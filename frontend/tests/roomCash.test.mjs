@@ -120,3 +120,37 @@ test('network retries reuse an ID only for identical contents; past days and fai
     assert.equal(state.drafts[1].actual_cash_amount, '25000')
   } finally { unmount(); globalThis.window = previousWindow }
 })
+
+test('cast mode selects an assigned room, uses only cast endpoints and records only a count', async () => {
+  const previousWindow = globalThis.window
+  globalThis.window = { confirm: () => true }
+  const self = { remaining_receivable_amount: 31000, suggested_take_amount: 26000, shortage_amount: 5000 }
+  let recorded
+  const dates = []
+  const selfRoom = { ...baseRoom, settlement: self }
+  const { state, unmount } = await mountPanel({
+    getCastRoomCash: async (date, room) => {
+      dates.push([date, room])
+      return { requires_room_selection: !room, rooms: room ? [selfRoom] : [selfRoom, { ...baseRoom, room: 2 }] }
+    },
+    saveCastRoomCashCount: async body => { recorded = body; return { rooms: [selfRoom] } },
+    getRoomCashSummary: () => { throw new Error('manager endpoint must never be called') },
+    saveRoomCashCount: () => { throw new Error('manager endpoint must never be called') },
+  }, { date: '2026-10-16', castMode: true })
+  try {
+    assert.equal(state.needsRoomSelection, true)
+    assert.equal(state.roomChoices.length, 2)
+    state.selectedRoom = '1'
+    state.selectRoom()
+    await nextTick(); await nextTick()
+    assert.equal(state.needsRoomSelection, false)
+    assert.deepEqual(dates[1], ['2026-10-16', '1'])
+    assert.deepEqual(state.settlements(state.rooms[0]), [self])
+    state.drafts[1].actual_cash_amount = '26000'
+    await state.save(state.rooms[0])
+    assert.equal(recorded.actual_cash_amount, 26000)
+    assert.equal('cast_id' in recorded, false)
+    assert.equal('room_cash_taken_amount' in recorded, false)
+    assert.equal('compensation_amount' in recorded, false)
+  } finally { unmount(); globalThis.window = previousWindow }
+})

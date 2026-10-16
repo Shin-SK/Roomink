@@ -34,6 +34,7 @@ test('checkout uses live input on new and returned forms, and recorded payments 
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   const code = compileScript(descriptor, { id: 'checkout-balance-test' }).content
     .replace(/import LayoutCast from [^\n]+/, 'const LayoutCast = {}')
+    .replace(/import RoomCashPanel from [^\n]+/, 'const RoomCashPanel = {}')
     .replace(/import \{ api \} from [^\n]+/, 'const api = {}')
     .replace(/onMounted\(async \(\) =>/, '(() => {})(async () =>')
     .replace(/from (['"])(\.[^'"]+)\1/g, (_, quote, specifier) => `from ${quote}${pathToFileURL(resolve(dirname(filename), specifier)).href}${quote}`)
