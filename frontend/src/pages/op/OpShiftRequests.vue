@@ -569,24 +569,46 @@ async function doApply() {
       <div class="modal-dialog modal-xl">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title"><i class="ti ti-upload"></i> シフト申請 CSVインポート（戻し承認・プレビュー確認式）</h5>
+            <h5 class="modal-title"><i class="ti ti-upload"></i> CSVでシフトをまとめて承認</h5>
             <button type="button" class="btn-close" @click="showImportModal = false"></button>
           </div>
           <div class="modal-body">
             <div class="alert alert-info small">
-              CSVエクスポートしたファイルをExcel等で編集し（approved_date / approved_start_time / approved_end_time / approved_room_id / admin_memo）、
-              ここでアップロードしてください。まず検証結果（プレビュー）を確認し、問題のない行だけを選択して「反映する」を押すと承認されます。
-              自動一括承認ではなく、必ず内容を確認してから反映してください。
-              日付はYYYY-MM-DDまたはYYYY/MM/DD、時刻はHH:MMまたはHH:MM:00で入力できます。
-              ルームIDの代わりにapproved_room_nameへ下記のルーム名を入力することもできます（同名がある場合はIDを指定）。
-              <div class="mt-2">ルーム名とID：<span v-for="room in rooms" :key="room.id" class="me-3">{{ room.name }}：{{ room.id }}</span></div>
+              <p class="fw-bold mb-2">CSVでシフトをまとめて承認できます</p>
+              <ol class="ps-3 mb-2">
+                <li>「CSVエクスポート」でファイルをダウンロード</li>
+                <li>Excelなどで、承認する日付・時間・ルームを入力してCSV形式で保存</li>
+                <li>下の「ファイルを選択」から、そのファイルを選ぶ</li>
+                <li>「内容を確認する」を押す</li>
+                <li>内容を確認し、承認する行を選んで「選択したシフトを承認する」を押す</li>
+              </ol>
+              <p class="mb-0">ファイルを選んだだけでは、シフトは承認されません。</p>
+              <details class="mt-3">
+                <summary>入力例を見る</summary>
+                <p class="mt-2 mb-2">1行目の項目名と、申請ID・キャストIDは変更しないでください。次の列に承認する内容を入力します。</p>
+                <div class="table-responsive">
+                  <table class="table table-sm mb-2">
+                    <thead><tr><th>入力する内容</th><th>CSVの列名</th><th>入力例</th></tr></thead>
+                    <tbody>
+                      <tr><td>日付</td><td><code>approved_date</code></td><td>2026/10/22</td></tr>
+                      <tr><td>開始時間</td><td><code>approved_start_time</code></td><td>18:00</td></tr>
+                      <tr><td>終了時間</td><td><code>approved_end_time</code></td><td>29:00（翌朝5時）</td></tr>
+                      <tr><td>ルーム名</td><td><code>approved_room_name</code></td><td>下のルーム名をそのまま入力</td></tr>
+                      <tr><td>ルームID</td><td><code>approved_room_id</code></td><td>ルーム名で指定する場合は空欄</td></tr>
+                      <tr><td>メモ（任意）</td><td><code>admin_memo</code></td><td>店舗用のメモ</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="mb-2">日付は2026-10-22、時間は18:00:00の形式でも入力できます。同じ名前のルームが複数ある場合は、ルームIDを入力してください。</p>
+                <div>この店舗のルーム名とID：<span v-for="room in rooms" :key="room.id" class="d-block">{{ room.name }}：{{ room.id }}</span></div>
+              </details>
             </div>
             <div v-if="importError" class="alert alert-danger">{{ importError }}</div>
 
-            <div class="d-flex align-items-center gap-2 mb-3">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
               <input type="file" accept=".csv" class="form-control form-control-sm" style="max-width: 360px;" @change="onFileChange">
               <button class="btn btn-primary btn-sm" :disabled="importLoading" @click="doPreview">
-                {{ importLoading ? '検証中...' : '検証する（プレビュー）' }}
+                {{ importLoading ? '確認中...' : '内容を確認する' }}
               </button>
             </div>
 
@@ -652,7 +674,7 @@ async function doApply() {
               class="btn btn-success"
               :disabled="applying || selectedCount === 0"
               @click="doApply"
-            >{{ applying ? '反映中...' : `選択した${selectedCount}件を反映する` }}</button>
+            >{{ applying ? '承認中...' : `選択したシフトを承認する（${selectedCount}件）` }}</button>
           </div>
         </div>
       </div>
