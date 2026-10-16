@@ -44,6 +44,8 @@ def guest_reservation_state(order):
         return GuestReservationState.CANCELLED
     if order.status == Order.Status.REQUESTED:
         return GuestReservationState.REQUESTED
+    if order.status == Order.Status.DONE:
+        return GuestReservationState.COMPLETED
     if (
         order.payment_method == Order.PaymentMethod.CARD
         and order.card_payment_confirmed_at is None

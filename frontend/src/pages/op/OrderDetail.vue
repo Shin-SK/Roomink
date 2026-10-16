@@ -183,7 +183,7 @@ const canOperateCardPayment = computed(() => (
   canModify.value
   && isCardPayment.value
   && order.value
-  && !['REQUESTED', 'CANCELLED'].includes(order.value.status)
+  && !['REQUESTED', 'CANCELLED', 'DONE'].includes(order.value.status)
 ))
 
 onMounted(async () => {

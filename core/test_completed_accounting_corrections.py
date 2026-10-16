@@ -46,6 +46,10 @@ class CompletedAccountingCorrectionTest(TestCase):
         self.assertEqual(checkout.room_cash_taken_amount, 5000)
         self.assertEqual(checkout.expense_snapshots.get().amount, 5000)
         self.assertEqual(response.data["status"], "DONE")
+        self.assertEqual(response.data["customer_reservation_state"], "COMPLETED")
+        self.assertIsNone(response.data["card_payment_confirmed_at"])
+        for action in ("send-card-payment-request", "confirm-card-payment"):
+            self.assertEqual(self.manager_client.post(f"/api/orders/{self.order.pk}/{action}/").status_code, 400)
         self.assertEqual(OrderAccountingCorrection.objects.get().after["option_ids"], [option.pk])
         self.assertFalse(SmsLog.objects.exists())
 

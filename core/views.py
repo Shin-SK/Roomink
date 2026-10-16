@@ -878,7 +878,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": "カード決済の予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED):
+        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
             return Response(
                 {"detail": "確定済みの有効な予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -900,7 +900,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": "カード決済の予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED):
+        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
             return Response(
                 {"detail": "確定済みの有効な予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -917,6 +917,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 Order.objects.select_for_update()
                 .get(pk=order.pk, store=store)
             )
+            if locked_order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
+                raise ValidationError("確定済みの有効な予約だけが対象です。")
             _require_daily_settlement_open(
                 store,
                 business_date_for_datetime(locked_order.start, store.timezone),
