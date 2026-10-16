@@ -96,6 +96,7 @@ class CompletedAccountingCorrectionTest(TestCase):
         self.assertFalse(OrderAccountingCorrection.objects.exists())
 
     def test_reason_scope_and_foreign_masters_are_validated(self):
+        self.assertEqual(self.manager_client.post(f"/api/orders/{self.order.pk}/correct-accounting/", [], format="json").status_code, 400)
         foreign = self.discount(Store.objects.create(name="他店舗"))
         for body in ({"reason": ""}, {"course": self.order.course_id}, {"discount": foreign.pk}, {"extension_duration": 7}, {}):
             response = self.correct(**body)

@@ -705,6 +705,8 @@ class OrderViewSet(viewsets.ModelViewSet):
     def correct_accounting(self, request, pk=None):
         """完了状態と売上計上を維持し、日締め前の延長・割引だけを訂正する。"""
         order = self.get_object()
+        if not isinstance(request.data, dict):
+            raise ValidationError("訂正内容を正しい形式で送信してください。")
         allowed = {"extension", "extension_duration", "extension_price", "discount"}
         if set(request.data) - allowed - {"reason", "expected_updated_at"}:
             raise ValidationError("訂正できるのは延長と割引だけです。")
