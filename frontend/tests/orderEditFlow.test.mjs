@@ -168,6 +168,59 @@ test('cast conflict uses the version at editor-open and keeps selected options d
   }
 })
 
+test('cast home option saves send the editor-open version and recover from conflict without losing the draft', async () => {
+  const castInitial = { ...initial, options: [{ id: 3, name: '既存' }] }
+  const castLatest = { ...latest, options: [{ id: 3, name: '既存' }, { id: 4, name: '追加' }] }
+  const calls = []
+  let reject = false
+  globalThis.__homeApiForTests = {
+    getCastToday: async date => { assert.equal(date, '2026-10-16'); return { orders: [castLatest] } },
+    updateCastOrderOptions: async (id, ids, version) => {
+      calls.push({ id, ids: [...ids], version })
+      if (reject) throw conflict()
+      return { ...castLatest, option_ids: [...ids] }
+    },
+  }
+  const transform = code => code
+    .replace(/import LayoutCast from [^\n]+/, 'const LayoutCast = {}')
+    .replace(/import RoomCashPanel from [^\n]+/, 'const RoomCashPanel = {}')
+    .replace(/import \{ api \} from [^\n]+/, 'const api = globalThis.__homeApiForTests')
+    .replace(/onMounted\(async \(\) =>/, '(() => {})(async () =>')
+  const { state, unmount } = await mountSource('../src/pages/cast/CastMypage.vue', {}, transform)
+  const previousConfirm = globalThis.confirm
+  try {
+    state.todayBusinessDate = '2026-10-16'
+    state.orders = [castInitial]
+    state.openOptionEditor(castInitial)
+    state.optionDraftIds = [4]
+    await state.saveOptions(castInitial)
+    assert.deepEqual(calls[0], { id: 1, ids: [4], version: initial.updated_at })
+    assert.equal(state.optionEditorId, null)
+    reject = true
+    state.openOptionEditor(castInitial)
+    state.optionDraftIds = [4]
+    await state.saveOptions(castInitial)
+    assert.equal(state.optionConflict, true)
+    assert.deepEqual([...state.optionDraftIds], [4])
+    await state.saveOptions(castInitial)
+    assert.equal(calls.length, 2)
+    await state.checkLatestOptions(castInitial)
+    assert.deepEqual([...state.optionDraftIds], [4])
+    globalThis.confirm = () => false
+    state.restartOptions(castInitial)
+    assert.equal(state.optionConflict, true)
+    globalThis.confirm = () => true
+    state.restartOptions(castInitial)
+    assert.equal(state.optionConflict, false)
+    assert.deepEqual([...state.optionDraftIds], [3, 4])
+    state.optionDraftIds = [3]
+    reject = false
+    await state.saveOptions(state.orders[0])
+    assert.deepEqual(calls[2], { id: 1, ids: [3], version: latest.updated_at })
+    assert.equal(state.optionEditorId, null)
+  } finally { globalThis.confirm = previousConfirm; delete globalThis.__homeApiForTests; unmount() }
+})
+
 test('quick payment changes restore the displayed method on conflict and can load the current version', async () => {
   let refreshed = false
   globalThis.__detailApiForTests = {

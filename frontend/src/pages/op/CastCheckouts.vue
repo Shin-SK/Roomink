@@ -91,7 +91,7 @@ async function loadCheckouts() {
 }
 
 async function loadRoomCash() {
-  await roomCashPanel.value?.reload(true)
+  await roomCashPanel.value?.refreshWhenIdle()
 }
 
 async function loadMoreCheckouts() {

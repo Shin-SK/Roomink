@@ -88,8 +88,17 @@ function settlements(row) {
   return props.castMode ? (row.settlement ? [row.settlement] : []) : row.casts || []
 }
 
+async function refreshWhenIdle() {
+  const hasDraft = Object.values(drafts.value).some(draft => (
+    String(draft.actual_cash_amount ?? '') !== '' || String(draft.memo ?? '') !== ''
+  ))
+  if (loading.value || Object.values(saving.value).some(Boolean) || hasDraft) return false
+  await reload(true)
+  return true
+}
+
 watch(() => props.date, () => { rooms.value = []; drafts.value = {}; selectedRoom.value = ''; roomChoices.value = []; reload() }, { immediate: true })
-defineExpose({ reload })
+defineExpose({ reload, refreshWhenIdle })
 </script>
 
 <template>

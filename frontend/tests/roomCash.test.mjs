@@ -25,11 +25,11 @@ test('counts require an explicit nonnegative whole yen amount, never default the
 
 const baseRoom = { room: 1, room_name: 'Aルーム', revision: 'first', expected_cash_amount: 26000, actual_cash_amount: null, balance_known: true, can_count: true, casts: [] }
 
-async function mountPanel(api, props) {
+async function mountPanel(api, props, relative = '../src/components/RoomCashPanel.vue', transform = code => code) {
   const root = dirname(fileURLToPath(import.meta.url))
-  const filename = resolve(root, '../src/components/RoomCashPanel.vue')
+  const filename = resolve(root, relative)
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
-  const code = compileScript(descriptor, { id: 'room-cash-test' }).content
+  const code = transform(compileScript(descriptor, { id: 'room-cash-test' }).content)
     .replace(/import \{ api \} from [^\n]+/, 'const api = globalThis.__roomCashApi')
     .replace(/from (['"])(\.[^'"]+)\1/g, (_, quote, specifier) => `from ${quote}${pathToFileURL(resolve(dirname(filename), specifier)).href}${quote}`)
   const temporary = mkdtempSync(join(root, '.room-cash-test-'))
@@ -178,4 +178,88 @@ test('cast mode selects an assigned room, uses only cast endpoints and records o
     assert.equal('room_cash_taken_amount' in recorded, false)
     assert.equal('compensation_amount' in recorded, false)
   } finally { unmount(); globalThis.window = previousWindow }
+})
+
+test('automatic refresh skips count and memo drafts, saving and loading; an idle refresh updates the revision', async () => {
+  let reads = 0
+  let fail = false
+  const { state, unmount } = await mountPanel({ getRoomCashSummary: async () => {
+    reads++
+    if (fail) throw new Error('最新残金を取得できません')
+    return { rooms: [{ ...baseRoom, revision: `read-${reads}`, expected_cash_amount: reads === 1 ? 26000 : 0 }] }
+  } }, { date: '2026-10-16' })
+  try {
+    state.drafts[1].actual_cash_amount = '0'
+    assert.equal(await state.refreshWhenIdle(), false)
+    state.drafts[1].actual_cash_amount = ''
+    state.drafts[1].memo = '数え直し中'
+    assert.equal(await state.refreshWhenIdle(), false)
+    state.drafts[1].memo = ''
+    state.saving[1] = true
+    assert.equal(await state.refreshWhenIdle(), false)
+    state.saving[1] = false
+    state.loading = true
+    assert.equal(await state.refreshWhenIdle(), false)
+    state.loading = false
+    assert.equal(reads, 1)
+    assert.equal(state.rooms[0].revision, 'read-1')
+    assert.equal(await state.refreshWhenIdle(), true)
+    assert.equal(reads, 2)
+    assert.equal(state.rooms[0].revision, 'read-2')
+    assert.equal(state.rooms[0].expected_cash_amount, 0)
+    fail = true
+    await state.refreshWhenIdle()
+    assert.match(state.error, /最新残金/)
+    assert.equal(state.rooms[0].revision, 'read-2')
+  } finally { unmount() }
+})
+
+test('checkout submission and service completion refresh the real cash panel through loadCheckout', async () => {
+  const previousWindow = globalThis.window
+  globalThis.window = { confirm: () => true }
+  let roomCash = 26000
+  let remaining = 31000
+  let revision = 1
+  let reads = 0
+  const api = {
+    getCastRoomCash: async () => { reads++; return { rooms: [{ ...baseRoom, revision: `revision-${revision}`, expected_cash_amount: roomCash,
+      settlement: { remaining_receivable_amount: remaining, suggested_take_amount: Math.min(roomCash, remaining), shortage_amount: Math.max(0, remaining - roomCash) } }] } },
+    getCastCheckout: async () => ({ compensation: 31000, checkout: roomCash === 0 ? { status: 'SUBMITTED', room_cash_taken_amount: 26000 } : null }),
+    submitCastCheckout: async body => { assert.equal(body.room_cash_taken_amount, 26000); roomCash = 0; remaining = 5000; revision++ },
+    getCastAdjustmentsMypage: async () => ({}),
+    completeCastOrder: async () => { roomCash = 10000; remaining = 10000; revision++ },
+    getCastTodaySales: async () => ({ estimated_pay: 10000 }),
+  }
+  const panel = await mountPanel(api, { date: '2026-10-16', castMode: true })
+  const parent = await mountPanel(api, {}, '../src/pages/cast/CastMypage.vue', code => code
+    .replace(/import LayoutCast from [^\n]+/, 'const LayoutCast = {}')
+    .replace(/import RoomCashPanel from [^\n]+/, 'const RoomCashPanel = {}')
+    .replace(/onMounted\(async \(\) =>/, '(() => {})(async () =>'))
+  try {
+    parent.state.checkoutRoomCashPanel = { refreshWhenIdle: panel.state.refreshWhenIdle }
+    assert.equal(panel.state.rooms[0].expected_cash_amount, 26000)
+    parent.state.checkoutForm.room_cash_taken_amount = 26000
+    parent.state.checkoutForm.checklist_json = Object.fromEntries(parent.state.CHECKLIST_ITEMS.map(item => [item.key, true]))
+    await parent.state.submitCheckout()
+    assert.equal(parent.state.checkoutError, '')
+    assert.equal(panel.state.rooms[0].expected_cash_amount, 0)
+    assert.equal(panel.state.rooms[0].settlement.remaining_receivable_amount, 5000)
+    assert.equal(panel.state.rooms[0].settlement.suggested_take_amount, 0)
+    assert.equal(reads, 2)
+    await parent.state.completeService({ id: 1 })
+    assert.equal(panel.state.rooms[0].expected_cash_amount, 10000)
+    assert.equal(panel.state.rooms[0].settlement.remaining_receivable_amount, 10000)
+    assert.equal(reads, 3)
+    api.getCastTodaySales = async () => { throw new Error('報酬の取得失敗') }
+    await parent.state.completeService({ id: 2 })
+    assert.equal(reads, 4)
+    assert.equal(panel.state.rooms[0].revision, 'revision-4')
+    assert.equal(parent.state.actionErrors[2], '報酬の取得失敗')
+    panel.state.drafts[1].actual_cash_amount = '9000'
+    revision++
+    await parent.state.loadCheckout()
+    assert.equal(reads, 4)
+    assert.equal(panel.state.rooms[0].revision, 'revision-4')
+    assert.equal(panel.state.drafts[1].actual_cash_amount, '9000')
+  } finally { parent.unmount(); panel.unmount(); globalThis.window = previousWindow }
 })

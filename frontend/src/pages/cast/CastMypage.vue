@@ -32,6 +32,9 @@ const availableOptions = ref([])
 const processingOrderId = ref(null)
 const optionEditorId = ref(null)
 const optionDraftIds = ref([])
+const optionVersion = ref(null)
+const optionConflict = ref(false)
+const latestOptionOrder = ref(null)
 const actionErrors = ref({})
 const expandedOrderDetails = ref({})
 const activeInfoTab = ref('earnings')
@@ -75,6 +78,7 @@ const CHECKLIST_ITEMS = [
 ]
 
 const checkoutData = ref(null)
+const checkoutRoomCashPanel = ref(null)
 const showCheckoutModal = ref(false)
 const showCheckoutSales = ref(false)
 const showCheckoutCalculation = ref(false)
@@ -169,6 +173,7 @@ onUnmounted(() => {
 async function loadCheckout() {
   try {
     checkoutData.value = await api.getCastCheckout()
+    await checkoutRoomCashPanel.value?.refreshWhenIdle()
   } catch (_) { /* 取得失敗は致命的でない */ }
 }
 
@@ -321,6 +326,9 @@ function openOptionEditor(order) {
   }
   optionEditorId.value = order.id
   optionDraftIds.value = [...(order.option_ids || [])]
+  optionVersion.value = order.updated_at
+  optionConflict.value = false
+  latestOptionOrder.value = null
 }
 
 function toggleOrderDetails(orderId) {
@@ -328,17 +336,44 @@ function toggleOrderDetails(orderId) {
 }
 
 async function saveOptions(order) {
+  if (optionConflict.value || processingOrderId.value === order.id) return
   processingOrderId.value = order.id
   actionErrors.value[order.id] = ''
   try {
-    const updated = await api.updateCastOrderOptions(order.id, optionDraftIds.value)
+    const updated = await api.updateCastOrderOptions(order.id, optionDraftIds.value, optionVersion.value)
     replaceOrder(updated)
-    optionEditorId.value = null
+    if (optionEditorId.value === order.id) optionEditorId.value = null
+  } catch (e) {
+    actionErrors.value[order.id] = e.message
+    if (optionEditorId.value === order.id) optionConflict.value = e.status === 409
+  } finally {
+    processingOrderId.value = null
+  }
+}
+
+async function checkLatestOptions(order) {
+  processingOrderId.value = order.id
+  try {
+    const data = await api.getCastToday(todayBusinessDate.value)
+    if (optionEditorId.value !== order.id) return
+    latestOptionOrder.value = data.orders.find(item => item.id === order.id) || null
+    if (!latestOptionOrder.value) actionErrors.value[order.id] = '予約は終了または変更されています。一覧を再読み込みしてください。'
   } catch (e) {
     actionErrors.value[order.id] = e.message
   } finally {
     processingOrderId.value = null
   }
+}
+
+function restartOptions(order) {
+  if (latestOptionOrder.value?.id !== order.id || !confirm('選択中の変更を取り消して、最新の予約内容に切り替えますか？')) return
+  const latest = latestOptionOrder.value
+  replaceOrder(latest)
+  optionDraftIds.value = [...(latest.option_ids || [])]
+  optionVersion.value = latest.updated_at
+  optionConflict.value = false
+  latestOptionOrder.value = null
+  actionErrors.value[order.id] = ''
 }
 
 async function startService(order) {
@@ -362,8 +397,8 @@ async function completeService(order) {
     orders.value = orders.value.filter(item => item.id !== order.id)
     totalOrders.value = orders.value.length
     unconfirmedCount.value = orders.value.filter(item => item.is_unconfirmed).length
-    todaySales.value = await api.getCastTodaySales()
     await loadCheckout()
+    todaySales.value = await api.getCastTodaySales()
   } catch (e) {
     actionErrors.value[order.id] = e.message
   } finally {
@@ -539,9 +574,18 @@ function formatMonthDay(dateStr) {
                 </label>
                 <button
                   class="btn btn-sm btn-primary w-100 mt-2"
-                  :disabled="processingOrderId === order.id"
+                  :disabled="processingOrderId === order.id || optionConflict"
                   @click="saveOptions(order)"
                 >選択内容を保存</button>
+                <div v-if="optionConflict" class="alert alert-warning mt-2 mb-0 small" role="alert">
+                  <div class="mb-2">予約が更新されています。選択中の内容は残しています。</div>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="processingOrderId === order.id" @click="checkLatestOptions(order)">最新の予約を確認</button>
+                  <div v-if="latestOptionOrder" class="mt-2">
+                    <div>最新のオプション：{{ latestOptionOrder.options?.length ? latestOptionOrder.options.map(option => option.name).join('、') : 'なし' }}</div>
+                    <div>最新の合計：{{ formatYen(latestOptionOrder.total_price) }}</div>
+                    <button type="button" class="btn btn-outline-primary btn-sm mt-2" @click="restartOptions(order)">最新の内容で選び直す</button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -637,7 +681,7 @@ function formatMonthDay(dateStr) {
         </div>
 
         <div class="rk-section-header"><i class="ti ti-cash-banknote"></i> 精算</div>
-        <RoomCashPanel v-if="todayBusinessDate" :date="todayBusinessDate" cast-mode />
+        <RoomCashPanel v-if="todayBusinessDate" ref="checkoutRoomCashPanel" :date="todayBusinessDate" cast-mode />
 
         <!-- ポイントカード -->
         <div v-if="totalPoints !== 0 || pointHistory.length" class="card mb-3">
