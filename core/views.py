@@ -4455,14 +4455,24 @@ class ShiftConfirmAlertsView(APIView):
         store = get_user_store(request)
         now = timezone.now()
         today = timezone.localdate()
-        tz = timezone.get_current_timezone()
+        date_str = request.query_params.get("date")
+        selected_date = None
+        if date_str is not None:
+            try:
+                selected_date = date_type.fromisoformat(date_str)
+            except ValueError:
+                return Response(
+                    {"detail": "date の形式が不正です（YYYY-MM-DD）"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         shifts = (
             ShiftAssignment.objects
-            .filter(store=store, date__gte=today, confirmed_at__isnull=True, is_absent=False)
+            .filter(store=store, confirmed_at__isnull=True, is_absent=False)
             .select_related("cast", "room")
-            .order_by("date", "start_time")
+            .order_by("date", "start_day_offset", "start_time", "id")
         )
+        shifts = shifts.filter(date=selected_date) if selected_date else shifts.filter(date__gte=today)
 
         shift_ids = [s.id for s in shifts]
         latest_logs = {}
@@ -4477,18 +4487,33 @@ class ShiftConfirmAlertsView(APIView):
                     latest_logs[key] = log
 
         alerts = []
+        from .services.business_datetime import build_store_datetime, format_extended_time
+
         for s in shifts:
-            start_dt = timezone.make_aware(datetime.combine(s.date, s.start_time), tz)
-            minutes_until_start = int((start_dt - now).total_seconds() // 60)
-            if minutes_until_start > 120:
+            start_dt = build_store_datetime(
+                s.date, s.start_time, day_offset=s.start_day_offset,
+                timezone_name=store.timezone,
+            )
+            end_dt = build_store_datetime(
+                s.date, s.end_time, day_offset=s.end_day_offset,
+                timezone_name=store.timezone,
+            )
+            # 日付指定はタイムライン用。終了済みのシフトを翌日以降まで警告しない。
+            if selected_date and now >= end_dt:
+                continue
+            until_start = start_dt - now
+            minutes_until_start = int(until_start.total_seconds() // 60)
+            if until_start > timedelta(hours=2):
                 continue  # 2時間より前は対象外
-            alert_level = "ONE_HOUR" if minutes_until_start <= 60 else "TWO_HOURS"
+            alert_level = "ONE_HOUR" if until_start <= timedelta(hours=1) else "TWO_HOURS"
             last_log = latest_logs.get((s.id, alert_level))
             alerts.append({
                 "shift_id": s.id,
                 "cast_name": s.cast.name,
                 "date": s.date.isoformat(),
                 "start_time": str(s.start_time)[:5],
+                "start_time_extended": format_extended_time(s.start_time, s.start_day_offset),
+                "has_started": now >= start_dt,
                 "room_name": s.room.name if s.room_id else None,
                 "confirmed_at": s.confirmed_at,
                 "minutes_until_start": minutes_until_start,

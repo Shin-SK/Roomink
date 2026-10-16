@@ -2,6 +2,9 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
+import AttendanceCards from '../../components/AttendanceCards.vue'
+import { attendanceCards } from '../../attendanceCards.js'
+import { localBusinessDate } from '../../businessDate.js'
 import { api } from '../../api.js'
 import { getAuthRole } from '../../router.js'
 
@@ -13,6 +16,20 @@ const unconfirmedOrders = ref([])
 const confirmedOrders = ref([])
 const pendingFinalizeOrders = ref([])
 const allOrders = ref([])
+const casts = ref([])
+const hasSchedule = ref(false)
+const shiftConfirmAlerts = ref([])
+const attendance = computed(() => attendanceCards(shiftConfirmAlerts.value, casts.value, notClockedIn.value))
+const castForOrder = order => casts.value.find(cast => cast.id === order.cast_id)?.name || order.cast_name
+const expandedAttention = ref(null)
+const expandedGroup = computed(() => attentionGroups.value.find(group => group.key === expandedAttention.value))
+const refreshing = ref(false)
+const refreshErrors = ref([])
+const updatedAt = ref(null)
+let refreshRequest = 0
+let refreshTimer = null
+let mounted = true
+let businessDayBoundaryHour = null
 const roomPendingOrders = computed(() => allOrders.value.filter(
   o => o.is_room_pending && o.status !== 'CANCELLED' && o.status !== 'DONE'
 ))
@@ -39,11 +56,6 @@ const lineUnlinked = ref([])
 const lineFailed = ref([])
 const notClockedIn = ref([])
 const shiftEndAlerts = ref([])
-let lineAlertTimer = null
-let shiftEndAlertTimer = null
-
-const attentionPreviewEnabled = import.meta.env.DEV
-  && new URLSearchParams(window.location.search).get('attention-preview') === 'full'
 
 function makeAttentionGroup(key, label, tone, icon, to, entries) {
   return { key, label, tone, icon, to, entries }
@@ -51,37 +63,31 @@ function makeAttentionGroup(key, label, tone, icon, to, entries) {
 
 const attentionGroups = computed(() => {
   const current = [
-    ...(unconfirmedOrders.value.length ? [makeAttentionGroup('cast-unconfirmed', 'キャスト未確認', 'warning', 'user-question', '/op/schedule', unconfirmedOrders.value.map(order => ({
+    ...(unconfirmedOrders.value.length ? [makeAttentionGroup('cast-unconfirmed', '予約未確認', 'warning', 'user-question', '/op/schedule', unconfirmedOrders.value.map(order => ({
       id: order.id,
       time: formatTime(order.start),
       title: orderPartyLabel(order),
-      detail: order.cast_name || 'キャストの確認待ち',
+      detail: castForOrder(order) || 'キャストの確認待ち',
       to: `/op/orders/${order.id}`,
     })))] : []),
     ...(requestedOrders.value.length ? [makeAttentionGroup('reservation-request', '予約リクエスト', 'warning', 'calendar-plus', '/op/schedule', requestedOrders.value.map(order => ({
       id: order.id,
       time: formatTime(order.start),
       title: orderPartyLabel(order),
-      detail: order.cast_name || '内容を確認',
+      detail: castForOrder(order) || '内容を確認',
       to: `/op/orders/${order.id}`,
     })))] : []),
     ...(pendingFinalizeOrders.value.length ? [makeAttentionGroup('pending-finalize', '会計待ち', 'warning', 'cash-register', '/op/schedule', pendingFinalizeOrders.value.map(order => ({
       id: order.id,
       time: formatTime(order.start),
       title: orderPartyLabel(order),
-      detail: order.cast_name || '会計を確認',
+      detail: castForOrder(order) || '会計を確認',
       to: `/op/orders/${order.id}`,
-    })))] : []),
-    ...(notClockedIn.value.length ? [makeAttentionGroup('not-clocked-in', '未出勤', 'danger', 'alert-triangle', '/op/shifts', notClockedIn.value.map(cast => ({
-      id: cast.id,
-      time: cast.start_time ? `${cast.start_time}〜` : '',
-      title: cast.name,
-      detail: '出勤予定',
     })))] : []),
     ...(roomPendingOrders.value.length ? [makeAttentionGroup('room-pending', 'ルーム未定', 'warning', 'door-off', '/op/schedule', roomPendingOrders.value.map(order => ({
       id: order.id,
       time: formatTime(order.start),
-      title: order.cast_name || 'キャスト未定',
+      title: castForOrder(order) || 'キャスト未定',
       detail: orderPartyLabel(order),
     })))] : []),
     ...(shiftEndAlerts.value.length ? [makeAttentionGroup('shift-end', '受付終了の確認', 'warning', 'clock-exclamation', '/op/schedule', shiftEndAlerts.value.map(alert => ({
@@ -92,7 +98,7 @@ const attentionGroups = computed(() => {
     })))] : []),
     ...(lineFailed.value.length ? [makeAttentionGroup('line-failed', 'LINE送信失敗', 'danger', 'brand-line', '/op/settings/line', lineFailed.value.map(item => ({
       id: item.id,
-      time: item.created_at ? formatTime(item.created_at) : '',
+      time: item.sent_at ? formatTime(item.sent_at) : '',
       title: item.cast_name || '通知送信',
       detail: item.notification_type || 'LINE通知',
     })))] : []),
@@ -103,90 +109,84 @@ const attentionGroups = computed(() => {
       detail: '本日出勤予定',
     })))] : []),
   ]
-  if (!attentionPreviewEnabled) return current
-  const samples = [
-    makeAttentionGroup('room-pending', 'ルーム未定', 'warning', 'door-off', '/op/schedule', [
-      { id: 'room-1', time: '15:00', title: '田中 花子', detail: '担当：山本' },
-      { id: 'room-2', time: '16:30', title: '鈴木 美咲', detail: '担当：高橋' },
-    ]),
-    makeAttentionGroup('shift-end', '受付終了の確認', 'warning', 'clock-exclamation', '/op/schedule', [
-      { id: 'shift-end-1', time: '終了 20:00', title: '佐藤', detail: '本日 2件 / ¥27,000' },
-    ]),
-    makeAttentionGroup('line-failed', 'LINE送信失敗', 'danger', 'brand-line', '/op/settings/line', [
-      { id: 'line-1', time: '14:10', title: '山本', detail: '予約確認' },
-      { id: 'line-2', time: '14:25', title: '高橋', detail: '出勤確認' },
-    ]),
-    makeAttentionGroup('line-unlinked', 'LINE未連携', 'warning', 'brand-line', '/op/settings/line', [
-      { id: 'unlinked-1', time: '12:00〜', title: '井上', detail: '本日出勤予定' },
-      { id: 'unlinked-2', time: '13:00〜', title: '加藤', detail: '本日出勤予定' },
-      { id: 'unlinked-3', time: '15:00〜', title: '中村', detail: '本日出勤予定' },
-      { id: 'unlinked-4', time: '17:00〜', title: '小林', detail: '本日出勤予定' },
-    ]),
-  ]
-  return [...current, ...samples.filter(sample => !current.some(item => item.key === sample.key))]
+  return current
 })
 
-const attentionCount = computed(() => attentionGroups.value.reduce((sum, group) => sum + group.entries.length, 0))
+watch(attentionGroups, groups => {
+  if (!groups.some(group => group.key === expandedAttention.value)) expandedAttention.value = null
+})
 
 function today() {
-  const d = new Date()
-  return d.toISOString().slice(0, 10)
+  return localBusinessDate(new Date(), businessDayBoundaryHour)
 }
 
-onMounted(async () => {
-  try {
-    const data = await api.getSchedule(today())
+async function refreshDashboard() {
+  if (refreshing.value) return
+  const request = ++refreshRequest
+  refreshing.value = true
+  if (businessDayBoundaryHour === null) {
+    try {
+      const settings = await api.getBusinessDaySettings()
+      if (!mounted || request !== refreshRequest) return
+      if (!Number.isInteger(settings.business_day_boundary_hour)) throw new Error('Invalid boundary')
+      businessDayBoundaryHour = settings.business_day_boundary_hour
+    } catch (_) {
+      if (!mounted || request !== refreshRequest) return
+      refreshErrors.value = ['営業日の設定']
+      refreshing.value = false
+      loading.value = false
+      return
+    }
+  }
+  const date = today()
+  const results = await Promise.allSettled([
+    api.getSchedule(date), api.getLineAlerts(), api.getShiftEndAlerts(), api.getShiftConfirmAlerts(date),
+  ])
+  if (!mounted || request !== refreshRequest) return
+  refreshErrors.value = results.flatMap((result, index) => result.status === 'rejected'
+    ? [['予約・シフト', '出勤・LINE', '受付終了', '出勤確認'][index]] : [])
+  if (results[0].status === 'fulfilled') {
+    const data = results[0].value
+    hasSchedule.value = true
     kpi.value = data.kpi
+    casts.value = data.casts || []
     allOrders.value = data.orders
     requestedOrders.value = data.orders.filter(o => o.status === 'REQUESTED')
-    unconfirmedOrders.value = data.orders.filter(o => o.is_unconfirmed && o.status !== 'REQUESTED' && o.status !== 'CANCELLED' && o.status !== 'DONE')
-    // 「本日の確定予約」= CONFIRMED と IN_PROGRESS（後方互換、現状運用では出さない想定）
-    confirmedOrders.value = data.orders.filter(o => o.status === 'CONFIRMED' || o.status === 'IN_PROGRESS')
+    unconfirmedOrders.value = data.orders.filter(o => o.is_unconfirmed && !['REQUESTED', 'CANCELLED', 'DONE'].includes(o.status))
+    confirmedOrders.value = data.orders.filter(o => ['CONFIRMED', 'IN_PROGRESS'].includes(o.status))
     pendingFinalizeOrders.value = data.orders.filter(o => o.status === 'PENDING_FINALIZE')
-  } catch (e) {
-    console.error(e)
-  } finally {
-    loading.value = false
   }
-
-  // Sales (manager only)
-  if (isManager.value) fetchSales()
-
-  // LINE alerts (30 sec)
-  await fetchLineAlerts()
-  lineAlertTimer = setInterval(fetchLineAlerts, 30000)
-  await fetchShiftEndAlerts()
-  shiftEndAlertTimer = setInterval(fetchShiftEndAlerts, 30000)
-
-  // 「施術中」表示判定用に1分ごとに現在時刻を更新
-  nowTickTimer = setInterval(() => { nowTick.value = Date.now() }, 60000)
-})
-
-onUnmounted(() => {
-  if (lineAlertTimer) clearInterval(lineAlertTimer)
-  if (shiftEndAlertTimer) clearInterval(shiftEndAlertTimer)
-  if (nowTickTimer) clearInterval(nowTickTimer)
-})
-
-async function fetchLineAlerts() {
-  try {
-    const data = await api.getLineAlerts()
+  if (results[1].status === 'fulfilled') {
+    const data = results[1].value
     lineUnlinked.value = data.unlinked_casts || []
     lineFailed.value = data.failed_notifications || []
     notClockedIn.value = data.not_clocked_in_casts || []
-  } catch (e) {
-    // non-fatal
   }
+  if (results[2].status === 'fulfilled') shiftEndAlerts.value = results[2].value.open_alerts || []
+  if (results[3].status === 'fulfilled') shiftConfirmAlerts.value = results[3].value.alerts || []
+  if (!refreshErrors.value.length) updatedAt.value = new Date().toISOString()
+  refreshing.value = false
+  loading.value = false
 }
 
-async function fetchShiftEndAlerts() {
-  try {
-    const data = await api.getShiftEndAlerts()
-    shiftEndAlerts.value = data.open_alerts || []
-  } catch (e) {
-    // non-fatal
-  }
+function refreshWhenVisible() {
+  if (!document.hidden) refreshDashboard()
 }
+
+onMounted(() => {
+  refreshDashboard()
+  if (isManager.value) fetchSales()
+  refreshTimer = setInterval(refreshWhenVisible, 30000)
+  document.addEventListener('visibilitychange', refreshWhenVisible)
+  nowTickTimer = setInterval(() => { nowTick.value = Date.now() }, 60000)
+})
+onUnmounted(() => {
+  mounted = false
+  ++refreshRequest
+  clearInterval(refreshTimer)
+  clearInterval(nowTickTimer)
+  document.removeEventListener('visibilitychange', refreshWhenVisible)
+})
 
 function goOrder(id) {
   router.push(`/op/orders/${id}`)
@@ -288,20 +288,38 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
     </div>
 
     <template v-else>
-      <section v-if="attentionGroups.length" class="dashboard-attention" aria-label="要対応">
-        <header class="dashboard-attention__header"><strong>要対応</strong><span>{{ attentionCount }}件</span></header>
-        <div class="dashboard-attention__groups">
-          <section v-for="group in attentionGroups" :key="group.key" class="dashboard-attention__group" :class="`is-${group.tone}`">
-            <header><i class="dashboard-attention__dot" aria-hidden="true"></i><i class="ti" :class="`ti-${group.icon}`"></i><strong>{{ group.label }}</strong><span>{{ group.entries.length }}{{ group.key === 'not-clocked-in' || group.key === 'shift-end' || group.key === 'line-unlinked' ? '名' : '件' }}</span></header>
-            <router-link v-for="entry in group.entries" :key="entry.id" :to="entry.to || group.to" class="dashboard-attention__row">
-              <time>{{ entry.time }}</time>
-              <span><strong>{{ entry.title }}</strong><small>{{ entry.detail }}</small></span>
-              <i class="ti ti-chevron-right" aria-hidden="true"></i>
-            </router-link>
+      <section class="dashboard-attention" aria-label="お知らせ・要対応">
+        <header class="dashboard-attention__header">
+          <div><span class="dashboard-attention__eyebrow">TODAY</span><h1>お知らせ・要対応</h1></div>
+          <div class="dashboard-attention__update"><span v-if="updatedAt">{{ formatTime(updatedAt) }} 更新</span><button type="button" :disabled="refreshing" @click="refreshDashboard"><i class="ti ti-refresh" aria-hidden="true"></i>{{ refreshing ? '更新中…' : '更新' }}</button></div>
+        </header>
+        <p v-if="refreshErrors.length" class="dashboard-attention__error" role="alert">{{ refreshErrors.join('・') }}の最新情報を取得できませんでした。<template v-if="hasSchedule">表示中の情報は前回取得時のものです。</template>更新して再確認してください。</p>
+        <AttendanceCards :cards="attendance" />
+        <div v-if="attentionGroups.length" class="dashboard-attention__other" :class="{ 'has-attendance': attendance.length }">
+          <h2>その他の要対応</h2>
+          <div class="dashboard-attention__categories">
+            <button v-for="group in attentionGroups" :key="group.key" type="button"
+              class="dashboard-attention__category" :class="[{ 'is-active': expandedAttention === group.key }, `is-${group.tone}`]"
+              :aria-expanded="expandedAttention === group.key" aria-controls="dashboard-attention-detail"
+              @click="expandedAttention = expandedAttention === group.key ? null : group.key">
+              <i class="ti" :class="`ti-${group.icon}`" aria-hidden="true"></i><span>{{ group.label }}</span>
+              <strong>{{ group.entries.length }}<small>{{ ['shift-end', 'line-unlinked'].includes(group.key) ? '名' : '件' }}</small></strong>
+              <i class="ti" :class="expandedAttention === group.key ? 'ti-chevron-up' : 'ti-chevron-down'" aria-hidden="true"></i>
+            </button>
+          </div>
+          <section v-if="expandedGroup" id="dashboard-attention-detail" class="dashboard-attention__detail" :aria-label="expandedGroup.label">
+            <header><h3>{{ expandedGroup.label }} <span>{{ expandedGroup.entries.length }}{{ ['shift-end', 'line-unlinked'].includes(expandedGroup.key) ? '名' : '件' }}</span></h3><button type="button" @click="expandedAttention = null">閉じる</button></header>
+            <div class="dashboard-attention__rows">
+              <router-link v-for="entry in expandedGroup.entries" :key="entry.id" :to="entry.to || expandedGroup.to" class="dashboard-attention__row">
+                <time>{{ entry.time }}</time><span><strong>{{ entry.title }}</strong><small>{{ entry.detail }}</small></span><i class="ti ti-chevron-right" aria-hidden="true"></i>
+              </router-link>
+            </div>
           </section>
         </div>
+        <p v-if="!attendance.length && !attentionGroups.length && !refreshErrors.length" class="dashboard-attention__empty"><i class="ti ti-circle-check" aria-hidden="true"></i>いま対応が必要なお知らせはありません。</p>
       </section>
 
+      <template v-if="hasSchedule">
       <!-- 統計カード -->
       <div class="row g-2 mb-5">
         <div class="col-12 col-sm-6 col-xl-3">
@@ -560,58 +578,51 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
           </ul>
         </div>
       </div>
+      </template>
     </template>
   </LayoutOperator>
 </template>
 
 <style scoped>
 .dashboard-attention {
-  margin-bottom: 0.85rem;
-  border-top: 1px solid #e4ece7;
-  border-bottom: 1px solid #e4ece7;
+  margin-bottom: 24px;
+  padding: 19px 20px 20px;
+  border: 1px solid #e2eae6;
+  border-radius: 12px;
+  background: #fff;
 }
 
-.dashboard-attention__header {
-  display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
-  padding: 0.55rem 0;
-}
-
-.dashboard-attention__header strong { font-size: 0.88rem; }
-.dashboard-attention__header span {
-  color: #64748b;
-  font-size: 0.78rem;
-}
-
-.dashboard-attention__groups {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 1rem;
-}
-
-.dashboard-attention__group {
-  padding-bottom: 0.45rem;
-}
-
-.dashboard-attention__group > header {
-  display: grid;
-  grid-template-columns: 8px 16px minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 0.3rem;
-  min-height: 28px;
-  color: #475569;
-  font-size: 0.78rem;
-}
-
-.dashboard-attention__group > header span { font-weight: 600; }
+.dashboard-attention__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.dashboard-attention__eyebrow { display: block; color: #78928b; font-size: .61rem; letter-spacing: .12em; margin-bottom: 3px; }
+.dashboard-attention__header h1 { margin: 0; font-size: 1.05rem; font-weight: 700; color: #2b4540; }
+.dashboard-attention__update { display: flex; align-items: center; gap: 10px; font-size: .68rem; color: #778b84; }
+.dashboard-attention__update button { display: flex; gap: 5px; align-items: center; border: 1px solid #dde7e2; border-radius: 6px; padding: 5px 9px; background: #fff; color: #506b62; font-size: .71rem; }
+.dashboard-attention__other.has-attendance { border-top: 1px solid #e8eeeb; margin-top: 16px; padding-top: 13px; }
+.dashboard-attention__other > h2 { font-size: .7rem; color: #7c8c86; margin: 0 0 9px; font-weight: 500; }
+.dashboard-attention__categories { display: flex; flex-wrap: wrap; gap: 7px; }
+.dashboard-attention__category { display: flex; gap: 7px; align-items: center; border: 1px solid #e4ebe7; border-radius: 7px; background: #f8faf9; padding: 8px 10px; font-size: .74rem; color: #50625c; }
+.dashboard-attention__category > .ti:first-child { color: #9b7b39; font-size: 15px; }
+.dashboard-attention__category > .ti:last-child { font-size: 10px; color: #8d9b95; }
+.dashboard-attention__category strong { color: #314c42; font-size: .84rem; margin-left: 3px; }
+.dashboard-attention__category small { font-size: .6rem; font-weight: 400; margin-left: 2px; }
+.dashboard-attention__category.is-danger > .ti:first-child { color: #b23f50; }
+.dashboard-attention__category.is-active { border-color: #75b9a8; background: #ebf6f1; color: #246653; }
+.dashboard-attention__category:hover { background: #eef5f1; }
+.dashboard-attention__detail { border: 1px solid #dfe9e3; border-radius: 8px; margin-top: 10px; padding: 0 12px; background: #fff; }
+.dashboard-attention__detail > header { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 10px 0; }
+.dashboard-attention__detail h3 { margin: 0; font-size: .8rem; }
+.dashboard-attention__detail h3 span { margin-left: 5px; color: #7c8a83; font-size: .7rem; font-weight: 400; }
+.dashboard-attention__detail button { border: 0; background: transparent; padding: 3px 7px; color: #6c8076; font-size: .7rem; }
+.dashboard-attention__rows { max-height: 240px; overflow-y: auto; overscroll-behavior: contain; }
+.dashboard-attention__error { color: #a63842; font-size: .78rem; padding: 10px 12px; border-radius: 6px; background: #fff1f0; }
+.dashboard-attention__empty { margin: 0; display: flex; align-items: center; gap: 7px; font-size: .82rem; color: #6b8176; }
 
 .dashboard-attention__row {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr) 12px;
   align-items: center;
   column-gap: 0.45rem;
-  min-height: 38px;
+  min-height: 45px;
   border-top: 1px solid #edf2f1;
   color: #334155;
   font-size: 0.78rem;
@@ -619,17 +630,9 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
 }
 
 .dashboard-attention__row time { color: #64748b; font-variant-numeric: tabular-nums; }
-.dashboard-attention__row span { min-width: 0; display: flex; align-items: baseline; gap: 0.4rem; }
-.dashboard-attention__row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dashboard-attention__row small { overflow: hidden; color: #64748b; font-size: 0.72rem; text-overflow: ellipsis; white-space: nowrap; }
-.dashboard-attention__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #b88722;
-}
-.dashboard-attention__group.is-danger > header { color: #b4233b; }
-.dashboard-attention__group.is-danger .dashboard-attention__dot { background: #d92d4c; }
+.dashboard-attention__row span { min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 .6rem; padding: 6px 0; }
+.dashboard-attention__row strong { overflow-wrap: anywhere; }
+.dashboard-attention__row small { color: #64748b; font-size: .72rem; overflow-wrap: anywhere; }
 .dashboard-attention__row .ti-chevron-right { color: #94a3b8; font-size: 0.72rem; }
 
 @media (max-width: 575.98px) {
@@ -651,6 +654,14 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
     white-space: nowrap;
   }
 
-  .dashboard-attention__groups { grid-template-columns: 1fr; }
+  .dashboard-attention { padding: 14px 12px; margin-bottom: 16px; }
+  .dashboard-attention__header { margin-bottom: 14px; }
+  .dashboard-attention__header h1 { font-size: .92rem; }
+  .dashboard-attention__update > span { display: none; }
+  .dashboard-attention__categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-attention__category { gap: 5px; padding: 8px; font-size: .69rem; min-width: 0; }
+  .dashboard-attention__category > span { flex: 1; }
+  .dashboard-attention__category > .ti:last-child { display: none; }
 }
+@media (pointer: coarse) { .dashboard-attention button { min-height: 44px; } }
 </style>

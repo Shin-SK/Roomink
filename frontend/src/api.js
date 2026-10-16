@@ -488,7 +488,7 @@ export const api = {
   getCastNotesMypage: (params = '') => request('GET', `/cast/notes/${params ? '?' + params : ''}`),
 
   // Shift Confirm Alerts（出勤確認アラート土台, Phase 3-F / Phase 4で通知ログ土台を追加）
-  getShiftConfirmAlerts: () => request('GET', '/op/shift-confirm-alerts/'),
+  getShiftConfirmAlerts: (date) => request('GET', `/op/shift-confirm-alerts/${date ? '?date=' + encodeURIComponent(date) : ''}`),
   getShiftConfirmNotificationLogs: (params = '') => listRequest('GET', `/shift-confirm-notification-logs/${params ? '?' + params : '?limit=200'}`),
   markShiftConfirmNotificationTest: (shiftId, body) => request('POST', `/op/shift-confirm-alerts/${shiftId}/mark_notification_test/`, body),
 
