@@ -4,6 +4,7 @@ import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 import { sanitizeNoteHtml } from '../../noteContent.js'
 import { roomMapHref } from '../../roomMap.js'
+import { checkoutBalanceDisplay } from '../../checkoutBalance.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -98,11 +99,15 @@ const checkoutIsReadOnly = computed(() => {
 const checkoutCarryover = computed(() => {
   const opening = Number(checkoutData.value?.checkout?.carryover_opening_amount ?? checkoutData.value?.carryover_opening_amount ?? 0)
   const compensation = Number(checkoutData.value?.checkout?.compensation_amount ?? checkoutData.value?.compensation ?? 0)
-  const roomCash = Number(checkoutData.value?.checkout?.room_cash_taken_amount ?? checkoutForm.value.room_cash_taken_amount ?? 0)
+  const roomCash = Number((checkoutIsReadOnly.value ? checkoutData.value?.checkout?.room_cash_taken_amount : checkoutForm.value.room_cash_taken_amount) ?? 0)
   const officeCash = Number(checkoutData.value?.checkout?.office_cash_paid_amount ?? 0)
   const available = opening + compensation
   return { opening, compensation, available, roomCash, officeCash, closing: available - roomCash - officeCash }
 })
+
+const checkoutBalance = computed(() => checkoutBalanceDisplay(
+  checkoutCarryover.value.available, checkoutCarryover.value.roomCash, checkoutCarryover.value.officeCash,
+))
 
 const checkoutReadyToSubmit = computed(() => (
   CHECKLIST_ITEMS.every(item => checkoutForm.value.checklist_json?.[item.key])
@@ -947,10 +952,11 @@ function formatMonthDay(dateStr) {
                   <div class="small text-muted mb-1">今日の受取可能額</div>
                   <div class="fs-2 fw-bold text-primary">{{ formatYen(checkoutCarryover.available) }}</div>
                   <div class="d-flex justify-content-between align-items-end border-top mt-3 pt-3">
-                    <span class="small text-muted">今回の受取残</span>
-                    <strong class="fs-5 text-warning">{{ formatYen(checkoutCarryover.closing) }}</strong>
+                    <span class="small text-muted">受け取り状況</span>
+                    <strong class="fs-5 text-end" :class="checkoutBalance.tone" role="status" aria-live="polite">{{ checkoutBalance.label }}{{ checkoutBalance.amount.toLocaleString('ja-JP') }}円</strong>
                   </div>
-                  <div v-if="checkoutCarryover.closing > 0" class="text-muted mt-2" style="font-size: .75rem;">どうしても今日受け取りたい場合は、運営に相談してください。</div>
+                  <div v-if="checkoutBalance.isShortage" class="text-muted mt-2" style="font-size: .75rem;">不足分は次回以降に受け取れます。今日の受け取りを希望する場合は、運営に相談してください。</div>
+                  <div v-else-if="checkoutCarryover.closing < 0" class="text-muted mt-2" style="font-size: .75rem;">金額を確認し、運営に相談してください。</div>
                 </div>
 
                 <div v-if="checkoutData?.sales_items?.length" class="mb-3">
@@ -987,7 +993,7 @@ function formatMonthDay(dateStr) {
                     <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">今日の受取可能額</span><strong class="text-primary">{{ formatYen(checkoutCarryover.available) }}</strong></div>
                     <div class="d-flex justify-content-between mt-2"><span>今回ルームで受け取る額</span><strong>-{{ formatYen(checkoutCarryover.roomCash) }}</strong></div>
                     <div v-if="checkoutCarryover.officeCash" class="d-flex justify-content-between"><span>事務所で受け取った額</span><strong>-{{ formatYen(checkoutCarryover.officeCash) }}</strong></div>
-                    <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">今回の受取残</span><strong class="text-warning">{{ formatYen(checkoutCarryover.closing) }}</strong></div>
+                    <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">受け取り状況</span><strong :class="checkoutBalance.tone">{{ checkoutBalance.label }}{{ checkoutBalance.amount.toLocaleString('ja-JP') }}円</strong></div>
                   </div>
                 </div>
 
@@ -1029,9 +1035,9 @@ function formatMonthDay(dateStr) {
                 <!-- 入力フォーム（未提出 or 差戻し後） -->
                 <template v-else>
                   <div class="mb-3">
-                    <label class="form-label small fw-bold">受取可能額</label>
-                    <input v-model.number="checkoutForm.room_cash_taken_amount" type="number" min="0" :max="Math.max(0, checkoutCarryover.available)" class="form-control" />
-                    <div class="form-text">ルーム内の現金に合わせて入力してください。受け取らなかった分は、次回以降に受け取れます。</div>
+                    <label for="checkout-room-cash" class="form-label small fw-bold">今回ルームで受け取る金額</label>
+                    <input id="checkout-room-cash" v-model.number="checkoutForm.room_cash_taken_amount" type="number" min="0" :max="Math.max(0, checkoutCarryover.available)" class="form-control" />
+                    <div class="form-text">ルーム内の現金から、実際に受け取る金額を入力してください。受け取らなかった分は、次回以降に受け取れます。</div>
                   </div>
                   <div class="mb-3">
                     <label class="form-label small fw-bold">退勤チェック <span class="text-danger">（すべて確認してください）</span></label>
