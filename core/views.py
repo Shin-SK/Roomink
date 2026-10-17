@@ -704,13 +704,13 @@ class OrderViewSet(viewsets.ModelViewSet):
     @extend_schema(request=OpenApiTypes.OBJECT, responses=OrderSerializer)
     @action(detail=True, methods=["post"], url_path="correct-accounting")
     def correct_accounting(self, request, pk=None):
-        """完了状態と売上計上を維持し、日締め前の延長・割引だけを訂正する。"""
+        """完了状態を維持し、日締め前の予約内容と関連する退勤提出を訂正する。"""
         order = self.get_object()
         if not isinstance(request.data, dict):
             raise ValidationError("訂正内容を正しい形式で送信してください。")
-        allowed = {"extension", "extension_duration", "extension_price", "discount"}
+        allowed = set(OrderUpdateSerializer.Meta.fields) - {"expected_updated_at"}
         if set(request.data) - allowed - {"reason", "expected_updated_at"}:
-            raise ValidationError("訂正できるのは延長と割引だけです。")
+            raise ValidationError("変更できない予約項目が含まれています。")
         reason = request.data.get("reason")
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
             raise ValidationError("訂正理由を500文字以内で入力してください。")
@@ -722,12 +722,23 @@ class OrderViewSet(viewsets.ModelViewSet):
         if expected is None:
             raise ValidationError("予約を読み直してから訂正してください。")
         fields = (
+            "cast_id", "course_id", "course_name", "course_price", "room_id", "medium_id",
+            "nomination_fee_id", "nomination_fee_name", "nomination_fee_price", "options_price",
+            "payment_method", "card_include_options", "timeline_status",
             "extension_id", "extension_name", "extension_duration", "extension_price",
             "discount_id", "discount_name", "discount_type_snapshot", "discount_value_snapshot",
             "discount_amount", "total_price",
         )
         def snapshot(item):
-            return {**{field: getattr(item, field) for field in fields}, "end": item.end.isoformat()}
+            # 自由記述の本文を訂正履歴へ複製せず、変更の有無を照合する。
+            from hashlib import sha256
+            return {
+                **{field: getattr(item, field) for field in fields},
+                "start": item.start.astimezone(ZoneInfo(item.store.timezone)).isoformat(),
+                "end": item.end.astimezone(ZoneInfo(item.store.timezone)).isoformat(),
+                "option_ids": sorted(item.options.values_list("id", flat=True)),
+                "notes_digest": sha256(f"{item.memo}\0{item.service_recipient_name}".encode()).hexdigest(),
+            }
 
         with transaction.atomic():
             order = self._lock_order_for_mutation(order)
@@ -735,30 +746,41 @@ class OrderViewSet(viewsets.ModelViewSet):
                 raise ValidationError("完了済みの予約だけを訂正できます。")
             if order.updated_at != expected:
                 return Response({"detail": "ほかの操作で予約が更新されています。読み直してから訂正してください。"}, status=409)
-            date = business_date_for_datetime(order.start, order.store.timezone)
-            checkout = CastDailyCheckout.objects.select_for_update().filter(store=order.store, cast=order.cast, date=date).first()
-            if checkout:
-                live_total = get_done_orders_for_business_range(order.store, date, date).filter(cast=order.cast).aggregate(value=Sum("total_price"))["value"] or 0
-                if checkout.total_sales != live_total:
-                    raise ValidationError("退勤提出と現在の売上が一致しません。先に退勤内容を確認してください。")
             before = snapshot(order)
             from .services.sales import payment_financial_summary
-            old_financial = payment_financial_summary(order.store, [order])
             serializer = OrderUpdateSerializer(
-                order, data={key: request.data[key] for key in allowed if key in request.data}, partial=True,
+                order, data={key: value for key, value in request.data.items() if key in allowed or key == "expected_updated_at"}, partial=True,
                 context={**self.get_serializer_context(), "allow_completed_addons": True},
             )
             serializer.is_valid(raise_exception=True)
+            target_cast = serializer.validated_data.get("cast", order.cast)
+            target_start = serializer.validated_data.get("start", order.start)
+            groups = {
+                (order.cast_id, business_date_for_datetime(order.start, order.store.timezone)): order.cast,
+                (target_cast.pk, business_date_for_datetime(target_start, order.store.timezone)): target_cast,
+            }
+            def totals(cast, date):
+                return {
+                    **_compute_cast_done_sales(cast, date),
+                    **payment_financial_summary(order.store, get_done_orders_for_business_range(order.store, date, date).filter(cast=cast)),
+                }
+            checkouts = []
+            for (cast_id, date), cast in sorted(groups.items()):
+                checkout = CastDailyCheckout.objects.select_for_update().filter(store=order.store, cast_id=cast_id, date=date).first()
+                if checkout:
+                    previous = totals(cast, date)
+                    if checkout.total_sales != previous["total_sales"]:
+                        raise ValidationError("退勤提出と現在の売上が一致しません。先に退勤内容を確認してください。")
+                    checkouts.append((checkout, cast, date, previous))
             order = serializer.save(updated_by=request.user)
             after = snapshot(order)
             if before == after:
-                raise ValidationError("変更する延長または割引を入力してください。")
-            if checkout:
-                # 報酬の算定基礎（コース・オプション・指名）は今回変更しない。
-                # 受渡済み現金・雑費・報酬スナップショットを維持して決済額の差だけを反映する。
-                new_financial = payment_financial_summary(order.store, [order])
-                for field in old_financial:
-                    value = getattr(checkout, field) + new_financial[field] - old_financial[field]
+                raise ValidationError("変更する予約内容を入力してください。")
+            for checkout, cast, date, previous in checkouts:
+                current = totals(cast, date)
+                # 訂正差分だけ反映し、過去の報酬スナップショット・雑費・受渡現金を保つ。
+                for field in previous:
+                    value = getattr(checkout, field) + current[field] - previous[field]
                     if field != "net_sales_after_payment_fee" and value < 0:
                         raise ValidationError("退勤提出の売上と予約が一致しません。店舗管理者へ確認してください。")
                     setattr(checkout, field, value)
@@ -766,9 +788,9 @@ class OrderViewSet(viewsets.ModelViewSet):
                     checkout.status = CastDailyCheckout.Status.SUBMITTED
                 checkout.reviewed_at = None
                 checkout.reviewed_by = None
-                checkout.save(update_fields=[*old_financial, "status", "reviewed_at", "reviewed_by", "updated_at"])
+                checkout.save(update_fields=[*previous, "status", "reviewed_at", "reviewed_by", "updated_at"])
             OrderAccountingCorrection.objects.create(
-                order=order, checkout=checkout, reason=reason.strip(),
+                order=order, checkout=checkouts[0][0] if checkouts else None, reason=reason.strip(),
                 before=before, after=after, corrected_by=request.user,
             )
         return Response(OrderSerializer(order, context=self.get_serializer_context()).data)
@@ -856,7 +878,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": "カード決済の予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED):
+        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
             return Response(
                 {"detail": "確定済みの有効な予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -878,7 +900,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": "カード決済の予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED):
+        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
             return Response(
                 {"detail": "確定済みの有効な予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -895,6 +917,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 Order.objects.select_for_update()
                 .get(pk=order.pk, store=store)
             )
+            if locked_order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
+                raise ValidationError("確定済みの有効な予約だけが対象です。")
             _require_daily_settlement_open(
                 store,
                 business_date_for_datetime(locked_order.start, store.timezone),
