@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import OrderForm from '../../components/OrderForm.vue'
@@ -15,6 +15,8 @@ const order = ref(null)
 const loading = ref(true)
 const error = ref('')
 const acting = ref(false)
+const paymentMethodSaving = ref(false)
+const paymentMethodError = ref('')
 const mode = ref('confirm') // 'confirm' | 'edit'
 const isManager = computed(() => getAuthRole() === 'manager')
 
@@ -35,24 +37,59 @@ const recipientCandidates = computed(() => {
   return items.slice(0, 100)
 })
 
-// Addon
-const addonError = ref('')
-const addonActing = ref(false)
-const extensions = ref([])
-const nominationFees = ref([])
-const discounts = ref([])
-const selectedExtension = ref(null)
-const extensionDuration = ref(0)
-const extensionPrice = ref(0)
-const selectedNominationFee = ref(null)
-const selectedDiscount = ref(null)
 const paymentFeeRates = ref({ card_fee_rate: 10, paypay_fee_rate: 5 })
+function correctionChanges(item) {
+  const labels = {
+    course_id: 'コース', nomination_fee_id: '指名', option_ids: 'オプション',
+    extension_duration: '延長', discount_id: '割引', payment_method: '支払い方法',
+    card_include_options: 'オプション代の支払い', cast_id: '担当', start: '日時',
+    end: '終了時刻', room_id: 'ルーム', medium_id: '媒体', notes_digest: '備考・実利用者名',
+    timeline_status: '対応状況',
+  }
+  return Object.entries(labels)
+    .filter(([key]) => JSON.stringify(item.before[key]) !== JSON.stringify(item.after[key]))
+    .map(([, label]) => label).join('・')
+}
 
 // SMS送信履歴（表示のみ。再送信は行わない）
 const smsLogs = ref([])
 const smsLogsLoading = ref(true)
 const smsLogsError = ref('')
 const expandedSmsIds = ref([])
+const guidance = ref(null)
+const guidanceLoading = ref(false)
+const guidanceError = ref('')
+const copyNotice = ref('')
+watch(order, () => { guidance.value = null; copyNotice.value = '' })
+
+async function loadGuidance() {
+  guidanceLoading.value = true
+  guidanceError.value = ''
+  guidance.value = null
+  copyNotice.value = ''
+  try { guidance.value = await api.getOrderGuidance(props.id) }
+  catch (e) { guidanceError.value = e.message }
+  finally { guidanceLoading.value = false }
+}
+
+async function copyGuidance(kind) {
+  copyNotice.value = ''
+  try {
+    await navigator.clipboard.writeText(guidance.value[kind])
+    copyNotice.value = 'コピーしました。送信先と内容を確認してお送りください。'
+  } catch (_) {
+    const field = document.getElementById(`guidance-${kind}`)
+    field?.focus()
+    field?.select()
+    copyNotice.value = '自動コピーできませんでした。選択された文章を手動でコピーしてください。'
+  }
+}
+
+function smsDeliveryLabel(log) {
+  if (log.delivered_at || log.provider_status === 'delivered') return '配達済み'
+  if (log.status === 'SENT') return '送信受付済み・配達未確認'
+  return log.status_label
+}
 const cardSmsActing = ref(false)
 const timelineStatusSaving = ref(false)
 const timelineStatusError = ref('')
@@ -146,27 +183,16 @@ const canOperateCardPayment = computed(() => (
   canModify.value
   && isCardPayment.value
   && order.value
-  && !['REQUESTED', 'CANCELLED'].includes(order.value.status)
+  && !['REQUESTED', 'CANCELLED', 'DONE'].includes(order.value.status)
 ))
 
 onMounted(async () => {
   try {
-    const [o, exts, nfs, dcs, feeData] = await Promise.all([
+    const [o, feeData] = await Promise.all([
       api.getOrder(props.id),
-      api.getExtensions(),
-      api.getNominationFees(),
-      api.getDiscounts(),
       api.getPaymentFeeSettings().catch(() => paymentFeeRates.value),
     ])
     order.value = o
-    extensions.value = Array.isArray(exts) ? exts : []
-    nominationFees.value = Array.isArray(nfs) ? nfs : []
-    discounts.value = Array.isArray(dcs) ? dcs : []
-    selectedExtension.value = o.extension ?? null
-    extensionDuration.value = o.extension_duration || 0
-    extensionPrice.value = o.extension_price || 0
-    selectedNominationFee.value = o.nomination_fee ?? null
-    selectedDiscount.value = o.discount ?? null
     paymentFeeRates.value = {
       card_fee_rate: Number(feeData?.card_fee_rate ?? 10),
       paypay_fee_rate: Number(feeData?.paypay_fee_rate ?? 5),
@@ -321,67 +347,32 @@ function formatTime(dt) {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
-async function doApplyExtension() {
-  addonError.value = ''
-  addonActing.value = true
+
+async function updatePaymentMethod(event) {
+  const value = event.target.value
+  paymentMethodSaving.value = true
+  paymentMethodError.value = ''
   try {
-    order.value = await api.applyExtension(props.id, {
-      extension_id: selectedExtension.value || null,
-      extension_duration: Number(extensionDuration.value) || 0,
-      extension_price: Number(extensionPrice.value) || 0,
-    })
+    order.value = await api.updateOrder(props.id, { payment_method: value, expected_updated_at: order.value.updated_at })
   } catch (e) {
-    addonError.value = e.message
+    event.target.value = order.value.payment_method || 'UNSET'
+    paymentMethodError.value = e.status === 409
+      ? '予約が更新されています。最新の予約を確認してから、支払い方法を変更してください。'
+      : e.message
   } finally {
-    addonActing.value = false
+    paymentMethodSaving.value = false
   }
 }
 
-function selectExtensionTemplate() {
-  const template = extensions.value.find(e => e.id === Number(selectedExtension.value))
-  if (template) {
-    extensionDuration.value = template.duration
-    extensionPrice.value = template.price
-  }
-}
-
-function setExtensionDuration(minutes) {
-  extensionDuration.value = minutes
-  if (minutes === 0) {
-    selectedExtension.value = null
-    extensionPrice.value = 0
-  }
-}
-
-async function doApplyNominationFee() {
-  addonError.value = ''
-  addonActing.value = true
+async function reloadPaymentOrder() {
+  paymentMethodSaving.value = true
   try {
-    order.value = await api.applyNominationFee(props.id, selectedNominationFee.value)
+    order.value = await api.getOrder(props.id)
+    paymentMethodError.value = ''
   } catch (e) {
-    addonError.value = e.message
+    paymentMethodError.value = e.message
   } finally {
-    addonActing.value = false
-  }
-}
-
-async function doApplyDiscount() {
-  addonError.value = ''
-  addonActing.value = true
-  try {
-    order.value = await api.applyDiscount(props.id, selectedDiscount.value)
-  } catch (e) {
-    addonError.value = e.message
-  } finally {
-    addonActing.value = false
-  }
-}
-
-async function updatePaymentMethod(value) {
-  try {
-    order.value = await api.updateOrder(props.id, { payment_method: value })
-  } catch (e) {
-    alert(e.message)
+    paymentMethodSaving.value = false
   }
 }
 
@@ -466,7 +457,7 @@ async function saveRecipientCustomerLink() {
                 <select
                   :value="order.timeline_status || 'AUTO'"
                   class="form-select form-select-sm timeline-display-card__select"
-                  :disabled="timelineStatusSaving"
+                  :disabled="timelineStatusSaving || order.status === 'DONE'"
                   @change="updateTimelineStatus"
                 >
                   <option v-for="item in timelineStatusOptions" :key="item.value" :value="item.value">
@@ -479,6 +470,7 @@ async function saveRecipientCustomerLink() {
                   <i :style="{ backgroundColor: item.color }"></i>{{ item.label }}
                 </span>
               </div>
+              <button v-if="order.can_correct_accounting" type="button" class="btn btn-link btn-sm px-0" @click="openEdit">対応状況を訂正する</button>
               <div v-if="timelineStatusError" class="text-danger small mt-2">{{ timelineStatusError }}</div>
             </div>
           </div>
@@ -542,14 +534,19 @@ async function saveRecipientCustomerLink() {
                         :value="order.payment_method || 'UNSET'"
                         class="form-select form-select-sm d-inline-block"
                         style="width: auto;"
-                        :disabled="!canModify"
-                        @change="updatePaymentMethod($event.target.value)"
+                        :disabled="!canModify || paymentMethodSaving || order.status === 'DONE'"
+                        @change="updatePaymentMethod"
                       >
                         <option value="UNSET">未設定</option>
                         <option value="CARD">カード</option>
                         <option value="CASH">現金</option>
                         <option value="PAYPAY">PayPay</option>
                       </select>
+                      <button v-if="order.can_correct_accounting" type="button" class="btn btn-link btn-sm" @click="openEdit">支払い方法を訂正する</button>
+                      <div v-if="paymentMethodError" class="alert alert-warning mt-2 mb-0 small" role="alert">
+                        {{ paymentMethodError }}
+                        <button type="button" class="btn btn-outline-secondary btn-sm d-block mt-2" :disabled="paymentMethodSaving" @click="reloadPaymentOrder">最新の予約を確認</button>
+                      </div>
                     </td>
                   </tr>
                   <tr v-if="isCardPayment && order.options_price > 0">
@@ -714,6 +711,23 @@ async function saveRecipientCustomerLink() {
             </div>
           </div>
 
+          <div class="card mb-4" v-if="canEdit && order.status !== 'REQUESTED'">
+            <div class="card-header">手動送信用の案内文</div>
+            <div class="card-body">
+              <p class="small text-muted">現在の予約内容から文章を作成します。SMSは送信されません。予約変更後は作り直してください。</p>
+              <button class="btn btn-outline-primary mb-2" :disabled="guidanceLoading" @click="loadGuidance">{{ guidanceLoading ? '作成中…' : '最新の案内文を作成' }}</button>
+              <div v-if="guidanceError" class="alert alert-danger">{{ guidanceError }}</div>
+              <template v-if="guidance">
+                <div v-for="(label, kind) in { customer: 'お客様向け', therapist: 'セラピスト向け' }" :key="kind" class="mb-3">
+                  <label :for="`guidance-${kind}`" class="form-label">{{ label }}</label>
+                  <textarea :id="`guidance-${kind}`" :value="guidance[kind]" readonly rows="7" class="form-control mb-2"></textarea>
+                  <button class="btn btn-outline-secondary" @click="copyGuidance(kind)">{{ label }}をコピー</button>
+                </div>
+                <p role="status" class="small">{{ copyNotice }}</p>
+              </template>
+            </div>
+          </div>
+
           <!-- SMS送信履歴（表示のみ） -->
           <div class="card mb-4">
             <div class="card-header d-flex align-items-center justify-content-between">
@@ -739,7 +753,7 @@ async function saveRecipientCustomerLink() {
                   <div class="d-flex align-items-center justify-content-between">
                     <div class="sms-row__meta">
                       <span class="badge me-1" :class="smsStatusCls[log.status] || 'bg-secondary'">
-                        {{ log.status_label }}
+                        {{ smsDeliveryLabel(log) }}
                       </span>
                       <span class="fw-bold">{{ formatDt(log.sent_at) }}</span>
                     </div>
@@ -786,6 +800,27 @@ async function saveRecipientCustomerLink() {
             </button>
           </div>
 
+          <section v-if="order.status === 'DONE' && canModify" class="card mb-4">
+            <div class="card-body">
+              <h6>終了後の予約内容の訂正</h6>
+              <p class="small text-muted">日締め前はコース・指名・オプション・支払い方法・日時・担当などを訂正できます。売上と報酬を再計算し、退勤提出済みの場合は再確認待ちに戻します。現金の受渡記録は保持します。</p>
+              <p v-if="isCardPayment" class="small text-muted">カードの追加請求・返金が必要な場合は、店舗で別途ご対応ください。</p>
+              <div v-if="!order.can_correct_accounting" class="alert alert-secondary mb-0">日締め済みのため訂正できません。</div>
+              <button v-else class="btn btn-outline-primary" @click="openEdit">予約内容を訂正する</button>
+            </div>
+          </section>
+          <section v-if="order.accounting_corrections?.length" class="card mb-4">
+            <div class="card-body">
+              <h6>会計の訂正履歴</h6>
+              <div v-for="item in order.accounting_corrections" :key="item.id" class="border-top pt-2 mt-2">
+                <div>{{ item.before.total_price.toLocaleString() }}円 → {{ item.after.total_price.toLocaleString() }}円</div>
+                <div v-if="correctionChanges(item)" class="small text-muted">変更項目：{{ correctionChanges(item) }}</div>
+                <div class="small">{{ item.reason }}</div>
+                <div class="small text-muted">{{ formatDt(item.created_at) }} / {{ item.corrected_by_name }}</div>
+              </div>
+            </div>
+          </section>
+
           <div class="d-flex gap-2 mb-4">
             <button
               v-if="canEdit"
@@ -829,87 +864,21 @@ async function saveRecipientCustomerLink() {
           </div>
 
           <!-- 基本情報編集（共通 OrderForm 雛形を利用） -->
+          <div v-if="order.status === 'PENDING_FINALIZE'" class="alert alert-info">
+            施術終了後も、会計確定前なら延長・指名・割引を訂正できます。保存後に金額を確認して会計確定してください。
+          </div>
           <div class="card mb-4">
             <div class="card-body">
               <OrderForm
                 mode="edit"
+                :completed-correction="order.status === 'DONE'"
+                :submit-label="order.status === 'DONE' ? '訂正を保存する' : ''"
                 :order-id="order.id"
                 :initial-order="order"
                 :embedded="true"
                 @updated="onOrderUpdated"
                 @cancel="closeEdit"
               />
-            </div>
-          </div>
-
-          <!-- addon 適用 -->
-          <div class="card mb-4">
-            <div class="card-header">
-              <i class="ti ti-adjustments"></i> addon 適用
-            </div>
-            <div class="card-body">
-              <div v-if="addonError" class="alert alert-danger py-2 px-3 mb-3" style="font-size:0.875rem;">{{ addonError }}</div>
-
-              <div class="mb-3">
-                <label class="form-label small fw-bold">延長</label>
-                <div class="d-flex gap-2">
-                  <select v-model="selectedExtension" class="form-select form-select-sm" @change="selectExtensionTemplate">
-                    <option :value="null">なし</option>
-                    <option v-for="e in extensions" :key="e.id" :value="e.id">
-                      {{ e.name }}（{{ e.duration }}分 / {{ e.price.toLocaleString() }}円）
-                    </option>
-                  </select>
-                  <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyExtension">適用</button>
-                </div>
-                <div class="form-text">候補を選んだ後でも、時間と料金を変更できます。</div>
-                <div class="d-flex flex-wrap gap-2 mt-2">
-                  <button
-                    v-for="minutes in [0, 15, 30, 60]"
-                    :key="minutes"
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary"
-                    @click="setExtensionDuration(minutes)"
-                  >
-                    {{ minutes === 0 ? '延長なし' : `${minutes}分` }}
-                  </button>
-                </div>
-                <div class="row g-2 mt-1">
-                  <div class="col-sm-6">
-                    <label class="form-label small">延長時間（分）</label>
-                    <input v-model.number="extensionDuration" type="number" min="0" max="180" step="5" class="form-control form-control-sm">
-                  </div>
-                  <div class="col-sm-6">
-                    <label class="form-label small">延長料金（円）</label>
-                    <input v-model.number="extensionPrice" type="number" min="0" step="100" class="form-control form-control-sm">
-                  </div>
-                </div>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label small fw-bold">指名料</label>
-                <div class="d-flex gap-2">
-                  <select v-model="selectedNominationFee" class="form-select form-select-sm">
-                    <option :value="null">なし</option>
-                    <option v-for="n in nominationFees" :key="n.id" :value="n.id">
-                      {{ n.name }}（{{ n.price.toLocaleString() }}円）
-                    </option>
-                  </select>
-                  <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyNominationFee">適用</button>
-                </div>
-              </div>
-
-              <div class="mb-0">
-                <label class="form-label small fw-bold">割引</label>
-                <div class="d-flex gap-2">
-                  <select v-model="selectedDiscount" class="form-select form-select-sm">
-                    <option :value="null">なし</option>
-                    <option v-for="d in discounts" :key="d.id" :value="d.id">
-                      {{ d.name }}（{{ d.discount_type === 'percent' ? d.value + '%' : d.value.toLocaleString() + '円' }}引き）
-                    </option>
-                  </select>
-                  <button class="btn btn-outline-primary btn-sm" :disabled="addonActing" @click="doApplyDiscount">適用</button>
-                </div>
-              </div>
             </div>
           </div>
 

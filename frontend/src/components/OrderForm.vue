@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted, computed, watch, useId } from 'vue'
 import { api as defaultApi, normalizePhone } from '../api.js'
-import { reservationDateTime } from '../reservationTime.js'
+import { reservationDateTime, courseEndTime } from '../reservationTime.js'
+import { changedOrderFields } from '../orderEdit.js'
 
 const props = defineProps({
   apiClient: { type: Object, default: null },
@@ -19,6 +20,7 @@ const props = defineProps({
   cancelLabel: { type: String, default: '' },
   submitLabel: { type: String, default: '' },
   showFlowHint: { type: Boolean, default: true },
+  completedCorrection: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['created', 'updated', 'cancel'])
@@ -41,6 +43,7 @@ async function registerCaller() {
 }
 
 const isEdit = computed(() => props.mode === 'edit')
+const correctionReason = ref('')
 
 const customers = ref([])
 const casts = ref([])
@@ -55,6 +58,10 @@ const paymentFeeRates = ref({ card_fee_rate: 10, paypay_fee_rate: 5 })
 const loading = ref(true)
 const submitting = ref(false)
 const errorMsg = ref('')
+const editBaseline = ref(null)
+const editConflict = ref(false)
+const latestOrder = ref(null)
+const refreshingOrder = ref(false)
 const phoneHint = ref(props.initialPhone || '')
 const shiftCastIds = ref(null) // null=未取得（絞り込みなし）, Set=取得済み
 
@@ -76,6 +83,7 @@ const form = ref({
   memo: '',
   payment_method: 'UNSET',
   card_include_options: false,
+  timeline_status: 'AUTO',
 })
 
 const paymentMethods = [
@@ -326,13 +334,18 @@ function toLocalInput(dt) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function applyInitialOrder() {
-  const o = props.initialOrder
+function applyInitialOrder(o = props.initialOrder) {
   if (!o) return
+  editBaseline.value = { ...o, option_ids: [...(o.option_ids || [])] }
+  editConflict.value = false
+  latestOrder.value = null
   nominationTouched.value = false
   form.value.customer = o.customer ?? ''
   form.value.cast = o.cast ?? ''
   form.value.course = o.course ?? ''
+  form.value.extension = o.extension ?? ''
+  form.value.extension_duration = o.extension_duration || 0
+  form.value.extension_price = o.extension_price || 0
   form.value.options = Array.isArray(o.option_ids) ? [...o.option_ids] : []
   form.value.nomination_fee = o.nomination_fee ?? ''
   form.value.medium = o.medium ?? ''
@@ -341,6 +354,7 @@ function applyInitialOrder() {
   form.value.memo = o.memo || ''
   form.value.payment_method = o.payment_method || 'UNSET'
   form.value.card_include_options = Boolean(o.card_include_options)
+  form.value.timeline_status = o.timeline_status || 'AUTO'
   form.value.startDate = o.business_date || toLocalInput(o.start).slice(0, 10)
   form.value.startTime = o.start_time_extended || toLocalInput(o.start).slice(11, 16)
   form.value.endTime = o.end_time_extended || toLocalInput(o.end).slice(11, 16)
@@ -373,7 +387,14 @@ async function loadMasters() {
     const allMedia = Array.isArray(mdData) ? mdData : []
     media.value = allMedia.filter(m => m.is_active)
     const allDiscounts = Array.isArray(dcData) ? dcData : []
-    discounts.value = allDiscounts.filter(d => d.is_active)
+    discounts.value = allDiscounts
+      .filter(d => d.is_active || (isEdit.value && d.id === props.initialOrder?.discount))
+      .map(d => isEdit.value && d.id === props.initialOrder?.discount ? {
+        ...d,
+        name: props.initialOrder.discount_name,
+        discount_type: props.initialOrder.discount_type_snapshot,
+        value: props.initialOrder.discount_value_snapshot,
+      } : d)
     paymentFeeRates.value = {
       card_fee_rate: Number(feeData?.card_fee_rate ?? 10),
       paypay_fee_rate: Number(feeData?.paypay_fee_rate ?? 5),
@@ -437,6 +458,12 @@ watch(() => props.initialPhone, (val) => {
 watch(() => props.initialOrder, () => {
   if (isEdit.value) applyInitialOrder()
 })
+
+watch(() => [form.value.course, form.value.startTime, form.value.extension_duration], () => {
+  if (!isEdit.value || loading.value || !selectedCourse.value) return
+  const end = courseEndTime(form.value.startTime, selectedCourse.value.duration, form.value.extension_duration || 0)
+  if (end) form.value.endTime = end
+}, { flush: 'sync' })
 
 function toggleOption(optId) {
   const idx = form.value.options.indexOf(optId)
@@ -543,6 +570,10 @@ async function submitCreate() {
 }
 
 async function submitEdit() {
+  if (props.completedCorrection && !correctionReason.value.trim()) {
+    errorMsg.value = '訂正理由を入力してください'
+    return
+  }
   if (!form.value.cast || !form.value.course) {
     errorMsg.value = 'キャスト・コースは必須です'
     return
@@ -568,18 +599,54 @@ async function submitEdit() {
     payment_method: form.value.payment_method || 'UNSET',
     card_include_options: Boolean(form.value.card_include_options),
   }
-  if (nominationTouched.value || form.value.nomination_fee) {
+  const discount = form.value.discount ? Number(form.value.discount) : null
+  if (props.completedCorrection) body.timeline_status = form.value.timeline_status
+  if (discount !== (editBaseline.value?.discount ?? null)) body.discount = discount
+  const extension = form.value.extension ? Number(form.value.extension) : null
+  if (extension !== (editBaseline.value?.extension ?? null)
+    || Number(form.value.extension_duration) !== (editBaseline.value?.extension_duration || 0)
+    || Number(form.value.extension_price) !== (editBaseline.value?.extension_price || 0)) {
+    body.extension = extension
+    body.extension_duration = Number(form.value.extension_duration) || 0
+    body.extension_price = Number(form.value.extension_price) || 0
+  }
+  if (nominationTouched.value) {
     body.nomination_fee = form.value.nomination_fee ? Number(form.value.nomination_fee) : null
+  }
+  const patch = changedOrderFields(editBaseline.value, body)
+  if (!Object.keys(patch).length) {
+    emit('cancel')
+    return
   }
   submitting.value = true
   try {
-    const order = await api.updateOrder(props.orderId, body)
+    const order = props.completedCorrection
+      ? await api.correctOrderAccounting(props.orderId, { ...patch, reason: correctionReason.value.trim() })
+      : await api.updateOrder(props.orderId, patch)
     emit('updated', { order })
   } catch (e) {
     errorMsg.value = e.message
+    editConflict.value = e.status === 409
   } finally {
     submitting.value = false
   }
+}
+
+async function checkLatestOrder() {
+  refreshingOrder.value = true
+  try {
+    latestOrder.value = await api.getOrder(props.orderId)
+  } catch (e) {
+    errorMsg.value = e.message
+  } finally {
+    refreshingOrder.value = false
+  }
+}
+
+function restartWithLatestOrder() {
+  if (!confirm('入力中の変更を取り消して、最新の予約内容に切り替えますか？')) return
+  applyInitialOrder(latestOrder.value)
+  errorMsg.value = ''
 }
 
 function onCancel() {
@@ -966,7 +1033,7 @@ function formatYen(n) {
               </div>
             </div>
 
-            <div class="mb-3" v-else-if="!isEdit">
+            <div class="mb-3" v-else>
               <label class="form-label">延長（任意）</label>
               <div class="form-text mt-0 mb-2">候補を選ぶか、時間と料金を直接入力できます。</div>
               <div class="select-grid">
@@ -1062,13 +1129,13 @@ function formatYen(n) {
               <div class="col-md-6">
                 <div class="mb-3">
                   <label class="form-label">割引</label>
-                  <select class="form-select" v-model="form.discount" :disabled="isEdit">
+                  <select class="form-select" v-model="form.discount">
                     <option value="">-- 割引なし --</option>
                     <option v-for="d in discounts" :key="d.id" :value="d.id">
                       {{ d.name }}（{{ d.discount_type === 'percent' ? d.value + '%' : d.value.toLocaleString() + '円' }}引き）
                     </option>
                   </select>
-                  <div v-if="isEdit" class="form-text">編集時の割引変更は予約詳細から行ってください</div>
+                  <div v-if="isEdit" class="form-text">延長・指名・割引は、下の「保存」でまとめて反映されます。</div>
                 </div>
               </div>
             </div>
@@ -1079,6 +1146,18 @@ function formatYen(n) {
             </div>
 
             </component>
+
+            <div v-if="completedCorrection" class="mb-3">
+              <label :for="`${formId}-timeline-status`" class="form-label">タイムラインの対応状況</label>
+              <select :id="`${formId}-timeline-status`" v-model="form.timeline_status" class="form-select mb-3">
+                <option value="AUTO">自動表示</option>
+                <option value="SMS_SENT">SMS送信済み</option>
+                <option value="SMS_CONFIRMED">SMS確認済み</option>
+                <option value="CARD_PAID">カード決済済み</option>
+              </select>
+              <label :for="`${formId}-correction-reason`" class="form-label">訂正理由（必須）</label>
+              <textarea :id="`${formId}-correction-reason`" v-model.trim="correctionReason" class="form-control" maxlength="500" rows="2" required placeholder="入力漏れの訂正など"></textarea>
+            </div>
 
             <hr>
 
@@ -1114,9 +1193,19 @@ function formatYen(n) {
             <div v-if="errorMsg" class="alert alert-danger py-2 mb-2">
               <i class="ti ti-alert-circle me-1"></i>{{ errorMsg }}
             </div>
+            <div v-if="editConflict" class="alert alert-warning" role="alert">
+              <p class="mb-2">入力中の変更は残っています。最新の内容と比べてから変更し直してください。</p>
+              <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="refreshingOrder" @click="checkLatestOrder">最新の予約を確認</button>
+              <div v-if="latestOrder" class="mt-2">
+                <div>現在のオプション：{{ latestOrder.options?.join('、') || 'なし' }}（{{ formatYen(latestOrder.options_price) }}）</div>
+                <div>現在の合計：{{ formatYen(latestOrder.total_price) }}</div>
+                <div>支払い方法：{{ paymentMethods.find(p => p.value === latestOrder.payment_method)?.label }}</div>
+                <button type="button" class="btn btn-outline-primary btn-sm mt-2" @click="restartWithLatestOrder">最新の内容で入力し直す</button>
+              </div>
+            </div>
             <div class="d-flex gap-2">
               <button type="button" class="btn btn-outline-secondary flex-fill" @click="onCancel">{{ resolvedCancelLabel }}</button>
-              <button type="submit" class="btn btn-success flex-fill" :disabled="submitting">
+              <button type="submit" class="btn btn-success flex-fill" :disabled="submitting || editConflict">
                 <span v-if="submitting" class="spinner-border spinner-border-sm me-1"></span>
                 <i v-else class="ti" :class="isEdit ? 'ti-device-floppy' : 'ti-check'"></i> {{ resolvedSubmitLabel }}
               </button>

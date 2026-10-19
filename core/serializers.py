@@ -41,6 +41,7 @@ from .models import (
     Option,
     Order,
     OrderOption,
+    OrderAccountingCorrection,
     Room,
     ShiftAssignment,
     ShiftConfirmNotificationLog,
@@ -76,6 +77,7 @@ from .services.order_policy import (
     is_past_business_day_order,
 )
 from .services.daily_settlement_lock import is_daily_settlement_locked
+from .services.order_editing import require_current_order, order_edit_snapshot, record_order_edit
 
 User = get_user_model()
 
@@ -1397,6 +1399,8 @@ def build_customer_label(customer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    can_correct_accounting = serializers.SerializerMethodField()
+    accounting_corrections = serializers.SerializerMethodField()
     business_date = serializers.SerializerMethodField()
     start_time_extended = serializers.SerializerMethodField()
     end_time_extended = serializers.SerializerMethodField()
@@ -1446,11 +1450,34 @@ class OrderSerializer(serializers.ModelSerializer):
             "customer_reservation_state", "guest_first_opened_at",
             "guest_last_seen_state", "guest_open_count",
             "created_at", "updated_at",
+            "can_correct_accounting", "accounting_corrections",
         ]
 
         read_only_fields = [
             "created_by", "updated_by", "cancelled_by",
         ]
+
+    def get_can_correct_accounting(self, obj) -> bool:
+        request = self.context.get("request")
+        profile = get_request_profile(request) if request else None
+        if profile is None or profile.role not in ("manager", "staff"):
+            return False
+        return obj.status == Order.Status.DONE and self.get_can_modify(obj) and not is_daily_settlement_locked(
+            obj.store, business_date_for_datetime(obj.start, obj.store.timezone),
+        )
+
+    @extend_schema_field({"type": "array", "items": {"type": "object", "additionalProperties": True}})
+    def get_accounting_corrections(self, obj) -> list:
+        request = self.context.get("request")
+        profile = get_request_profile(request) if request else None
+        if profile is None or profile.role not in ("manager", "staff"):
+            return []
+        return [{
+            "id": item.pk, "reason": item.reason,
+            "before": item.before, "after": item.after,
+            "corrected_by_name": self._operator_name(item.corrected_by),
+            "created_at": item.created_at.isoformat(),
+        } for item in obj.accounting_corrections.select_related("corrected_by").all()]
 
     @staticmethod
     def _operator_name(user) -> str:
@@ -1660,7 +1687,10 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
         # A) BAN check
         customer = data["customer"]
-        if customer.flag == Customer.Flag.BAN:
+        from .services.booking_restrictions import customer_booking_blocked
+        profile = get_request_profile(request) if request else None
+        operator = profile is not None and profile.role in (UserProfile.Role.MANAGER, UserProfile.Role.STAFF)
+        if customer_booking_blocked(customer, data["cast"].pk, online=not operator):
             raise serializers.ValidationError("このお客様は予約を受け付けられません")
 
         extension = data.get("extension")
@@ -1752,6 +1782,8 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         discount = data.get("discount")
         if discount is not None and discount.store_id != store.id:
             raise serializers.ValidationError("他店舗の割引は使用できません")
+        if discount is not None and not discount.is_active:
+            raise serializers.ValidationError("無効な割引は使用できません")
 
         return data
 
@@ -1868,6 +1900,7 @@ class ExtensionApplySerializer(serializers.Serializer):
 # ──────────────────────────────────────
 
 class OrderUpdateSerializer(serializers.ModelSerializer):
+    expected_updated_at = serializers.DateTimeField(write_only=True, required=False)
     business_date = serializers.DateField(write_only=True, required=False)
     start_time_extended = serializers.CharField(write_only=True, required=False)
     end_time_extended = serializers.CharField(write_only=True, required=False)
@@ -1877,13 +1910,17 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
     nomination_fee = serializers.PrimaryKeyRelatedField(
         queryset=NominationFee.objects.all(), required=False, allow_null=True,
     )
+    discount = serializers.PrimaryKeyRelatedField(queryset=Discount.objects.all(), required=False, allow_null=True)
+    extension = serializers.PrimaryKeyRelatedField(queryset=Extension.objects.all(), required=False, allow_null=True)
+    extension_duration = serializers.IntegerField(required=False, min_value=0, max_value=MAX_EXTENSION_DURATION_MINUTES)
+    extension_price = serializers.IntegerField(required=False, min_value=0)
 
     class Meta:
         model = Order
         fields = [
             "cast", "course", "start", "end", "service_recipient_name",
-            "memo", "options", "nomination_fee", "payment_method", "card_include_options",
-            "timeline_status",
+            "memo", "medium", "options", "nomination_fee", "payment_method", "card_include_options",
+            "timeline_status", "expected_updated_at", "discount", "extension", "extension_duration", "extension_price",
             "business_date", "start_time_extended", "end_time_extended",
         ]
 
@@ -1901,10 +1938,34 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         instance = self.instance
+        if instance.status == Order.Status.CANCELLED or (
+            instance.status == Order.Status.DONE and not self.context.get("allow_completed_addons")
+        ):
+            raise serializers.ValidationError("会計完了またはキャンセル済みの予約は変更できません。")
         apply_order_extended_datetime(data, instance.store)
         cast = data.get("cast", instance.cast)
         start = data.get("start", instance.start)
         end = data.get("end", instance.end)
+
+        for field in ("discount", "extension"):
+            value = data.get(field)
+            if value is not None and (value.store_id != instance.store_id or not value.is_active):
+                raise serializers.ValidationError({field: "この店舗の有効な項目を選択してください"})
+        extension = data.get("extension", instance.extension)
+        if "extension" in data:
+            data.setdefault("extension_duration", extension.duration if extension else 0)
+            data.setdefault("extension_price", extension.price if extension else 0)
+        duration = data.get("extension_duration", instance.extension_duration)
+        price = data.get("extension_price", instance.extension_price)
+        validate_extension_duration_value(duration)
+        if extension is not None and duration == 0:
+            raise serializers.ValidationError({"extension_duration": "延長時間は1分以上にしてください"})
+        if duration == 0 and price:
+            raise serializers.ValidationError({"extension_price": "延長時間が0分の場合、料金は0円にしてください"})
+        course = data.get("course", instance.course)
+        if course.pk != instance.course_id or duration != instance.extension_duration:
+            end = start + timedelta(minutes=course.duration + duration)
+            data["end"] = end
 
         for business_date in {
             business_date_for_datetime(instance.start, instance.store.timezone),
@@ -1915,7 +1976,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
                     "この営業日は日締め済みです。変更するには先に日締めを解除してください。"
                 )
 
-        for field_name in ("cast", "course"):
+        for field_name in ("cast", "course", "medium"):
             value = data.get(field_name)
             if value is not None and value.store_id != instance.store_id:
                 raise serializers.ValidationError({
@@ -1948,7 +2009,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
         # course changed → recalc end if not explicitly set
         if "course" in data and "end" not in data:
-            end = start + timedelta(minutes=data["course"].duration)
+            end = start + timedelta(minutes=data["course"].duration + duration)
             data["end"] = end
 
         if end <= start:
@@ -1961,6 +2022,10 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
             # ShiftAssignment → room auto-assign
             assignment = find_covering_shift(store, cast, start, end)
             if assignment is None:
+                if (instance.room_id is not None and cast.pk == instance.cast_id
+                        and start == instance.start
+                        and (course.pk != instance.course_id or duration != instance.extension_duration)):
+                    raise serializers.ValidationError("変更後の終了時刻がキャストのシフトを超えます")
                 profile = get_request_profile(request) if request else None
                 if profile is None or profile.role not in (
                     UserProfile.Role.MANAGER,
@@ -1999,6 +2064,16 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         with transaction.atomic():
             store = Store.objects.select_for_update().get(pk=instance.store_id)
+            # Never save the stale object loaded before waiting for this lock.
+            instance = Order.objects.select_for_update().get(pk=instance.pk, store=store)
+            require_current_order(
+                instance, validated_data.pop("expected_updated_at", None),
+                required="options" in validated_data,
+            )
+            if instance.status == Order.Status.CANCELLED or (
+                instance.status == Order.Status.DONE and not self.context.get("allow_completed_addons")
+            ):
+                raise serializers.ValidationError("会計完了またはキャンセル済みの予約は変更できません。")
             target_start = validated_data.get("start", instance.start)
             for business_date in {
                 business_date_for_datetime(instance.start, store.timezone),
@@ -2038,10 +2113,26 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
                     end__gt=target_start,
                 ).exclude(pk=instance.pk).exists():
                     raise serializers.ValidationError("指定ルームは使用中です")
-            return self._update_unlocked(instance, validated_data)
+            before = order_edit_snapshot(instance)
+            instance = self._update_unlocked(instance, validated_data)
+            request = self.context.get("request")
+            record_order_edit(instance, before, request.user if request else None, "operator")
+            return instance
 
     def _update_unlocked(self, instance, validated_data):
         option_objs = validated_data.pop("options", None)
+
+        if "discount" in validated_data:
+            discount = validated_data["discount"]
+            validated_data["discount_name"] = discount.name if discount else ""
+            validated_data["discount_type_snapshot"] = discount.discount_type if discount else ""
+            validated_data["discount_value_snapshot"] = discount.value if discount else 0
+        if any(field in validated_data for field in ("extension", "extension_duration", "extension_price")):
+            extension = validated_data.get("extension", instance.extension)
+            duration = validated_data.get("extension_duration", instance.extension_duration)
+            validated_data["extension_name"] = (
+                extension.name if extension and extension.duration == duration else f"{duration}分延長"
+            ) if duration else ""
 
         if "nomination_fee" in validated_data:
             nomination_fee = validated_data["nomination_fee"]
@@ -2084,6 +2175,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
 class CastTodayOrderSerializer(serializers.Serializer):
     id = serializers.IntegerField()
+    updated_at = serializers.DateTimeField()
     start = serializers.DateTimeField()
     end = serializers.DateTimeField()
     start_time_extended = serializers.CharField()

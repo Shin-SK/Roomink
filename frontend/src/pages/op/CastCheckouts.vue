@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
+import RoomCashPanel from '../../components/RoomCashPanel.vue'
 import { api } from '../../api.js'
 
 const router = useRouter()
@@ -14,9 +15,7 @@ const error = ref('')
 const checkouts = ref([])
 const totalCount = ref(0)
 const casts = ref([])
-const roomCashSummary = ref([])
-const roomCashDrafts = ref({})
-const roomCashSaving = ref({})
+const roomCashPanel = ref(null)
 
 // Filters
 const filterDate = ref(new Date().toISOString().slice(0, 10))
@@ -92,32 +91,7 @@ async function loadCheckouts() {
 }
 
 async function loadRoomCash() {
-  try {
-    const data = await api.getRoomCashSummary(filterDate.value)
-    roomCashSummary.value = data.rooms || []
-    roomCashDrafts.value = Object.fromEntries(roomCashSummary.value.map(row => [row.room, {
-      actual_cash_amount: row.actual_cash_amount ?? '', memo: row.memo || '',
-    }]))
-  } catch (e) {
-    error.value = e.message
-  }
-}
-
-async function saveRoomCash(row) {
-  const draft = roomCashDrafts.value[row.room]
-  if (!draft || draft.actual_cash_amount === '') return
-  roomCashSaving.value[row.room] = true
-  try {
-    const data = await api.saveRoomCashCount({
-      date: filterDate.value, room: row.room,
-      actual_cash_amount: Number(draft.actual_cash_amount), memo: draft.memo,
-    })
-    roomCashSummary.value = data.rooms || []
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    roomCashSaving.value[row.room] = false
-  }
+  await roomCashPanel.value?.refreshWhenIdle()
 }
 
 async function loadMoreCheckouts() {
@@ -149,7 +123,6 @@ onMounted(async () => {
 })
 
 watch([filterDate, filterCast, filterStatus], () => loadCheckouts())
-watch(filterDate, () => loadRoomCash())
 
 async function openDetail(row) {
   showDetail.value = true
@@ -307,30 +280,7 @@ function createAdjustmentFromCheckout() {
           </div>
         </div>
 
-        <div class="border rounded p-3 mb-4 bg-light">
-          <div class="fw-bold mb-2"><i class="ti ti-building-bank"></i> ルーム現金状況</div>
-          <div class="small text-muted mb-3">予定残高 = 前回の実残高 + 当日の現金売上 − キャスト持ち帰り + ルームへの返金</div>
-          <div v-if="!roomCashSummary.length" class="small text-muted">ルームが登録されていません</div>
-          <div v-for="row in roomCashSummary" :key="row.room" class="bg-white border rounded p-3 mb-2">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <strong>{{ row.room_name }}</strong>
-              <span class="badge" :class="row.difference_amount === 0 ? 'bg-success' : row.difference_amount === null ? 'bg-secondary' : 'bg-warning text-dark'">
-                {{ row.difference_amount === null ? '未カウント' : `差額 ${formatYen(row.difference_amount)}` }}
-              </span>
-            </div>
-            <div class="row small g-2 mb-2">
-              <div class="col-6 col-md-3"><span class="text-muted">前回実残</span><div class="fw-bold">{{ formatYen(row.opening_cash_amount) }}</div></div>
-              <div class="col-6 col-md-3"><span class="text-muted">現金売上</span><div class="fw-bold">+{{ formatYen(row.cash_sales_amount) }}</div></div>
-              <div class="col-6 col-md-3"><span class="text-muted">持ち帰り</span><div class="fw-bold text-danger">-{{ formatYen(row.room_cash_taken_amount) }}</div></div>
-              <div class="col-6 col-md-3"><span class="text-muted">予定残</span><div class="fw-bold text-primary">{{ formatYen(row.expected_cash_amount) }}</div></div>
-            </div>
-            <div class="row g-2 align-items-end">
-              <div class="col-sm-4"><label class="form-label small mb-1">実際に数えた現金</label><input v-model.number="roomCashDrafts[row.room].actual_cash_amount" type="number" min="0" class="form-control form-control-sm" /></div>
-              <div class="col-sm-5"><label class="form-label small mb-1">メモ</label><input v-model="roomCashDrafts[row.room].memo" class="form-control form-control-sm" placeholder="差額の理由など" /></div>
-              <div class="col-sm-3"><button class="btn btn-outline-primary btn-sm w-100" :disabled="roomCashSaving[row.room]" @click="saveRoomCash(row)">実残を保存</button></div>
-            </div>
-          </div>
-        </div>
+        <div class="border rounded p-3 mb-4 bg-light"><RoomCashPanel ref="roomCashPanel" :date="filterDate" /></div>
 
         <div v-if="loading" class="text-center py-3">
           <div class="spinner-border text-primary"></div>

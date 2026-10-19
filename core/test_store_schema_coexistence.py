@@ -54,18 +54,21 @@ class LegacyStoreWriteCompatibilityTest(TestCase):
     def test_work_and_line_migrations_have_one_leaf(self):
         loader = MigrationExecutor(connection).loader
         self.assertEqual(loader.graph.leaf_nodes("core"),
-                         [("core", "0096_merge_work_settlement")])
+                         [("core", "0098_merge_work_current_main")])
         ancestors = loader.graph.forwards_plan(("core", "0094_merge_work_line"))
         self.assertIn(("core", "0093_line_registration_session"), ancestors)
         self.assertIn(("core", "0093_store_voice_receiver_voicerouteevent"), ancestors)
         merged = loader.graph.forwards_plan(("core", "0096_merge_work_settlement"))
         self.assertIn(("core", "0095_store_voice_receiver_db_default"), merged)
         self.assertIn(("core", "0094_store_nomination_fullback"), merged)
+        current = loader.graph.forwards_plan(("core", "0098_merge_work_current_main"))
+        self.assertIn(("core", "0096_merge_work_settlement"), current)
+        self.assertIn(("core", "0097_room_cash_projection"), current)
 
 
 class StoreMigrationPathTest(TransactionTestCase):
     """Only the disposable test DB is reset to exercise both migration paths."""
-    latest = ("core", "0096_merge_work_settlement")
+    latest = ("core", "0098_merge_work_current_main")
 
     def setUp(self):
         migrate_test_schema([("core", "0092_store_shift_request_start_hour")])

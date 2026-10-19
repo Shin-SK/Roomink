@@ -1,4 +1,12 @@
 // Use date arithmetic without the browser's local timezone (including month/year rollover).
+export function courseEndTime(startTime, courseMinutes, extensionMinutes = 0) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec((startTime || '').trim())
+  if (!match || Number(match[2]) > 59) return null
+  const minutes = Number(match[1]) * 60 + Number(match[2]) + Number(courseMinutes) + Number(extensionMinutes)
+  if (!Number.isFinite(minutes) || minutes < 0) return null
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+}
+
 export function reservationDateTime(date, time) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return null
   const match = /^(\d{1,2}):(\d{2})$/.exec((time || '').trim())

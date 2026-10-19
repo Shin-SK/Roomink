@@ -124,7 +124,7 @@ class CastOrderControlsTest(TestCase):
     def test_cast_can_change_options_and_total_is_recalculated(self):
         response = self.cast_client.post(
             f"/api/cast/orders/{self.order.id}/options/",
-            {"option_ids": [self.option_b.id]},
+            {"option_ids": [self.option_b.id], "expected_updated_at": self.order.updated_at.isoformat()},
             format="json",
         )
 

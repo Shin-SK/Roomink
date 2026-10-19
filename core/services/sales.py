@@ -25,6 +25,13 @@ def get_done_orders_for_business_range(store, date_from, date_to):
     )
 
 
+def settlement_store_share(row):
+    """現場向けの店落ち表示。保存済みの決済集計・給与には手を加えない。"""
+    if row.get("total_sales") is None or row.get("compensation") is None:
+        return ""
+    return row["total_sales"] - row["compensation"]
+
+
 def payment_fee_rates(store):
     """決済方法ごとの率を返す。
 

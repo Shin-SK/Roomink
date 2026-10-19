@@ -61,6 +61,7 @@ const navItems = computed(() => {
       { to: '/op/sales-summary', icon: 'report-money', label: '売上集計', page: 'sales-summary' },
       { to: '/op/daily-settlement', icon: 'calculator', label: '日給一覧', page: 'daily-settlement' },
       { to: '/op/cast-checkouts', icon: 'door-exit', label: '退勤提出', page: 'cast-checkouts' },
+      { to: '/op/room-cash', icon: 'cash-banknote', label: 'ルーム現金', page: 'room-cash' },
       { to: '/op/cast-adjustments', icon: 'cash-banknote', label: '調整金', page: 'cast-adjustments' },
       { to: '/op/support', icon: 'lifebuoy', label: '問い合わせ', page: 'support-inbox' },
     )

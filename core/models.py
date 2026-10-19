@@ -6,7 +6,7 @@ import uuid
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -869,8 +869,15 @@ class Order(models.Model):
     def save(self, *args, **kwargs):
         # Model.save() は通常 clean() を呼ばないため、店舗境界だけを全書込み経路で検査する。
         # full_clean() まで呼ぶと、既存の段階保存フローまで無関係に拒否してしまう。
-        self.clean()
-        return super().save(*args, **kwargs)
+        from .services.room_cash import record_cash_source_change
+        with transaction.atomic():
+            Store.objects.select_for_update().get(pk=self.store_id)
+            before = type(self).objects.filter(pk=self.pk).first() if self.pk else None
+            self.clean()
+            result = super().save(*args, **kwargs)
+            persisted = type(self).objects.get(pk=self.pk)
+            record_cash_source_change(before, persisted, actor_id=getattr(self, "_cash_recorded_by_id", None) or self.updated_by_id)
+            return result
 
     def __str__(self):
         return f"Order#{self.pk} {self.cast} {self.start:%m/%d %H:%M}"
@@ -1592,6 +1599,21 @@ class CustomerMergeLog(models.Model):
         return f"Merge#{self.pk} keep={self.keep_customer_id} merged={self.merged_customer_id}"
 
 
+class OrderEditLog(models.Model):
+    """Option/payment edits; written in the same transaction as the reservation."""
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="order_edit_logs")
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="edit_logs")
+    acted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    source = models.CharField(max_length=20)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+
 class OrderServiceRecipientLinkLog(models.Model):
     """予約と実利用者顧客の手動紐付け監査ログ。"""
 
@@ -1843,6 +1865,29 @@ class CastDailyCheckout(models.Model):
     def __str__(self):
         return f"{self.cast.name} {self.date} ({self.status})"
 
+    def save(self, *args, **kwargs):
+        from .services.room_cash import record_cash_source_change
+        with transaction.atomic():
+            Store.objects.select_for_update().get(pk=self.store_id)
+            before = type(self).objects.filter(pk=self.pk).first() if self.pk else None
+            result = super().save(*args, **kwargs)
+            record_cash_source_change(before, type(self).objects.get(pk=self.pk), actor_id=getattr(self, "_cash_recorded_by_id", None))
+            return result
+
+
+class OrderAccountingCorrection(models.Model):
+    """日締め前の予約会計訂正。現金の受渡履歴とは分けて保存する。"""
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="accounting_corrections")
+    checkout = models.ForeignKey(CastDailyCheckout, null=True, blank=True, on_delete=models.SET_NULL)
+    reason = models.CharField(max_length=500)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    corrected_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
 
 class CastOfficeCashReceipt(models.Model):
     """事務所でキャストへ渡した現金の、消さない受取履歴。"""
@@ -1887,6 +1932,46 @@ class RoomCashCount(models.Model):
 
     def __str__(self):
         return f"{self.room.name} {self.date} ¥{self.actual_cash_amount}"
+
+
+class RoomCashCheckpoint(models.Model):
+    """現時点の実残。元業務の集計値を固定し、以後の計算上の増減の起点にする。"""
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name="cash_checkpoints")
+    date = models.DateField()
+    actual_cash_amount = models.PositiveIntegerField()
+    source_cash_amount = models.BigIntegerField()
+    expected_cash_amount = models.BigIntegerField(null=True)
+    source_revision = models.CharField(max_length=64)
+    movement_cursor = models.PositiveBigIntegerField(default=0)
+    request_id = models.UUIDField()
+    memo = models.TextField(blank=True, default="")
+    counted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    counted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [models.UniqueConstraint(fields=["store", "request_id"], name="room_cash_count_request_unique")]
+        indexes = [models.Index(fields=["store", "room", "date"])]
+
+
+class RoomCashMovement(models.Model):
+    """元予約・退勤情報の現金投影の変更履歴。現物の受渡完了を証明する台帳ではない。"""
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name="cash_movements")
+    date = models.DateField()
+    source_type = models.CharField(max_length=16)
+    source_id = models.PositiveBigIntegerField()
+    kind = models.CharField(max_length=24)
+    amount = models.BigIntegerField()
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+        indexes = [models.Index(fields=["store", "room", "date"])]
 
 
 class CastCheckoutExpenseSnapshot(models.Model):

@@ -1,7 +1,10 @@
 <script setup>
+import { settlementStoreShare } from '../../settlementDisplay.js'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
+import AttendanceCards from '../../components/AttendanceCards.vue'
+import { attendanceCards } from '../../attendanceCards.js'
 import TimelineGrid from '../../components/TimelineGrid.vue'
 import CustomerInfoCard from '../../components/CustomerInfoCard.vue'
 import OrderForm from '../../components/OrderForm.vue'
@@ -19,6 +22,38 @@ const orders = ref([])
 const unavailableTimes = ref([])
 const kpi = ref({ total_orders: 0, confirmed: 0, requested: 0, estimated_sales: 0 })
 const loading = ref(true)
+const shiftAlerts = ref([])
+const attendance = computed(() => attendanceCards(shiftAlerts.value, casts.value))
+const shiftAlertsLoading = ref(false)
+const shiftAlertsError = ref('')
+let shiftAlertsRequest = 0
+let shiftAlertsTimer = null
+
+async function loadShiftAlerts() {
+  const request = ++shiftAlertsRequest
+  const date = selectedDate.value
+  shiftAlertsLoading.value = true
+  try {
+    const data = await api.getShiftConfirmAlerts(date)
+    if (request !== shiftAlertsRequest || date !== selectedDate.value) return
+    const alerts = (data.alerts || []).filter(alert => alert.alert_level === 'ONE_HOUR')
+    const hasRemovedAlert = shiftAlerts.value.some(previous => !alerts.some(alert => alert.shift_id === previous.shift_id))
+    shiftAlerts.value = alerts
+    shiftAlertsError.value = ''
+    // 確認済みになった警告とタイムライン内の確認アイコンを揃える。
+    // 入力中のフォームやタイムラインを隠さず、データだけ更新する。
+    if (hasRemovedAlert && viewMode.value === 'cast') fetchSchedule({ background: true })
+  } catch (_) {
+    if (request !== shiftAlertsRequest || date !== selectedDate.value) return
+    shiftAlertsError.value = '出勤確認の最新情報を取得できませんでした。時間をおいて更新してください。'
+  } finally {
+    if (request === shiftAlertsRequest) shiftAlertsLoading.value = false
+  }
+}
+
+function refreshShiftAlertsWhenVisible() {
+  if (!document.hidden) loadShiftAlerts()
+}
 const toolbarOpen = ref(false)
 const canViewAllocation = computed(() => ['manager', 'superuser'].includes(getAuthRole()))
 const showAllocation = ref(false)
@@ -74,6 +109,8 @@ const roomOrdersAdapter = computed(() =>
     cast_id: o.room_id,
     customer_label: `${o.cast_name}`,
     course_name: o.course_name,
+    nomination_fee_name: o.nomination_fee_name,
+    extension_duration: o.extension_duration,
     start: o.start,
     end: o.end,
     start_time_extended: o.start_time_extended,
@@ -142,10 +179,12 @@ function formatLocalDate(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-async function fetchSchedule() {
-  loading.value = true
+async function fetchSchedule({ background = false } = {}) {
+  const date = selectedDate.value
+  if (!background) loading.value = true
   try {
-    const data = await api.getSchedule(selectedDate.value)
+    const data = await api.getSchedule(date)
+    if (date !== selectedDate.value) return
     casts.value = data.casts
     orders.value = data.orders
     unavailableTimes.value = data.unavailable_times || []
@@ -165,7 +204,7 @@ async function fetchSchedule() {
   } catch (e) {
     console.error(e)
   } finally {
-    loading.value = false
+    if (!background && date === selectedDate.value) loading.value = false
   }
 }
 
@@ -519,6 +558,9 @@ function toggleLegend(e) {
 }
 
 watch(selectedDate, () => {
+  shiftAlerts.value = []
+  shiftAlertsError.value = ''
+  loadShiftAlerts()
   loadSchedule()
 })
 watch(viewMode, () => {
@@ -533,8 +575,14 @@ onMounted(async () => {
     console.error(e)
   }
   loadSchedule()
+  loadShiftAlerts()
+  shiftAlertsTimer = setInterval(refreshShiftAlertsWhenVisible, 60_000)
+  document.addEventListener('visibilitychange', refreshShiftAlertsWhenVisible)
 })
 onBeforeUnmount(() => {
+  ++shiftAlertsRequest
+  clearInterval(shiftAlertsTimer)
+  document.removeEventListener('visibilitychange', refreshShiftAlertsWhenVisible)
   detachOrderDragListeners()
 })
 </script>
@@ -658,6 +706,9 @@ onBeforeUnmount(() => {
         <button v-if="canViewAllocation" type="button" class="btn btn-sm btn-outline-primary" @click="openAllocation">
           <i class="ti ti-calculator me-1"></i>売上配分
         </button>
+        <router-link v-if="canViewAllocation" :to="{ path: '/op/room-cash', query: { date: selectedDate } }" class="btn btn-sm btn-outline-primary">
+          <i class="ti ti-cash-banknote me-1"></i>ルーム現金
+        </router-link>
       </div>
 
       <!-- 検索アコーディオン -->
@@ -680,6 +731,25 @@ onBeforeUnmount(() => {
         </button>
       </form>
     </div>
+
+    <section
+      v-if="shiftAlerts.length || shiftAlertsError"
+      class="shift-confirm-alert"
+      aria-label="出勤確認の警告"
+      aria-live="polite"
+    >
+      <div class="shift-confirm-alert__header">
+        <span>開始1時間前からの未確認シフト · 1分ごとに自動更新</span>
+        <button
+          type="button"
+          class="btn btn-sm shift-confirm-alert__refresh"
+          :disabled="shiftAlertsLoading"
+          @click="loadShiftAlerts"
+        ><i class="ti ti-refresh me-1" aria-hidden="true"></i>{{ shiftAlertsLoading ? '更新中…' : '更新' }}</button>
+      </div>
+      <p v-if="shiftAlertsError" class="shift-confirm-alert__error" role="alert">{{ shiftAlertsError }}<template v-if="shiftAlerts.length"> 表示中の内容は前回取得時の情報です。</template></p>
+      <AttendanceCards :cards="attendance" />
+    </section>
 
     <!-- タイムライン -->
     <div v-if="loading" class="text-center py-5">
@@ -832,16 +902,16 @@ onBeforeUnmount(() => {
               <div class="allocation-summary">
                 <div><span>売上</span><strong>{{ yen(allocationTotals.total_sales) }}</strong></div>
                 <div><span>報酬</span><strong class="text-primary">{{ yen(allocationTotals.compensation) }}</strong></div>
-                <div><span>店舗配分</span><strong>{{ yen(allocationTotals.store_allocation) }}</strong></div>
+                <div><span>店落ち</span><strong>{{ yen(settlementStoreShare(allocationTotals)) }}</strong></div>
               </div>
               <details v-for="row in allocationRows" :key="row.cast_id" class="allocation-row">
-                <summary><strong>{{ row.cast_name }}</strong><span>売上 {{ yen(row.total_sales) }}</span><span class="text-primary">報酬 {{ yen(row.compensation) }}</span><span>店舗配分 {{ yen(row.store_allocation) }}</span><i class="ti ti-chevron-down"></i></summary>
+                <summary><strong>{{ row.cast_name }}</strong><span>売上 {{ yen(row.total_sales) }}</span><span class="text-primary">報酬 {{ yen(row.compensation) }}</span><span>店落ち {{ yen(settlementStoreShare(row)) }}</span><i class="ti ti-chevron-down"></i></summary>
                 <div class="allocation-details">
                   <span>完了済み {{ row.order_count }}本</span><span>コース {{ yen(row.course_sales) }}</span><span>オプション {{ yen(row.options_sales) }}</span>
-                  <span>給与見込み {{ yen(row.back_amount) }}</span><span>固定雑費 -{{ yen(row.fixed_expense_total) }}</span><span>当日雑費 -{{ yen(row.daily_expense_total) }}</span><span>カード加算 +{{ yen(row.customer_payment_surcharge) }}</span><span>店舗側決済手数料（参考）-{{ yen(row.payment_fee_estimate) }}</span>
+                  <span>給与見込み {{ yen(row.back_amount) }}</span><span>固定雑費 -{{ yen(row.fixed_expense_total) }}</span><span>当日雑費 -{{ yen(row.daily_expense_total) }}</span>
                 </div>
               </details>
-              <p class="small text-muted mt-3 mb-0">報酬＝給与見込み−雑費。店舗配分＝お客様決済額−店舗側決済手数料−報酬。カードの上乗せ分は店舗配分に含まれます。振込額は現金預りなどを反映するため別の金額です。</p>
+              <p class="small text-muted mt-3 mb-0">報酬＝給与見込み−雑費。店落ち＝売上−報酬。振込額は現金預りなどを反映するため別の金額です。</p>
             </template>
           </div>
           <footer class="allocation-footer"><router-link :to="{ path: '/op/daily-settlement', query: { date: allocationDate } }" class="btn btn-outline-primary btn-sm" @click="showAllocation = false">日給一覧を見る</router-link><button class="btn btn-primary btn-sm" @click="showAllocation = false">閉じる</button></footer>
@@ -870,6 +940,26 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped lang="scss">
+.shift-confirm-alert {
+  margin: 0 0 16px;
+  padding: 16px 18px;
+  border: 1px solid #e2eae6;
+  border-radius: 10px;
+  background: #fff;
+}
+.shift-confirm-alert__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.shift-confirm-alert__header { justify-content: space-between; gap: 12px; margin-bottom: 12px; color: #78877f; font-size: .7rem; }
+.shift-confirm-alert__refresh { flex-shrink: 0; border: 1px solid #dce7e0; background: #fff; color: #506b62; }
+.shift-confirm-alert__refresh:hover { background: #edf5f0; }
+.shift-confirm-alert__error { margin: 8px 0; color: #a13229; font-size: .8rem; }
+@media (max-width: 767px) {
+  .shift-confirm-alert { padding: 12px; }
+}
 .order-row {
   position: relative;
   display: flex;

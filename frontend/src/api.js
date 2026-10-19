@@ -22,7 +22,12 @@ export function normalizePhone(raw) {
   return s
 }
 
-async function request(method, path, body, callId = null) {
+function csrfRejected(status, data) {
+  return status === 403 && typeof data?.detail === 'string'
+    && /^CSRF Failed: CSRF token .* incorrect\.$/.test(data.detail)
+}
+
+async function request(method, path, body, callId = null, retried = false) {
   const opts = {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -46,8 +51,12 @@ async function request(method, path, body, callId = null) {
   }
 
   if (!res.ok) {
+    if (method !== 'GET' && !retried && csrfRejected(res.status, data)) {
+      await request('GET', '/auth/csrf/')
+      return request(method, path, body, callId, true)
+    }
     const msg =
-      data?.detail ||
+      (csrfRejected(res.status, data) ? 'ログイン情報が更新されています。画面を再読み込みしてから、もう一度お試しください。' : '') || data?.detail ||
       (typeof data === 'object' && data !== null
         ? Object.values(data).flat().join('\n')
         : '') ||
@@ -62,7 +71,7 @@ async function request(method, path, body, callId = null) {
   return data
 }
 
-async function upload(path, formData) {
+async function upload(path, formData, retried = false) {
   const opts = {
     method: 'POST',
     headers: { 'X-CSRFToken': csrfToken || getCookie('csrftoken') },
@@ -73,6 +82,10 @@ async function upload(path, formData) {
   const res = await fetch(`${BASE}${path}`, opts)
   const data = await res.json().catch(() => null)
   if (!res.ok) {
+    if (!retried && csrfRejected(res.status, data)) {
+      await request('GET', '/auth/csrf/')
+      return upload(path, formData, true)
+    }
     const msg = data?.detail || `Error ${res.status}`
     const err = new Error(msg)
     err.data = data
@@ -86,14 +99,25 @@ async function upload(path, formData) {
 // Refresh first; retry only a CSRF rejection, which occurs before processing.
 async function shiftCsvRequest(send) {
   await request('GET', '/auth/csrf/')
-  try {
-    return await send()
-  } catch (err) {
-    if (err.status !== 403 || typeof err.data?.detail !== 'string'
-      || !/^CSRF Failed: CSRF token .* incorrect\.$/.test(err.data.detail)) throw err
-    await request('GET', '/auth/csrf/')
-    return send()
+  return send()
+}
+
+async function allShifts(params) {
+  let path = `/shifts/${params ? '?' + params : '?limit=500'}`
+  const rows = []
+  const visited = new Set()
+  while (path) {
+    if (visited.has(path)) throw new Error('シフト一覧を読み込めませんでした。再読み込みしてください。')
+    visited.add(path)
+    const data = await request('GET', path)
+    if (Array.isArray(data)) return data
+    rows.push(...(data?.results || []))
+    if (!data?.next) break
+    const next = new URL(data.next, 'https://roomink.invalid')
+    if (next.pathname !== '/api/shifts/') throw new Error('シフト一覧の続きを読み込めませんでした')
+    path = `/shifts/${next.search}`
   }
+  return rows
 }
 
 // ページネーション対応: results 配列があればそちらを返す
@@ -216,6 +240,7 @@ export const api = {
   getOrders: (params = '') => listRequest('GET', `/orders/${params ? '?' + params : '?limit=200'}`),
   getOrder: (id) => request('GET', `/orders/${id}/`),
   updateOrder: (id, body) => request('PATCH', `/orders/${id}/`, body),
+  correctOrderAccounting: (id, body) => request('POST', `/orders/${id}/correct-accounting/`, body),
   createOrder: (body) => request('POST', '/orders/', body),
   confirmOrder: (id) => request('POST', `/orders/${id}/confirm/`),
   sendCardPaymentRequest: (id) => request('POST', `/orders/${id}/send-card-payment-request/`),
@@ -341,7 +366,7 @@ export const api = {
   getCastExpenseTemplateHistoriesByTemplate: (templateId) => listRequest('GET', `/cast-expense-template-histories/?template=${templateId}&limit=200`),
 
   // Shifts
-  getShifts: (params = '') => listRequest('GET', `/shifts/${params ? '?' + params : '?limit=500'}`),
+  getShifts: (params = '') => allShifts(params),
   createShift: (body) => request('POST', '/shifts/', body),
   updateShift: (id, body) => request('PATCH', `/shifts/${id}/`, body),
   deleteShift: (id) => request('DELETE', `/shifts/${id}/`),
@@ -386,6 +411,7 @@ export const api = {
   issueSipReceptionDeviceLink: (id) => request('POST', `/op/sip-reception-devices/${id}/provision/`, {}),
   deactivateSipReceptionDevice: (id) => request('POST', `/op/sip-reception-devices/${id}/deactivate/`, {}),
   getOrderSmsLogs: (id) => request('GET', `/op/orders/${id}/sms-logs/`),
+  getOrderGuidance: (id) => request('POST', `/orders/${id}/manual-guidance/`, {}),
   getGuestReservation: (token) => request('GET', `/public/reservations/${encodeURIComponent(token)}/`),
 
   // Cast
@@ -411,13 +437,15 @@ export const api = {
   ),
   getCastTodaySales: () => request('GET', '/cast/today-sales/'),
   ackOrder: (id) => request('POST', `/cast/orders/${id}/ack/`),
-  updateCastOrderOptions: (id, optionIds) => request('POST', `/cast/orders/${id}/options/`, { option_ids: optionIds }),
+  updateCastOrderOptions: (id, optionIds, updatedAt) => request('POST', `/cast/orders/${id}/options/`, { option_ids: optionIds, expected_updated_at: updatedAt }),
   startCastOrder: (id) => request('POST', `/cast/orders/${id}/start/`, {}),
   completeCastOrder: (id) => request('POST', `/cast/orders/${id}/complete/`, {}),
   getCastLineLink: () => request('GET', '/cast/line-link/'),
   castLineLinkAction: (action) => request('POST', '/cast/line-link/', { action }),
   getCastPoints: () => request('GET', '/cast/points/'),
   getCastCheckout: () => request('GET', '/cast/checkout/'),
+  getCastRoomCash: (date, room = '') => request('GET', `/cast/room-cash/?date=${encodeURIComponent(date)}${room ? `&room=${encodeURIComponent(room)}` : ''}`),
+  saveCastRoomCashCount: (body) => request('POST', '/cast/room-cash/', body),
   submitCastCheckout: (body) => request('POST', '/cast/checkout/', body),
   getCastShiftConfirm: () => request('GET', '/cast/shift-confirm/'),
   confirmCastShift: (shiftId) => request('POST', '/cast/shift-confirm/', { shift_id: shiftId }),
@@ -465,7 +493,7 @@ export const api = {
   getCastNotesMypage: (params = '') => request('GET', `/cast/notes/${params ? '?' + params : ''}`),
 
   // Shift Confirm Alerts（出勤確認アラート土台, Phase 3-F / Phase 4で通知ログ土台を追加）
-  getShiftConfirmAlerts: () => request('GET', '/op/shift-confirm-alerts/'),
+  getShiftConfirmAlerts: (date) => request('GET', `/op/shift-confirm-alerts/${date ? '?date=' + encodeURIComponent(date) : ''}`),
   getShiftConfirmNotificationLogs: (params = '') => listRequest('GET', `/shift-confirm-notification-logs/${params ? '?' + params : '?limit=200'}`),
   markShiftConfirmNotificationTest: (shiftId, body) => request('POST', `/op/shift-confirm-alerts/${shiftId}/mark_notification_test/`, body),
 

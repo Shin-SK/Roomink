@@ -14,18 +14,20 @@ from django.contrib.auth import authenticate, get_user_model, login, logout, upd
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email, validate_slug
 from django.middleware.csrf import get_token
+from zoneinfo import ZoneInfo
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, ProtectedError, Q, Sum
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.html import escape
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import parsers, viewsets, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes, throttle_classes
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
@@ -52,7 +54,7 @@ from .models import (
     CustomerMergeLog, DailySettlement, DailySettlementAuditEvent, Discount, Extension, Medium,
     LineNotificationLog, NominationFee, OperatorNotification,
     OperatorNotificationReadReceipt, Option, Order, OrderOption, PointLog,
-    OrderServiceRecipientLinkLog,
+    OrderServiceRecipientLinkLog, OrderAccountingCorrection,
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
     SipProvisioningLink, SipReceptionDevice, SmsTemplate, Store, StorePhoneNumber,
     StoreSlugAlias, SystemAnnouncement, SystemAnnouncementReadReceipt, UserProfile,
@@ -131,6 +133,7 @@ from .services.cast_user import (
 from .services.customer_context import resolve_customer
 from .services.operator_notifications import send_public_booking_test_email
 from .services.pricing import recalculate_order_total
+from .services.order_editing import require_current_order, order_edit_snapshot, record_order_edit
 from .services.sales import (
     get_sales_summary, get_sales_csv,
     get_sales_dashboard, get_sales_dashboard_csv,
@@ -698,6 +701,100 @@ class OrderViewSet(viewsets.ModelViewSet):
             )
         return None
 
+    @extend_schema(request=OpenApiTypes.OBJECT, responses=OrderSerializer)
+    @action(detail=True, methods=["post"], url_path="correct-accounting")
+    def correct_accounting(self, request, pk=None):
+        """完了状態を維持し、日締め前の予約内容と関連する退勤提出を訂正する。"""
+        order = self.get_object()
+        if not isinstance(request.data, dict):
+            raise ValidationError("訂正内容を正しい形式で送信してください。")
+        allowed = set(OrderUpdateSerializer.Meta.fields) - {"expected_updated_at"}
+        if set(request.data) - allowed - {"reason", "expected_updated_at"}:
+            raise ValidationError("変更できない予約項目が含まれています。")
+        reason = request.data.get("reason")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+            raise ValidationError("訂正理由を500文字以内で入力してください。")
+        from django.utils.dateparse import parse_datetime
+        try:
+            expected = parse_datetime(str(request.data.get("expected_updated_at") or ""))
+        except ValueError:
+            expected = None
+        if expected is None:
+            raise ValidationError("予約を読み直してから訂正してください。")
+        fields = (
+            "cast_id", "course_id", "course_name", "course_price", "room_id", "medium_id",
+            "nomination_fee_id", "nomination_fee_name", "nomination_fee_price", "options_price",
+            "payment_method", "card_include_options", "timeline_status",
+            "extension_id", "extension_name", "extension_duration", "extension_price",
+            "discount_id", "discount_name", "discount_type_snapshot", "discount_value_snapshot",
+            "discount_amount", "total_price",
+        )
+        def snapshot(item):
+            # 自由記述の本文を訂正履歴へ複製せず、変更の有無を照合する。
+            from hashlib import sha256
+            return {
+                **{field: getattr(item, field) for field in fields},
+                "start": item.start.astimezone(ZoneInfo(item.store.timezone)).isoformat(),
+                "end": item.end.astimezone(ZoneInfo(item.store.timezone)).isoformat(),
+                "option_ids": sorted(item.options.values_list("id", flat=True)),
+                "notes_digest": sha256(f"{item.memo}\0{item.service_recipient_name}".encode()).hexdigest(),
+            }
+
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(order)
+            if order.status != Order.Status.DONE:
+                raise ValidationError("完了済みの予約だけを訂正できます。")
+            if order.updated_at != expected:
+                return Response({"detail": "ほかの操作で予約が更新されています。読み直してから訂正してください。"}, status=409)
+            before = snapshot(order)
+            from .services.sales import payment_financial_summary
+            serializer = OrderUpdateSerializer(
+                order, data={key: value for key, value in request.data.items() if key in allowed or key == "expected_updated_at"}, partial=True,
+                context={**self.get_serializer_context(), "allow_completed_addons": True},
+            )
+            serializer.is_valid(raise_exception=True)
+            target_cast = serializer.validated_data.get("cast", order.cast)
+            target_start = serializer.validated_data.get("start", order.start)
+            groups = {
+                (order.cast_id, business_date_for_datetime(order.start, order.store.timezone)): order.cast,
+                (target_cast.pk, business_date_for_datetime(target_start, order.store.timezone)): target_cast,
+            }
+            def totals(cast, date):
+                return {
+                    **_compute_cast_done_sales(cast, date),
+                    **payment_financial_summary(order.store, get_done_orders_for_business_range(order.store, date, date).filter(cast=cast)),
+                }
+            checkouts = []
+            for (cast_id, date), cast in sorted(groups.items()):
+                checkout = CastDailyCheckout.objects.select_for_update().filter(store=order.store, cast_id=cast_id, date=date).first()
+                if checkout:
+                    previous = totals(cast, date)
+                    if checkout.total_sales != previous["total_sales"]:
+                        raise ValidationError("退勤提出と現在の売上が一致しません。先に退勤内容を確認してください。")
+                    checkouts.append((checkout, cast, date, previous))
+            order = serializer.save(updated_by=request.user)
+            after = snapshot(order)
+            if before == after:
+                raise ValidationError("変更する予約内容を入力してください。")
+            for checkout, cast, date, previous in checkouts:
+                current = totals(cast, date)
+                # 訂正差分だけ反映し、過去の報酬スナップショット・雑費・受渡現金を保つ。
+                for field in previous:
+                    value = getattr(checkout, field) + current[field] - previous[field]
+                    if field != "net_sales_after_payment_fee" and value < 0:
+                        raise ValidationError("退勤提出の売上と予約が一致しません。店舗管理者へ確認してください。")
+                    setattr(checkout, field, value)
+                if checkout.status != CastDailyCheckout.Status.RETURNED:
+                    checkout.status = CastDailyCheckout.Status.SUBMITTED
+                checkout.reviewed_at = None
+                checkout.reviewed_by = None
+                checkout.save(update_fields=[*previous, "status", "reviewed_at", "reviewed_by", "updated_at"])
+            OrderAccountingCorrection.objects.create(
+                order=order, checkout=checkouts[0][0] if checkouts else None, reason=reason.strip(),
+                before=before, after=after, corrected_by=request.user,
+            )
+        return Response(OrderSerializer(order, context=self.get_serializer_context()).data)
+
     # --- status actions ---
 
     @extend_schema(request=ServiceRecipientCustomerLinkSerializer, responses=OrderSerializer)
@@ -733,6 +830,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response(OrderSerializer(order, context={"request": request}).data)
 
         with transaction.atomic():
+            Store.objects.select_for_update().get(pk=order.store_id)
             locked_order = Order.objects.select_for_update().get(pk=order.pk)
             previous = locked_order.service_recipient_customer
             locked_order.service_recipient_customer = linked_customer
@@ -780,7 +878,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": "カード決済の予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED):
+        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
             return Response(
                 {"detail": "確定済みの有効な予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -802,7 +900,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": "カード決済の予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED):
+        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
             return Response(
                 {"detail": "確定済みの有効な予約だけが対象です。"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -819,6 +917,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 Order.objects.select_for_update()
                 .get(pk=order.pk, store=store)
             )
+            if locked_order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
+                raise ValidationError("確定済みの有効な予約だけが対象です。")
             _require_daily_settlement_open(
                 store,
                 business_date_for_datetime(locked_order.start, store.timezone),
@@ -1047,6 +1147,10 @@ class OrderViewSet(viewsets.ModelViewSet):
         order = self.get_object()
         store = get_user_store(request)
         discount_id = request.data.get("discount_id")
+        if "discount_id" not in request.data:
+            return Response({"detail": "割引を選択してください。解除する場合は「なし」を指定してください。"}, status=400)
+        if discount_id is not None and (isinstance(discount_id, bool) or not str(discount_id).isascii() or not str(discount_id).isdigit()):
+            return Response({"detail": "割引を一覧から選択してください"}, status=400)
 
         with transaction.atomic():
             order = self._lock_order_for_mutation(order)
@@ -1061,7 +1165,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 order.discount_amount = 0
             else:
                 try:
-                    dc = Discount.objects.get(pk=discount_id, store=store)
+                    dc = Discount.objects.get(pk=discount_id, store=store, is_active=True)
                 except Discount.DoesNotExist:
                     return Response({"detail": "割引が見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
                 order.discount = dc
@@ -1076,6 +1180,47 @@ class OrderViewSet(viewsets.ModelViewSet):
             ])
             recalculate_order_total(order)
         return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=["post"], url_path="manual-guidance")
+    @transaction.atomic
+    def manual_guidance(self, request, pk=None):
+        from .services.reservation_access import build_order_guest_url
+
+        Store.objects.select_for_update().get(pk=get_user_store(request).pk)
+        order = self.get_object()
+        if order.status in (Order.Status.REQUESTED, Order.Status.CANCELLED, Order.Status.DONE):
+            return Response({"detail": "確定済みの有効な予約だけが対象です。"}, status=400)
+        existing = getattr(order, "guest_access", None)
+        if existing is not None and existing.invalidated_at is not None:
+            return Response({"detail": "この予約の案内リンクは無効です。店舗管理者へご確認ください。"}, status=400)
+        url = build_order_guest_url(order)
+        if not url:
+            return Response({"detail": "予約案内URLが設定されていません"}, status=400)
+        access = order.guest_access
+        visible = serialize_guest_reservation(access)
+        local_start = timezone.localtime(order.start, ZoneInfo(order.store.timezone or "Asia/Tokyo"))
+        when = local_start.strftime("%Y/%m/%d %H:%M")
+        customer_lines = [f"【{order.store.name}】{visible['state_label']}", f"日時：{when}",
+                          f"セラピスト：{visible['cast_name']}", f"コース：{order.course_name}",
+                          f"指名：{order.nomination_fee_name or '指名なし'}",
+                          f"割引：{order.discount_name or 'なし'}（{order.discount_amount:,}円）",
+                          f"お支払い方法：{order.get_payment_method_display()}", f"合計：{order.total_price:,}円"]
+        options = "、".join(order.options.values_list("name", flat=True)) or "なし"
+        customer_lines.extend([f"オプション：{options}（{order.options_price:,}円）",
+                               f"延長：{order.extension_duration}分（{order.extension_price:,}円）"])
+        if order.payment_method == Order.PaymentMethod.CARD:
+            customer_lines.extend([f"カード請求額（手数料込み）：{visible['payment_amount']:,}円",
+                                   f"別途現金でのお支払い：{visible['cash_due_on_site']:,}円"])
+        for key, label in (("room_name", "ルーム"), ("room_address", "住所"), ("room_map_url", "地図"), ("room_notice", "ご案内"), ("confirmation_notice", "注意事項")):
+            if visible[key]:
+                customer_lines.append(f"{label}：{visible[key]}")
+        customer_lines.extend([visible["message"], f"最新の予約内容はこちら：{url}"])
+        therapist_lines = ["予約のご案内です。", f"日時：{when}", f"コース：{order.course_name}",
+                           f"ルーム：{order.room.name if order.room else '未定'}", f"オプション：{options}",
+                           f"延長：{order.extension_duration}分", "詳細はRoominkでご確認ください。"]
+        response = Response({"customer": "\n".join(customer_lines), "therapist": "\n".join(therapist_lines)})
+        response["Cache-Control"] = "no-store"
+        return response
 
     @action(detail=True, methods=["post"])
     def apply_medium(self, request, pk=None):
@@ -1143,6 +1288,7 @@ def _serialize_cast_today_order(order, cast, business_date, *, is_unconfirmed):
         "course_name": order.course_name,
         "course_price": order.course_price,
         "option_ids": [row["id"] for row in option_rows],
+        "updated_at": order.updated_at,
         "options": option_rows,
         "options_price": order.options_price,
         "nomination_fee_name": order.nomination_fee_name,
@@ -1758,37 +1904,60 @@ def _suggest_checkout_room(cast, d):
 
 
 def _room_cash_summary(store, d):
-    """ルームの実残高と、売上・日次精算から導く予定残を返す。"""
-    summaries = []
-    for room in Room.objects.filter(store=store).order_by("sort_order", "id"):
-        previous_count = RoomCashCount.objects.filter(store=store, room=room, date__lt=d).order_by("-date").first()
-        opening = previous_count.actual_cash_amount if previous_count else 0
-        cash_sales = sum(
-            get_done_orders_for_business_range(store, d, d)
-            .filter(room=room, payment_method=Order.PaymentMethod.CASH)
-            .values_list("total_price", flat=True)
-        )
-        checkouts = CastDailyCheckout.objects.filter(store=store, room=room, date=d).exclude(
-            status=CastDailyCheckout.Status.RETURNED,
-        )
-        cash_taken = sum(checkouts.values_list("room_cash_taken_amount", flat=True))
-        cash_returned = sum(checkouts.values_list("cash_returned_to_room_amount", flat=True))
-        expected = opening + cash_sales - cash_taken + cash_returned
-        count = RoomCashCount.objects.filter(store=store, room=room, date=d).first()
-        actual = count.actual_cash_amount if count else None
-        summaries.append({
-            "room": room.id,
-            "room_name": room.name,
-            "opening_cash_amount": opening,
-            "cash_sales_amount": cash_sales,
-            "room_cash_taken_amount": cash_taken,
-            "cash_returned_amount": cash_returned,
-            "expected_cash_amount": expected,
-            "actual_cash_amount": actual,
-            "difference_amount": actual - expected if actual is not None else None,
-            "memo": count.memo if count else "",
-        })
-    return summaries
+    from .services.room_cash import room_cash_summary
+    return room_cash_summary(store, d)
+
+
+@document_object_api_view
+@method_decorator(transaction.atomic, name="dispatch")
+class CastRoomCashView(APIView):
+    """本人の当日担当ルームのみ。管理者向け情報を明示DTOで除外する。"""
+    permission_classes = [IsAuthenticated]
+
+    def _context(self, request):
+        from .services.room_cash import cast_room_cash_ids
+        profile = get_request_profile(request)
+        cast = getattr(request.user, "cast_profile", None)
+        if profile is None or profile.role != UserProfile.Role.CAST or cast is None or profile.store_id != cast.store_id:
+            raise PermissionDenied("この操作は所属店舗のセラピスト本人だけ利用できます")
+        source = request.data if request.method == "POST" else request.query_params
+        allowed_keys = {"date", "room", "actual_cash_amount", "memo", "expected_revision", "request_id"} if request.method == "POST" else {"date", "room"}
+        if not hasattr(source, "keys") or set(source.keys()) - allowed_keys:
+            raise ValidationError({"detail": "指定できない項目が含まれています"})
+        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
+        try:
+            target = date_type.fromisoformat(source["date"]) if source.get("date") else today
+        except (ValueError, TypeError):
+            raise ValidationError({"detail": "日付の形式が不正です"})
+        if target != today:
+            raise ValidationError({"detail": "本日の担当ルームだけ確認できます"})
+        Store.objects.select_for_update().get(pk=cast.store_id)
+        allowed_ids = cast_room_cash_ids(cast, today)
+        room_id = None
+        if source.get("room") is not None:
+            value = source.get("room")
+            try:
+                if isinstance(value, bool) or not isinstance(value, (int, str)) or (isinstance(value, str) and not value.isdecimal()):
+                    raise ValueError
+                room_id = int(value)
+            except (TypeError, ValueError):
+                raise ValidationError({"detail": "ルームの形式が不正です"})
+            if room_id not in allowed_ids:
+                raise PermissionDenied("本日担当しているルームだけ利用できます")
+        return cast, today, allowed_ids, room_id
+
+    def get(self, request):
+        from .services.room_cash import cast_room_cash_summary
+        cast, today, allowed_ids, room_id = self._context(request)
+        return Response(cast_room_cash_summary(cast, today, allowed_ids, room_id))
+
+    def post(self, request):
+        from .services.room_cash import cast_room_cash_summary, save_room_cash_checkpoint
+        cast, today, allowed_ids, room_id = self._context(request)
+        if room_id is None:
+            raise ValidationError({"detail": "確認したルームを選択してください"})
+        save_room_cash_checkpoint(cast.store, today, request.data, request.user, allowed_room_ids=allowed_ids)
+        return Response(cast_room_cash_summary(cast, today, allowed_ids, room_id))
 
 
 @document_object_api_view
@@ -1808,6 +1977,7 @@ class CastTodaySalesView(APIView):
 
 
 @document_object_api_view
+@method_decorator(transaction.atomic, name="dispatch")
 class CastCheckoutView(APIView):
     """
     GET /api/cast/checkout/ — 本日の見込み・固定雑費テンプレ・既存提出内容を返す
@@ -1864,7 +2034,8 @@ class CastCheckoutView(APIView):
             )
 
         today = business_date_for_datetime(timezone.now(), cast.store.timezone)
-        existing = CastDailyCheckout.objects.filter(cast=cast, date=today).first()
+        Store.objects.select_for_update().get(pk=cast.store_id)
+        existing = CastDailyCheckout.objects.select_for_update().filter(cast=cast, date=today).first()
         if existing is not None and existing.status != CastDailyCheckout.Status.RETURNED:
             return Response(
                 {"detail": "本日はすでに退勤提出済みです"},
@@ -1935,6 +2106,7 @@ class CastCheckoutView(APIView):
             instance.cast_memo = cast_memo
             instance.status = CastDailyCheckout.Status.SUBMITTED
             instance.submitted_at = timezone.now()
+            instance._cash_recorded_by_id = request.user.pk
             instance.save()
 
             CastCheckoutExpenseSnapshot.objects.bulk_create([
@@ -2103,6 +2275,8 @@ class CastOrderOptionsView(APIView):
                     {"detail": "カード決済確認済みのため、店舗へオプション変更を依頼してください"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            require_current_order(order, request.data.get("expected_updated_at"), required=True)
+            before = order_edit_snapshot(order)
             OrderOption.objects.filter(order=order).delete()
             for option in options:
                 OrderOption.objects.create(order=order, option=option)
@@ -2110,6 +2284,8 @@ class CastOrderOptionsView(APIView):
             order.updated_by = request.user
             order.save(update_fields=["options_price", "updated_by", "updated_at"])
             recalculate_order_total(order)
+
+            record_order_edit(order, before, request.user, "cast")
 
         order.refresh_from_db()
         return _cast_order_response(order, cast)
@@ -2786,6 +2962,16 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     }
     ordering_fields = ["date", "start_day_offset", "start_time"]
     ordering = ["date", "start_day_offset", "start_time"]
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        Store.objects.select_for_update().get(pk=get_user_store(request).pk)
+        return super().create(request, *args, **kwargs)
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        Store.objects.select_for_update().get(pk=get_user_store(request).pk)
+        return super().update(request, *args, **kwargs)
 
     def get_queryset(self):
         store = get_user_store(self.request)
@@ -3719,6 +3905,7 @@ class CastExpenseTemplateHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 # CastDailyCheckout — manager only（退勤提出の閲覧/確認, Phase 3-A）
 # ──────────────────────────────────────
 
+@method_decorator(transaction.atomic, name="dispatch")
 class CastCheckoutViewSet(viewsets.ModelViewSet):
     """退勤提出一覧/詳細の閲覧 + manager_memo編集 + 確認/差戻し/未確認に戻す — manager のみ。
     提出自体はキャスト側 CastCheckoutView からのみ行う（create/delete はここでは提供しない）。"""
@@ -3740,6 +3927,8 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         self.check_manager(self.request)
         store = get_user_store(self.request)
+        if self.request.method not in ("GET", "HEAD", "OPTIONS"):
+            Store.objects.select_for_update().get(pk=store.pk)
         return super().get_queryset().filter(store=store)
 
     def check_manager(self, request):
@@ -3847,6 +4036,7 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         if "room_cash_taken_amount" in updates:
             instance.actual_take_home_amount = instance.room_cash_taken_amount
             updates.append("actual_take_home_amount")
+        instance._cash_recorded_by_id = request.user.pk
         instance.save(update_fields=[*updates, "updated_at"])
         return Response(CastDailyCheckoutSerializer(instance).data)
 
@@ -3908,25 +4098,12 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         except ValueError:
             return Response({"detail": "日付の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
         store = get_user_store(request)
+        # All cash-source saves take this same lock. The count and its source
+        # snapshot are therefore one consistent instant, including on GET.
+        Store.objects.select_for_update().get(pk=store.pk)
         if request.method == "POST":
-            try:
-                room_id = int(request.data.get("room"))
-                actual_amount = int(request.data.get("actual_cash_amount"))
-            except (TypeError, ValueError):
-                return Response({"detail": "ルームまたは実残高の形式が不正です"}, status=status.HTTP_400_BAD_REQUEST)
-            if actual_amount < 0:
-                return Response({"detail": "実残高は0以上で入力してください"}, status=status.HTTP_400_BAD_REQUEST)
-            room = Room.objects.filter(id=room_id, store=store).first()
-            if room is None:
-                return Response({"detail": "対象ルームが見つかりません"}, status=status.HTTP_400_BAD_REQUEST)
-            RoomCashCount.objects.update_or_create(
-                store=store, room=room, date=target_date,
-                defaults={
-                    "actual_cash_amount": actual_amount,
-                    "memo": request.data.get("memo", "") or "",
-                    "counted_by": request.user,
-                },
-            )
+            from .services.room_cash import save_room_cash_checkpoint
+            save_room_cash_checkpoint(store, target_date, request.data, request.user)
         return Response({"date": target_date.isoformat(), "rooms": _room_cash_summary(store, target_date)})
 
     @action(detail=False, methods=["get"])
@@ -4399,14 +4576,24 @@ class ShiftConfirmAlertsView(APIView):
         store = get_user_store(request)
         now = timezone.now()
         today = timezone.localdate()
-        tz = timezone.get_current_timezone()
+        date_str = request.query_params.get("date")
+        selected_date = None
+        if date_str is not None:
+            try:
+                selected_date = date_type.fromisoformat(date_str)
+            except ValueError:
+                return Response(
+                    {"detail": "date の形式が不正です（YYYY-MM-DD）"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         shifts = (
             ShiftAssignment.objects
-            .filter(store=store, date__gte=today, confirmed_at__isnull=True, is_absent=False)
+            .filter(store=store, confirmed_at__isnull=True, is_absent=False)
             .select_related("cast", "room")
-            .order_by("date", "start_time")
+            .order_by("date", "start_day_offset", "start_time", "id")
         )
+        shifts = shifts.filter(date=selected_date) if selected_date else shifts.filter(date__gte=today)
 
         shift_ids = [s.id for s in shifts]
         latest_logs = {}
@@ -4421,18 +4608,33 @@ class ShiftConfirmAlertsView(APIView):
                     latest_logs[key] = log
 
         alerts = []
+        from .services.business_datetime import build_store_datetime, format_extended_time
+
         for s in shifts:
-            start_dt = timezone.make_aware(datetime.combine(s.date, s.start_time), tz)
-            minutes_until_start = int((start_dt - now).total_seconds() // 60)
-            if minutes_until_start > 120:
+            start_dt = build_store_datetime(
+                s.date, s.start_time, day_offset=s.start_day_offset,
+                timezone_name=store.timezone,
+            )
+            end_dt = build_store_datetime(
+                s.date, s.end_time, day_offset=s.end_day_offset,
+                timezone_name=store.timezone,
+            )
+            # 日付指定はタイムライン用。終了済みのシフトを翌日以降まで警告しない。
+            if selected_date and now >= end_dt:
+                continue
+            until_start = start_dt - now
+            minutes_until_start = int(until_start.total_seconds() // 60)
+            if until_start > timedelta(hours=2):
                 continue  # 2時間より前は対象外
-            alert_level = "ONE_HOUR" if minutes_until_start <= 60 else "TWO_HOURS"
+            alert_level = "ONE_HOUR" if until_start <= timedelta(hours=1) else "TWO_HOURS"
             last_log = latest_logs.get((s.id, alert_level))
             alerts.append({
                 "shift_id": s.id,
                 "cast_name": s.cast.name,
                 "date": s.date.isoformat(),
                 "start_time": str(s.start_time)[:5],
+                "start_time_extended": format_extended_time(s.start_time, s.start_day_offset),
+                "has_started": now >= start_dt,
                 "room_name": s.room.name if s.room_id else None,
                 "confirmed_at": s.confirmed_at,
                 "minutes_until_start": minutes_until_start,
@@ -4677,6 +4879,11 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
         cast = self.request.user.cast_profile
         serializer.save(cast=cast, store=cast.store)
 
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        Store.objects.select_for_update().get(pk=request.user.cast_profile.store_id)
+        return super().update(request, *args, **kwargs)
+
     def perform_update(self, serializer):
         if serializer.instance.status != ShiftRequest.Status.REQUESTED:
             from rest_framework.exceptions import ValidationError
@@ -4746,7 +4953,9 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def cancel(self, request, pk=None):
+        Store.objects.select_for_update().get(pk=request.user.cast_profile.store_id)
         obj = self.get_object()
         if obj.status != ShiftRequest.Status.REQUESTED:
             return Response(
@@ -4762,6 +4971,7 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
 # ShiftRequest — Operator API
 # ──────────────────────────────────────
 
+@transaction.atomic
 def _apply_shift_request_approval(
     obj,
     store,
@@ -4777,6 +4987,12 @@ def _apply_shift_request_approval(
     OpShiftRequestViewSet.approve() と シフト申請CSV戻し承認(import_apply) の両方から呼ばれる。
     戻り値: (成功したか, エラーメッセージ or None)"""
     from .serializers import ShiftAssignmentSerializer
+
+    Store.objects.select_for_update().get(pk=store.pk)
+    ShiftRequest.objects.select_for_update().get(pk=obj.pk, store=store)
+    obj.refresh_from_db()
+    if obj.status != ShiftRequest.Status.REQUESTED:
+        return False, "申請中のもののみ承認できます。最新の一覧をご確認ください。"
 
     sa_data = {
         "date": date,
@@ -4855,9 +5071,11 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             raise PermissionDenied("この操作はマネージャーのみ利用可能です")
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def approve(self, request, pk=None):
-        obj = self.get_object()
         store = get_user_store(request)
+        Store.objects.select_for_update().get(pk=store.pk)
+        obj = self.get_object()
         if obj.status != ShiftRequest.Status.REQUESTED:
             return Response(
                 {"detail": "申請中のもののみ承認できます"},
@@ -4867,6 +5085,8 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         room_id = request.data.get("room")
         room = None
         if room_id not in (None, ""):
+            if isinstance(room_id, bool) or not str(room_id).isascii() or not str(room_id).isdigit() or len(str(room_id)) > 18:
+                return Response({"detail": "ルームを一覧から選択してください"}, status=400)
             room = Room.objects.filter(pk=room_id, store=store).first()
             if room is None:
                 return Response({"detail": "同じ店舗のルームを指定してください"}, status=status.HTTP_400_BAD_REQUEST)
@@ -4894,7 +5114,9 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(OpShiftRequestSerializer(obj).data)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def reject(self, request, pk=None):
+        Store.objects.select_for_update().get(pk=get_user_store(request).pk)
         obj = self.get_object()
         if obj.status != ShiftRequest.Status.REQUESTED:
             return Response(
@@ -4967,7 +5189,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             "admin_memo": row.get("admin_memo") or "",
         }
 
-        if not raw_id.isdigit():
+        if not raw_id.isascii() or not raw_id.isdigit() or len(raw_id) > 18:
             errors.append("shift_request_id が不正です（数値を指定してください）")
             return {
                 "row_number": row_number, "shift_request_id": raw_id or None,
@@ -5001,7 +5223,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         }
 
         cast_id_col = (row.get("cast_id") or "").strip()
-        if cast_id_col and cast_id_col.isdigit() and int(cast_id_col) != obj.cast_id:
+        if cast_id_col and (not cast_id_col.isascii() or not cast_id_col.isdigit() or int(cast_id_col) != obj.cast_id):
             errors.append("cast_id がこの申請のキャストと一致しません")
 
         if obj.status != ShiftRequest.Status.REQUESTED:
@@ -5012,7 +5234,8 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             errors.append("approved_date は必須です")
         else:
             try:
-                approved_date = date_type.fromisoformat(csv_data["approved_date"])
+                approved_date = datetime.strptime(csv_data["approved_date"], "%Y/%m/%d").date() if "/" in csv_data["approved_date"] else date_type.fromisoformat(csv_data["approved_date"])
+                csv_data["approved_date"] = approved_date.isoformat()
             except ValueError:
                 errors.append("approved_date の形式が不正です（YYYY-MM-DD）")
 
@@ -5020,8 +5243,9 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             if not v:
                 return None
             try:
-                parts = v.split(":")
-                return dt_time(int(parts[0]), int(parts[1]))
+                normalized = v[:-3] if v.endswith(":00") and v.count(":") == 2 else v
+                parsed, offset = parse_extended_time(normalized)
+                return parsed if offset == 0 else None
             except (ValueError, IndexError):
                 return None
 
@@ -5030,6 +5254,8 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             errors.append("approved_start_time は必須です")
         elif start_t is None:
             errors.append("approved_start_time の形式が不正です（HH:MM）")
+        else:
+            csv_data["approved_start_time"] = start_t.strftime("%H:%M")
 
         end_t = None
         end_day_offset = 0
@@ -5037,9 +5263,10 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             errors.append("approved_end_time は必須です")
         else:
             try:
-                end_t, end_day_offset = parse_extended_time(
-                    csv_data["approved_end_time"]
-                )
+                raw_end = csv_data["approved_end_time"]
+                normalized_end = raw_end[:-3] if raw_end.endswith(":00") and raw_end.count(":") == 2 else raw_end
+                end_t, end_day_offset = parse_extended_time(normalized_end)
+                csv_data["approved_end_time"] = normalized_end
             except BusinessDateTimeError as exc:
                 errors.append(str(exc))
 
@@ -5057,15 +5284,28 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 errors.append(str(exc))
 
         room = None
+        if not csv_data["approved_room_id"] and (row.get("approved_room_name") or "").strip():
+            matching_rooms = list(Room.objects.filter(store=store, name=row["approved_room_name"].strip())[:2])
+            if len(matching_rooms) == 1:
+                csv_data["approved_room_id"] = str(matching_rooms[0].pk)
         if not csv_data["approved_room_id"]:
             errors.append("approved_room_id は必須です")
-        elif not csv_data["approved_room_id"].isdigit():
+        elif not csv_data["approved_room_id"].isascii() or not csv_data["approved_room_id"].isdigit() or len(csv_data["approved_room_id"]) > 18:
             errors.append("approved_room_id が不正です（数値を指定してください）")
         else:
             room = Room.objects.filter(pk=int(csv_data["approved_room_id"]), store=store).first()
             if room is None:
                 errors.append("approved_room_id が自店舗の部屋として見つかりません")
         csv_data["approved_room_name"] = room.name if room else None
+
+        if not errors:
+            validator = ShiftAssignmentSerializer(data={
+                "date": csv_data["approved_date"], "cast": obj.cast_id,
+                "room": room.pk, "start_time": start_t, "end_time": end_t,
+                "end_day_offset": end_day_offset,
+            }, context={"store": store})
+            if not validator.is_valid():
+                errors.extend(str(error) for values in validator.errors.values() for error in values)
 
         if approved_start and approved_end:
             existing_shifts = ShiftAssignment.objects.filter(
@@ -5113,16 +5353,19 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         if not file_obj:
             return Response({"detail": "file が必要です"}, status=status.HTTP_400_BAD_REQUEST)
 
+        raw_file = file_obj.read()
         try:
-            text = file_obj.read().decode("utf-8-sig")
+            text = raw_file.decode("utf-8-sig")
         except UnicodeDecodeError:
-            return Response(
-                {"detail": "ファイルの文字コードが不正です（UTF-8で保存してください）"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            try:
+                text = raw_file.decode("cp932")
+            except UnicodeDecodeError:
+                return Response({"detail": "UTF-8またはShift-JISで保存してください"}, status=400)
 
         reader = csv.DictReader(io.StringIO(text))
         fieldnames = reader.fieldnames or []
+        if len(set(fieldnames)) != len(fieldnames):
+            return Response({"detail": "同じ列名が複数あります。列名を重複させないでください"}, status=400)
         missing = [h for h in SHIFT_REQUEST_IMPORT_REQUIRED_COLUMNS if h not in fieldnames]
         if missing:
             return Response(
@@ -5131,10 +5374,33 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
         rows = []
+        projected = []
+        seen_requests = set()
         for i, row in enumerate(reader, start=2):  # 1行目はヘッダ
+            if None in row:
+                return Response({"detail": f"{i}行目の列数が見出しと一致しません"}, status=400)
             if not any((row or {}).values()):
                 continue
-            rows.append(self._validate_import_row(store, row, i))
+            result = self._validate_import_row(store, row, i)
+            if result["can_apply"]:
+                data = result["csv"]
+                end_time, offset = parse_extended_time(data["approved_end_time"])
+                start_at, end_at = build_business_interval(
+                    date_type.fromisoformat(data["approved_date"]), datetime.strptime(data["approved_start_time"], "%H:%M").time(), end_time,
+                    end_day_offset=offset, timezone_name=store.timezone,
+                )
+                cast_id = result["original"]["cast_id"]
+                room_id = data["approved_room_id"]
+                if result["shift_request_id"] in seen_requests:
+                    result["errors"].append("同じ申請がCSV内で重複しています")
+                elif any((cast_id == other_cast or room_id == other_room) and intervals_overlap(start_at, end_at, other_start, other_end)
+                         for other_cast, other_room, other_start, other_end in projected):
+                    result["errors"].append("CSV内の別の行とキャストまたはルームの時間が重複しています")
+                result["can_apply"] = not result["errors"]
+                if result["can_apply"]:
+                    seen_requests.add(result["shift_request_id"])
+                    projected.append((cast_id, room_id, start_at, end_at))
+            rows.append(result)
 
         applicable = sum(1 for r in rows if r["can_apply"])
         return Response({
@@ -5160,6 +5426,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         results = []
         with transaction.atomic():
+            Store.objects.select_for_update().get(pk=store.pk)
             for raw_row in rows:
                 if not isinstance(raw_row, dict):
                     continue
@@ -5171,6 +5438,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                     "approved_start_time": raw_row.get("approved_start_time"),
                     "approved_end_time": raw_row.get("approved_end_time"),
                     "approved_room_id": raw_row.get("approved_room_id"),
+                    "approved_room_name": raw_row.get("approved_room_name"),
                     "admin_memo": raw_row.get("admin_memo") or "",
                 }
                 # 文字列化（プレビュー時と同じ検証ロジックを再利用するため）
@@ -5180,6 +5448,8 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 if not validated["can_apply"]:
                     results.append({**validated, "applied": False})
                     continue
+
+                row_for_validation.update(validated["csv"])
 
                 room = Room.objects.filter(pk=int(row_for_validation["approved_room_id"]), store=store).first()
                 obj = ShiftRequest.objects.filter(pk=validated["shift_request_id"], store=store).first()
@@ -7684,9 +7954,11 @@ class DailySettlementExportView(APIView):
             "コースバック率(%)", "OPバック率(%)",
             "バック額", "雑費", "ポイント",
             "現金件数", "現金預り", "振込額",
-            "売上", "カード決済加算", "お客様決済額", "店舗側決済手数料見込み", "固定雑費", "当日雑費", "報酬", "店舗配分",
+            "売上", "固定雑費", "当日雑費", "報酬", "店落ち",
             "現金精算額（正＝店へ残す／負＝店から支払う）",
         ])
+
+        from .services.sales import settlement_store_share
 
         for r in rows:
             writer.writerow([
@@ -7704,13 +7976,10 @@ class DailySettlementExportView(APIView):
                 r.get("cash_sales_total", 0),
                 r.get("net_pay", 0),
                 r.get("total_sales", ""),
-                r.get("customer_payment_surcharge", ""),
-                r.get("customer_payment_total", ""),
-                r.get("payment_fee_estimate", ""),
                 r.get("fixed_expense_total", ""),
                 r.get("daily_expense_total", ""),
                 r.get("compensation", ""),
-                r.get("store_allocation", ""),
+                settlement_store_share(r),
                 r.get("cash_settlement_amount", ""),
             ])
 
@@ -7727,13 +7996,10 @@ class DailySettlementExportView(APIView):
             totals.get("cash_sales_total", 0),
             totals.get("net_pay", 0),
             totals.get("total_sales", ""),
-            totals.get("customer_payment_surcharge", ""),
-            totals.get("customer_payment_total", ""),
-            totals.get("payment_fee_estimate", ""),
             totals.get("fixed_expense_total", ""),
             totals.get("daily_expense_total", ""),
             totals.get("compensation", ""),
-            totals.get("store_allocation", ""),
+            settlement_store_share(totals),
             totals.get("cash_settlement_amount", ""),
         ])
 
