@@ -1,5 +1,5 @@
 import { Link } from 'expo-router';
-import { ScrollView, StyleSheet, Text, useColorScheme } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Only the corresponding hosted environment may receive the user from this build.
@@ -18,6 +18,14 @@ export default function SetupScreen() {
     <ScrollView contentContainerStyle={styles.content}>
       <Link href="/" style={[styles.link, { color: accent }]}>‹ Workに戻る</Link>
       <Text style={[styles.title, { color: ink }]}>初期設定</Text>
+      <View style={styles.appRow}>
+        <Image source={require('../../assets/icon.png')} style={styles.icon} accessibilityLabel="Roomink Workのアプリアイコン" />
+        <View style={styles.appCopy}><Text style={[styles.heading, { color: ink }]}>Roomink Work</Text><Text style={[styles.body, { color: muted }]}>これから使う受付アプリ</Text></View>
+      </View>
+      <View style={styles.appRow}>
+        <Image source={require('../../assets/groundwire-app.jpg')} style={styles.icon} accessibilityLabel="Groundwireのアプリアイコン" />
+        <View style={styles.appCopy}><Text style={[styles.heading, { color: ink }]}>Groundwire</Text><Text style={[styles.body, { color: muted }]}>削除せず、予備として残すアプリ</Text></View>
+      </View>
       <Text style={[styles.heading, { color: ink }]}>Groundwireは残してください</Text>
       <Text style={[styles.body, { color: muted }]}>Workで受けられないときに戻すため、アプリと接続設定は削除しないでください。切り戻す前にGroundwireを開き、接続状態を確認します。</Text>
       <Text style={[styles.heading, { color: ink }]}>1. ログイン・端末連携</Text>
@@ -43,4 +51,7 @@ const styles = StyleSheet.create({
   heading: { fontSize: 17, fontWeight: '700', marginTop: 12 },
   body: { fontSize: 15, lineHeight: 24 },
   link: { fontSize: 15, fontWeight: '700', paddingVertical: 12 },
+  appRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  appCopy: { flex: 1 },
+  icon: { width: 64, height: 64, borderRadius: 14, borderWidth: 1, borderColor: '#dce5e1' },
 });

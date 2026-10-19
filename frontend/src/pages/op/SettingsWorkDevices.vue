@@ -123,6 +123,10 @@ onMounted(load)
     <section class="card mb-4" aria-labelledby="work-setup-title">
       <div class="card-body p-3 p-md-4">
         <h2 id="work-setup-title" class="h5">初期設定：Roomink Workを使い始める</h2>
+        <div class="work-apps my-3">
+          <div class="work-app"><img src="/app-icons/roomink-work.png" alt="Roomink Workのアプリアイコン" width="64" height="64"><div><strong>Roomink Work</strong><p class="small text-muted mb-0">これから使う受付アプリ</p></div></div>
+          <div class="work-app"><img src="/app-icons/groundwire.jpg" alt="Groundwireのアプリアイコン" width="64" height="64"><div><strong>Groundwire</strong><p class="small text-muted mb-0">削除せず、予備として残すアプリ</p></div></div>
+        </div>
         <p>最初の受信先はGroundwireです。Workへのログインや端末連携だけでは、店舗の受信先は変わりません。</p>
         <div class="alert alert-warning">
           <strong>Groundwireは削除せず、接続設定も残してください。</strong>
@@ -293,6 +297,9 @@ onMounted(load)
 </template>
 
 <style scoped>
+.work-apps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 1rem; }
+.work-app { display: flex; align-items: center; gap: 1rem; padding: 1rem; border: 1px solid var(--bs-border-color); border-radius: .75rem; }
+.work-app img { border-radius: 14px; border: 1px solid var(--bs-border-color); flex-shrink: 0; }
 .work-setup-steps { padding-left: 1.5rem; }
 .work-setup-steps li { padding-left: .25rem; margin-bottom: 1rem; }
 .work-setup-steps p { margin: .35rem 0 0; color: var(--bs-secondary-color); line-height: 1.7; }
