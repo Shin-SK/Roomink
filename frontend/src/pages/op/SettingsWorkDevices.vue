@@ -120,7 +120,30 @@ onMounted(load)
       </div>
     </div>
 
-    <section class="card mb-4">
+    <section class="card mb-4" aria-labelledby="work-setup-title">
+      <div class="card-body p-3 p-md-4">
+        <h2 id="work-setup-title" class="h5">初期設定：Roomink Workを使い始める</h2>
+        <div class="work-apps my-3">
+          <div class="work-app"><img src="/app-icons/roomink-work.png" alt="Roomink Workのアプリアイコン" width="64" height="64"><div><strong>Roomink Work</strong><p class="small text-muted mb-0">これから使う受付アプリ</p></div></div>
+          <div class="work-app"><img src="/app-icons/groundwire.jpg" alt="Groundwireのアプリアイコン" width="64" height="64"><div><strong>Groundwire</strong><p class="small text-muted mb-0">削除せず、予備として残すアプリ</p></div></div>
+        </div>
+        <p>最初の受信先はGroundwireです。Workへのログインや端末連携だけでは、店舗の受信先は変わりません。</p>
+        <div class="alert alert-warning">
+          <strong>Groundwireは削除せず、接続設定も残してください。</strong>
+          <div class="small mt-1">Workで受けられないときに戻すために使います。長期間使わないと着信の登録が切れる場合があるため、切り戻す前にGroundwireを開き、接続状態を確認してください。</div>
+        </div>
+        <ol class="work-setup-steps">
+          <li><strong>受付用iPhoneにWorkを入れる</strong><p>運営から案内されたリンクからインストールしてください。</p></li>
+          <li><strong>ログイン・端末連携をする</strong><p>個人端末は実際に使う人のRoominkアカウントでログインし、受ける店舗を選びます。共用端末はアプリの連携コードを、この画面の「共用端末を連携」で管理者が承認します。</p></li>
+          <li><strong>アプリで対象店舗の着信をONにする</strong><p>Workの「設定」で店舗名と着信ONを確認します。この端末のON/OFFと、店舗の受信先の切り替えは別の操作です。</p></li>
+          <li><strong>管理者が店舗の受信先を切り替える</strong><p>下の「店舗の受信先」で、対象店舗の「Workに切り替える」を押します。管理権限のない方は、店舗の管理者へ依頼してください。</p></li>
+          <li><strong>着信を確認して使用開始</strong><p>店舗番号に電話をかけ、Workの着信・双方の声・Roominkの着信表示と履歴を確認してください。不調な場合はGroundwireへ戻します。</p></li>
+        </ol>
+        <a class="btn btn-outline-primary" href="#work-receiver">店舗の受信先へ進む</a>
+      </div>
+    </section>
+
+    <section id="work-receiver" class="card mb-4">
       <div class="card-body p-3 p-md-4">
         <h2 class="h5">店舗の受信先</h2>
         <p class="small text-muted">切り替えは次の着信から有効です。受信ONの有効なWork端末がない場合は既存のGroundwireへ接続します。端末が鳴らない・声が聞こえない場合は、ここでGroundwireへ戻してください。</p>
@@ -132,6 +155,15 @@ onMounted(load)
           </button>
         </div>
         <p v-if="!routes.work_available" class="small text-muted mb-0">Workへの切り替えは準備中です。Groundwireへの切り戻しは利用できます。</p>
+      </div>
+    </section>
+
+    <section class="card mb-4" aria-labelledby="work-recovery-title">
+      <div class="card-body p-3 p-md-4">
+        <h2 id="work-recovery-title" class="h5">着信できないとき</h2>
+        <p><strong>Workが鳴らない・声が聞こえない：</strong>Groundwireを開いて接続を確認し、上の対象店舗を「Groundwireに戻す」に切り替えてください。次の着信から有効です。進行中の通話は移動しません。</p>
+        <p><strong>この設定画面を開けない・切り替えられない：</strong>運営へ連絡してください。この画面が使えない場合の復旧は、運営が電話経路側で対応します。</p>
+        <p class="mb-0"><strong>電話サービス全体の障害：</strong>運営と連携し、元回線の転送を解除して元の電話で受けます。解除方法と受ける電話は、使用開始前に店舗ごとに確認します。</p>
       </div>
     </section>
 
@@ -265,6 +297,13 @@ onMounted(load)
 </template>
 
 <style scoped>
+.work-apps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 1rem; }
+.work-app { display: flex; align-items: center; gap: 1rem; padding: 1rem; border: 1px solid var(--bs-border-color); border-radius: .75rem; }
+.work-app img { border-radius: 14px; border: 1px solid var(--bs-border-color); flex-shrink: 0; }
+.work-setup-steps { padding-left: 1.5rem; }
+.work-setup-steps li { padding-left: .25rem; margin-bottom: 1rem; }
+.work-setup-steps p { margin: .35rem 0 0; color: var(--bs-secondary-color); line-height: 1.7; }
+#work-receiver { scroll-margin-top: 5rem; }
 .foundation-note {
   display: flex;
   gap: 0.8rem;
