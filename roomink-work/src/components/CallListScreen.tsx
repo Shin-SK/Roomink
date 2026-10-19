@@ -110,7 +110,7 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Text style={styles.groupTitle}>この端末で着信を受ける店舗</Text>
       <Text style={styles.description}>アカウント：{device.owner || '共用端末'}</Text>
-      <Text style={styles.description}>検証版 {Constants.expoConfig?.extra?.workBuildLabel || Constants.expoConfig?.version || '開発中'}</Text>
+      <Text style={styles.description}>{Constants.expoConfig?.extra?.workBuildChannel || '検証版'} {Constants.expoConfig?.extra?.workBuildLabel || Constants.expoConfig?.version || '開発中'}</Text>
       <Text style={styles.description}>OFFでも着信履歴は確認できます。店舗の営業状態は変わりません。</Text>
       <View style={styles.group}>{device.stores.filter((store) => store.is_entitled !== false).map((store) => <View key={store.id} style={styles.settingRow}><View style={styles.grow}><Text style={styles.settingName}>{store.name}</Text><Text style={styles.secondary}>{store.is_receiving ? '着信 ON' : '着信 OFF'}</Text></View><Switch value={Boolean(store.is_receiving)} onValueChange={() => onToggleStore(store)} disabled={busy} trackColor={{ false: palette.border, true: palette.accent }} ios_backgroundColor={palette.border} accessibilityLabel={`${store.name}の着信受付`} accessibilityHint="この端末での着信受付を切り替えます" /></View>)}</View>
       {preview ? <Pressable onPress={() => setPreviewDark((value) => !value)} style={styles.themeToggle}><Text style={styles.settingName}>画面確認用：{dark ? 'ダーク' : 'ライト'}表示</Text><Text style={styles.settingAction}>切り替え</Text></Pressable> : null}

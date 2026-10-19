@@ -1,4 +1,5 @@
-const usesDistributionPush = ['development', 'preview', 'testflight'].includes(process.env.EAS_BUILD_PROFILE);
+const isProductionInternal = process.env.EAS_BUILD_PROFILE === 'production-internal';
+const usesDistributionPush = ['development', 'preview', 'testflight', 'production-internal'].includes(process.env.EAS_BUILD_PROFILE);
 
 /** @type {import('expo/config').ExpoConfig} */
 module.exports = {
@@ -29,7 +30,8 @@ module.exports = {
   },
   web: { favicon: './assets/favicon.png' },
   extra: {
-    workBuildLabel: '2026.10.15-2',
+    workBuildChannel: isProductionInternal ? '本番用' : '検証版',
+    workBuildLabel: isProductionInternal ? '2026.10.19-1' : '2026.10.15-2',
     eas: { projectId: 'a0245d29-73b8-440e-9b45-8197a7c88273' },
   },
   plugins: [

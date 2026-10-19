@@ -24,6 +24,17 @@
         "resourceClass": "m-medium"
       }
     },
+    "production-internal": {
+      "distribution": "internal",
+      "environment": "production",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_ROOMINK_API_BASE_URL": "https://api.roomink.net/api"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    },
     "testflight": {
       "distribution": "store",
       "env": {
