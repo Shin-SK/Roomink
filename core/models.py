@@ -64,6 +64,12 @@ class OperationGroup(models.Model):
 
 
 class Store(models.Model):
+    voice_receiver = models.CharField(
+        max_length=12,
+        choices=[("groundwire", "Groundwire"), ("work", "Roomink Work")],
+        default="groundwire",
+        db_default="groundwire",
+    )
     class LineOperationsRecipientType(models.TextChoices):
         USER = "user", "個人トーク"
         GROUP = "group", "グループ"
@@ -1097,6 +1103,14 @@ class SipProvisioningLink(models.Model):
 
     def __str__(self):
         return f"SIP provisioning #{self.pk} ({self.store})"
+
+
+class VoiceRouteEvent(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    previous = models.CharField(max_length=12)
+    selected = models.CharField(max_length=12)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class WorkDevice(models.Model):

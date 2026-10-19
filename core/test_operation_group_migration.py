@@ -1,6 +1,7 @@
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
+from core.test_migration_helpers import migrate_test_schema
 
 
 class OperationGroupMigrationTest(TransactionTestCase):
@@ -10,7 +11,7 @@ class OperationGroupMigrationTest(TransactionTestCase):
     def setUp(self):
         super().setUp()
         executor = MigrationExecutor(connection)
-        executor.migrate(self.migrate_from)
+        migrate_test_schema(self.migrate_from)
         old_apps = executor.loader.project_state(self.migrate_from).apps
 
         User = old_apps.get_model("auth", "User")

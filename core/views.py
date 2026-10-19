@@ -7100,6 +7100,18 @@ def twilio_voice_webhook(request):
     voice_response = VoiceResponse()
     voice_response.say(say_text, language="ja-JP")
 
+    from .voice_routing import configured, eligible_devices
+    work_devices = eligible_devices(store.pk) if store.voice_receiver == "work" and configured() else []
+    if work_devices and len(work_devices) <= 10:
+        callback = settings.TWILIO_WEBHOOK_PUBLIC_BASE_URL + "/api/webhook/twilio/work-status/"
+        dial = voice_response.dial(answer_on_bridge=True, timeout=30, action=callback, method="POST")
+        for device in work_devices:
+            dial.client("roomink_work_" + device.pk.hex,
+                        status_callback=callback + "?parent=" + call_sid,
+                        status_callback_event="answered completed", status_callback_method="POST")
+        return HttpResponse(str(voice_response), content_type="application/xml")
+
+    # No eligible Work receiver/configuration: preserve the existing SIP escape path.
     sip_uris = _store_twilio_sip_uris(store)
     if not sip_uris:
         logger.error("Twilio SIP reception is not configured")
