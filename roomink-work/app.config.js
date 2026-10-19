@@ -1,5 +1,5 @@
-const isProductionInternal = process.env.EAS_BUILD_PROFILE === 'production-internal';
-const usesDistributionPush = ['development', 'preview', 'testflight', 'production-internal'].includes(process.env.EAS_BUILD_PROFILE);
+const isProductionInternal = process.env.ROOMINK_WORK_PRODUCTION_BUILD === '1';
+const usesDistributionPush = isProductionInternal || ['development', 'preview', 'testflight'].includes(process.env.EAS_BUILD_PROFILE);
 
 /** @type {import('expo/config').ExpoConfig} */
 module.exports = {

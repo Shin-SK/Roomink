@@ -29,7 +29,8 @@
       "environment": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_ROOMINK_API_BASE_URL": "https://api.roomink.net/api"
+        "EXPO_PUBLIC_ROOMINK_API_BASE_URL": "https://api.roomink.net/api",
+        "ROOMINK_WORK_PRODUCTION_BUILD": "1"
       },
       "ios": {
         "resourceClass": "m-medium"
