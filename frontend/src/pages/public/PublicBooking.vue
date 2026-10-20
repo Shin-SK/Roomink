@@ -48,7 +48,7 @@ const form = ref({
   phone: '',
   cast: '',
   course: '',
-  date: dateString(1),
+  date: dateString(),
   time: '',
   options: [],
   memo: '',
