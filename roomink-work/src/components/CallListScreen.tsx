@@ -115,6 +115,7 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
       <View style={styles.group}>{device.stores.filter((store) => store.is_entitled !== false).map((store) => <View key={store.id} style={styles.settingRow}><View style={styles.grow}><Text style={styles.settingName}>{store.name}</Text><Text style={styles.secondary}>{store.is_receiving ? '着信 ON' : '着信 OFF'}</Text></View><Switch value={Boolean(store.is_receiving)} onValueChange={() => onToggleStore(store)} disabled={busy} trackColor={{ false: palette.border, true: palette.accent }} ios_backgroundColor={palette.border} accessibilityLabel={`${store.name}の着信受付`} accessibilityHint="この端末での着信受付を切り替えます" /></View>)}</View>
       {preview ? <Pressable onPress={() => setPreviewDark((value) => !value)} style={styles.themeToggle}><Text style={styles.settingName}>画面確認用：{dark ? 'ダーク' : 'ライト'}表示</Text><Text style={styles.settingAction}>切り替え</Text></Pressable> : null}
       <Text style={styles.description}>アプリから発信はできません。折り返しは店舗の受付回線から行ってください。</Text>
+      <Link href="/setup" style={styles.developerLink}>初期設定・着信できないとき</Link>
       {__DEV__ ? <Link href="/lab" style={styles.developerLink}>開発用の模擬着信テスト</Link> : null}
       {onLogout ? <Pressable onPress={onLogout} disabled={busy} style={styles.logout}><Text style={styles.secondary}>この端末からログアウト</Text></Pressable> : null}
     </ScrollView> : detail ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
