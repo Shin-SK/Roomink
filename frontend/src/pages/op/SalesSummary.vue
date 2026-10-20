@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { getAuthRole } from '../../router.js'
@@ -8,6 +8,13 @@ const isManager = computed(() => getAuthRole() === 'manager')
 
 const casts = ref([])
 const rooms = ref([])
+const areaBreakdownColumns = [
+  { key: 'course_sales', label: 'コース' },
+  { key: 'options_sales', label: 'オプション' },
+  { key: 'extension_sales', label: '延長' },
+  { key: 'nomination_fee_sales', label: '指名料' },
+  { key: 'discount_amount', label: '割引' },
+]
 
 function toLocalDateString(date) {
   const year = date.getFullYear()
@@ -34,6 +41,10 @@ const detailLoading = ref(false)
 const detailError = ref('')
 let dashboardRequestId = 0
 let detailRequestId = 0
+let dashboardRefreshTimer
+let dashboardInFlight = false
+let dashboardRefreshQueued = false
+let dashboardDisposed = false
 
 const isToday = computed(() => (
   range.value === 'today'
@@ -88,6 +99,13 @@ async function loadMasters() {
 }
 
 async function fetchDashboard() {
+  if (dashboardDisposed) return
+  // A changed filter replaces the pending refresh; it never starts another
+  // server aggregation while the preceding request is still running.
+  if (dashboardInFlight) {
+    dashboardRefreshQueued = true
+    return
+  }
   const requestId = ++dashboardRequestId
   detailRequestId += 1
   const params = buildParams()
@@ -99,6 +117,7 @@ async function fetchDashboard() {
   selectedCastDetail.value = null
   detailError.value = ''
   loading.value = true
+  dashboardInFlight = true
   try {
     const response = await api.getSalesDashboard(params)
     if (requestId !== dashboardRequestId) return
@@ -112,7 +131,14 @@ async function fetchDashboard() {
     error.value = e.message || '売上集計の取得に失敗しました'
     data.value = null
   } finally {
-    if (requestId === dashboardRequestId) loading.value = false
+    dashboardInFlight = false
+    if (dashboardRefreshQueued && !dashboardDisposed) {
+      dashboardRefreshQueued = false
+      clearTimeout(dashboardRefreshTimer)
+      dashboardRefreshTimer = setTimeout(fetchDashboard, 350)
+    } else if (requestId === dashboardRequestId) {
+      loading.value = false
+    }
   }
 }
 
@@ -153,7 +179,20 @@ function formatYen(n) {
 }
 
 watch([range, selectedDate, dateFrom, dateTo, filterCast, filterRoom, filterPaymentMethod], () => {
-  if (isManager.value) fetchDashboard()
+  clearTimeout(dashboardRefreshTimer)
+  dashboardRequestId += 1
+  detailRequestId += 1
+  if (isManager.value) {
+    loading.value = true
+    dashboardRefreshTimer = setTimeout(fetchDashboard, 350)
+  }
+})
+
+onBeforeUnmount(() => {
+  dashboardDisposed = true
+  clearTimeout(dashboardRefreshTimer)
+  dashboardRequestId += 1
+  detailRequestId += 1
 })
 
 onMounted(async () => {
@@ -179,9 +218,14 @@ onMounted(async () => {
       <div class="card border-0 mb-4">
         <div class="card-header d-flex align-items-center justify-content-between">
           <div><i class="ti ti-report-money"></i> 売上集計</div>
-          <button class="btn btn-sm btn-outline-dark" @click="exportCsv">
+          <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-dark" :disabled="loading" @click="fetchDashboard">
+            <i class="ti ti-refresh"></i> 再集計
+          </button>
+          <button class="btn btn-sm btn-outline-dark" :disabled="loading || !data" @click="exportCsv">
             <i class="ti ti-download"></i> CSV
           </button>
+          </div>
         </div>
         <div class="card-body">
           <!-- 期間切替 -->
@@ -249,7 +293,8 @@ onMounted(async () => {
           </div>
 
           <div v-if="loading" class="text-center py-3">
-            <div class="spinner-border spinner-border-sm text-primary"></div>
+            <div class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></div>
+            <span class="ms-2" role="status">集計しています…</span>
           </div>
 
           <template v-else-if="data">
@@ -515,35 +560,86 @@ onMounted(async () => {
             <div v-else class="text-muted small mb-4">期間内の部屋別売上はありません</div>
 
             <!-- エリア別売上 -->
-            <div class="fw-bold small mb-1"><i class="ti ti-map-pin"></i> エリア別売上</div>
-            <div v-if="data.by_area && data.by_area.length" class="table-responsive mb-4">
-              <table class="table table-sm table-bordered mb-0">
+            <section class="area-sales mb-4" aria-labelledby="area-sales-title">
+              <header class="area-sales__header">
+                <div class="area-sales__heading">
+                  <span class="area-sales__icon" aria-hidden="true">
+                    <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M9 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
+                      <path d="M17.657 16.657l-4.243 4.243a2 2 0 0 1 -2.827 0l-4.244 -4.243a8 8 0 1 1 11.314 0z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h3 id="area-sales-title">エリア別売上</h3>
+                    <p>エリアごとの売上と内訳</p>
+                  </div>
+                </div>
+                <div class="area-sales__total">
+                  <span>合計売上</span>
+                  <div><strong>{{ formatYen(data.total_sales) }}</strong><span>{{ data.total_orders }}本</span></div>
+                </div>
+              </header>
+            <template v-if="data.by_area && data.by_area.length">
+            <div class="area-sales__desktop table-responsive">
+              <table class="table mb-0 area-sales-table">
+                <caption class="visually-hidden">エリア別の売上と内訳。金額の単位は円です。</caption>
                 <thead>
                   <tr>
-                    <th>エリア</th>
-                    <th class="text-end">DONE件数</th>
-                    <th class="text-end">売上</th>
-                    <th class="text-end">コース売上</th>
-                    <th class="text-end">オプション売上</th>
+                    <th scope="col">エリア</th>
+                    <th scope="col" class="text-end">本数</th>
+                    <th scope="col" class="text-end area-sales-table__sales">売上</th>
+                    <th v-for="column in areaBreakdownColumns" :key="column.key" scope="col" class="text-end">{{ column.label }}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="a in data.by_area" :key="a.area_name">
-                    <td>{{ a.area_name }}</td>
+                  <tr v-for="a in data.by_area" :key="a.area_id ?? 'unassigned'">
+                    <th scope="row"><span class="area-sales__name" :class="{'area-sales__name--unassigned': a.area_id == null}">{{ a.area_name }}</span></th>
                     <td class="text-end">{{ a.orders }}</td>
-                    <td class="text-end">{{ formatYen(a.sales) }}</td>
-                    <td class="text-end">{{ formatYen(a.course_sales) }}</td>
-                    <td class="text-end">{{ formatYen(a.options_sales) }}</td>
+                    <td class="text-end area-sales-table__sales">{{ formatYen(a.sales) }}</td>
+                    <td v-for="column in areaBreakdownColumns" :key="column.key" class="text-end">{{ formatYen(a[column.key]) }}</td>
                   </tr>
                 </tbody>
+                <tfoot>
+                  <tr class="fw-bold">
+                    <th scope="row">合計<span class="area-sales-table__hint">未設定を含む</span></th>
+                    <td class="text-end">{{ data.total_orders }}</td>
+                    <td class="text-end area-sales-table__sales">{{ formatYen(data.total_sales) }}</td>
+                    <td v-for="column in areaBreakdownColumns" :key="column.key" class="text-end">{{ formatYen(data[column.key]) }}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
-            <div v-else class="text-muted small mb-4">期間内のエリア別売上はありません</div>
+            <div class="area-sales__mobile">
+              <article v-for="a in data.by_area" :key="a.area_id ?? 'unassigned'" class="area-sales-card">
+                <header class="area-sales-card__header">
+                  <div>
+                    <h4 class="area-sales__name" :class="{'area-sales__name--unassigned': a.area_id == null}">{{ a.area_name }}</h4>
+                    <span class="area-sales-card__count">完了 {{ a.orders }}本</span>
+                  </div>
+                  <strong class="area-sales-card__amount">{{ formatYen(a.sales) }}</strong>
+                </header>
+                <details class="area-sales-card__details">
+                  <summary>内訳を見る<i class="ti ti-chevron-down" aria-hidden="true"></i></summary>
+                  <dl>
+                    <div v-for="column in areaBreakdownColumns" :key="column.key">
+                      <dt>{{ column.label }}</dt><dd>{{ formatYen(a[column.key]) }}</dd>
+                    </div>
+                  </dl>
+                </details>
+              </article>
+            </div>
+            </template>
+            <p v-else class="area-sales__empty">期間内のエリア別売上はありません</p>
+            <details class="area-sales__note">
+              <summary><i class="ti ti-info-circle" aria-hidden="true"></i> 集計について</summary>
+              <p>会計完了時のルームのエリアで集計します。ルームの所属変更で過去の集計先は変わりません。記録のない過去分やエリア未指定分は「未設定」に含みます。再集計は登録済みデータを読み直し、過去のエリアを書き換えません。</p>
+            </details>
+            </section>
 
             <!-- 決済方法別売上 -->
             <div class="fw-bold small mb-1"><i class="ti ti-credit-card"></i> 決済方法別売上</div>
             <div v-if="data.by_payment_method && data.by_payment_method.length" class="table-responsive">
-              <table class="table table-sm table-bordered mb-0">
+              <table class="table table-sm table-bordered mb-0 payment-sales-table">
                 <thead>
                   <tr>
                     <th>決済方法</th>
@@ -583,6 +679,86 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.payment-sales-table { white-space: nowrap; }
+.area-sales {
+  overflow: hidden;
+  border: 1px solid #dce9e5;
+  border-radius: 16px;
+  background: #fff;
+}
+.area-sales__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 22px 24px;
+  background: #f1f8f6;
+  border-bottom: 1px solid #e1ece8;
+}
+.area-sales__heading { display: flex; align-items: center; gap: 12px; }
+.area-sales__icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: #dcefe9;
+  color: #317f70;
+  font-size: 22px;
+}
+.area-sales__heading h3 { margin: 0; color: #284d43; font-size: 1rem; font-weight: 700; }
+.area-sales__heading p { margin: 5px 0 0; color: #617c73; font-size: .74rem; }
+.area-sales__total { text-align: right; color: #617c73; font-size: .72rem; }
+.area-sales__total > div { display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; margin-top: 3px; }
+.area-sales__total strong { color: #235e50; font-size: 1.6rem; line-height: 1.2; font-weight: 700; letter-spacing: -.03em; }
+.area-sales__total > div > span { color: #486b5f; font-size: .8rem; white-space: nowrap; }
+.area-sales-table { min-width: 850px; white-space: nowrap; }
+.area-sales-table > :not(caption) > * > * { padding: 15px 16px; border-bottom-color: #edf1ef; color: #41574f; background: transparent; box-shadow: none; font-size: .8rem; }
+.area-sales-table thead th { padding-top: 12px; padding-bottom: 12px; background: #fafcfb; color: #5d7468; font-size: .71rem; font-weight: 500; }
+.area-sales-table th:first-child { padding-left: 24px; min-width: 150px; }
+.area-sales-table td:last-child, .area-sales-table thead th:last-child { padding-right: 24px; }
+.area-sales-table tbody tr:nth-child(even) { background: #fcfdfc; }
+.area-sales-table tbody tr:hover { background: #f4faf7; }
+.area-sales-table tbody .area-sales-table__sales { color: #285f50; font-size: .92rem; font-weight: 700; }
+.area-sales__name { color: #36594c; font-weight: 600; }
+.area-sales__name--unassigned { color: #63746b; font-weight: 500; }
+.area-sales-table tfoot > tr > * { border-top: 1px solid #dce9e2; border-bottom: 0; background: #edf6f1; color: #315a49; font-weight: 700; }
+.area-sales-table__hint { display: block; margin-top: 3px; font-size: .65rem; color: #6f8278; font-weight: 400; }
+.area-sales__total strong, .area-sales-table td, .area-sales-card__amount, .area-sales-card dd {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+.area-sales__note { padding: 13px 24px; border-top: 1px solid #e6eeea; color: #6c8176; font-size: .73rem; }
+.area-sales__note summary { width: fit-content; cursor: pointer; }
+.area-sales__note p { max-width: 76ch; margin: 9px 0 0; line-height: 1.8; }
+.area-sales__empty { margin: 0; padding: 28px 24px; color: #75827a; font-size: .85rem; }
+.area-sales__mobile { display: none; }
+@media (max-width: 767.98px) {
+  .area-sales__desktop { display: none; }
+  .area-sales__mobile { display: block; padding: 0 16px; }
+  .area-sales__header { padding: 20px 18px; gap: 18px; }
+  .area-sales__icon { width: 36px; height: 36px; border-radius: 11px; font-size: 20px; }
+  .area-sales__heading h3 { font-size: .95rem; }
+  .area-sales__total { width: 100%; text-align: left; padding-top: 16px; border-top: 1px solid #dce9e1; }
+  .area-sales__total > div { justify-content: flex-start; gap: 14px; }
+  .area-sales__total strong { font-size: 1.85rem; }
+  .area-sales-card { padding: 20px 2px 0; border-bottom: 1px solid #e5ede7; }
+  .area-sales-card:last-child { border-bottom: 0; }
+  .area-sales-card__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .area-sales-card h4 { margin: 0 0 5px; max-width: 16ch; overflow-wrap: anywhere; font-size: .9rem; }
+  .area-sales-card__count { color: #66786b; font-size: .71rem; }
+  .area-sales-card__amount { flex-shrink: 0; color: #285e4f; font-size: 1.22rem; letter-spacing: -.025em; }
+  .area-sales-card__details { padding: 14px 0 16px; }
+  .area-sales-card__details summary { display: flex; align-items: center; justify-content: space-between; color: #5b7c6a; font-size: .72rem; cursor: pointer; list-style: none; }
+  .area-sales-card__details summary::-webkit-details-marker { display: none; }
+  .area-sales-card__details[open] summary i { transform: rotate(180deg); }
+  .area-sales-card dl { margin: 12px 0 0; padding: 12px 14px; border-radius: 10px; background: #f6f9f7; }
+  .area-sales-card dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 5px 0; }
+  .area-sales-card dt { color: #65786b; font-size: .73rem; font-weight: 400; }
+  .area-sales-card dd { margin: 0; color: #3f5a49; font-size: .83rem; font-weight: 500; }
+  .area-sales__note { padding: 14px 18px; }
+}
 .sales-range-buttons .btn {
   min-width: 62px;
 }

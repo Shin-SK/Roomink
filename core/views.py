@@ -3634,6 +3634,11 @@ class AreaViewSet(viewsets.ModelViewSet):
                 {"detail": "部屋・希望エリア・シフトで使用中のエリアは削除できません。先に紐づけ先を変更してください。"},
                 status=status.HTTP_409_CONFLICT,
             )
+        if instance.sales_orders.exists():
+            return Response(
+                {"detail": "売上履歴に使用されているエリアは削除できません。今後使わない場合は無効化してください。"},
+                status=status.HTTP_409_CONFLICT,
+            )
         return super().destroy(request, *args, **kwargs)
 
 
