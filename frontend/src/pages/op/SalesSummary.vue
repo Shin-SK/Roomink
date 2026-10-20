@@ -556,7 +556,7 @@ onMounted(async () => {
             <div class="fw-bold small mb-1"><i class="ti ti-map-pin"></i> エリア別売上</div>
             <p class="small text-muted mb-2">会計完了時のルームのエリアで集計します。ルームの所属変更で過去の集計先は変わりません。記録のない過去分やエリア未指定分は「未設定」に含みます。再集計は登録済みデータを読み直し、過去のエリアを書き換えません。</p>
             <div v-if="data.by_area && data.by_area.length" class="table-responsive mb-4">
-              <table class="table table-sm table-bordered mb-0">
+              <table class="table table-sm table-bordered mb-0 area-sales-table">
                 <thead>
                   <tr>
                     <th>エリア</th>
@@ -640,6 +640,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.area-sales-table {
+  min-width: 860px;
+  white-space: nowrap;
+}
 .sales-range-buttons .btn {
   min-width: 62px;
 }
