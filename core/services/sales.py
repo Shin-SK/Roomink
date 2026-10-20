@@ -289,38 +289,25 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
             "sales": row["sales"] or 0,
         })
 
-    # エリア別（Area master ベース。未設定は「未設定」扱い。）
-    area_map = {}
-    for row in room_rows:
-        room = rooms.get(row["room_id"])
-        if room is None:
-            continue
-        area_key = room.area.name if room.area_id else "未設定"
-        entry = area_map.setdefault(area_key, {
-            "area_name": area_key,
-            "orders": 0,
-            "sales": 0,
-            "course_sales": 0,
-            "options_sales": 0,
-        })
-        entry["orders"] += row["orders"]
-        entry["sales"] += row["sales"] or 0
-    # コース/オプション売上はエリア（部屋グループ）単位で別集計する
-    area_detail_rows = list(
-        qs.values("room_id")
-        .annotate(course_sales=Sum("course_price"), options_sales=Sum("options_price"))
+    # Group by the immutable attribution, never the room's current area.
+    # Legacy rows and roomless/unassigned orders are retained in the unknown bucket.
+    area_rows = qs.values("sales_area_id", "sales_area__name").annotate(
+        orders=Count("id"), sales=Sum("total_price"),
+        course_sales=Sum("course_price"), options_sales=Sum("options_price"),
+        extension_sales=Sum("extension_price"), nomination_fee_sales=Sum("nomination_fee_price"),
+        discount_amount=Sum("discount_amount"),
     )
-    for row in area_detail_rows:
-        room = rooms.get(row["room_id"])
-        if room is None:
-            continue
-        area_key = room.area.name if room.area_id else "未設定"
-        entry = area_map.get(area_key)
-        if entry is None:
-            continue
-        entry["course_sales"] += row["course_sales"] or 0
-        entry["options_sales"] += row["options_sales"] or 0
-    by_area = sorted(area_map.values(), key=lambda r: -r["sales"])
+    by_area = sorted([
+        {
+            "area_id": row["sales_area_id"],
+            "area_name": row["sales_area__name"] if row["sales_area_id"] else "未設定",
+            **{key: row[key] or 0 for key in (
+                "orders", "sales", "course_sales", "options_sales",
+                "extension_sales", "nomination_fee_sales", "discount_amount",
+            )},
+        }
+        for row in area_rows
+    ], key=lambda row: (-row["sales"], row["area_id"] or 0))
 
     # 日別（期間内の全日を埋める）
     day_map = {}
@@ -571,9 +558,10 @@ def get_sales_dashboard_csv(store, date_from, date_to, cast_id=None, room_id=Non
     writer.writerow([])
 
     writer.writerow(["エリア別"])
-    writer.writerow(["エリア名", "件数", "売上", "コース売上", "オプション売上"])
+    writer.writerow(["会計完了時のエリア。記録のない過去分は未設定。再集計で過去のエリアは変更しません。"])
+    writer.writerow(["エリア名", "件数", "売上", "コース売上", "オプション売上", "延長料金", "指名料", "割引額"])
     for r in data.get("by_area", []):
-        writer.writerow([r["area_name"], r["orders"], r["sales"], r["course_sales"], r["options_sales"]])
+        writer.writerow([r["area_name"], r["orders"], r["sales"], r["course_sales"], r["options_sales"], r["extension_sales"], r["nomination_fee_sales"], r["discount_amount"]])
     writer.writerow([])
 
     writer.writerow(["日別"])

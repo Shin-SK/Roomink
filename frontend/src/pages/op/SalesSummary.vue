@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
 import { getAuthRole } from '../../router.js'
@@ -34,6 +34,7 @@ const detailLoading = ref(false)
 const detailError = ref('')
 let dashboardRequestId = 0
 let detailRequestId = 0
+let dashboardRefreshTimer
 
 const isToday = computed(() => (
   range.value === 'today'
@@ -153,7 +154,19 @@ function formatYen(n) {
 }
 
 watch([range, selectedDate, dateFrom, dateTo, filterCast, filterRoom, filterPaymentMethod], () => {
-  if (isManager.value) fetchDashboard()
+  clearTimeout(dashboardRefreshTimer)
+  dashboardRequestId += 1
+  detailRequestId += 1
+  if (isManager.value) {
+    loading.value = true
+    dashboardRefreshTimer = setTimeout(fetchDashboard, 350)
+  }
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(dashboardRefreshTimer)
+  dashboardRequestId += 1
+  detailRequestId += 1
 })
 
 onMounted(async () => {
@@ -179,9 +192,14 @@ onMounted(async () => {
       <div class="card border-0 mb-4">
         <div class="card-header d-flex align-items-center justify-content-between">
           <div><i class="ti ti-report-money"></i> 売上集計</div>
-          <button class="btn btn-sm btn-outline-dark" @click="exportCsv">
+          <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-dark" :disabled="loading" @click="fetchDashboard">
+            <i class="ti ti-refresh"></i> 再集計
+          </button>
+          <button class="btn btn-sm btn-outline-dark" :disabled="loading || !data" @click="exportCsv">
             <i class="ti ti-download"></i> CSV
           </button>
+          </div>
         </div>
         <div class="card-body">
           <!-- 期間切替 -->
@@ -249,7 +267,8 @@ onMounted(async () => {
           </div>
 
           <div v-if="loading" class="text-center py-3">
-            <div class="spinner-border spinner-border-sm text-primary"></div>
+            <div class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></div>
+            <span class="ms-2" role="status">集計しています…</span>
           </div>
 
           <template v-else-if="data">
@@ -516,26 +535,45 @@ onMounted(async () => {
 
             <!-- エリア別売上 -->
             <div class="fw-bold small mb-1"><i class="ti ti-map-pin"></i> エリア別売上</div>
+            <p class="small text-muted mb-2">会計完了時のルームのエリアで集計します。ルームの所属変更で過去の集計先は変わりません。記録のない過去分やエリア未指定分は「未設定」に含みます。再集計は登録済みデータを読み直し、過去のエリアを書き換えません。</p>
             <div v-if="data.by_area && data.by_area.length" class="table-responsive mb-4">
               <table class="table table-sm table-bordered mb-0">
                 <thead>
                   <tr>
                     <th>エリア</th>
-                    <th class="text-end">DONE件数</th>
+                    <th class="text-end">本数</th>
                     <th class="text-end">売上</th>
                     <th class="text-end">コース売上</th>
                     <th class="text-end">オプション売上</th>
+                    <th class="text-end">延長料金</th>
+                    <th class="text-end">指名料</th>
+                    <th class="text-end">割引額</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="a in data.by_area" :key="a.area_name">
+                  <tr v-for="a in data.by_area" :key="a.area_id ?? 'unassigned'">
                     <td>{{ a.area_name }}</td>
                     <td class="text-end">{{ a.orders }}</td>
                     <td class="text-end">{{ formatYen(a.sales) }}</td>
                     <td class="text-end">{{ formatYen(a.course_sales) }}</td>
                     <td class="text-end">{{ formatYen(a.options_sales) }}</td>
+                    <td class="text-end">{{ formatYen(a.extension_sales) }}</td>
+                    <td class="text-end">{{ formatYen(a.nomination_fee_sales) }}</td>
+                    <td class="text-end">{{ formatYen(a.discount_amount) }}</td>
                   </tr>
                 </tbody>
+                <tfoot>
+                  <tr class="fw-bold">
+                    <td>合計（未設定を含む）</td>
+                    <td class="text-end">{{ data.total_orders }}</td>
+                    <td class="text-end">{{ formatYen(data.total_sales) }}</td>
+                    <td class="text-end">{{ formatYen(data.course_sales) }}</td>
+                    <td class="text-end">{{ formatYen(data.options_sales) }}</td>
+                    <td class="text-end">{{ formatYen(data.extension_sales) }}</td>
+                    <td class="text-end">{{ formatYen(data.nomination_fee_sales) }}</td>
+                    <td class="text-end">{{ formatYen(data.discount_amount) }}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
             <div v-else class="text-muted small mb-4">期間内のエリア別売上はありません</div>

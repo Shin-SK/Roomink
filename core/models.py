@@ -735,6 +735,11 @@ class Order(models.Model):
         help_text="シフト外予約では未定のまま保存し、シフト登録時に割り当てる",
     )
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="orders")
+    sales_area = models.ForeignKey(
+        Area, null=True, blank=True, editable=False, on_delete=models.PROTECT,
+        related_name="sales_orders", help_text="会計完了時のルームのエリア。過去分を現在の設定から推測しない。",
+    )
+    sales_area_recorded_at = models.DateTimeField(null=True, blank=True, editable=False)
     service_recipient_name = models.CharField(
         max_length=50,
         blank=True,
@@ -847,6 +852,7 @@ class Order(models.Model):
         related = (
             ("cast", Cast),
             ("room", Room),
+            ("sales_area", Area),
             ("customer", Customer),
             ("service_recipient_customer", Customer),
             ("course", Course),
@@ -874,8 +880,31 @@ class Order(models.Model):
             Store.objects.select_for_update().get(pk=self.store_id)
             before = type(self).objects.filter(pk=self.pk).first() if self.pk else None
             self.clean()
+            # Partial saves must use the room/status actually being persisted, not
+            # unrelated in-memory changes. Lock the room against concurrent moves.
+            fields = kwargs.get("update_fields")
+            target_status = self.status if before is None or fields is None or "status" in fields else before.status
+            target_room_id = self.room_id if before is None or fields is None or "room" in fields or "room_id" in fields else before.room_id
+            capture_area = target_status == self.Status.DONE and (
+                before is None or before.status != self.Status.DONE or before.room_id != target_room_id
+            )
+            if capture_area:
+                room = Room.objects.select_for_update().get(pk=target_room_id, store_id=self.store_id) if target_room_id else None
+                self.sales_area_id = room.area_id if room else None
+                self.sales_area_recorded_at = timezone.now()
+            elif before is not None:
+                self.sales_area_id = before.sales_area_id
+                self.sales_area_recorded_at = before.sales_area_recorded_at
+            if fields is not None and capture_area:
+                kwargs["update_fields"] = set(fields) | {"sales_area", "sales_area_recorded_at"}
             result = super().save(*args, **kwargs)
             persisted = type(self).objects.get(pk=self.pk)
+            if capture_area:
+                OrderSalesAreaLog.objects.create(
+                    store_id=self.store_id, order=self, acted_by_id=persisted.updated_by_id or persisted.created_by_id,
+                    before={"room_id": before.room_id if before else None, "sales_area_id": before.sales_area_id if before else None},
+                    after={"room_id": persisted.room_id, "sales_area_id": persisted.sales_area_id},
+                )
             record_cash_source_change(before, persisted, actor_id=getattr(self, "_cash_recorded_by_id", None) or self.updated_by_id)
             return result
 
@@ -1597,6 +1626,17 @@ class CustomerMergeLog(models.Model):
 
     def __str__(self):
         return f"Merge#{self.pk} keep={self.keep_customer_id} merged={self.merged_customer_id}"
+
+
+class OrderSalesAreaLog(models.Model):
+    """Area attribution only; never changes the accounting edit history."""
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="sales_area_logs")
+    acted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class OrderEditLog(models.Model):
