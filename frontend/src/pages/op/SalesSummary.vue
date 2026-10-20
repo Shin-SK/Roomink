@@ -35,6 +35,9 @@ const detailError = ref('')
 let dashboardRequestId = 0
 let detailRequestId = 0
 let dashboardRefreshTimer
+let dashboardInFlight = false
+let dashboardRefreshQueued = false
+let dashboardDisposed = false
 
 const isToday = computed(() => (
   range.value === 'today'
@@ -89,6 +92,13 @@ async function loadMasters() {
 }
 
 async function fetchDashboard() {
+  if (dashboardDisposed) return
+  // A changed filter replaces the pending refresh; it never starts another
+  // server aggregation while the preceding request is still running.
+  if (dashboardInFlight) {
+    dashboardRefreshQueued = true
+    return
+  }
   const requestId = ++dashboardRequestId
   detailRequestId += 1
   const params = buildParams()
@@ -100,6 +110,7 @@ async function fetchDashboard() {
   selectedCastDetail.value = null
   detailError.value = ''
   loading.value = true
+  dashboardInFlight = true
   try {
     const response = await api.getSalesDashboard(params)
     if (requestId !== dashboardRequestId) return
@@ -113,7 +124,14 @@ async function fetchDashboard() {
     error.value = e.message || '売上集計の取得に失敗しました'
     data.value = null
   } finally {
-    if (requestId === dashboardRequestId) loading.value = false
+    dashboardInFlight = false
+    if (dashboardRefreshQueued && !dashboardDisposed) {
+      dashboardRefreshQueued = false
+      clearTimeout(dashboardRefreshTimer)
+      dashboardRefreshTimer = setTimeout(fetchDashboard, 350)
+    } else if (requestId === dashboardRequestId) {
+      loading.value = false
+    }
   }
 }
 
@@ -164,6 +182,7 @@ watch([range, selectedDate, dateFrom, dateTo, filterCast, filterRoom, filterPaym
 })
 
 onBeforeUnmount(() => {
+  dashboardDisposed = true
   clearTimeout(dashboardRefreshTimer)
   dashboardRequestId += 1
   detailRequestId += 1
