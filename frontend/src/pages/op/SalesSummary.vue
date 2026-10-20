@@ -634,7 +634,7 @@ onMounted(async () => {
             <!-- 決済方法別売上 -->
             <div class="fw-bold small mb-1"><i class="ti ti-credit-card"></i> 決済方法別売上</div>
             <div v-if="data.by_payment_method && data.by_payment_method.length" class="table-responsive">
-              <table class="table table-sm table-bordered mb-0">
+              <table class="table table-sm table-bordered mb-0 payment-sales-table">
                 <thead>
                   <tr>
                     <th>決済方法</th>
@@ -674,6 +674,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.payment-sales-table { white-space: nowrap; }
 .area-sales {
   overflow: hidden;
   border: 1px solid #dce9e5;
