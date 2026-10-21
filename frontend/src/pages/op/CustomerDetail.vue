@@ -89,6 +89,8 @@ async function executeMerge() {
     mergeTarget.value = null
     // 再読み込み
     customer.value = await api.getCustomer(props.id)
+    visits.value = []
+    visitCount.value = 0
     loadVisits()
     loadInvitation()
     api.getCustomerDuplicates(props.id).then(data => {
@@ -150,6 +152,7 @@ onMounted(async () => {
   }
   try {
     customer.value = await api.getCustomer(props.id)
+    loadVisits()
     loadInvitation()
     // 重複候補を非同期で取得
     api.getCustomerDuplicates(props.id).then(data => {
