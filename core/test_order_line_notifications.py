@@ -7,10 +7,27 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from core.models import Cast, Course, Customer, LineNotificationLog, Order, Room, Store, UserProfile
-from core.services.line_notify import send_order_confirmation_push_once
+from core.services.line_notify import build_order_confirmation_message, send_order_confirmation_push_once
 
 
 class OrderLineNotificationTest(TestCase):
+    def test_overnight_message_uses_start_business_date_and_weekday(self):
+        self.order.start = datetime(2027, 1, 1, 16, 0, tzinfo=datetime_timezone.utc)
+        self.order.end = self.order.start + timedelta(hours=1)
+        body = build_order_confirmation_message(self.order)
+        self.assertIn("2027/01/01（金）25:00〜26:00", body)
+        self.assertNotIn("2027/01/02", body)
+
+    def test_midnight_crossing_and_end_after_boundary_do_not_break_notification(self):
+        self.order.start = datetime(2026, 12, 31, 14, 30, tzinfo=datetime_timezone.utc)
+        self.order.end = self.order.start + timedelta(hours=7)
+        self.assertIn("2026/12/31（木）23:30〜30:30", build_order_confirmation_message(self.order))
+
+    def test_boundary_belongs_to_new_business_day(self):
+        self.order.start = datetime(2026, 12, 31, 20, 0, tzinfo=datetime_timezone.utc)
+        self.order.end = self.order.start + timedelta(hours=1)
+        self.assertIn("2027/01/01（金）05:00〜06:00", build_order_confirmation_message(self.order))
+
     def setUp(self):
         self.store = Store.objects.create(
             name="予約LINE通知テスト店",

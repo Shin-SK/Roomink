@@ -15,6 +15,24 @@ const customer = ref(null)
 const loading = ref(true)
 const error = ref('')
 const casts = ref([])
+const visits = ref([])
+const visitCount = ref(0)
+const visitsLoading = ref(false)
+const visitsError = ref('')
+
+async function loadVisits() {
+  visitsLoading.value = true
+  visitsError.value = ''
+  try {
+    const result = await api.getOrdersPage(`customer=${encodeURIComponent(props.id)}&status=DONE&ordering=-start&limit=20&offset=${visits.value.length}`)
+    visits.value.push(...(Array.isArray(result) ? result : result.results || []))
+    visitCount.value = result.count ?? visits.value.length
+  } catch (e) {
+    visitsError.value = e.message || '利用履歴を取得できませんでした'
+  } finally {
+    visitsLoading.value = false
+  }
+}
 
 const isNew = computed(() => props.id === 'new')
 const hasPhoneDuplicate = computed(() => createWarnings.value.some(w => w.reason === '電話番号一致'))
@@ -71,6 +89,7 @@ async function executeMerge() {
     mergeTarget.value = null
     // 再読み込み
     customer.value = await api.getCustomer(props.id)
+    loadVisits()
     loadInvitation()
     api.getCustomerDuplicates(props.id).then(data => {
       duplicates.value = Array.isArray(data) ? data : []
@@ -338,8 +357,27 @@ function formatInvitationDate(value) {
           </table>
         </div>
 
+        <div v-if="!editing && !isNew" class="card-body border-top">
+          <h2 class="h6">Roominkの利用履歴（完了済み）</h2>
+          <div v-if="visitsError" class="alert alert-warning py-2" role="alert">{{ visitsError }}</div>
+          <div v-if="visits.length" class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead><tr><th>日時</th><th>セラピスト</th><th>コース</th><th>予約</th></tr></thead>
+              <tbody><tr v-for="visit in visits" :key="visit.id">
+                <td class="text-nowrap">{{ visit.business_date }} {{ visit.start_time_extended }}〜{{ visit.end_time_extended }}</td>
+                <td>{{ casts.find(c => c.id === visit.cast)?.name || '—' }}</td>
+                <td>{{ visit.course_name }}</td>
+                <td><RouterLink :to="{ name: 'order-detail', params: { id: visit.id } }" target="_blank" rel="noopener">予約詳細</RouterLink></td>
+              </tr></tbody>
+            </table>
+          </div>
+          <p v-else-if="!visitsLoading && !visitsError" class="text-muted small mb-0">完了済みの利用履歴はありません。</p>
+          <div v-if="visitsLoading" class="text-muted small" role="status">利用履歴を読み込んでいます…</div>
+          <button v-if="visitsError || visits.length < visitCount" class="btn btn-outline-secondary btn-sm mt-2" :disabled="visitsLoading" @click="loadVisits">{{ visitsError ? '再読み込み' : 'さらに表示' }}</button>
+        </div>
+
         <!-- 編集 / 新規作成モード -->
-        <div v-else class="card-body">
+        <div v-if="editing" class="card-body">
           <div v-if="editError" class="alert alert-danger py-2 px-3 mb-3" style="font-size: 0.875rem;">
             {{ editError }}
           </div>

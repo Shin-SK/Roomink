@@ -100,6 +100,7 @@ class SalesCastDetailApiTest(TestCase):
             "store_allocation_estimate": 6200,
         })
         self.assertEqual(response.data["orders"][0]["customer_name"], "テスト顧客")
+        self.assertEqual(response.data["orders"][0]["customer_id"], self.customer.pk)
         self.assertEqual(response.data["orders"][0]["option_names"], ["衣装チェンジ"])
         self.assertEqual(response.data["orders"][0]["estimated_pay"], 7000)
         self.assertEqual(response.data["orders"][0]["store_allocation_estimate"], 6200)

@@ -238,6 +238,7 @@ export const api = {
 
   // Orders
   getOrders: (params = '') => listRequest('GET', `/orders/${params ? '?' + params : '?limit=200'}`),
+  getOrdersPage: (params = '') => request('GET', `/orders/?${params}`),
   getOrder: (id) => request('GET', `/orders/${id}/`),
   updateOrder: (id, body) => request('PATCH', `/orders/${id}/`, body),
   correctOrderAccounting: (id, body) => request('POST', `/orders/${id}/correct-accounting/`, body),

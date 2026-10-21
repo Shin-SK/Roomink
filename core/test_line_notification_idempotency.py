@@ -1,7 +1,9 @@
-from datetime import date, time
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
+from django.core.management import call_command
 from django.utils import timezone
 
 from core.models import Cast, LineNotificationLog, Room, ShiftAssignment, Store
@@ -9,6 +11,24 @@ from core.services.line_notify import send_line_push_once
 
 
 class LineNotificationIdempotencyTest(TestCase):
+    @patch("core.management.commands.send_line_reminders.timezone.now")
+    @patch("core.services.line_notify.http_requests.post")
+    def test_morning_body_keeps_shift_business_day_offset(self, post, now):
+        post.return_value = Mock(status_code=200, text="", headers={})
+        now.return_value = datetime(2030, 1, 15, 10, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+        self.store.line_morning_enabled = True
+        self.store.line_morning_time = time(10)
+        self.store.save()
+        self.shift.start_time = time(1)
+        self.shift.start_day_offset = 1
+        self.shift.end_time = time(3)
+        self.shift.end_day_offset = 1
+        self.shift.save()
+        call_command("send_line_reminders")
+        call_command("send_line_reminders")
+        self.assertEqual(post.call_count, 1)
+        self.assertIn("本日 25:00", post.call_args.kwargs["json"]["messages"][0]["text"])
+
     def setUp(self):
         self.store = Store.objects.create(
             name="通知冪等性テスト店",
