@@ -13,7 +13,6 @@ from django.utils import timezone
 
 from core.models import LineNotificationLog, ShiftAssignment, Store
 from core.services.line_notify import send_line_push_once
-from core.services.business_datetime import format_extended_time
 from core.services.shift_end_line_notifications import send_shift_end_line_alerts
 
 logger = logging.getLogger(__name__)
@@ -53,7 +52,9 @@ class Command(BaseCommand):
 
             for shift in shifts:
                 shift_start_dt = datetime.combine(today, shift.start_time, tzinfo=tz)
-                start_label = format_extended_time(shift.start_time, shift.start_day_offset)
+                # Display existing values without imposing new input validation
+                # (legacy shifts can contain seconds).
+                start_label = f"{shift.start_time.hour + 24 * shift.start_day_offset:02d}:{shift.start_time.minute:02d}"
 
                 # 朝通知: store.line_morning_time の窓内
                 if store.line_morning_enabled:
