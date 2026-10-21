@@ -12,6 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import LineNotificationLog, Order, ShiftAssignment, Store
+from core.services.business_datetime import business_date_for_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -270,10 +271,15 @@ def build_order_confirmation_message(order):
         store_timezone = timezone.get_default_timezone()
     start = timezone.localtime(order.start, store_timezone)
     end = timezone.localtime(order.end, store_timezone)
-    weekday = _WEEKDAYS_JA[start.weekday()]
+    business_date = business_date_for_datetime(start, store_timezone)
+    weekday = _WEEKDAYS_JA[business_date.weekday()]
+    # Notification formatting must not reject bookings that end after 29:00.
+    def business_time(value):
+        hour = value.hour + (value.date() - business_date).days * 24
+        return f"{hour:02d}:{value.minute:02d}"
     return (
         "【Roomink】予約が確定しました\n"
-        f"日時：{start:%Y/%m/%d（{weekday}）%H:%M}〜{end:%H:%M}\n"
+        f"日時：{business_date:%Y/%m/%d}（{weekday}）{business_time(start)}〜{business_time(end)}\n"
         f"コース：{order.course_name or order.course.name}\n"
         f"ルーム：{order.room.name if order.room else '未定'}\n"
         "詳細はRoominkでご確認ください。"

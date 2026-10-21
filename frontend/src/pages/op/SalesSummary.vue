@@ -481,7 +481,10 @@ onMounted(async () => {
                         <strong>{{ order.date }}</strong>
                         <small>{{ order.start_time }}〜{{ order.end_time }}</small>
                       </td>
-                      <td>{{ order.customer_name }}</td>
+                      <td>
+                        <RouterLink :to="{ name: 'customer-detail', params: { id: order.customer_id } }" target="_blank" rel="noopener">{{ order.customer_name }}</RouterLink>
+                        <small><RouterLink :to="{ name: 'order-detail', params: { id: order.order_id } }" target="_blank" rel="noopener">予約詳細を開く</RouterLink></small>
+                      </td>
                       <td>{{ order.room_name }}</td>
                       <td class="cast-detail__items">
                         <strong>{{ order.course_name }}</strong>

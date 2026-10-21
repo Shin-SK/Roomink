@@ -52,13 +52,16 @@ class Command(BaseCommand):
 
             for shift in shifts:
                 shift_start_dt = datetime.combine(today, shift.start_time, tzinfo=tz)
+                # Display existing values without imposing new input validation
+                # (legacy shifts can contain seconds).
+                start_label = f"{shift.start_time.hour + 24 * shift.start_day_offset:02d}:{shift.start_time.minute:02d}"
 
                 # 朝通知: store.line_morning_time の窓内
                 if store.line_morning_enabled:
                     mt = store.line_morning_time
                     morning_target = now.replace(hour=mt.hour, minute=mt.minute, second=0, microsecond=0)
                     if morning_target <= now < morning_target + timedelta(minutes=WINDOW_MINUTES):
-                        msg = f"【Roomink】{shift.cast.name}さん、本日 {shift.start_time.strftime('%H:%M')} から出勤です。よろしくお願いします。"
+                        msg = f"【Roomink】{shift.cast.name}さん、本日 {start_label} から出勤です。よろしくお願いします。"
                         log = send_line_push_once(
                             store.pk, shift.pk, msg,
                             LineNotificationLog.NotificationType.MORNING,
@@ -70,7 +73,7 @@ class Command(BaseCommand):
                 if store.line_two_hours_enabled:
                     two_h_before = shift_start_dt - timedelta(hours=2)
                     if two_h_before <= now < two_h_before + timedelta(minutes=WINDOW_MINUTES):
-                        msg = f"【Roomink】{shift.cast.name}さん、出勤2時間前です（{shift.start_time.strftime('%H:%M')}〜）。"
+                        msg = f"【Roomink】{shift.cast.name}さん、出勤2時間前です（{start_label}〜）。"
                         log = send_line_push_once(
                             store.pk, shift.pk, msg,
                             LineNotificationLog.NotificationType.TWO_HOURS_BEFORE,
@@ -82,7 +85,7 @@ class Command(BaseCommand):
                 if store.line_fifteen_minutes_enabled:
                     fifteen_min_before = shift_start_dt - timedelta(minutes=15)
                     if fifteen_min_before <= now < fifteen_min_before + timedelta(minutes=WINDOW_MINUTES):
-                        msg = f"【Roomink】{shift.cast.name}さん、出勤15分前です（{shift.start_time.strftime('%H:%M')}〜）。準備をお願いします。"
+                        msg = f"【Roomink】{shift.cast.name}さん、出勤15分前です（{start_label}〜）。準備をお願いします。"
                         log = send_line_push_once(
                             store.pk, shift.pk, msg,
                             LineNotificationLog.NotificationType.FIFTEEN_MIN_BEFORE,

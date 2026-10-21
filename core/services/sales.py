@@ -459,6 +459,7 @@ def get_sales_cast_detail(
             "start_time": format_business_time(order.start, business_date, store.timezone),
             "end_time": format_business_time(order.end, business_date, store.timezone),
             "customer_name": customer_name,
+            "customer_id": order.customer_id,
             "room_name": order.room.name if order.room else "未定",
             "course_name": order.course_name,
             "course_price": order.course_price,
