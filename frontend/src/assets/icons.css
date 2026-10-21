@@ -1,0 +1,174 @@
+/* Outline SVG icons; state is shown through color, background and text. */
+.ti {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+  vertical-align: -0.125em;
+  font-style: normal;
+  flex-shrink: 0;
+}
+.ti::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-color: currentColor;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+.ti-adjustments::before { mask-image: url("@tabler/icons/outline/adjustments.svg"); }
+.ti-adjustments-horizontal::before { mask-image: url("@tabler/icons/outline/adjustments-horizontal.svg"); }
+.ti-alert-circle::before { mask-image: url("@tabler/icons/outline/alert-circle.svg"); }
+.ti-alert-triangle::before { mask-image: url("@tabler/icons/outline/alert-triangle.svg"); }
+.ti-antenna::before { mask-image: url("@tabler/icons/outline/antenna.svg"); }
+.ti-archive::before { mask-image: url("@tabler/icons/outline/archive.svg"); }
+.ti-arrow-back-up::before { mask-image: url("@tabler/icons/outline/arrow-back-up.svg"); }
+.ti-arrow-down::before { mask-image: url("@tabler/icons/outline/arrow-down.svg"); }
+.ti-arrow-down-bar::before { mask-image: url("@tabler/icons/outline/arrow-down-bar.svg"); }
+.ti-arrow-forward-up::before { mask-image: url("@tabler/icons/outline/arrow-forward-up.svg"); }
+.ti-arrow-left::before { mask-image: url("@tabler/icons/outline/arrow-left.svg"); }
+.ti-arrow-right::before { mask-image: url("@tabler/icons/outline/arrow-right.svg"); }
+.ti-arrow-up::before { mask-image: url("@tabler/icons/outline/arrow-up.svg"); }
+.ti-arrow-up-right::before { mask-image: url("@tabler/icons/outline/arrow-up-right.svg"); }
+.ti-arrows-left-right::before { mask-image: url("@tabler/icons/outline/arrows-left-right.svg"); }
+.ti-arrows-sort::before { mask-image: url("@tabler/icons/outline/arrows-sort.svg"); }
+.ti-ban::before { mask-image: url("@tabler/icons/outline/ban.svg"); }
+.ti-bell::before { mask-image: url("@tabler/icons/outline/bell.svg"); }
+.ti-blockquote::before { mask-image: url("@tabler/icons/outline/blockquote.svg"); }
+.ti-bold::before { mask-image: url("@tabler/icons/outline/bold.svg"); }
+.ti-book::before { mask-image: url("@tabler/icons/outline/book.svg"); }
+.ti-brand-line::before { mask-image: url("@tabler/icons/outline/brand-line.svg"); }
+.ti-brand-slack::before { mask-image: url("@tabler/icons/outline/brand-slack.svg"); }
+.ti-building-community::before { mask-image: url("@tabler/icons/outline/building-community.svg"); }
+.ti-building-store::before { mask-image: url("@tabler/icons/outline/building-store.svg"); }
+.ti-bulb::before { mask-image: url("@tabler/icons/outline/bulb.svg"); }
+.ti-calculator::before { mask-image: url("@tabler/icons/outline/calculator.svg"); }
+.ti-calendar::before { mask-image: url("@tabler/icons/outline/calendar.svg"); }
+.ti-calendar-check::before { mask-image: url("@tabler/icons/outline/calendar-check.svg"); }
+.ti-calendar-event::before { mask-image: url("@tabler/icons/outline/calendar-event.svg"); }
+.ti-calendar-off::before { mask-image: url("@tabler/icons/outline/calendar-off.svg"); }
+.ti-calendar-plus::before { mask-image: url("@tabler/icons/outline/calendar-plus.svg"); }
+.ti-calendar-time::before { mask-image: url("@tabler/icons/outline/calendar-time.svg"); }
+.ti-calendar-week::before { mask-image: url("@tabler/icons/outline/calendar-week.svg"); }
+.ti-calendar-x::before { mask-image: url("@tabler/icons/outline/calendar-x.svg"); }
+.ti-camera::before { mask-image: url("@tabler/icons/outline/camera.svg"); }
+.ti-cash::before { mask-image: url("@tabler/icons/outline/cash.svg"); }
+.ti-cash-banknote::before { mask-image: url("@tabler/icons/outline/cash-banknote.svg"); }
+.ti-chart-bar::before { mask-image: url("@tabler/icons/outline/chart-bar.svg"); }
+.ti-chart-pie::before { mask-image: url("@tabler/icons/outline/chart-pie.svg"); }
+.ti-check::before { mask-image: url("@tabler/icons/outline/check.svg"); }
+.ti-chevron-down::before { mask-image: url("@tabler/icons/outline/chevron-down.svg"); }
+.ti-chevron-left::before { mask-image: url("@tabler/icons/outline/chevron-left.svg"); }
+.ti-chevron-right::before { mask-image: url("@tabler/icons/outline/chevron-right.svg"); }
+.ti-chevron-up::before { mask-image: url("@tabler/icons/outline/chevron-up.svg"); }
+.ti-circle-check::before { mask-image: url("@tabler/icons/outline/circle-check.svg"); }
+.ti-circle-plus::before { mask-image: url("@tabler/icons/outline/circle-plus.svg"); }
+.ti-clipboard-check::before { mask-image: url("@tabler/icons/outline/clipboard-check.svg"); }
+.ti-clock::before { mask-image: url("@tabler/icons/outline/clock.svg"); }
+.ti-clock-hour-4::before { mask-image: url("@tabler/icons/outline/clock-hour-4.svg"); }
+.ti-clock-pause::before { mask-image: url("@tabler/icons/outline/clock-pause.svg"); }
+.ti-clock-plus::before { mask-image: url("@tabler/icons/outline/clock-plus.svg"); }
+.ti-copy::before { mask-image: url("@tabler/icons/outline/copy.svg"); }
+.ti-credit-card::before { mask-image: url("@tabler/icons/outline/credit-card.svg"); }
+.ti-currency-yen::before { mask-image: url("@tabler/icons/outline/currency-yen.svg"); }
+.ti-device-floppy::before { mask-image: url("@tabler/icons/outline/device-floppy.svg"); }
+.ti-device-mobile::before { mask-image: url("@tabler/icons/outline/device-mobile.svg"); }
+.ti-device-mobile-off::before { mask-image: url("@tabler/icons/outline/device-mobile-off.svg"); }
+.ti-device-mobile-plus::before { mask-image: url("@tabler/icons/outline/device-mobile-plus.svg"); }
+.ti-discount::before { mask-image: url("@tabler/icons/outline/discount.svg"); }
+.ti-discount-2::before { mask-image: url("@tabler/icons/outline/rosette-discount.svg"); }
+.ti-door::before { mask-image: url("@tabler/icons/outline/door.svg"); }
+.ti-door-exit::before { mask-image: url("@tabler/icons/outline/door-exit.svg"); }
+.ti-download::before { mask-image: url("@tabler/icons/outline/download.svg"); }
+.ti-edit::before { mask-image: url("@tabler/icons/outline/edit.svg"); }
+.ti-external-link::before { mask-image: url("@tabler/icons/outline/external-link.svg"); }
+.ti-eye::before { mask-image: url("@tabler/icons/outline/eye.svg"); }
+.ti-eye-off::before { mask-image: url("@tabler/icons/outline/eye-off.svg"); }
+.ti-file-import::before { mask-image: url("@tabler/icons/outline/file-import.svg"); }
+.ti-git-merge::before { mask-image: url("@tabler/icons/outline/git-merge.svg"); }
+.ti-grip-vertical::before { mask-image: url("@tabler/icons/outline/grip-vertical.svg"); }
+.ti-heart::before { mask-image: url("@tabler/icons/outline/heart.svg"); }
+.ti-help::before { mask-image: url("@tabler/icons/outline/help.svg"); }
+.ti-history::before { mask-image: url("@tabler/icons/outline/history.svg"); }
+.ti-home::before { mask-image: url("@tabler/icons/outline/home.svg"); }
+.ti-inbox::before { mask-image: url("@tabler/icons/outline/inbox.svg"); }
+.ti-info-circle::before { mask-image: url("@tabler/icons/outline/info-circle.svg"); }
+.ti-italic::before { mask-image: url("@tabler/icons/outline/italic.svg"); }
+.ti-link::before { mask-image: url("@tabler/icons/outline/link.svg"); }
+.ti-link-off::before { mask-image: url("@tabler/icons/outline/link-off.svg"); }
+.ti-list::before { mask-image: url("@tabler/icons/outline/list.svg"); }
+.ti-list-details::before { mask-image: url("@tabler/icons/outline/list-details.svg"); }
+.ti-list-numbers::before { mask-image: url("@tabler/icons/outline/list-numbers.svg"); }
+.ti-loader::before { mask-image: url("@tabler/icons/outline/loader.svg"); }
+.ti-lock::before { mask-image: url("@tabler/icons/outline/lock.svg"); }
+.ti-lock-open::before { mask-image: url("@tabler/icons/outline/lock-open.svg"); }
+.ti-login::before { mask-image: url("@tabler/icons/outline/login.svg"); }
+.ti-logout::before { mask-image: url("@tabler/icons/outline/logout.svg"); }
+.ti-mail::before { mask-image: url("@tabler/icons/outline/mail.svg"); }
+.ti-map-pin::before { mask-image: url("@tabler/icons/outline/map-pin.svg"); }
+.ti-menu-2::before { mask-image: url("@tabler/icons/outline/menu-2.svg"); }
+.ti-message::before { mask-image: url("@tabler/icons/outline/message.svg"); }
+.ti-message-2::before { mask-image: url("@tabler/icons/outline/message-2.svg"); }
+.ti-message-chatbot::before { mask-image: url("@tabler/icons/outline/message-chatbot.svg"); }
+.ti-message-circle::before { mask-image: url("@tabler/icons/outline/message-circle.svg"); }
+.ti-message-code::before { mask-image: url("@tabler/icons/outline/message-code.svg"); }
+.ti-message-dots::before { mask-image: url("@tabler/icons/outline/message-dots.svg"); }
+.ti-message-plus::before { mask-image: url("@tabler/icons/outline/message-plus.svg"); }
+.ti-news::before { mask-image: url("@tabler/icons/outline/news.svg"); }
+.ti-note::before { mask-image: url("@tabler/icons/outline/note.svg"); }
+.ti-notebook::before { mask-image: url("@tabler/icons/outline/notebook.svg"); }
+.ti-palette::before { mask-image: url("@tabler/icons/outline/palette.svg"); }
+.ti-pencil::before { mask-image: url("@tabler/icons/outline/pencil.svg"); }
+.ti-percentage::before { mask-image: url("@tabler/icons/outline/percentage.svg"); }
+.ti-phone::before { mask-image: url("@tabler/icons/outline/phone.svg"); }
+.ti-phone-call::before { mask-image: url("@tabler/icons/outline/phone-call.svg"); }
+.ti-phone-check::before { mask-image: url("@tabler/icons/outline/phone-check.svg"); }
+.ti-phone-incoming::before { mask-image: url("@tabler/icons/outline/phone-incoming.svg"); }
+.ti-phone-off::before { mask-image: url("@tabler/icons/outline/phone-off.svg"); }
+.ti-photo::before { mask-image: url("@tabler/icons/outline/photo.svg"); }
+.ti-photo-plus::before { mask-image: url("@tabler/icons/outline/photo-plus.svg"); }
+.ti-pin::before { mask-image: url("@tabler/icons/outline/pin.svg"); }
+.ti-player-pause::before { mask-image: url("@tabler/icons/outline/player-pause.svg"); }
+.ti-player-play::before { mask-image: url("@tabler/icons/outline/player-play.svg"); }
+.ti-plug-connected::before { mask-image: url("@tabler/icons/outline/plug-connected.svg"); }
+.ti-plus::before { mask-image: url("@tabler/icons/outline/plus.svg"); }
+.ti-puzzle::before { mask-image: url("@tabler/icons/outline/puzzle.svg"); }
+.ti-qrcode::before { mask-image: url("@tabler/icons/outline/qrcode.svg"); }
+.ti-receipt::before { mask-image: url("@tabler/icons/outline/receipt.svg"); }
+.ti-refresh::before { mask-image: url("@tabler/icons/outline/refresh.svg"); }
+.ti-report-money::before { mask-image: url("@tabler/icons/outline/report-money.svg"); }
+.ti-rocket::before { mask-image: url("@tabler/icons/outline/rocket.svg"); }
+.ti-rotate::before { mask-image: url("@tabler/icons/outline/rotate.svg"); }
+.ti-search::before { mask-image: url("@tabler/icons/outline/search.svg"); }
+.ti-send::before { mask-image: url("@tabler/icons/outline/send.svg"); }
+.ti-shield-check::before { mask-image: url("@tabler/icons/outline/shield-check.svg"); }
+.ti-shield-lock::before { mask-image: url("@tabler/icons/outline/shield-lock.svg"); }
+.ti-sparkles::before { mask-image: url("@tabler/icons/outline/sparkles.svg"); }
+.ti-square::before { mask-image: url("@tabler/icons/outline/square.svg"); }
+.ti-square-check::before { mask-image: url("@tabler/icons/outline/square-check.svg"); }
+.ti-star::before { mask-image: url("@tabler/icons/outline/star.svg"); }
+.ti-stars::before { mask-image: url("@tabler/icons/outline/stars.svg"); }
+.ti-table::before { mask-image: url("@tabler/icons/outline/table.svg"); }
+.ti-timeline-event::before { mask-image: url("@tabler/icons/outline/timeline-event.svg"); }
+.ti-tool::before { mask-image: url("@tabler/icons/outline/tool.svg"); }
+.ti-tools::before { mask-image: url("@tabler/icons/outline/tools.svg"); }
+.ti-trash::before { mask-image: url("@tabler/icons/outline/trash.svg"); }
+.ti-underline::before { mask-image: url("@tabler/icons/outline/underline.svg"); }
+.ti-unlink::before { mask-image: url("@tabler/icons/outline/unlink.svg"); }
+.ti-upload::before { mask-image: url("@tabler/icons/outline/upload.svg"); }
+.ti-user::before { mask-image: url("@tabler/icons/outline/user.svg"); }
+.ti-user-check::before { mask-image: url("@tabler/icons/outline/user-check.svg"); }
+.ti-user-heart::before { mask-image: url("@tabler/icons/outline/user-heart.svg"); }
+.ti-user-plus::before { mask-image: url("@tabler/icons/outline/user-plus.svg"); }
+.ti-user-question::before { mask-image: url("@tabler/icons/outline/user-question.svg"); }
+.ti-user-shield::before { mask-image: url("@tabler/icons/outline/user-shield.svg"); }
+.ti-users::before { mask-image: url("@tabler/icons/outline/users.svg"); }
+.ti-users-group::before { mask-image: url("@tabler/icons/outline/users-group.svg"); }
+.ti-video::before { mask-image: url("@tabler/icons/outline/video.svg"); }
+.ti-wallet::before { mask-image: url("@tabler/icons/outline/wallet.svg"); }
+.ti-wand::before { mask-image: url("@tabler/icons/outline/wand.svg"); }
+.ti-window::before { mask-image: url("@tabler/icons/outline/window.svg"); }
+.ti-world-www::before { mask-image: url("@tabler/icons/outline/world-www.svg"); }
+.ti-x::before { mask-image: url("@tabler/icons/outline/x.svg"); }
