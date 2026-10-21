@@ -1852,6 +1852,10 @@ class CastDailyCheckout(models.Model):
     estimated_pay = models.PositiveIntegerField(default=0)
     course_sales = models.PositiveIntegerField(default=0)
     options_sales = models.PositiveIntegerField(default=0)
+    daily_expense_total = models.PositiveIntegerField(
+        null=True, blank=True, db_default=None,
+        help_text="退勤提出時の個別雑費。旧提出はNULLのまま保持する。",
+    )
     customer_payment_surcharge = models.PositiveIntegerField(
         default=0, help_text="カード決済時に顧客へ上乗せした金額",
     )

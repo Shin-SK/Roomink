@@ -158,7 +158,8 @@ class SipProvisioningTest(TestCase):
 
         provisioned = self.anonymous.get(urlparse(provisioning_url).path)
         self.assertEqual(provisioned.status_code, 200)
-        self.assertEqual(provisioned["Cache-Control"], "no-store")
+        self.assertIn("no-store", provisioned["Cache-Control"])
+        self.assertIn("private", provisioned["Cache-Control"])
         self.assertEqual(provisioned["Content-Type"], "text/html; charset=utf-8")
         self.assertEqual(provisioned["Referrer-Policy"], "no-referrer")
         body = provisioned.content.decode()

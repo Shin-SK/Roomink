@@ -86,6 +86,24 @@ def payment_financial_summary(store, orders):
     }
 
 
+def payment_parts(order):
+    """元売上を実際の決済先へ振り分ける。カード加算は元売上に含めない。"""
+    from ..models import Order
+    from .reservation_access import card_payment_amount
+    if order.payment_method == Order.PaymentMethod.CARD:
+        charge, cash = card_payment_amount(order)
+        base = order.total_price - cash
+        parts = [(Order.PaymentMethod.CARD, base, charge - base)]
+        if cash:
+            parts.append((Order.PaymentMethod.CASH, cash, 0))
+        return parts
+    return [(order.payment_method, order.total_price, 0)]
+
+
+def cash_received_total(orders):
+    return sum(sales for order in orders for method, sales, _ in payment_parts(order) if method == "CASH")
+
+
 def get_sales_summary(store, date_from, date_to):
     """
     store の DONE 注文を営業日ベースで集計し、summary dict を返す。
@@ -144,7 +162,7 @@ def get_sales_csv(store, date_from, date_to):
         "注文ID", "施術日", "開始時刻", "終了時刻", "顧客名", "顧客電話番号",
         "キャスト名", "ルーム名", "コース名", "コース料金", "オプション料金",
         "延長料金", "指名料", "割引額", "合計金額", "決済方法", "媒体名",
-        "実利用者名",
+        "実利用者名", "カード請求額（加算含む）", "現金受領額",
     ])
     for o in orders:
         business_date = business_date_for_datetime(o.start, store.timezone)
@@ -173,6 +191,8 @@ def get_sales_csv(store, date_from, date_to):
             o.get_payment_method_display(),
             o.medium_name,
             o.service_recipient_name,
+            sum(sales + surcharge for method, sales, surcharge in payment_parts(o) if method == "CARD"),
+            cash_received_total([o]),
         ])
     return buf.getvalue()
 
@@ -211,22 +231,24 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
     payment_labels = dict(Order.PaymentMethod.choices)
     payment_map = {}
     for order in qs:
-        entry = payment_map.setdefault(order.payment_method, {
-            "payment_method": order.payment_method,
-            "payment_method_label": payment_labels.get(order.payment_method, order.payment_method),
-            "sales": 0,
-            "orders": 0,
-            "customer_payment_surcharge": 0,
-            "customer_payment_total": 0,
-            "fee_rate": 0 if order.payment_method == Order.PaymentMethod.CARD else fee_rates.get(order.payment_method, 0),
-            "fee_estimate": 0,
-        })
         order_summary = payment_financial_summary(store, [order])
-        entry["sales"] += order_summary["total_sales"]
-        entry["orders"] += 1
-        entry["customer_payment_surcharge"] += order_summary["customer_payment_surcharge"]
-        entry["customer_payment_total"] += order_summary["customer_payment_total"]
-        entry["fee_estimate"] += order_summary["payment_fee_estimate"]
+        for method, sales, surcharge in payment_parts(order):
+            entry = payment_map.setdefault(method, {
+                "payment_method": method,
+                "payment_method_label": payment_labels.get(method, method),
+                "sales": 0, "orders": 0,
+                "customer_payment_surcharge": 0, "customer_payment_total": 0,
+                "fee_rate": 0 if method == Order.PaymentMethod.CARD else fee_rates.get(method, 0),
+                "fee_estimate": 0,
+            })
+            entry["sales"] += sales
+            entry["orders"] += 1
+            entry["customer_payment_surcharge"] += surcharge
+            entry["customer_payment_total"] += sales + surcharge
+            # Preserve the existing store-fee accounting policy. Cash OP from
+            # card orders has never incurred a separate estimated cash fee.
+            if method == order.payment_method:
+                entry["fee_estimate"] += order_summary["payment_fee_estimate"]
     by_payment_method = sorted(payment_map.values(), key=lambda row: -row["sales"])
     for entry in by_payment_method:
         entry["net_sales_after_fee"] = entry["customer_payment_total"] - entry["fee_estimate"]
@@ -452,6 +474,8 @@ def get_sales_cast_detail(
             "payment_method": order.payment_method,
             "payment_method_label": order.get_payment_method_display(),
             "sales": order.total_price,
+            "cash_payment_total": cash_received_total([order]),
+            "card_payment_total": sum(sales + surcharge for method, sales, surcharge in payment_parts(order) if method == "CARD"),
             "customer_payment_surcharge": financials["customer_payment_surcharge"],
             "customer_payment_total": financials["customer_payment_total"],
             "estimated_pay": order_pay,
@@ -533,6 +557,7 @@ def get_sales_dashboard_csv(store, date_from, date_to, cast_id=None, room_id=Non
     writer.writerow([])
 
     writer.writerow(["決済方法別（カードの率はお客様負担の上乗せ率です）"])
+    writer.writerow(["現金払いのOPは現金へ分けて集計。併用した予約は両方の件数に含みます。"])
     writer.writerow(["決済方法", "売上", "件数", "カード決済加算", "お客様決済額", "店舗側手数料率(%)", "店舗側手数料見込み", "手数料差引後売上"])
     for r in data["by_payment_method"]:
         writer.writerow([

@@ -102,8 +102,9 @@ const checkoutIsReadOnly = computed(() => {
 })
 
 const checkoutCarryover = computed(() => {
-  const opening = Number(checkoutData.value?.checkout?.carryover_opening_amount ?? checkoutData.value?.carryover_opening_amount ?? 0)
-  const compensation = Number(checkoutData.value?.checkout?.compensation_amount ?? checkoutData.value?.compensation ?? 0)
+  const saved = checkoutIsReadOnly.value ? checkoutData.value?.checkout : null
+  const opening = Number(saved?.carryover_opening_amount ?? checkoutData.value?.carryover_opening_amount ?? 0)
+  const compensation = Number(saved?.compensation_amount ?? checkoutData.value?.compensation ?? 0)
   const roomCash = Number((checkoutIsReadOnly.value ? checkoutData.value?.checkout?.room_cash_taken_amount : checkoutForm.value.room_cash_taken_amount) ?? 0)
   const officeCash = Number(checkoutData.value?.checkout?.office_cash_paid_amount ?? 0)
   const available = opening + compensation
@@ -113,6 +114,12 @@ const checkoutCarryover = computed(() => {
 const checkoutBalance = computed(() => checkoutBalanceDisplay(
   checkoutCarryover.value.available, checkoutCarryover.value.roomCash, checkoutCarryover.value.officeCash,
 ))
+
+const checkoutDeposit = computed(() => {
+  const cash = Number(checkoutData.value?.cash_sales_total ?? 0)
+  const net = cash - checkoutCarryover.value.roomCash
+  return { cash, deposit: Math.max(0, net), withdrawal: Math.max(0, -net) }
+})
 
 const checkoutReadyToSubmit = computed(() => (
   CHECKLIST_ITEMS.every(item => checkoutForm.value.checklist_json?.[item.key])
@@ -617,7 +624,7 @@ function formatMonthDay(dateStr) {
         <!-- 次回出勤日の予約。前日でも内容確認だけは先に済ませられる。 -->
         <template v-if="upcomingOrdersLoading || upcomingOrders.length">
           <div class="rk-section-header ca-bookings-heading mt-4">
-            <span><i class="ti ti-calendar-forward"></i> 次回の予約</span>
+            <span><i class="ti ti-calendar-event"></i> 次回の予約</span>
             <span v-if="upcomingOrdersDate" class="ca-bookings-count">{{ formatShiftDateLabel(upcomingOrdersDate) }}</span>
           </div>
           <div v-if="upcomingOrdersLoading" class="text-muted text-center py-3 small">予約を読み込み中...</div>
@@ -995,6 +1002,15 @@ function formatMonthDay(dateStr) {
 
               <div class="line-modal-body">
                 <div v-if="checkoutError" class="alert alert-danger py-2 small">{{ checkoutError }}</div>
+
+                <div class="border border-primary rounded p-3 mb-3" role="status" aria-live="polite">
+                  <div class="small text-muted">金庫へ入れる金額</div>
+                  <div class="fs-2 fw-bold text-primary">{{ formatYen(checkoutDeposit.deposit) }}</div>
+                  <div class="small mt-2">お客様から受け取った現金 {{ formatYen(checkoutDeposit.cash) }} − 今回ルームで受け取る報酬 {{ formatYen(checkoutCarryover.roomCash) }}</div>
+                  <div v-if="checkoutDeposit.withdrawal" class="small mt-2">投函は不要です。報酬の不足分 {{ formatYen(checkoutDeposit.withdrawal) }} をルーム内の現金から受け取る計算です。実際の残金を確認してください。</div>
+                  <div class="small text-muted mt-2">現金払いのオプション代を含みます。個人のチップなど、Roominkに登録していないお金は含みません。</div>
+                  <div class="small text-muted">現在の予約記録と{{ checkoutIsReadOnly ? '提出済みの受取額' : '下の入力欄の受取額' }}から計算しています。</div>
+                </div>
 
                 <div class="bg-light rounded p-3 mb-3">
                   <div class="small text-muted mb-1">今日の受取可能額</div>

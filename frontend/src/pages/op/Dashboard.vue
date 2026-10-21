@@ -63,46 +63,46 @@ function makeAttentionGroup(key, label, tone, icon, to, entries) {
 
 const attentionGroups = computed(() => {
   const current = [
-    ...(unconfirmedOrders.value.length ? [makeAttentionGroup('cast-unconfirmed', '予約未確認', 'warning', 'user-question', '/op/schedule', unconfirmedOrders.value.map(order => ({
+    ...(unconfirmedOrders.value.length ? [makeAttentionGroup('cast-unconfirmed', '予約未確認', 'warning', 'ti-user-question', '/op/schedule', unconfirmedOrders.value.map(order => ({
       id: order.id,
       time: formatTime(order.start),
       title: orderPartyLabel(order),
       detail: castForOrder(order) || 'キャストの確認待ち',
       to: `/op/orders/${order.id}`,
     })))] : []),
-    ...(requestedOrders.value.length ? [makeAttentionGroup('reservation-request', '予約リクエスト', 'warning', 'calendar-plus', '/op/schedule', requestedOrders.value.map(order => ({
+    ...(requestedOrders.value.length ? [makeAttentionGroup('reservation-request', '予約リクエスト', 'warning', 'ti-calendar-plus', '/op/schedule', requestedOrders.value.map(order => ({
       id: order.id,
       time: formatTime(order.start),
       title: orderPartyLabel(order),
       detail: castForOrder(order) || '内容を確認',
       to: `/op/orders/${order.id}`,
     })))] : []),
-    ...(pendingFinalizeOrders.value.length ? [makeAttentionGroup('pending-finalize', '会計待ち', 'warning', 'cash-register', '/op/schedule', pendingFinalizeOrders.value.map(order => ({
+    ...(pendingFinalizeOrders.value.length ? [makeAttentionGroup('pending-finalize', '会計待ち', 'warning', 'ti-cash-register', '/op/schedule', pendingFinalizeOrders.value.map(order => ({
       id: order.id,
       time: formatTime(order.start),
       title: orderPartyLabel(order),
       detail: castForOrder(order) || '会計を確認',
       to: `/op/orders/${order.id}`,
     })))] : []),
-    ...(roomPendingOrders.value.length ? [makeAttentionGroup('room-pending', 'ルーム未定', 'warning', 'door-off', '/op/schedule', roomPendingOrders.value.map(order => ({
+    ...(roomPendingOrders.value.length ? [makeAttentionGroup('room-pending', 'ルーム未定', 'warning', 'ti-door-off', '/op/schedule', roomPendingOrders.value.map(order => ({
       id: order.id,
       time: formatTime(order.start),
       title: castForOrder(order) || 'キャスト未定',
       detail: orderPartyLabel(order),
     })))] : []),
-    ...(shiftEndAlerts.value.length ? [makeAttentionGroup('shift-end', '受付終了の確認', 'warning', 'clock-exclamation', '/op/schedule', shiftEndAlerts.value.map(alert => ({
+    ...(shiftEndAlerts.value.length ? [makeAttentionGroup('shift-end', '受付終了の確認', 'warning', 'ti-clock-exclamation', '/op/schedule', shiftEndAlerts.value.map(alert => ({
       id: alert.id,
       time: alert.shift_end_time_extended ? `終了 ${alert.shift_end_time_extended}` : '',
       title: alert.cast_name,
       detail: `本日 ${alert.valid_order_count}件 / ${formatYen(alert.done_sales)}`,
     })))] : []),
-    ...(lineFailed.value.length ? [makeAttentionGroup('line-failed', 'LINE送信失敗', 'danger', 'brand-line', '/op/settings/line', lineFailed.value.map(item => ({
+    ...(lineFailed.value.length ? [makeAttentionGroup('line-failed', 'LINE送信失敗', 'danger', 'ti-brand-line', '/op/settings/line', lineFailed.value.map(item => ({
       id: item.id,
       time: item.sent_at ? formatTime(item.sent_at) : '',
       title: item.cast_name || '通知送信',
       detail: item.notification_type || 'LINE通知',
     })))] : []),
-    ...(lineUnlinked.value.length ? [makeAttentionGroup('line-unlinked', 'LINE未連携', 'warning', 'brand-line', '/op/settings/line', lineUnlinked.value.map(cast => ({
+    ...(lineUnlinked.value.length ? [makeAttentionGroup('line-unlinked', 'LINE未連携', 'warning', 'ti-brand-line', '/op/settings/line', lineUnlinked.value.map(cast => ({
       id: cast.id,
       time: cast.start_time ? `${cast.start_time}〜` : '',
       title: cast.name,
@@ -302,7 +302,7 @@ watch([salesRange, salesDateFrom, salesDateTo], () => {
               class="dashboard-attention__category" :class="[{ 'is-active': expandedAttention === group.key }, `is-${group.tone}`]"
               :aria-expanded="expandedAttention === group.key" aria-controls="dashboard-attention-detail"
               @click="expandedAttention = expandedAttention === group.key ? null : group.key">
-              <i class="ti" :class="`ti-${group.icon}`" aria-hidden="true"></i><span>{{ group.label }}</span>
+              <i class="ti" :class="group.icon" aria-hidden="true"></i><span>{{ group.label }}</span>
               <strong>{{ group.entries.length }}<small>{{ ['shift-end', 'line-unlinked'].includes(group.key) ? '名' : '件' }}</small></strong>
               <i class="ti" :class="expandedAttention === group.key ? 'ti-chevron-up' : 'ti-chevron-down'" aria-hidden="true"></i>
             </button>

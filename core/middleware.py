@@ -4,6 +4,26 @@ from secrets import compare_digest
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.utils.cache import add_never_cache_headers
+
+
+class ApiNoStoreMiddleware:
+    """API responses are dynamic and may contain tenant- or user-private data.
+
+    Cover success and denial responses, including CSV downloads whose file
+    extension otherwise makes them eligible for shared edge caching.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.path_info.startswith("/api/"):
+            add_never_cache_headers(response)
+            response["CDN-Cache-Control"] = "no-store"
+            response["Cloudflare-CDN-Cache-Control"] = "no-store"
+        return response
 
 
 class CloudflareOriginLockMiddleware:

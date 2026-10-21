@@ -532,7 +532,7 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
         model = CastDailyCheckout
         fields = [
             "id", "store", "cast", "cast_name", "date", "status",
-            "done_count", "total_sales", "estimated_pay", "course_sales", "options_sales",
+            "done_count", "total_sales", "estimated_pay", "course_sales", "options_sales", "daily_expense_total",
             "customer_payment_surcharge", "customer_payment_total",
             "payment_fee_estimate", "net_sales_after_payment_fee",
             "room", "room_name", "room_cash_taken_amount", "office_cash_paid_amount",
@@ -548,7 +548,8 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
         return obj.reviewed_by.username if obj.reviewed_by else None
 
     def get_compensation_amount(self, obj) -> int:
-        return obj.estimated_pay - sum(obj.expense_snapshots.values_list("amount", flat=True))
+        from .views import _checkout_compensation
+        return _checkout_compensation(obj)
 
     def get_carryover_opening_amount(self, obj) -> int:
         previous = (
@@ -557,7 +558,7 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
             .prefetch_related("expense_snapshots")
         )
         return sum(
-            item.estimated_pay - sum(item.expense_snapshots.values_list("amount", flat=True))
+            self.get_compensation_amount(item)
             - item.room_cash_taken_amount - item.office_cash_paid_amount
             for item in previous
         )

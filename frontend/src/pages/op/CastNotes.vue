@@ -365,7 +365,7 @@ function formatDateTime(s) {
                     class="btn btn-warning btn-sm"
                     title="ピン留め解除"
                     @click="doAction(api.unpinCastNote, n)"
-                  ><i class="ti ti-pin-filled"></i></button>
+                  ><i class="ti ti-pin"></i></button>
                   <button class="btn btn-outline-danger btn-sm" title="削除" @click="onDelete(n)"><i class="ti ti-trash"></i></button>
                 </div>
               </td>
