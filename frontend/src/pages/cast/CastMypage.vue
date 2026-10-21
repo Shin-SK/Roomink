@@ -624,7 +624,7 @@ function formatMonthDay(dateStr) {
         <!-- 次回出勤日の予約。前日でも内容確認だけは先に済ませられる。 -->
         <template v-if="upcomingOrdersLoading || upcomingOrders.length">
           <div class="rk-section-header ca-bookings-heading mt-4">
-            <span><i class="ti ti-calendar-forward"></i> 次回の予約</span>
+            <span><i class="ti ti-calendar-event"></i> 次回の予約</span>
             <span v-if="upcomingOrdersDate" class="ca-bookings-count">{{ formatShiftDateLabel(upcomingOrdersDate) }}</span>
           </div>
           <div v-if="upcomingOrdersLoading" class="text-muted text-center py-3 small">予約を読み込み中...</div>

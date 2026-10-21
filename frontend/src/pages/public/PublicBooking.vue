@@ -473,7 +473,7 @@ async function confirmBooking() {
               @click="toggleOption(option.id)"
             >
               <span><strong>{{ option.name }}</strong><small>+{{ formatYen(option.price) }}</small></span>
-              <i :class="form.options.includes(option.id) ? 'ti ti-circle-check-filled' : 'ti ti-circle-plus'"></i>
+              <i :class="form.options.includes(option.id) ? 'ti ti-circle-check' : 'ti ti-circle-plus'"></i>
             </button>
           </div>
         </section>
