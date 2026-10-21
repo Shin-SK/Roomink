@@ -46,7 +46,8 @@ class OrderQaFixesTest(TestCase):
         self.assertNotIn(f.customer.phone, response.data["therapist"])
         self.assertNotIn("https://r.roomink.example/r/", response.data["therapist"])
         self.assertEqual(SmsLog.objects.count(), 0)
-        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertIn("private", response["Cache-Control"])
 
     def test_unpaid_card_guidance_hides_room_and_address(self):
         f = self.f
