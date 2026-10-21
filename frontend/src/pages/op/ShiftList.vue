@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
+import { normalizeShiftTime as normalizeExtendedTime } from '../../shiftTime.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -184,14 +185,6 @@ async function onSave() {
   formError.value = ''
   saveNotice.value = ''
   try {
-    const normalizeExtendedTime = (value, label) => {
-      if (!/^\d{2}:\d{2}$/.test(value)) throw new Error(`${label}はHH:MM形式で入力してください`)
-      const [hour, minute] = value.split(':').map(Number)
-      if (hour < 0 || hour > 29 || minute < 0 || minute > 59 || (hour === 29 && minute !== 0)) {
-        throw new Error(`${label}は00:00から29:00までで入力してください`)
-      }
-      return { time: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`, dayOffset: hour >= 24 ? 1 : 0 }
-    }
     const start = normalizeExtendedTime(form.value.start_time, '開始時間')
     const end = normalizeExtendedTime(form.value.end_time, '終了時間')
     const body = {

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
+import { normalizeShiftTime as normalizeExtendedTime } from '../../shiftTime.js'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -112,22 +113,6 @@ function applyBulk() {
 
 function clearAll() {
   days.value.forEach(d => { d.enabled = false })
-}
-
-function normalizeExtendedTime(value, label) {
-  const match = /^(\d{2}):(\d{2})$/.exec(value || '')
-  if (!match) throw new Error(`${label}はHH:MM形式で入力してください（例: 23:00 / 29:00）`)
-
-  const hour = Number(match[1])
-  const minute = Number(match[2])
-  if (minute > 59 || hour > 29 || (hour === 29 && minute !== 0)) {
-    throw new Error(`${label}は00:00〜29:00で入力してください`)
-  }
-
-  return {
-    time: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-    dayOffset: hour >= 24 ? 1 : 0,
-  }
 }
 
 async function onSubmit() {

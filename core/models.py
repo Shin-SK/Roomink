@@ -573,6 +573,7 @@ class ShiftRequest(models.Model):
     cast = models.ForeignKey(Cast, on_delete=models.CASCADE, related_name="shift_requests")
     date = models.DateField()
     start_time = models.TimeField()
+    start_day_offset = models.PositiveSmallIntegerField(choices=DAY_OFFSET_CHOICES, default=0)
     end_time = models.TimeField()
     end_day_offset = models.PositiveSmallIntegerField(
         choices=DAY_OFFSET_CHOICES,
@@ -585,6 +586,7 @@ class ShiftRequest(models.Model):
     admin_memo = models.TextField(blank=True, default="")
     approved_date = models.DateField(null=True, blank=True)
     approved_start_time = models.TimeField(null=True, blank=True)
+    approved_start_day_offset = models.PositiveSmallIntegerField(choices=DAY_OFFSET_CHOICES, default=0)
     approved_end_time = models.TimeField(null=True, blank=True)
     approved_end_day_offset = models.PositiveSmallIntegerField(
         choices=DAY_OFFSET_CHOICES,
