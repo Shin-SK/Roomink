@@ -14,10 +14,14 @@
   width: 100%;
   height: 100%;
   background-color: currentColor;
+  mask-image: url("@tabler/icons/outline/help-circle.svg");
   mask-repeat: no-repeat;
   mask-position: center;
   mask-size: contain;
 }
+.ti-clock-exclamation::before { mask-image: url("@tabler/icons/outline/clock-exclamation.svg"); }
+.ti-cash-register::before { mask-image: url("@tabler/icons/outline/cash-register.svg"); }
+.ti-door-off::before { mask-image: url("@tabler/icons/outline/door-off.svg"); }
 .ti-adjustments::before { mask-image: url("@tabler/icons/outline/adjustments.svg"); }
 .ti-adjustments-horizontal::before { mask-image: url("@tabler/icons/outline/adjustments-horizontal.svg"); }
 .ti-alert-circle::before { mask-image: url("@tabler/icons/outline/alert-circle.svg"); }

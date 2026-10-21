@@ -19,6 +19,7 @@ test('every UI icon has an outline SVG, including dynamically selected states', 
   for (const file of sources(path.join(root, 'src'))) {
     const source = readFileSync(file, 'utf8')
     assert.doesNotMatch(source, /@tabler\/icons-webfont/, file)
+    assert.doesNotMatch(source, /ti-\$\{|['"]ti-['"]\s*\+/, `Use complete icon class names so coverage includes dynamic states: ${file}`)
     for (const [, name] of source.matchAll(/\bti-([a-z0-9]+(?:-[a-z0-9]+)*)/g)) {
       assert.ok(!name.endsWith('-filled'), `Filled icon in ${file}: ${name}`)
       assert.ok(mapping.has(name), `Missing outline SVG in ${file}: ${name}`)
