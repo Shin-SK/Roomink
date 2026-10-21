@@ -151,3 +151,20 @@ class OvernightShiftRequestTest(ShiftRequestExtendedTimeTest):
         self.assertEqual(response.status_code, 200, response.data)
         shift.refresh_from_db()
         self.assertEqual(shift.clocked_in_at.astimezone(ZoneInfo('Asia/Tokyo')).date(), self.shift_date + timedelta(days=1))
+
+    def test_overnight_clock_in_uses_store_business_day_boundary(self):
+        shift = ShiftAssignment.objects.create(
+            store=self.store, cast=self.cast, room=self.room, date=self.shift_date,
+            start_time=time(0), start_day_offset=1, end_time=time(5), end_day_offset=1,
+        )
+        now = datetime.combine(self.shift_date + timedelta(days=1), time(1, 30),
+                               tzinfo=ZoneInfo('Asia/Tokyo'))
+        for boundary, expected in [(5, now), (0, now.replace(hour=0, minute=0))]:
+            with self.subTest(boundary=boundary):
+                self.store.business_day_boundary_hour = boundary
+                self.store.save(update_fields=['business_day_boundary_hour'])
+                with patch('core.views.timezone.now', return_value=now):
+                    response = self.manager_client.post(f'/api/shifts/{shift.pk}/clock-in/', {}, format='json')
+                self.assertEqual(response.status_code, 200, response.data)
+                shift.refresh_from_db()
+                self.assertEqual(shift.clocked_in_at, expected)

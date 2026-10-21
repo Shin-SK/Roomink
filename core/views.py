@@ -3027,7 +3027,9 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     def clock_in(self, request, pk=None):
         shift = self.get_object()
         now = timezone.now()
-        today = timezone.localdate()
+        today = business_date_for_datetime(
+            now, shift.store.timezone, shift.store.business_day_boundary_hour,
+        )
         if shift.date < today:
             # 過去日のレトロ記録: シフト開始時刻を打刻時刻として扱う
             naive = datetime.combine(shift.date + timedelta(days=shift.start_day_offset), shift.start_time)
