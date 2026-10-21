@@ -53,9 +53,13 @@ test('checkout uses live input on new and returned forms, and recorded payments 
     app = renderer.createApp({ render: () => h(component) })
     const vm = app.mount({})
     const state = vm.$.subTree.component.setupState
-    state.checkoutData = { compensation: 31000 }
+    state.checkoutData = { compensation: 31000, cash_sales_total: 35000 }
     state.checkoutForm.room_cash_taken_amount = 26000
     assert.equal(state.checkoutBalance.amount, 5000)
+    assert.equal(state.checkoutDeposit.deposit, 9000)
+    state.checkoutData.cash_sales_total = 4000
+    assert.equal(state.checkoutDeposit.deposit, 0)
+    assert.equal(state.checkoutDeposit.withdrawal, 22000)
     state.checkoutData.checkout = {
       status: 'RETURNED', compensation_amount: 31000, room_cash_taken_amount: 10000,
       office_cash_paid_amount: 2000,
@@ -65,6 +69,7 @@ test('checkout uses live input on new and returned forms, and recorded payments 
     assert.equal(state.checkoutBalance.label, '不足なし')
     state.checkoutData.checkout.status = 'SUBMITTED'
     assert.equal(state.checkoutCarryover.roomCash, 10000)
+    assert.equal(state.checkoutDeposit.withdrawal, 6000)
     assert.equal(state.checkoutBalance.amount, 19000)
   } finally {
     app?.unmount()

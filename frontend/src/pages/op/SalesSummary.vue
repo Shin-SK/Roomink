@@ -492,6 +492,8 @@ onMounted(async () => {
                       </td>
                       <td>
                         <span class="payment-chip">{{ order.payment_method_label }}</span>
+                        <small v-if="order.card_payment_total">カード {{ formatYen(order.card_payment_total) }}</small>
+                        <small v-if="order.payment_method === 'CARD' && order.cash_payment_total">現金OP {{ formatYen(order.cash_payment_total) }}</small>
                         <small v-if="order.customer_payment_surcharge">カード手数料 {{ formatYen(order.customer_payment_surcharge) }}</small>
                       </td>
                       <td class="text-end fw-bold">{{ formatYen(order.sales) }}</td>
@@ -638,6 +640,7 @@ onMounted(async () => {
 
             <!-- 決済方法別売上 -->
             <div class="fw-bold small mb-1"><i class="ti ti-credit-card"></i> 決済方法別売上</div>
+            <p class="small text-muted mb-2">現金払いのOPは現金へ分けて集計します。カードと現金を併用した予約は両方の件数に含まれます。</p>
             <div v-if="data.by_payment_method && data.by_payment_method.length" class="table-responsive">
               <table class="table table-sm table-bordered mb-0 payment-sales-table">
                 <thead>

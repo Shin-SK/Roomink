@@ -1820,11 +1820,13 @@ def _cast_expense_totals(cast, d, done_count):
         fixed_expense_total = sum(
             CastExpenseTemplate.objects.filter(cast=cast, is_active=True)
             .values_list("amount", flat=True)
-        )
+        ) if done_count else 0
     daily_expense_total = sum(
         exp.amount * (done_count if exp.per_order else 1)
         for exp in CastExpense.objects.filter(store=cast.store, cast=cast, date=d)
     )
+    if checkout and checkout.status != CastDailyCheckout.Status.RETURNED and checkout.daily_expense_total is not None:
+        daily_expense_total = checkout.daily_expense_total
     return {
         "fixed_expense_total": fixed_expense_total,
         "daily_expense_total": daily_expense_total,
@@ -1843,7 +1845,9 @@ def _allocation_amounts(gross_pay, net_sales_after_fee, expenses):
 
 def _checkout_compensation(checkout):
     """退勤提出に固定された売上・雑費から、当日の報酬を算出する。"""
-    return checkout.estimated_pay - sum(checkout.expense_snapshots.values_list("amount", flat=True))
+    return (checkout.estimated_pay
+            - sum(checkout.expense_snapshots.values_list("amount", flat=True))
+            - (checkout.daily_expense_total or 0))
 
 
 def _cast_carryover_before(cast, d):
@@ -2008,13 +2012,19 @@ class CastCheckoutView(APIView):
         else:
             fixed_items = CastExpenseTemplate.objects.filter(cast=cast, is_active=True).order_by("id")
         template_data = [
-            {"id": item.id, "name": item.name, "amount": item.amount, "memo": item.memo}
+            {"id": item.id, "name": item.name,
+             "amount": item.amount if (sales["done_count"] or (existing and existing.status != CastDailyCheckout.Status.RETURNED)) else 0,
+             "memo": item.memo}
             for item in fixed_items
         ]
 
+        from .services.sales import cash_received_total
         return Response({
             "date": today.isoformat(),
             **sales,
+            "cash_sales_total": cash_received_total(
+                get_done_orders_for_business_range(cast.store, today, today).filter(cast=cast)
+            ),
             "sales_items": _checkout_sales_items(cast, today),
             **fee,
             **allocation,
@@ -2092,6 +2102,7 @@ class CastCheckoutView(APIView):
             instance.estimated_pay = sales["estimated_pay"]
             instance.course_sales = sales["course_sales"]
             instance.options_sales = sales["options_sales"]
+            instance.daily_expense_total = expenses["daily_expense_total"]
             instance.customer_payment_surcharge = fee["customer_payment_surcharge"]
             instance.customer_payment_total = fee["customer_payment_total"]
             instance.payment_fee_estimate = fee["payment_fee_estimate"]
@@ -2111,7 +2122,8 @@ class CastCheckoutView(APIView):
 
             CastCheckoutExpenseSnapshot.objects.bulk_create([
                 CastCheckoutExpenseSnapshot(
-                    checkout=instance, template=t, name=t.name, amount=t.amount, memo=t.memo,
+                    checkout=instance, template=t, name=t.name,
+                    amount=t.amount if sales["done_count"] else 0, memo=t.memo,
                 )
                 for t in templates
             ])
