@@ -1647,7 +1647,7 @@ class CastScheduleView(APIView):
                 date__gte=week_start,
                 date__lt=week_end,
                 is_absent=False,
-            ).select_related("room").order_by("date", "start_time", "id")
+            ).select_related("room").order_by("date", "start_day_offset", "start_time", "id")
         )
         weekly_orders = list(
             Order.objects.filter(
@@ -1666,11 +1666,11 @@ class CastScheduleView(APIView):
         shifts_by_date = defaultdict(list)
         for shift in own_shifts:
             shifts_by_date[shift.date].append({
-                "start": shift.start_time.strftime("%H:%M"),
+                "start": format_extended_time(shift.start_time, shift.start_day_offset),
                 "end": format_extended_time(shift.end_time, shift.end_day_offset),
-                "room_name": shift.room.name,
-                "room_address": shift.room.address,
-                "room_map_url": shift.room.map_url,
+                "room_name": shift.room.name if shift.room_id else "未定",
+                "room_address": shift.room.address if shift.room_id else "",
+                "room_map_url": shift.room.map_url if shift.room_id else "",
             })
 
         def serialize_day_orders(day):
@@ -1704,7 +1704,7 @@ class CastScheduleView(APIView):
         )
         for shift in room_shifts:
             occupied_by_room[shift.room_id].append((
-                shift.start_time.hour * 60 + shift.start_time.minute,
+                (shift.start_time.hour + 24 * shift.start_day_offset) * 60 + shift.start_time.minute,
                 (shift.end_time.hour + 24 * shift.end_day_offset) * 60 + shift.end_time.minute,
             ))
 
@@ -2141,6 +2141,7 @@ def _serialize_shift_for_confirm(shift):
         "id": shift.id,
         "date": shift.date.isoformat(),
         "start_time": str(shift.start_time)[:5],
+        "start_time_extended": format_extended_time(shift.start_time, shift.start_day_offset),
         "end_time": str(shift.end_time)[:5],
         "end_time_extended": format_extended_time(
             shift.end_time,
@@ -2168,7 +2169,7 @@ class CastShiftConfirmView(APIView):
             ShiftAssignment.objects
             .filter(cast=cast, date__gte=today)
             .select_related("room")
-            .order_by("date", "start_time")
+            .order_by("date", "start_day_offset", "start_time")
             .first()
         )
 
@@ -3029,7 +3030,7 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
         today = timezone.localdate()
         if shift.date < today:
             # 過去日のレトロ記録: シフト開始時刻を打刻時刻として扱う
-            naive = datetime.combine(shift.date, shift.start_time)
+            naive = datetime.combine(shift.date + timedelta(days=shift.start_day_offset), shift.start_time)
             tz = timezone.get_current_timezone()
             shift.clocked_in_at = timezone.make_aware(naive, tz)
         else:

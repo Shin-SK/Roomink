@@ -1,6 +1,8 @@
 import csv
 import io
-from datetime import time
+from datetime import datetime, time, timedelta
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 
@@ -114,3 +116,38 @@ class OvernightShiftRequestTest(ShiftRequestExtendedTimeTest):
         ), format='json')
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data['room'], self.room.pk)
+
+    def test_cast_confirmation_and_schedule_keep_overnight_start(self):
+        shift = ShiftAssignment.objects.create(
+            store=self.store, cast=self.cast, room=self.room, date=self.shift_date,
+            start_time=time(0), start_day_offset=1, end_time=time(5), end_day_offset=1,
+        )
+        daytime = ShiftAssignment.objects.create(
+            store=self.store, cast=self.cast, room=self.room, date=self.shift_date,
+            start_time=time(14), end_time=time(18),
+        )
+        with patch('core.views.timezone.now', return_value=datetime(2026, 8, 1, 12, tzinfo=ZoneInfo('Asia/Tokyo'))):
+            first = self.cast_client.get('/api/cast/shift-confirm/')
+            self.assertEqual(first.data['shift']['id'], daytime.pk)
+            daytime.delete()
+            confirmed = self.cast_client.get('/api/cast/shift-confirm/')
+            self.assertEqual(confirmed.data['shift']['start_time_extended'], '24:00')
+        scheduled = self.cast_client.get(f'/api/cast/schedule/?date={self.shift_date}')
+        self.assertEqual(scheduled.status_code, 200, scheduled.data)
+        self.assertEqual(scheduled.data['days'][0]['shifts'][0]['start'], '24:00')
+        self.assertEqual(scheduled.data['rooms'][0]['occupied'], [{'start': '24:00', 'end': '29:00'}])
+        shift.room = None
+        shift.save()
+        undecided = self.cast_client.get(f'/api/cast/schedule/?date={self.shift_date}')
+        self.assertEqual(undecided.status_code, 200, undecided.data)
+        self.assertEqual(undecided.data['days'][0]['shifts'][0]['room_name'], '未定')
+
+    def test_retrospective_clock_in_uses_next_calendar_day(self):
+        shift = ShiftAssignment.objects.create(
+            store=self.store, cast=self.cast, room=self.room, date=self.shift_date,
+            start_time=time(0), start_day_offset=1, end_time=time(5), end_day_offset=1,
+        )
+        response = self.manager_client.post(f'/api/shifts/{shift.pk}/clock-in/', {}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        shift.refresh_from_db()
+        self.assertEqual(shift.clocked_in_at.astimezone(ZoneInfo('Asia/Tokyo')).date(), self.shift_date + timedelta(days=1))

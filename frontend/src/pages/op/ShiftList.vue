@@ -288,6 +288,7 @@ function isLate(s) {
   if (!s.start_time) return false
   const [h, m] = s.start_time.split(':').map(Number)
   const start = new Date(now.value)
+  start.setDate(start.getDate() + Number(s.start_day_offset || 0))
   start.setHours(h, m, 0, 0)
   return now.value >= start
 }
@@ -360,7 +361,7 @@ async function onClearClockIn(s) {
                   {{ a.alert_level === 'ONE_HOUR' ? '1時間前未確認' : '2時間前未確認' }}
                 </span>
                 <span class="fw-bold">{{ a.cast_name }}</span>
-                <span class="text-muted"> {{ a.date }} {{ a.start_time }}〜<template v-if="a.room_name"> {{ a.room_name }}</template></span>
+                <span class="text-muted"> {{ a.date }} {{ a.start_time_extended || a.start_time }}〜<template v-if="a.room_name"> {{ a.room_name }}</template></span>
               </div>
               <div class="text-muted flex-shrink-0 ms-2">
                 {{ a.minutes_until_start >= 0 ? `残り${a.minutes_until_start}分` : `${-a.minutes_until_start}分超過` }}
