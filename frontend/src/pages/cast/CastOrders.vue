@@ -195,7 +195,7 @@ function formatYen(n) {
   return `¥${Number(n).toLocaleString()}`
 }
 
-const startHour = computed(() => shift.value ? parseInt(shift.value.start_time) : 12)
+const startHour = computed(() => shift.value ? parseInt(shift.value.start_time_extended || shift.value.start_time) : 12)
 const endHour = computed(() => shift.value ? parseInt(shift.value.end_time_extended || shift.value.end_time) : 20)
 
 const hours = computed(() => {

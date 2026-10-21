@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, ref, onMounted } from 'vue'
+import { normalizeShiftTime } from '../../shiftTime.js'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 
@@ -74,7 +75,7 @@ function buildTimeOptions(maxHour, minHour = 0) {
   return options
 }
 
-const startTimeOptions = computed(() => buildTimeOptions(23, shiftRequestStartHour.value))
+const startTimeOptions = computed(() => buildTimeOptions(29, shiftRequestStartHour.value))
 const endTimeOptions = buildTimeOptions(29)
 
 function changeWeek(offset) {
@@ -137,19 +138,10 @@ function formatExtendedEndTimeInput(value) {
 }
 
 function normalizeExtendedEndTime(value) {
-  const formatted = formatExtendedEndTimeInput(value)
-  const match = /^(\d{2}):(\d{2})$/.exec(formatted)
-  if (!match) throw new Error('終了時間は「23:00」または「2300」の形式で入力してください')
-
-  const hour = Number(match[1])
-  const minute = Number(match[2])
-  if (minute > 59 || hour > 29 || (hour === 29 && minute !== 0)) {
-    throw new Error('終了時間は00:00〜29:00で入力してください')
-  }
-
+  const normalized = normalizeShiftTime(value, '終了時間')
   return {
-    end_time: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-    end_day_offset: hour >= 24 ? 1 : 0,
+    end_time: normalized.time,
+    end_day_offset: normalized.dayOffset,
   }
 }
 
@@ -165,10 +157,12 @@ async function onSave() {
         throw new Error(`${dateLabel(day.date)}の開始・終了時間を入力してください`)
       }
       const normalizedEnd = normalizeExtendedEndTime(day.end_time)
+      const normalizedStart = normalizeShiftTime(day.start_time, '開始時間')
       day.end_time = formatExtendedEndTimeInput(day.end_time)
       return {
         date: day.date,
-        start_time: day.start_time,
+        start_time: normalizedStart.time,
+        start_day_offset: normalizedStart.dayOffset,
         ...normalizedEnd,
       }
     })
@@ -230,7 +224,7 @@ function formatDateTime(s) {
             <div class="d-flex justify-content-between align-items-start mb-2">
               <div>
                 <div class="fw-bold">{{ r.date }}</div>
-                <div class="small text-muted">{{ r.start_time?.slice(0,5) }} - {{ r.end_time_extended || r.end_time?.slice(0,5) }}</div>
+                <div class="small text-muted">{{ r.start_time_extended || r.start_time?.slice(0,5) }} - {{ r.end_time_extended || r.end_time?.slice(0,5) }}</div>
               </div>
               <span class="badge" :class="statusClass[r.status]">{{ statusLabel[r.status] }}</span>
             </div>
@@ -238,7 +232,7 @@ function formatDateTime(s) {
             <div v-if="r.status === 'APPROVED'" class="small bg-success bg-opacity-10 p-2 rounded mb-2">
               <div class="fw-bold mb-1"><i class="ti ti-check"></i> 承認内容</div>
               <template v-if="r.approved_date">
-                <div>{{ r.approved_date }} {{ r.approved_start_time?.slice(0,5) }} - {{ r.approved_end_time_extended || r.approved_end_time?.slice(0,5) }}</div>
+                <div>{{ r.approved_date }} {{ r.approved_start_time_extended || r.approved_start_time?.slice(0,5) }} - {{ r.approved_end_time_extended || r.approved_end_time?.slice(0,5) }}</div>
                 <div>部屋: {{ r.approved_room_name || '-' }}</div>
               </template>
               <div v-else class="text-muted">承認済み（旧データのため詳細未記録）</div>
@@ -331,7 +325,7 @@ function formatDateTime(s) {
                     </div>
                   </div>
                 </div>
-                <div v-if="selectedDays.length" class="form-text mb-3">翌朝の終了時間は24:00〜29:00から選択できます。</div>
+                <div v-if="selectedDays.length" class="form-text mb-3">翌朝の開始・終了時間は24:00〜29:00から選択できます。</div>
                 <p class="small text-muted mb-3">
                   出勤場所は、登録済みの希望エリアと空室状況をもとに運営が調整します。部屋の指定はできません。
                 </p>

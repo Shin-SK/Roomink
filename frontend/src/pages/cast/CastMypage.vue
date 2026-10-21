@@ -488,7 +488,7 @@ function formatMonthDay(dateStr) {
             <div class="ca-page-header__title">{{ castName }}様</div>
             <div v-if="headerShift" class="ca-home-next">
               <div class="ca-home-next__date">{{ headerShiftIsToday ? '今日の出勤' : '次回の出勤' }} · {{ formatShiftDateLabel(headerShiftDate) }}</div>
-              <div class="ca-home-next__time"><i class="ti ti-clock"></i> {{ headerShift.start_time }}–{{ headerShift.end_time_extended || headerShift.end_time }}</div>
+              <div class="ca-home-next__time"><i class="ti ti-clock"></i> {{ headerShift.start_time_extended || headerShift.start_time }}–{{ headerShift.end_time_extended || headerShift.end_time }}</div>
               <div v-if="headerShift.room_name" class="ca-home-next__room">
                 <span><i class="ti ti-door"></i> {{ headerShift.room_name }}</span>
                 <a v-if="roomMapHref(headerShift)" :href="roomMapHref(headerShift)" target="_blank" rel="noopener noreferrer" class="ca-home-map" :aria-label="`${headerShift.room_name}の地図を開く`"><i class="ti ti-map-pin"></i> 地図</a>

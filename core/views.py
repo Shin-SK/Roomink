@@ -1647,7 +1647,7 @@ class CastScheduleView(APIView):
                 date__gte=week_start,
                 date__lt=week_end,
                 is_absent=False,
-            ).select_related("room").order_by("date", "start_time", "id")
+            ).select_related("room").order_by("date", "start_day_offset", "start_time", "id")
         )
         weekly_orders = list(
             Order.objects.filter(
@@ -1666,11 +1666,11 @@ class CastScheduleView(APIView):
         shifts_by_date = defaultdict(list)
         for shift in own_shifts:
             shifts_by_date[shift.date].append({
-                "start": shift.start_time.strftime("%H:%M"),
+                "start": format_extended_time(shift.start_time, shift.start_day_offset),
                 "end": format_extended_time(shift.end_time, shift.end_day_offset),
-                "room_name": shift.room.name,
-                "room_address": shift.room.address,
-                "room_map_url": shift.room.map_url,
+                "room_name": shift.room.name if shift.room_id else "未定",
+                "room_address": shift.room.address if shift.room_id else "",
+                "room_map_url": shift.room.map_url if shift.room_id else "",
             })
 
         def serialize_day_orders(day):
@@ -1704,7 +1704,7 @@ class CastScheduleView(APIView):
         )
         for shift in room_shifts:
             occupied_by_room[shift.room_id].append((
-                shift.start_time.hour * 60 + shift.start_time.minute,
+                (shift.start_time.hour + 24 * shift.start_day_offset) * 60 + shift.start_time.minute,
                 (shift.end_time.hour + 24 * shift.end_day_offset) * 60 + shift.end_time.minute,
             ))
 
@@ -2141,6 +2141,7 @@ def _serialize_shift_for_confirm(shift):
         "id": shift.id,
         "date": shift.date.isoformat(),
         "start_time": str(shift.start_time)[:5],
+        "start_time_extended": format_extended_time(shift.start_time, shift.start_day_offset),
         "end_time": str(shift.end_time)[:5],
         "end_time_extended": format_extended_time(
             shift.end_time,
@@ -2168,7 +2169,7 @@ class CastShiftConfirmView(APIView):
             ShiftAssignment.objects
             .filter(cast=cast, date__gte=today)
             .select_related("room")
-            .order_by("date", "start_time")
+            .order_by("date", "start_day_offset", "start_time")
             .first()
         )
 
@@ -3029,7 +3030,7 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
         today = timezone.localdate()
         if shift.date < today:
             # 過去日のレトロ記録: シフト開始時刻を打刻時刻として扱う
-            naive = datetime.combine(shift.date, shift.start_time)
+            naive = datetime.combine(shift.date + timedelta(days=shift.start_day_offset), shift.start_time)
             tz = timezone.get_current_timezone()
             shift.clocked_in_at = timezone.make_aware(naive, tz)
         else:
@@ -4927,6 +4928,7 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
                 request_data = {
                     "date": item["date"],
                     "start_time": item["start_time"],
+                    "start_day_offset": item.get("start_day_offset", 0),
                     "end_time": item["end_time"],
                     "end_day_offset": item.get("end_day_offset", 0),
                     "memo": item.get("memo", data["memo"]),
@@ -4935,6 +4937,7 @@ class CastShiftRequestViewSet(viewsets.ModelViewSet):
         else:
             common_data = {
                 "start_time": data["start_time"],
+                "start_day_offset": data["start_day_offset"],
                 "end_time": data["end_time"],
                 "end_day_offset": data["end_day_offset"],
                 "memo": data["memo"],
@@ -4999,6 +5002,7 @@ def _apply_shift_request_approval(
     admin_memo,
     user,
     room=None,
+    start_day_offset=0,
 ):
     """ShiftRequest承認の共通処理（ShiftAssignment作成 + ShiftRequestの承認内容/履歴保存）。
     OpShiftRequestViewSet.approve() と シフト申請CSV戻し承認(import_apply) の両方から呼ばれる。
@@ -5015,7 +5019,7 @@ def _apply_shift_request_approval(
         "date": date,
         "cast": obj.cast_id,
         "start_time": start_time,
-        "start_day_offset": 0,
+        "start_day_offset": start_day_offset,
         "end_time": end_time,
         "end_day_offset": end_day_offset,
     }
@@ -5036,6 +5040,7 @@ def _apply_shift_request_approval(
     obj.admin_memo = admin_memo
     obj.approved_date = shift.date
     obj.approved_start_time = shift.start_time
+    obj.approved_start_day_offset = shift.start_day_offset
     obj.approved_end_time = shift.end_time
     obj.approved_end_day_offset = shift.end_day_offset
     obj.approved_room = shift.room
@@ -5043,7 +5048,7 @@ def _apply_shift_request_approval(
     obj.decided_by = user
     obj.save(update_fields=[
         "status", "admin_memo",
-        "approved_date", "approved_start_time", "approved_end_time",
+        "approved_date", "approved_start_time", "approved_start_day_offset", "approved_end_time",
         "approved_end_day_offset", "approved_room",
         "decided_at", "decided_by", "updated_at",
     ])
@@ -5112,6 +5117,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         date = request.data.get("date") or obj.date
         start_time = request.data.get("start_time") or str(obj.start_time)
+        start_day_offset = request.data.get("start_day_offset", obj.start_day_offset)
         end_time = request.data.get("end_time") or str(obj.end_time)
         end_day_offset = request.data.get("end_day_offset", obj.end_day_offset)
 
@@ -5125,6 +5131,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             admin_memo,
             request.user,
             room=room,
+            start_day_offset=start_day_offset,
         )
         if not ok:
             return Response({"detail": err}, status=status.HTTP_400_BAD_REQUEST)
@@ -5170,11 +5177,11 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
         for r in queryset:
             writer.writerow([
                 r.id, r.cast_id, r.cast.name,
-                r.date.isoformat(), str(r.start_time)[:5],
+                r.date.isoformat(), format_extended_time(r.start_time, r.start_day_offset),
                 format_extended_time(r.end_time, r.end_day_offset),
                 r.desired_room_id or "", r.desired_room.name if r.desired_room_id else "",
                 r.approved_date.isoformat() if r.approved_date else "",
-                str(r.approved_start_time)[:5] if r.approved_start_time else "",
+                format_extended_time(r.approved_start_time, r.approved_start_day_offset) if r.approved_start_time else "",
                 format_extended_time(
                     r.approved_end_time,
                     r.approved_end_day_offset,
@@ -5232,7 +5239,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             "cast_id": obj.cast_id,
             "cast_name": obj.cast.name,
             "date": obj.date.isoformat(),
-            "start_time": str(obj.start_time)[:5],
+            "start_time": format_extended_time(obj.start_time, obj.start_day_offset),
             "end_time": format_extended_time(obj.end_time, obj.end_day_offset),
             "desired_room_name": obj.desired_room.name if obj.desired_room_id else None,
             "status": obj.status,
@@ -5256,23 +5263,18 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             except ValueError:
                 errors.append("approved_date の形式が不正です（YYYY-MM-DD）")
 
-        def _parse_time(v):
-            if not v:
-                return None
-            try:
-                normalized = v[:-3] if v.endswith(":00") and v.count(":") == 2 else v
-                parsed, offset = parse_extended_time(normalized)
-                return parsed if offset == 0 else None
-            except (ValueError, IndexError):
-                return None
-
-        start_t = _parse_time(csv_data["approved_start_time"])
+        start_t = None
+        start_day_offset = 0
         if not csv_data["approved_start_time"]:
             errors.append("approved_start_time は必須です")
-        elif start_t is None:
-            errors.append("approved_start_time の形式が不正です（HH:MM）")
         else:
-            csv_data["approved_start_time"] = start_t.strftime("%H:%M")
+            try:
+                raw_start = csv_data["approved_start_time"]
+                normalized_start = raw_start[:-3] if raw_start.endswith(":00") and raw_start.count(":") == 2 else raw_start
+                start_t, start_day_offset = parse_extended_time(normalized_start)
+                csv_data["approved_start_time"] = normalized_start
+            except BusinessDateTimeError:
+                errors.append("approved_start_time の形式が不正です（00:00〜29:00）")
 
         end_t = None
         end_day_offset = 0
@@ -5294,6 +5296,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                     approved_date,
                     start_t,
                     end_t,
+                    start_day_offset=start_day_offset,
                     end_day_offset=end_day_offset,
                     timezone_name=store.timezone,
                 )
@@ -5319,6 +5322,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             validator = ShiftAssignmentSerializer(data={
                 "date": csv_data["approved_date"], "cast": obj.cast_id,
                 "room": room.pk, "start_time": start_t, "end_time": end_t,
+                "start_day_offset": start_day_offset,
                 "end_day_offset": end_day_offset,
             }, context={"store": store})
             if not validator.is_valid():
@@ -5336,6 +5340,7 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                         existing.date,
                         existing.start_time,
                         existing.end_time,
+                        start_day_offset=existing.start_day_offset,
                         end_day_offset=existing.end_day_offset,
                         timezone_name=store.timezone,
                     )
@@ -5402,8 +5407,10 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             if result["can_apply"]:
                 data = result["csv"]
                 end_time, offset = parse_extended_time(data["approved_end_time"])
+                start_time, start_offset = parse_extended_time(data["approved_start_time"])
                 start_at, end_at = build_business_interval(
-                    date_type.fromisoformat(data["approved_date"]), datetime.strptime(data["approved_start_time"], "%H:%M").time(), end_time,
+                    date_type.fromisoformat(data["approved_date"]), start_time, end_time,
+                    start_day_offset=start_offset,
                     end_day_offset=offset, timezone_name=store.timezone,
                 )
                 cast_id = result["original"]["cast_id"]
@@ -5479,16 +5486,18 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 end_t, end_day_offset = parse_extended_time(
                     row_for_validation["approved_end_time"]
                 )
+                start_t, start_day_offset = parse_extended_time(row_for_validation["approved_start_time"])
 
                 ok, err = _apply_shift_request_approval(
                     obj, store,
                     row_for_validation["approved_date"],
-                    row_for_validation["approved_start_time"],
+                    start_t,
                     end_t,
                     end_day_offset,
                     row_for_validation["admin_memo"],
                     request.user,
                     room=room,
+                    start_day_offset=start_day_offset,
                 )
                 if not ok:
                     validated["can_apply"] = False

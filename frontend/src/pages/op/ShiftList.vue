@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
+import { normalizeShiftTime as normalizeExtendedTime } from '../../shiftTime.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -184,14 +185,6 @@ async function onSave() {
   formError.value = ''
   saveNotice.value = ''
   try {
-    const normalizeExtendedTime = (value, label) => {
-      if (!/^\d{2}:\d{2}$/.test(value)) throw new Error(`${label}はHH:MM形式で入力してください`)
-      const [hour, minute] = value.split(':').map(Number)
-      if (hour < 0 || hour > 29 || minute < 0 || minute > 59 || (hour === 29 && minute !== 0)) {
-        throw new Error(`${label}は00:00から29:00までで入力してください`)
-      }
-      return { time: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`, dayOffset: hour >= 24 ? 1 : 0 }
-    }
     const start = normalizeExtendedTime(form.value.start_time, '開始時間')
     const end = normalizeExtendedTime(form.value.end_time, '終了時間')
     const body = {
@@ -295,6 +288,7 @@ function isLate(s) {
   if (!s.start_time) return false
   const [h, m] = s.start_time.split(':').map(Number)
   const start = new Date(now.value)
+  start.setDate(start.getDate() + Number(s.start_day_offset || 0))
   start.setHours(h, m, 0, 0)
   return now.value >= start
 }
@@ -367,7 +361,7 @@ async function onClearClockIn(s) {
                   {{ a.alert_level === 'ONE_HOUR' ? '1時間前未確認' : '2時間前未確認' }}
                 </span>
                 <span class="fw-bold">{{ a.cast_name }}</span>
-                <span class="text-muted"> {{ a.date }} {{ a.start_time }}〜<template v-if="a.room_name"> {{ a.room_name }}</template></span>
+                <span class="text-muted"> {{ a.date }} {{ a.start_time_extended || a.start_time }}〜<template v-if="a.room_name"> {{ a.room_name }}</template></span>
               </div>
               <div class="text-muted flex-shrink-0 ms-2">
                 {{ a.minutes_until_start >= 0 ? `残り${a.minutes_until_start}分` : `${-a.minutes_until_start}分超過` }}

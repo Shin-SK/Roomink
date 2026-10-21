@@ -923,6 +923,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                     date,
                     start_time,
                     end_time,
+                    start_day_offset=start_day_offset,
                     end_day_offset=end_day_offset,
                     area=requested_area,
                 )
@@ -1189,6 +1190,8 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
     approved_room_name = serializers.CharField(source="approved_room.name", read_only=True, default=None)
     decided_by_name = serializers.SerializerMethodField()
     end_time_extended = serializers.SerializerMethodField()
+    start_time_extended = serializers.SerializerMethodField()
+    approved_start_time_extended = serializers.SerializerMethodField()
     approved_end_time_extended = serializers.SerializerMethodField()
 
     class Meta:
@@ -1197,7 +1200,7 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
         # cast本人は申請内容のみ編集可。承認/却下に関するフィールドは閲覧専用にする。
         read_only_fields = [
             "store", "cast", "status", "admin_memo",
-            "approved_date", "approved_start_time", "approved_end_time",
+            "approved_date", "approved_start_time", "approved_start_day_offset", "approved_end_time",
             "approved_end_day_offset", "approved_room",
             "decided_at", "decided_by",
         ]
@@ -1214,6 +1217,7 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
             })
         request = self.context.get("request")
         start_time = data.get("start_time", getattr(self.instance, "start_time", None))
+        start_day_offset = data.get("start_day_offset", getattr(self.instance, "start_day_offset", 0))
         end_time = data.get("end_time", getattr(self.instance, "end_time", None))
         end_day_offset = data.get(
             "end_day_offset",
@@ -1237,7 +1241,7 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
         start_at = end_at = None
         if cast and date and start_time and end_time:
             store = Store.objects.only("timezone", "shift_request_start_hour").get(pk=cast.store_id)
-            if start_time.hour < store.shift_request_start_hour:
+            if start_time.hour + 24 * start_day_offset < store.shift_request_start_hour:
                 raise serializers.ValidationError({
                     "start_time": (
                         "開始時間は店舗設定の"
@@ -1245,11 +1249,13 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
                     )
                 })
             try:
+                format_extended_time(start_time, start_day_offset)
                 format_extended_time(end_time, end_day_offset)
                 start_at, end_at = build_business_interval(
                     date,
                     start_time,
                     end_time,
+                    start_day_offset=start_day_offset,
                     end_day_offset=end_day_offset,
                     timezone_name=store.timezone,
                 )
@@ -1269,6 +1275,7 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
                         existing.date,
                         existing.start_time,
                         existing.end_time,
+                        start_day_offset=existing.start_day_offset,
                         end_day_offset=existing.end_day_offset,
                         timezone_name=store.timezone,
                     )
@@ -1278,6 +1285,14 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError("同じ時間帯に申請中のシフトがあります")
 
         return data
+
+    def get_start_time_extended(self, obj) -> str:
+        return format_extended_time(obj.start_time, obj.start_day_offset)
+
+    def get_approved_start_time_extended(self, obj) -> Optional[str]:
+        if obj.approved_start_time is None:
+            return None
+        return format_extended_time(obj.approved_start_time, obj.approved_start_day_offset)
 
     def get_end_time_extended(self, obj) -> str:
         return format_extended_time(obj.end_time, obj.end_day_offset)
@@ -1294,6 +1309,7 @@ class CastShiftRequestSerializer(serializers.ModelSerializer):
 class CastShiftRequestBulkItemSerializer(serializers.Serializer):
     date = serializers.DateField()
     start_time = serializers.TimeField()
+    start_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
     end_time = serializers.TimeField()
     end_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
     memo = serializers.CharField(required=False, allow_blank=True)
@@ -1318,6 +1334,7 @@ class CastShiftRequestBulkCreateSerializer(serializers.Serializer):
     )
     items = CastShiftRequestBulkItemSerializer(many=True, required=False, allow_empty=False)
     start_time = serializers.TimeField(required=False)
+    start_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
     end_time = serializers.TimeField(required=False)
     end_day_offset = serializers.IntegerField(min_value=0, max_value=1, default=0)
     memo = serializers.CharField(required=False, allow_blank=True, default="")
@@ -1350,7 +1367,7 @@ class CastShiftRequestBulkCreateSerializer(serializers.Serializer):
         return data
 
 
-class OpShiftRequestSerializer(serializers.ModelSerializer):
+class OpShiftRequestSerializer(CastShiftRequestSerializer):
     cast_name = serializers.CharField(source="cast.name", read_only=True)
     desired_room_name = serializers.CharField(source="desired_room.name", read_only=True, default=None)
     approved_room_name = serializers.CharField(source="approved_room.name", read_only=True, default=None)
@@ -1363,7 +1380,7 @@ class OpShiftRequestSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = [
             "store", "cast",
-            "approved_date", "approved_start_time", "approved_end_time",
+            "approved_date", "approved_start_time", "approved_start_day_offset", "approved_end_time",
             "approved_end_day_offset", "approved_room",
             "decided_at", "decided_by",
         ]
