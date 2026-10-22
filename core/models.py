@@ -489,6 +489,7 @@ class ShiftAssignment(models.Model):
         help_text="終了時刻がシフト日の翌日に属する場合は1",
     )
     clocked_in_at = models.DateTimeField(null=True, blank=True)
+    clocked_out_at = models.DateTimeField(null=True, blank=True)
     daily_memo = models.TextField(blank=True, default="", help_text="その日だけのメモ")
     is_absent = models.BooleanField(default=False, help_text="当欠フラグ")
     confirmed_at = models.DateTimeField(
@@ -508,6 +509,20 @@ class ShiftAssignment(models.Model):
 
     def __str__(self):
         return f"{self.cast} {self.date} {self.start_time}-{self.end_time}"
+
+
+class ShiftAttendanceEvent(models.Model):
+    """打刻と訂正の履歴。現在値と元の操作時刻を分け、給与計算には接続しない。"""
+    shift = models.ForeignKey(ShiftAssignment, on_delete=models.PROTECT, related_name="attendance_events")
+    action = models.CharField(max_length=20)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    reason = models.CharField(max_length=500, blank=True)
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
 
 
 class CastUnavailableTime(models.Model):

@@ -184,6 +184,7 @@ test('cast home option saves send the editor-open version and recover from confl
   const transform = code => code
     .replace(/import LayoutCast from [^\n]+/, 'const LayoutCast = {}')
     .replace(/import RoomCashPanel from [^\n]+/, 'const RoomCashPanel = {}')
+    .replace(/import CastAttendanceCard from [^\n]+/, 'const CastAttendanceCard = {}')
     .replace(/import \{ api \} from [^\n]+/, 'const api = globalThis.__homeApiForTests')
     .replace(/onMounted\(async \(\) =>/, '(() => {})(async () =>')
   const { state, unmount } = await mountSource('../src/pages/cast/CastMypage.vue', {}, transform)

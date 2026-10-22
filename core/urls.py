@@ -12,6 +12,8 @@ from . import (
     voice_routing,
 )
 
+from . import attendance_views
+
 router = DefaultRouter()
 router.register("orders", views.OrderViewSet)
 router.register("shifts", views.ShiftAssignmentViewSet)
@@ -166,6 +168,8 @@ urlpatterns = [
     path("cast/schedule/", views.CastScheduleView.as_view(), name="cast-schedule"),
     path("cast/today-sales/", views.CastTodaySalesView.as_view(), name="cast-today-sales"),
     path("cast/checkout/", views.CastCheckoutView.as_view(), name="cast-checkout"),
+    path("cast/attendance/", attendance_views.CastAttendanceView.as_view(), name="cast-attendance"),
+    path("op/attendance/", attendance_views.ManagerAttendanceView.as_view(), name="op-attendance"),
     path("cast/room-cash/", views.CastRoomCashView.as_view(), name="cast-room-cash"),
     path("cast/shift-confirm/", views.CastShiftConfirmView.as_view(), name="cast-shift-confirm"),
     path("cast/orders/<int:pk>/ack/", views.CastAckView.as_view(), name="cast-ack"),

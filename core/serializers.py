@@ -848,9 +848,13 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShiftAssignment
         fields = "__all__"
-        read_only_fields = ["store"]
+        read_only_fields = ["store", "clocked_in_at", "clocked_out_at"]
 
     def validate(self, data):
+        if self.instance and (self.instance.clocked_in_at or self.instance.attendance_events.exists()):
+            for field in ("cast", "date"):
+                if field in data and data[field] != getattr(self.instance, field):
+                    raise serializers.ValidationError("打刻履歴のある勤務の日付・キャストは変更できません")
         # store は read_only のため新規作成時は data に載らない。
         # ViewSet / 週次入力から context 経由で受け取り、重複チェックを店舗内に限定する。
         store = (
