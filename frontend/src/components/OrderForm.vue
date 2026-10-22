@@ -1093,7 +1093,7 @@ function formatYen(n) {
               </div>
             </div>
 
-            <div v-if="isCardPayment && selectedOptionsPrice > 0" class="mb-3">
+            <div v-if="isCardPayment" class="mb-3">
               <label class="form-label">オプション代の支払い</label>
               <div class="select-grid select-grid--2">
                 <button

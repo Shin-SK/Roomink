@@ -295,6 +295,7 @@ urlpatterns = [
     ),
     path("webhook/twilio/voice/", views.twilio_voice_webhook, name="twilio-voice-webhook"),
     path("webhook/twilio/status/", views.twilio_status_webhook, name="twilio-status-webhook"),
+    path("webhook/twilio/diagnostics/", views.twilio_diagnostics_webhook, name="twilio-diagnostics-webhook"),
     path(
         "webhook/twilio/sms-status/",
         views.twilio_sms_status_webhook,

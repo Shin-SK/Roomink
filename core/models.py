@@ -1356,6 +1356,16 @@ class CallLog(models.Model):
         return f"Call#{self.pk} {self.from_phone} → {self.to_phone} ({self.status})"
 
 
+class VoiceDiagnosticEvent(models.Model):
+    """Internal call tracing only; never store raw webhook bodies or phone numbers."""
+    call = models.ForeignKey(CallLog, on_delete=models.CASCADE, related_name="diagnostic_events")
+    event_key = models.CharField(max_length=64, unique=True)
+    stage = models.CharField(max_length=32)
+    call_sid = models.CharField(max_length=128)
+    details = models.JSONField(default=dict)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+
 class CallLogReadReceipt(models.Model):
     """着信カードを誰が確認したかを、対応ステータスとは分けて記録する。"""
 
