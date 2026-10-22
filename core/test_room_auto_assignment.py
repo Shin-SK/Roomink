@@ -152,7 +152,8 @@ class RoomOptionalTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertIn("使用中", str(response.data))
+        self.assertIn("room_overlap", response.data)
+        self.assertIn("重なっています", str(response.data["room_overlap"]))
 
     def test_operator_cannot_assign_another_stores_room(self):
         other_store = Store.objects.create(name="別店舗", timezone="Asia/Tokyo")

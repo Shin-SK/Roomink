@@ -1,4 +1,5 @@
 import { selectedStoreId, setSelectedStoreId, scopedExportUrl } from './storeSelection.js'
+import { withRoomOverlapConfirmation } from './roomOverlapConfirmation.js'
 
 const API_ORIGIN = import.meta.env?.VITE_API_BASE_URL || ''
 const BASE = `${API_ORIGIN}/api`
@@ -244,6 +245,7 @@ export const api = {
   correctOrderAccounting: (id, body) => request('POST', `/orders/${id}/correct-accounting/`, body),
   createOrder: (body) => request('POST', '/orders/', body),
   confirmOrder: (id) => request('POST', `/orders/${id}/confirm/`),
+  retryBookingSms: (id) => request('POST', `/orders/${id}/retry-booking-sms/`),
   sendCardPaymentRequest: (id) => request('POST', `/orders/${id}/send-card-payment-request/`),
   confirmCardPayment: (id) => request('POST', `/orders/${id}/confirm-card-payment/`),
   cancelOrder: (id) => request('POST', `/orders/${id}/cancel/`),
@@ -368,8 +370,8 @@ export const api = {
 
   // Shifts
   getShifts: (params = '') => allShifts(params),
-  createShift: (body) => request('POST', '/shifts/', body),
-  updateShift: (id, body) => request('PATCH', `/shifts/${id}/`, body),
+  createShift: (body) => withRoomOverlapConfirmation(data => request('POST', '/shifts/', data), body),
+  updateShift: (id, body) => withRoomOverlapConfirmation(data => request('PATCH', `/shifts/${id}/`, data), body),
   deleteShift: (id) => request('DELETE', `/shifts/${id}/`),
   clockInShift: (id) => request('POST', `/shifts/${id}/clock-in/`),
   clearClockInShift: (id) => request('POST', `/shifts/${id}/clear-clock-in/`),
@@ -382,7 +384,7 @@ export const api = {
 
   // 週次シフト入力（1キャスト×1週間まとめて登録）
   getWeeklyShifts: (castId, weekStart) => request('GET', `/op/shifts/weekly/?cast=${castId}&week_start=${weekStart}`),
-  createWeeklyShifts: (body) => request('POST', '/op/shifts/weekly/', body),
+  createWeeklyShifts: (body) => withRoomOverlapConfirmation(data => request('POST', '/op/shifts/weekly/', data), body),
 
   // タイムライン並び替え（キャスト別表示の display_order）
   getScheduleCastOrder: (date) => request('GET', `/op/schedule-cast-order/?date=${date}`),
@@ -515,7 +517,7 @@ export const api = {
 
   // Op ShiftRequests
   getOpShiftRequests: (params = '') => listRequest('GET', `/op/shift-requests/${params ? '?' + params : '?limit=200'}`),
-  approveShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/approve/`, body),
+  approveShiftRequest: (id, body) => withRoomOverlapConfirmation(data => request('POST', `/op/shift-requests/${id}/approve/`, data), body),
   rejectShiftRequest: (id, body) => request('POST', `/op/shift-requests/${id}/reject/`, body),
 
   // Op ShiftRequests CSV戻し承認の土台（v1: export → preview → apply）

@@ -828,6 +828,7 @@ class StaffUpdateSerializer(serializers.Serializer):
 # ──────────────────────────────────────
 
 class ShiftAssignmentSerializer(serializers.ModelSerializer):
+    allow_room_overlap = serializers.BooleanField(write_only=True, required=False, default=False)
     room = serializers.PrimaryKeyRelatedField(
         queryset=Room.objects.all(),
         required=False,
@@ -851,6 +852,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["store", "clocked_in_at", "clocked_out_at"]
 
     def validate(self, data):
+        allow_room_overlap = data.pop("allow_room_overlap", False)
         if self.instance and (self.instance.clocked_in_at or self.instance.attendance_events.exists()):
             for field in ("cast", "date"):
                 if field in data and data[field] != getattr(self.instance, field):
@@ -960,6 +962,7 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                     )
 
             if room is not None:
+                room_overlaps = []
                 occupied_shifts = ShiftAssignment.objects.filter(
                     store=store,
                     room=room,
@@ -981,7 +984,13 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
                     except BusinessDateTimeError:
                         continue
                     if intervals_overlap(start_at, end_at, existing_start, existing_end):
-                        raise serializers.ValidationError("このルームは既存シフトで使用中です")
+                        room_overlaps.append(
+                            f"{room.name}：{existing.cast.name}さんのシフト"
+                            f"（{existing.date} {format_extended_time(existing.start_time, existing.start_day_offset)}"
+                            f"〜{format_extended_time(existing.end_time, existing.end_day_offset)}）と重なっています。"
+                        )
+                if room_overlaps and not allow_room_overlap:
+                    raise serializers.ValidationError({"room_overlap": room_overlaps})
 
             room_pending_orders = Order.objects.filter(
                 store=store,

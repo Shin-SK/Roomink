@@ -481,7 +481,7 @@ async function confirmBooking() {
         <section class="booking-card">
           <div class="section-heading">
             <span>{{ options.length ? 5 : 4 }}</span>
-            <div><h2>お客様情報・確認</h2><p>SMS認証後に予約を受け付けます。カードは店舗の入金確認後に本予約となります。</p></div>
+            <div><h2>お客様情報・確認</h2><p>SMS認証後に仮予約を受け付けます。店舗の確認後、SMSでご案内します。</p></div>
           </div>
 
           <div class="row g-3 mb-3">
@@ -531,7 +531,7 @@ async function confirmBooking() {
           </div>
           <p class="confirmation-note">
             <i class="ti ti-lock"></i>
-            認証コード入力後に空き状況を再確認します。カードは仮予約となり、店舗の入金確認後に確定します。
+            認証コード入力後に空き状況を再確認して仮予約を受け付けます。店舗の確認後に確定します。カードはその後の決済・入金確認が必要です。
           </p>
           <button type="submit" class="submit-button" :disabled="submitting">
             <span v-if="submitting" class="spinner-border spinner-border-sm me-2"></span>
@@ -559,7 +559,7 @@ async function confirmBooking() {
           >
           <button type="submit" class="submit-button mt-3" :disabled="submitting">
             <span v-if="submitting" class="spinner-border spinner-border-sm me-2"></span>
-            {{ form.payment_method === 'CARD' ? '仮予約を申し込む' : '予約を確定する' }}
+            仮予約を申し込む
           </button>
           <button type="button" class="btn btn-link w-100 mt-2" :disabled="submitting" @click="step = 'booking'">
             予約内容を変更する

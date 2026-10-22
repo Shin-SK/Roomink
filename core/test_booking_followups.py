@@ -160,7 +160,9 @@ class PublicBookingFollowupsTest(TestCase):
         self.assertEqual(response.data["payment_method"], "CARD")
         self.assertEqual(response.data["room_address"], "")
         self.assertEqual(response.data["room_name"], "")
-        self.assertTrue(SmsLog.objects.filter(template_type="CARD_PAYMENT_REQUEST").exists())
+        self.assertFalse(SmsLog.objects.filter(template_type="CARD_PAYMENT_REQUEST").exists())
+        self.assertEqual(Order.objects.get().status, Order.Status.REQUESTED)
+        self.assertIn("まだ予約は確定していません", SmsLog.objects.filter(order__isnull=False).get().body)
 
     def test_invalid_payment_and_foreign_or_inactive_nomination_are_rejected(self):
         f = self.f

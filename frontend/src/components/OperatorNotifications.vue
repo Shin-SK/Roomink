@@ -2,6 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
+import { selectedStoreId } from '../storeSelection.js'
+
+const props = defineProps({ showBookingPopup: { type: Boolean, default: false } })
 
 const router = useRouter()
 const open = ref(false)
@@ -13,70 +16,48 @@ const expandedAnnouncementId = ref(null)
 const toastNotification = ref(null)
 const root = ref(null)
 let pollTimer = null
-let toastTimer = null
-let initialized = false
-let highestKnownId = 0
-// ローカルの画面確認では常に通知の量とスクロールを確認できるようにする。
-// 本番ビルドでは DEV が false のため、実際の通知だけを表示する。
-const previewMode = import.meta.env.DEV
-const previewNotifications = ref([
-  { id: 'preview-1', title: 'Web予約が入りました', message: '本日 15:00　田中 花子', target_path: '/op/schedule', created_at: new Date().toISOString(), is_read: false },
-  { id: 'preview-2', title: 'Web予約が入りました', message: '本日 16:30　鈴木 美咲', target_path: '/op/schedule', created_at: new Date().toISOString(), is_read: false },
-  { id: 'preview-3', title: '予約リクエストがあります', message: '本日 18:00　高橋 玲奈', target_path: '/op/dashboard', created_at: new Date().toISOString(), is_read: false },
-  { id: 'preview-4', title: 'Web予約が入りました', message: '明日 12:00　井上 優', target_path: '/op/schedule', created_at: new Date().toISOString(), is_read: false },
-  { id: 'preview-5', title: 'Web予約が入りました', message: '明日 14:00　加藤 愛', target_path: '/op/schedule', created_at: new Date().toISOString(), is_read: false },
-  { id: 'preview-6', title: '予約リクエストがあります', message: '明日 16:00　山本 由佳', target_path: '/op/dashboard', created_at: new Date().toISOString(), is_read: false },
-])
-const visibleNotifications = computed(() => previewMode ? previewNotifications.value : notifications.value)
-const displayUnreadCount = computed(() => previewMode
-  ? previewNotifications.value.filter(item => !item.is_read).length + announcementUnreadCount.value
-  : unreadCount.value + announcementUnreadCount.value)
+const popupQueue = ref([])
+const dismissedIds = new Set()
+const visibleNotifications = computed(() => notifications.value)
+const displayUnreadCount = computed(() => unreadCount.value + announcementUnreadCount.value)
 
 function shownIds() {
   try {
-    return new Set(JSON.parse(sessionStorage.getItem('roomink-shown-notification-ids') || '[]'))
+    return new Set([...dismissedIds, ...JSON.parse(sessionStorage.getItem(`roomink-shown-notification-ids:${selectedStoreId() || 'default'}`) || '[]')])
   } catch {
-    return new Set()
+    return new Set(dismissedIds)
   }
 }
 
 function rememberShown(id) {
+  dismissedIds.add(id)
   const ids = shownIds()
   ids.add(id)
-  sessionStorage.setItem(
-    'roomink-shown-notification-ids',
-    JSON.stringify([...ids].slice(-100)),
-  )
+  try {
+    sessionStorage.setItem(`roomink-shown-notification-ids:${selectedStoreId() || 'default'}`, JSON.stringify([...ids].slice(-100)))
+  } catch { /* Unavailable storage must not block opening a reservation. */ }
 }
 
 function showToast(item) {
-  if (!item || shownIds().has(item.id)) return
-  rememberShown(item.id)
+  if (!props.showBookingPopup || !item || shownIds().has(item.id)) return
   toastNotification.value = item
-  if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => {
-    toastNotification.value = null
-  }, 7000)
+}
+
+function dismissToast() {
+  if (toastNotification.value) rememberShown(toastNotification.value.id)
+  toastNotification.value = null
+  showToast(popupQueue.value.find(item => !shownIds().has(item.id)))
 }
 
 async function loadNotifications() {
+  const requestedStore = selectedStoreId()
   try {
     const data = await api.getOperatorNotifications()
+    if (selectedStoreId() !== requestedStore) return
     const items = Array.isArray(data.notifications) ? data.notifications : []
-    const latestId = items.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0)
-    if (initialized) {
-      const latestNew = items.find(item => !item.is_read && Number(item.id) > highestKnownId)
-      showToast(latestNew)
-    } else {
-      const recentUnread = items.find(item => {
-        if (item.is_read) return false
-        const createdAt = new Date(item.created_at).getTime()
-        return Number.isFinite(createdAt) && Date.now() - createdAt < 120000
-      })
-      showToast(recentUnread)
-      initialized = true
-    }
-    highestKnownId = Math.max(highestKnownId, latestId)
+    popupQueue.value = items.filter(item => !item.is_read && item.kind === 'PUBLIC_BOOKING' && item.order_status === 'REQUESTED').reverse()
+    if (!popupQueue.value.some(item => item.id === toastNotification.value?.id)) toastNotification.value = null
+    if (!toastNotification.value) showToast(popupQueue.value.find(item => !shownIds().has(item.id)))
     notifications.value = items
     unreadCount.value = Number(data.unread_count) || 0
   } catch {
@@ -96,10 +77,6 @@ async function loadAnnouncements() {
 
 async function markRead(item) {
   if (!item.is_read) {
-    if (previewMode) {
-      item.is_read = true
-      return
-    }
     try {
       const data = await api.markOperatorNotificationsRead([item.id])
       item.is_read = true
@@ -111,20 +88,18 @@ async function markRead(item) {
 async function openNotification(item) {
   await markRead(item)
   open.value = false
-  toastNotification.value = null
+  if (toastNotification.value?.id === item.id) dismissToast()
   if (item.target_path) await router.push(item.target_path)
 }
 
 async function markAllRead() {
-  if (previewMode) {
-    previewNotifications.value.forEach(item => { item.is_read = true })
-  } else {
     try {
       const data = await api.markOperatorNotificationsRead([], true)
       notifications.value = notifications.value.map(item => ({ ...item, is_read: true }))
       unreadCount.value = Number(data.unread_count) || 0
+      popupQueue.value = []
+      toastNotification.value = null
     } catch { /* keep the existing unread state */ }
-  }
   try {
     const data = await api.markSystemAnnouncementsRead([], true)
     announcements.value = announcements.value.map(item => ({ ...item, is_read: true }))
@@ -187,7 +162,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocumentClick)
   if (pollTimer) clearInterval(pollTimer)
-  if (toastTimer) clearTimeout(toastTimer)
 })
 </script>
 
@@ -253,19 +227,23 @@ onBeforeUnmount(() => {
       <div v-else class="operator-notifications__empty">新しい通知はありません</div>
     </section>
 
-    <button
+    <Teleport to="body">
+    <section
       v-if="toastNotification"
-      type="button"
       class="operator-booking-toast"
-      @click="openNotification(toastNotification)"
+      role="alert"
+      aria-label="Web予約の受付"
     >
       <span class="operator-booking-toast__icon"><i class="ti ti-calendar-plus"></i></span>
       <span>
-        <strong>Web予約が入りました</strong>
+        <strong>Web予約の受付がきました</strong>
+        <small class="fw-bold">仮予約・店舗確認待ち</small>
         <small>{{ toastNotification.message }}</small>
+        <button type="button" class="btn btn-success btn-sm mt-2" @click="openNotification(toastNotification)">予約内容を確認する</button>
       </span>
-      <i class="ti ti-chevron-right"></i>
-    </button>
+      <button type="button" class="btn-close align-self-start" aria-label="閉じる（通知一覧に残ります）" @click="dismissToast"></button>
+    </section>
+    </Teleport>
   </div>
 </template>
 
@@ -383,6 +361,7 @@ onBeforeUnmount(() => {
 .operator-announcements__detail button { border: 0; background: transparent; color: #177f70; padding: 0; font-size: .78rem; font-weight: 700; }
 
 .operator-booking-toast {
+  z-index: 1080;
   position: fixed;
   right: 22px;
   top: 72px;
