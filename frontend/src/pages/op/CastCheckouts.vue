@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import RoomCashPanel from '../../components/RoomCashPanel.vue'
+import ManagerAttendancePanel from '../../components/ManagerAttendancePanel.vue'
 import { api } from '../../api.js'
 
 const router = useRouter()
@@ -16,6 +17,7 @@ const checkouts = ref([])
 const totalCount = ref(0)
 const casts = ref([])
 const roomCashPanel = ref(null)
+const activeTab = ref('attendance')
 
 // Filters
 const filterDate = ref(new Date().toISOString().slice(0, 10))
@@ -247,18 +249,19 @@ function createAdjustmentFromCheckout() {
 
 <template>
   <LayoutOperator>
-    <template #title>退勤提出一覧</template>
+    <template #title>勤怠・精算</template>
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
-        <div><i class="ti ti-door-exit"></i> 退勤提出一覧</div>
-        <button class="btn btn-sm btn-outline-dark" @click="exportCsv">
+        <div><i class="ti ti-clock"></i> 勤怠・精算</div>
+        <button v-if="activeTab === 'checkout'" class="btn btn-sm btn-outline-dark" @click="exportCsv">
           <i class="ti ti-download"></i> CSV
         </button>
       </div>
       <div class="card-body">
+        <div class="attendance-page-tabs" role="tablist" aria-label="勤怠と精算の切り替え"><button id="attendance-tab" role="tab" :aria-selected="activeTab === 'attendance'" aria-controls="attendance-panel" :class="{ active: activeTab === 'attendance' }" @click="activeTab = 'attendance'">勤怠</button><button id="checkout-tab" role="tab" :aria-selected="activeTab === 'checkout'" aria-controls="checkout-panel" :class="{ active: activeTab === 'checkout' }" @click="activeTab = 'checkout'">精算</button></div>
         <!-- Filters -->
         <div class="row mb-3 g-2">
           <div class="col-md-3">
@@ -270,7 +273,7 @@ function createAdjustmentFromCheckout() {
               <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
             </select>
           </div>
-          <div class="col-md-3">
+          <div v-if="activeTab === 'checkout'" class="col-md-3">
             <select v-model="filterStatus" class="form-select">
               <option value="">全ステータス</option>
               <option value="SUBMITTED">提出済み（未確認）</option>
@@ -280,6 +283,8 @@ function createAdjustmentFromCheckout() {
           </div>
         </div>
 
+        <div v-if="activeTab === 'attendance'" id="attendance-panel" role="tabpanel" aria-labelledby="attendance-tab"><ManagerAttendancePanel :date="filterDate" :cast-id="String(filterCast)" /></div>
+        <div v-show="activeTab === 'checkout'" id="checkout-panel" role="tabpanel" aria-labelledby="checkout-tab">
         <div class="border rounded p-3 mb-4 bg-light"><RoomCashPanel ref="roomCashPanel" :date="filterDate" /></div>
 
         <div v-if="loading" class="text-center py-3">
@@ -290,7 +295,8 @@ function createAdjustmentFromCheckout() {
           この条件の退勤提出はありません
         </div>
 
-        <table v-else class="table table-hover mb-0">
+        <div v-else class="table-responsive">
+        <table class="table table-hover mb-0">
           <thead>
             <tr>
               <th>日付</th>
@@ -324,12 +330,14 @@ function createAdjustmentFromCheckout() {
             </tr>
           </tbody>
         </table>
+        </div>
 
         <div v-if="!loading && checkouts.length < totalCount" class="text-center mt-3">
           <button class="btn btn-outline-secondary btn-sm" :disabled="loadingMore" @click="loadMoreCheckouts">
             <span v-if="loadingMore" class="spinner-border spinner-border-sm me-1"></span>
             もっと見る（{{ checkouts.length }} / {{ totalCount }}件）
           </button>
+        </div>
         </div>
       </div>
     </div>
@@ -485,3 +493,9 @@ function createAdjustmentFromCheckout() {
     </div>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.attendance-page-tabs { display:flex; gap:24px; border-bottom:1px solid var(--rk-border); margin-bottom:22px; }
+.attendance-page-tabs button { background:transparent; border:0; border-bottom:2px solid transparent; padding:2px 8px 13px; color:var(--rk-muted); font-size:.9rem; }
+.attendance-page-tabs button.active { color:var(--rk-primary); border-bottom-color:var(--rk-primary); font-weight:700; }
+</style>

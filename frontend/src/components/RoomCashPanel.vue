@@ -142,7 +142,7 @@ defineExpose({ reload, refreshWhenIdle })
               <div class="d-flex justify-content-between mt-1 text-muted"><span>受取後のルーム残金（見込み）</span><span>{{ yen(cast.projected_room_balance) }}</span></div>
             </template>
         </div>
-        <p v-if="castMode" class="small text-muted mt-2 mb-0">受け取りの記録は「退勤処理」で提出してください。</p>
+        <p v-if="castMode" class="small text-muted mt-2 mb-0">受け取りの記録は「精算の提出」から送信してください。</p>
         <details class="small border-top mt-3 pt-2"><summary>確認内容・計算の詳細</summary>
           <div class="text-muted mt-2">最終実残確認：{{ datetime(row.last_counted_at) }}</div>
           <div v-if="castMode" class="d-flex justify-content-between mt-1"><span>数えた残金 / 差額（最終確認時）</span><span>{{ row.actual_cash_amount == null ? '未確認' : yen(row.actual_cash_amount) }} / {{ row.difference_amount == null ? '未確認' : yen(row.difference_amount) }}</span></div>

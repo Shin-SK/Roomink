@@ -1984,21 +1984,15 @@ class CastTodaySalesView(APIView):
 @method_decorator(transaction.atomic, name="dispatch")
 class CastCheckoutView(APIView):
     """
-    GET /api/cast/checkout/ — 本日の見込み・固定雑費テンプレ・既存提出内容を返す
-    POST /api/cast/checkout/ — 退勤提出（当日提出済み・確認済みの場合は不可。差戻し後は再提出可）
+    GET /api/cast/checkout/?date=YYYY-MM-DD — 対象営業日の精算見込みと既存提出内容を返す
+    POST /api/cast/checkout/ — 対象営業日の精算提出。打刻とは独立し、差戻し後は再提出可。
 
     Phase 3-A: 給与確定ではなく、退勤提出時点の見込みスナップショット + manager確認の土台。
     """
 
     def get(self, request):
-        cast = getattr(request.user, "cast_profile", None)
-        if cast is None:
-            return Response(
-                {"detail": "このユーザーにキャストが紐づいていません"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
+        from .services.cast_checkout_dates import checkout_context
+        cast, today, current_day, pending, locked = checkout_context(request)
         sales = _compute_cast_done_sales(cast, today)
         fee = _compute_payment_summary(cast.store, cast, today)
         expenses = _cast_expense_totals(cast, today, sales["done_count"])
@@ -2021,6 +2015,9 @@ class CastCheckoutView(APIView):
         from .services.sales import cash_received_total
         return Response({
             "date": today.isoformat(),
+            "current_business_date": current_day.isoformat(),
+            "pending_dates": [day.isoformat() for day in pending],
+            "is_locked": today in locked,
             **sales,
             "cash_sales_total": cash_received_total(
                 get_done_orders_for_business_range(cast.store, today, today).filter(cast=cast)
@@ -2032,19 +2029,14 @@ class CastCheckoutView(APIView):
             "receipt_history": _cast_office_receipt_history(cast),
             "expense_templates": template_data,
             "checkout": CastDailyCheckoutSerializer(existing).data if existing else None,
-            "can_submit": existing is None or existing.status == CastDailyCheckout.Status.RETURNED,
+            "can_submit": today not in locked and (existing is None or existing.status == CastDailyCheckout.Status.RETURNED),
         })
 
     def post(self, request):
-        cast = getattr(request.user, "cast_profile", None)
-        if cast is None:
-            return Response(
-                {"detail": "このユーザーにキャストが紐づいていません"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        today = business_date_for_datetime(timezone.now(), cast.store.timezone)
+        from .services.cast_checkout_dates import checkout_context
+        cast, today, _, _, _ = checkout_context(request)
         Store.objects.select_for_update().get(pk=cast.store_id)
+        _require_daily_settlement_open(cast.store, today)
         existing = CastDailyCheckout.objects.select_for_update().filter(cast=cast, date=today).first()
         if existing is not None and existing.status != CastDailyCheckout.Status.RETURNED:
             return Response(
@@ -3000,8 +2992,12 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(store=get_user_store(self.request))
 
+    @transaction.atomic
     def destroy(self, request, *args, **kwargs):
+        Store.objects.select_for_update().get(pk=get_user_store(request).pk)
         shift = self.get_object()
+        if shift.clocked_in_at or shift.attendance_events.exists():
+            raise ValidationError("打刻履歴のある勤務は削除できません。打刻の訂正を利用してください")
         shift_start, shift_end = build_business_interval(
             shift.date,
             shift.start_time,
@@ -3024,7 +3020,10 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="clock-in")
+    @transaction.atomic
     def clock_in(self, request, pk=None):
+        from .services.attendance import save_attendance
+        Store.objects.select_for_update().get(pk=get_user_store(request).pk)
         shift = self.get_object()
         now = timezone.now()
         today = business_date_for_datetime(
@@ -3033,20 +3032,24 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
         if shift.date < today:
             # 過去日のレトロ記録: シフト開始時刻を打刻時刻として扱う
             naive = datetime.combine(shift.date + timedelta(days=shift.start_day_offset), shift.start_time)
-            tz = timezone.get_current_timezone()
-            shift.clocked_in_at = timezone.make_aware(naive, tz)
+            punched_at = timezone.make_aware(naive, ZoneInfo(shift.store.timezone))
         else:
-            shift.clocked_in_at = now
-        # 当欠状態のまま出勤済みになる矛盾を避ける
-        shift.is_absent = False
-        shift.save(update_fields=["clocked_in_at", "is_absent"])
+            punched_at = now
+        save_attendance(shift, actor=request.user, action="manager_clock_in",
+                        clocked_in_at=punched_at, clocked_out_at=shift.clocked_out_at,
+                        reason="店舗による出勤記録")
         return Response(self.get_serializer(shift).data)
 
     @action(detail=True, methods=["post"], url_path="clear-clock-in")
+    @transaction.atomic
     def clear_clock_in(self, request, pk=None):
+        from .services.attendance import save_attendance
+        Store.objects.select_for_update().get(pk=get_user_store(request).pk)
         shift = self.get_object()
-        shift.clocked_in_at = None
-        shift.save(update_fields=["clocked_in_at"])
+        if shift.clocked_out_at:
+            raise ValidationError("退勤済みの記録は、打刻の訂正から理由を付けて変更してください")
+        save_attendance(shift, actor=request.user, action="manager_clear", clocked_in_at=None,
+                        clocked_out_at=None, reason="店舗による出勤記録の取消")
         return Response(self.get_serializer(shift).data)
 
 

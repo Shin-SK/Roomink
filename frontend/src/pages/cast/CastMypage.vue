@@ -2,6 +2,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import LayoutCast from '../../components/LayoutCast.vue'
 import RoomCashPanel from '../../components/RoomCashPanel.vue'
+import CastAttendanceCard from '../../components/CastAttendanceCard.vue'
 import { api } from '../../api.js'
 import { sanitizeNoteHtml } from '../../noteContent.js'
 import { roomMapHref } from '../../roomMap.js'
@@ -86,6 +87,11 @@ const showReceiptHistory = ref(false)
 const checkoutForm = ref(emptyCheckoutForm())
 const checkoutSaving = ref(false)
 const checkoutError = ref('')
+const checkoutDate = ref('')
+const checkoutLoading = ref(false)
+const checkoutLoadError = ref('')
+const checkoutModalDate = ref('')
+let checkoutRequestNumber = 0
 let checkoutRefreshTimer = null
 
 function emptyCheckoutForm() {
@@ -178,10 +184,21 @@ onUnmounted(() => {
 })
 
 async function loadCheckout() {
+  if (showCheckoutModal.value || checkoutSaving.value) return
+  const requestNumber = ++checkoutRequestNumber
+  checkoutLoading.value = true
+  checkoutLoadError.value = ''
   try {
-    checkoutData.value = await api.getCastCheckout()
+    const data = await api.getCastCheckout(checkoutDate.value)
+    if (requestNumber !== checkoutRequestNumber) return
+    checkoutData.value = data
+    checkoutDate.value = data.date
     await checkoutRoomCashPanel.value?.refreshWhenIdle()
-  } catch (_) { /* 取得失敗は致命的でない */ }
+  } catch (e) {
+    if (requestNumber === checkoutRequestNumber) checkoutLoadError.value = e.message
+  } finally {
+    if (requestNumber === checkoutRequestNumber) checkoutLoading.value = false
+  }
 }
 
 async function loadShiftConfirm() {
@@ -266,6 +283,8 @@ function selectInfoTab(tab, focus = false) {
 }
 
 function openCheckoutModal() {
+  if (checkoutLoading.value || checkoutLoadError.value || !checkoutData.value) return
+  checkoutModalDate.value = checkoutData.value.date
   const co = checkoutData.value?.checkout
   if (co && co.status === 'RETURNED') {
     checkoutForm.value = {
@@ -284,6 +303,7 @@ function openCheckoutModal() {
 }
 
 async function submitCheckout() {
+  if (checkoutSaving.value || !checkoutData.value?.can_submit) return
   if (!checkoutReadyToSubmit.value) {
     checkoutError.value = '退勤チェックをすべて完了してください。'
     return
@@ -292,13 +312,15 @@ async function submitCheckout() {
   checkoutError.value = ''
   try {
     const body = {
+      date: checkoutModalDate.value,
       room_cash_taken_amount: Number(checkoutForm.value.room_cash_taken_amount) || 0,
       cast_memo: checkoutForm.value.cast_memo,
       checklist_json: checkoutForm.value.checklist_json,
     }
     await api.submitCastCheckout(body)
-    await Promise.all([loadCheckout(), loadAdjustments()])
     showCheckoutModal.value = false
+    checkoutSaving.value = false
+    await Promise.all([loadCheckout(), loadAdjustments()])
   } catch (e) {
     checkoutError.value = e.message
   } finally {
@@ -500,6 +522,7 @@ function formatMonthDay(dateStr) {
         </div>
 
         <!-- 未確認のシフトだけ先頭で案内する。確認後はヘッダーの状態表示に切り替える。 -->
+        <CastAttendanceCard />
         <div v-if="!shiftConfirmLoading && shiftConfirm?.shift && !shiftConfirm.shift.confirmed_at" class="ca-shift-prompt mb-3">
           <div class="ca-shift-prompt__title"><i class="ti ti-calendar-check" aria-hidden="true"></i> {{ shiftConfirm.is_today ? '本日の出勤確認が必要です' : '次回の出勤確認が必要です' }}</div>
           <div v-if="confirmShiftError" class="alert alert-danger py-2 small mb-2">{{ confirmShiftError }}</div>
@@ -508,8 +531,8 @@ function formatMonthDay(dateStr) {
             class="btn btn-primary w-100"
             :disabled="confirmingShift"
             @click="onConfirmShift"
-          >{{ confirmingShift ? '送信中...' : '出勤確認する' }}</button>
-          <div class="ca-shift-prompt__hint">出勤2時間前までに確認してください。未確認のまま1時間前を過ぎると店舗側に表示されます。</div>
+          >{{ confirmingShift ? '送信中...' : '出勤予定を確認' }}</button>
+          <div class="ca-shift-prompt__hint">出勤2時間前までに確認してください。</div>
         </div>
 
         <div class="rk-section-header ca-bookings-heading">
@@ -959,12 +982,18 @@ function formatMonthDay(dateStr) {
         </Teleport>
 
         <!-- 退勤 -->
-        <div class="rk-section-header"><i class="ti ti-door-exit"></i> 退勤</div>
+        <div class="rk-section-header"><i class="ti ti-door-exit"></i> 精算の提出</div>
+        <label for="checkout-business-date" class="form-label small">精算する営業日</label>
+        <input id="checkout-business-date" v-model="checkoutDate" type="date" class="form-control mb-2" :max="checkoutData?.current_business_date" :disabled="checkoutSaving || showCheckoutModal" @change="loadCheckout">
+        <details v-if="checkoutData?.pending_dates?.length" class="small mb-2"><summary class="text-muted">未提出 {{ checkoutData.pending_dates.length }}日分</summary><button v-for="day in checkoutData.pending_dates" :key="day" class="btn btn-link btn-sm" :disabled="checkoutSaving || showCheckoutModal" @click="checkoutDate = day; loadCheckout()">{{ formatMonthDay(day) }}分</button></details>
+        <div v-if="checkoutLoading" class="small text-muted mb-2" role="status">精算内容を読み込み中…</div>
+        <div v-if="checkoutLoadError" class="alert alert-danger" role="alert">{{ checkoutLoadError }}</div>
+        <div v-if="checkoutData?.is_locked" class="alert alert-warning">この営業日は日締め済みです。訂正・提出は店舗へ確認してください。</div>
 
-        <div v-if="checkoutData?.checkout" class="card mb-3">
+        <div v-if="!checkoutLoading && !checkoutLoadError && checkoutData?.checkout" class="card mb-3">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-              <span class="fw-bold"><i class="ti ti-circle-check text-primary"></i> 退勤処理済み</span>
+              <span class="fw-bold"><i class="ti ti-circle-check text-primary"></i> {{ checkoutData.date }}分の精算提出済み</span>
               <span
                 class="badge"
                 :class="{
@@ -979,14 +1008,14 @@ function formatMonthDay(dateStr) {
               運営から差戻しされました。内容を確認して再提出してください。
               <div v-if="checkoutData.checkout.manager_memo" class="mt-1">「{{ checkoutData.checkout.manager_memo }}」</div>
             </div>
-            <button class="btn btn-sm w-100" :class="checkoutIsReadOnly ? 'btn-outline-primary' : 'btn-warning'" @click="openCheckoutModal">
+            <button class="btn btn-sm w-100" :class="checkoutIsReadOnly ? 'btn-outline-primary' : 'btn-warning'" :disabled="checkoutData.is_locked && !checkoutIsReadOnly" @click="openCheckoutModal">
               <i :class="checkoutIsReadOnly ? 'ti ti-eye' : 'ti ti-edit'"></i> {{ checkoutIsReadOnly ? '精算内容を確認' : '内容を修正して再送する' }}
             </button>
           </div>
         </div>
 
-        <button v-else class="btn btn-primary w-100 mb-3" @click="openCheckoutModal">
-          <i class="ti ti-door-exit"></i> 退勤処理をする
+        <button v-else class="btn btn-primary w-100 mb-3" :disabled="checkoutLoading || !!checkoutLoadError || !checkoutData?.can_submit" @click="openCheckoutModal">
+          <i class="ti ti-door-exit"></i> {{ formatMonthDay(checkoutData?.date) }}分の精算を提出
         </button>
 
         <!-- 退勤モーダル -->
@@ -994,7 +1023,7 @@ function formatMonthDay(dateStr) {
           <div v-if="showCheckoutModal" class="line-modal-overlay checkout-modal-overlay" @click.self="showCheckoutModal = false">
             <div class="line-modal checkout-modal" style="max-width: 520px;">
               <div class="line-modal-header">
-                <span class="fw-bold fs-5"><i class="ti ti-door-exit"></i> {{ checkoutIsReadOnly ? '精算内容' : '退勤処理' }}</span>
+                <span class="fw-bold fs-5"><i class="ti ti-door-exit"></i> {{ checkoutModalDate }}分の{{ checkoutIsReadOnly ? '精算内容' : '精算提出' }}</span>
                 <button class="btn btn-sm btn-light rounded-circle" @click="showCheckoutModal = false" style="width: 32px; height: 32px; padding: 0;">
                   <i class="ti ti-x"></i>
                 </button>
@@ -1013,7 +1042,7 @@ function formatMonthDay(dateStr) {
                 </div>
 
                 <div class="bg-light rounded p-3 mb-3">
-                  <div class="small text-muted mb-1">今日の受取可能額</div>
+                  <div class="small text-muted mb-1">対象日の受取可能額</div>
                   <div class="fs-2 fw-bold text-primary">{{ formatYen(checkoutCarryover.available) }}</div>
                   <div class="d-flex justify-content-between align-items-end border-top mt-3 pt-3">
                     <span class="small text-muted">受け取り状況</span>
@@ -1025,7 +1054,7 @@ function formatMonthDay(dateStr) {
 
                 <div v-if="checkoutData?.sales_items?.length" class="mb-3">
                   <button type="button" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between" @click="showCheckoutSales = !showCheckoutSales">
-                    <span><i class="ti ti-list-details"></i> 本日の売上一覧（{{ checkoutData.sales_items.length }}件）</span>
+                    <span><i class="ti ti-list-details"></i> 対象日の売上一覧（{{ checkoutData.sales_items.length }}件）</span>
                     <i :class="showCheckoutSales ? 'ti ti-chevron-up' : 'ti ti-chevron-down'"></i>
                   </button>
                   <div v-if="showCheckoutSales" class="d-flex gap-2 overflow-auto pt-2 pb-1" aria-label="本日の売上一覧">
@@ -1050,11 +1079,11 @@ function formatMonthDay(dateStr) {
                     <i :class="showCheckoutCalculation ? 'ti ti-chevron-up' : 'ti ti-chevron-down'"></i>
                   </button>
                   <div v-if="showCheckoutCalculation" class="border rounded p-3 mt-2 small">
-                    <div class="d-flex justify-content-between"><span>今日の売上</span><strong>{{ formatYen(checkoutData?.total_sales ?? 0) }}</strong></div>
+                    <div class="d-flex justify-content-between"><span>対象日の売上</span><strong>{{ formatYen(checkoutData?.total_sales ?? 0) }}</strong></div>
                     <div class="text-muted py-1"><i class="ti ti-arrow-down"></i></div>
-                    <div class="d-flex justify-content-between"><span>今日の報酬</span><strong>{{ formatYen(checkoutCarryover.compensation) }}</strong></div>
+                    <div class="d-flex justify-content-between"><span>対象日の報酬</span><strong>{{ formatYen(checkoutCarryover.compensation) }}</strong></div>
                     <div class="d-flex justify-content-between"><span>前回からの繰越</span><strong>+{{ formatYen(checkoutCarryover.opening) }}</strong></div>
-                    <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">今日の受取可能額</span><strong class="text-primary">{{ formatYen(checkoutCarryover.available) }}</strong></div>
+                    <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">対象日の受取可能額</span><strong class="text-primary">{{ formatYen(checkoutCarryover.available) }}</strong></div>
                     <div class="d-flex justify-content-between mt-2"><span>今回ルームで受け取る額</span><strong>-{{ formatYen(checkoutCarryover.roomCash) }}</strong></div>
                     <div v-if="checkoutCarryover.officeCash" class="d-flex justify-content-between"><span>事務所で受け取った額</span><strong>-{{ formatYen(checkoutCarryover.officeCash) }}</strong></div>
                     <div class="d-flex justify-content-between border-top mt-2 pt-2"><span class="fw-bold">受け取り状況</span><strong :class="checkoutBalance.tone">{{ checkoutBalance.label }}{{ checkoutBalance.amount.toLocaleString('ja-JP') }}円</strong></div>
@@ -1129,7 +1158,7 @@ function formatMonthDay(dateStr) {
                   :class="checkoutReadyToSubmit ? 'btn-primary' : 'btn-outline-secondary'"
                   :disabled="checkoutSaving"
                   @click="checkoutReadyToSubmit ? submitCheckout() : (showCheckoutModal = false)"
-                >{{ checkoutSaving ? '送信中...' : (checkoutReadyToSubmit ? '退勤連絡をする' : '閉じる') }}</button>
+                >{{ checkoutSaving ? '送信中...' : (checkoutReadyToSubmit ? '精算を提出する' : '閉じる') }}</button>
                 <div v-if="!checkoutIsReadOnly && !checkoutReadyToSubmit" class="small text-muted text-center mt-2">退勤チェックをすべて完了すると送信できます。</div>
                 <button v-if="checkoutIsReadOnly" class="btn btn-outline-secondary w-100" @click="showCheckoutModal = false">閉じる</button>
               </div>

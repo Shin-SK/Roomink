@@ -277,8 +277,8 @@ test('checkout submission and service completion refresh the real cash panel thr
   const api = {
     getCastRoomCash: async () => { reads++; return { rooms: [{ ...baseRoom, revision: `revision-${revision}`, expected_cash_amount: roomCash,
       settlement: { remaining_receivable_amount: remaining, suggested_take_amount: Math.min(roomCash, remaining), shortage_amount: Math.max(0, remaining - roomCash) } }] } },
-    getCastCheckout: async () => ({ compensation: 31000, checkout: roomCash === 0 ? { status: 'SUBMITTED', room_cash_taken_amount: 26000 } : null }),
-    submitCastCheckout: async body => { assert.equal(body.room_cash_taken_amount, 26000); roomCash = 0; remaining = 5000; revision++ },
+    getCastCheckout: async () => ({ date: '2026-10-16', can_submit: roomCash !== 0, compensation: 31000, checkout: roomCash === 0 ? { status: 'SUBMITTED', room_cash_taken_amount: 26000 } : null }),
+    submitCastCheckout: async body => { assert.equal(body.date, '2026-10-16'); assert.equal(body.room_cash_taken_amount, 26000); roomCash = 0; remaining = 5000; revision++ },
     getCastAdjustmentsMypage: async () => ({}),
     completeCastOrder: async () => { roomCash = 10000; remaining = 10000; revision++ },
     getCastTodaySales: async () => ({ estimated_pay: 10000 }),
@@ -287,9 +287,12 @@ test('checkout submission and service completion refresh the real cash panel thr
   const parent = await mountPanel(api, {}, '../src/pages/cast/CastMypage.vue', code => code
     .replace(/import LayoutCast from [^\n]+/, 'const LayoutCast = {}')
     .replace(/import RoomCashPanel from [^\n]+/, 'const RoomCashPanel = {}')
+    .replace(/import CastAttendanceCard from [^\n]+/, 'const CastAttendanceCard = {}')
     .replace(/onMounted\(async \(\) =>/, '(() => {})(async () =>'))
   try {
     parent.state.checkoutRoomCashPanel = { refreshWhenIdle: panel.state.refreshWhenIdle }
+    parent.state.checkoutData = { date: '2026-10-16', can_submit: true }
+    parent.state.openCheckoutModal()
     assert.equal(panel.state.rooms[0].expected_cash_amount, 26000)
     parent.state.checkoutForm.room_cash_taken_amount = 26000
     parent.state.checkoutForm.checklist_json = Object.fromEntries(parent.state.CHECKLIST_ITEMS.map(item => [item.key, true]))
