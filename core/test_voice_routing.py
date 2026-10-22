@@ -72,7 +72,11 @@ class VoiceRoutingTest(TestCase):
             self.assertEqual(CallLog.objects.count(), 1)
             self.device_client(login.data['token']).post('/api/work/logout/', {}, format='json')
             response = self.client.post(path, data, HTTP_X_TWILIO_SIGNATURE=signature)
-            self.assertContains(response, '<Sip>')
+            from xml.etree import ElementTree
+            sip = ElementTree.fromstring(response.content).find('Dial/Sip')
+            self.assertIsNotNone(sip)
+            self.assertEqual(sip.text, 'sip:backup@example.sip.twilio.com;transport=tls')
+            self.assertEqual(sip.attrib['statusCallbackEvent'], 'initiated ringing answered completed')
             self.assertNotContains(response, '<Client')
             self.assertEqual(CallLog.objects.count(), 1)
 

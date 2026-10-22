@@ -248,7 +248,7 @@ export const api = {
   retryBookingSms: (id) => request('POST', `/orders/${id}/retry-booking-sms/`),
   sendCardPaymentRequest: (id) => request('POST', `/orders/${id}/send-card-payment-request/`),
   confirmCardPayment: (id) => request('POST', `/orders/${id}/confirm-card-payment/`),
-  cancelOrder: (id) => request('POST', `/orders/${id}/cancel/`),
+  cancelOrder: (id, body = {}) => request('POST', `/orders/${id}/cancel/`, body),
   doneOrder: (id) => request('POST', `/orders/${id}/done/`),
   applyExtension: (id, body) => request('POST', `/orders/${id}/apply_extension/`, body),
   applyNominationFee: (id, nomination_fee_id) => request('POST', `/orders/${id}/apply_nomination_fee/`, { nomination_fee_id }),

@@ -985,19 +985,59 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         order = self.get_object()
+        if not isinstance(request.data, dict):
+            raise ValidationError("取消内容を正しい形式で送信してください。")
         with transaction.atomic():
             order = self._lock_order_for_mutation(order)
-            if order.status in (Order.Status.DONE, Order.Status.CANCELLED):
+            if order.status == Order.Status.CANCELLED:
                 return Response(
                     {"detail": f"ステータスが {order.get_status_display()} のためキャンセルできません"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            completed = order.status == Order.Status.DONE
+            checkout = None
+            cancellation_before = {"status": "DONE"}
+            if completed:
+                from .services.order_editing import require_current_order
+                require_current_order(order, request.data.get("expected_updated_at"), required=True)
+                from .services.sales import payment_financial_summary
+                day = business_date_for_datetime(order.start, order.store.timezone)
+                def totals():
+                    return {**_compute_cast_done_sales(order.cast, day),
+                            **payment_financial_summary(order.store, get_done_orders_for_business_range(order.store, day, day).filter(cast=order.cast))}
+                checkout = CastDailyCheckout.objects.select_for_update().filter(store=order.store, cast=order.cast, date=day).first()
+                previous = totals()
+                if checkout and checkout.total_sales != previous["total_sales"]:
+                    raise ValidationError("退勤提出と現在の売上が一致しません。先に退勤内容を確認してください。")
             order.status = Order.Status.CANCELLED
             order.updated_by = request.user
             order.cancelled_by = request.user
             order.save(update_fields=["status", "updated_by", "cancelled_by", "updated_at"])
+            if completed:
+                if checkout:
+                    current = totals()
+                    for field in previous:
+                        value = getattr(checkout, field) + current[field] - previous[field]
+                        if field != "net_sales_after_payment_fee" and value < 0:
+                            raise ValidationError("退勤提出と予約の集計が一致しません。店舗管理者へ確認してください。")
+                        setattr(checkout, field, value)
+                    if current["done_count"] == 0:
+                        # 完了接客0件の日は固定雑費を免除する。原額は監査履歴に残す。
+                        cancellation_before["checkout_fixed_expenses"] = list(
+                            checkout.expense_snapshots.values("id", "amount")
+                        )
+                        checkout.expense_snapshots.update(amount=0)
+                    if checkout.status != CastDailyCheckout.Status.RETURNED:
+                        checkout.status = CastDailyCheckout.Status.SUBMITTED
+                    checkout.reviewed_at = None
+                    checkout.reviewed_by = None
+                    checkout.save(update_fields=[*previous, "status", "reviewed_at", "reviewed_by", "updated_at"])
+                OrderAccountingCorrection.objects.create(
+                    order=order, checkout=checkout, corrected_by=request.user,
+                    reason="終了後の予約取消", before=cancellation_before, after={"status": "CANCELLED"},
+                )
         notify_order_cancelled(order, created_by=request.user)
-        return Response(OrderSerializer(order).data)
+        return Response(OrderSerializer(order, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["post"])
     def done(self, request, pk=None):
@@ -7164,6 +7204,9 @@ def twilio_voice_webhook(request):
     store = store_phone.store
     customer = call.customer
 
+    from .services.voice_diagnostics import record_voice_event
+    record_voice_event(call, "inbound_received", request.data)
+
     # TwiML レスポンス（受付メッセージ + 登録済みSIP端末への接続）
     customer_name = customer.display_name if customer and customer.display_name else ""
     if customer_name:
@@ -7189,17 +7232,21 @@ def twilio_voice_webhook(request):
     sip_uris = _store_twilio_sip_uris(store)
     if not sip_uris:
         logger.error("Twilio SIP reception is not configured")
+        record_voice_event(call, "sip_not_configured", {"CallSid": call_sid})
         voice_response.say(
             "申し訳ありません。ただいま電話をおつなぎできません。",
             language="ja-JP",
         )
         return HttpResponse(str(voice_response), content_type="application/xml")
 
-    dial = Dial(answer_on_bridge=True, timeout=30)
+    callback = settings.TWILIO_WEBHOOK_PUBLIC_BASE_URL + "/api/webhook/twilio/diagnostics/"
+    dial = Dial(answer_on_bridge=True, timeout=30, action=callback, method="POST")
+    record_voice_event(call, "sip_route_requested", {"CallSid": call_sid})
     for sip_uri in sip_uris:
         # Groundwire is registered over TLS. Keep the endpoint leg on TLS even
         # though the shared carrier ingress must accept UDP/5060.
-        dial.sip(f"sip:{sip_uri};transport=tls")
+        dial.sip(f"sip:{sip_uri};transport=tls", status_callback=callback,
+                 status_callback_event="initiated ringing answered completed", status_callback_method="POST")
     voice_response.append(dial)
     return HttpResponse(str(voice_response), content_type="application/xml")
 
@@ -7270,6 +7317,8 @@ def twilio_status_webhook(request):
             )
             return HttpResponse("ok", content_type="text/plain")
 
+    from .services.voice_diagnostics import record_voice_event
+    record_voice_event(call, "inbound_status", request.data)
     duration_raw = request.data.get("CallDuration", "")
     duration_seconds = int(duration_raw) if str(duration_raw).isdigit() else 0
     if duration_seconds > call.duration_seconds:
@@ -7288,6 +7337,23 @@ def twilio_status_webhook(request):
         call.save(update_fields=["status", "updated_at"])
 
     return HttpResponse("ok", content_type="text/plain")
+
+
+@extend_schema(operation_id="twilio_diagnostics_webhook", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.STR)
+@csrf_exempt
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def twilio_diagnostics_webhook(request):
+    if not _is_valid_twilio_request(request):
+        return _twilio_forbidden_response()
+    # Dial action carries the parent CallSid; child progress carries ParentCallSid.
+    parent = request.data.get("ParentCallSid") or request.data.get("CallSid", "")
+    call = CallLog.objects.filter(contact_id=parent).first()
+    if call:
+        from .services.voice_diagnostics import record_voice_event
+        record_voice_event(call, "dial_result" if "DialCallStatus" in request.data else "sip_progress", request.data)
+    return HttpResponse('<?xml version="1.0" encoding="UTF-8"?><Response/>', content_type="application/xml")
 
 
 @document_object_api_view

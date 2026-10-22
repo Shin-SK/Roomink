@@ -46,6 +46,42 @@ const initial = {
 const latest = { ...initial, option_ids: [3, 4], options: ['既存', '追加'], options_price: 7000, total_price: 27000, updated_at: '2026-10-16T08:01:00.123456Z' }
 const conflict = () => Object.assign(new Error('予約が更新されています'), { status: 409 })
 
+test('completed order cancellation requires confirmation, sends revision and respects settlement lock', async () => {
+  const baseline = { ...initial, status: 'DONE', can_modify: true, can_correct_accounting: true }
+  const calls = []
+  globalThis.__cancelOrderTestApi = {
+    getOrder: async () => baseline, getPaymentFeeSettings: async () => ({}),
+    getCustomers: async () => [], getOrderSmsLogs: async () => [],
+    cancelOrder: async (id, body) => { calls.push({ id, body }); return { ...baseline, status: 'CANCELLED', accounting_corrections: [{ before: { status: 'DONE' }, after: { status: 'CANCELLED' } }] } },
+  }
+  const { state, unmount } = await mountSource('../src/pages/op/OrderDetail.vue', { id: 1 }, code => code
+    .replace(/import \{ useRouter \} from 'vue-router'/, 'const useRouter = () => ({ push() {} })')
+    .replace(/import LayoutOperator from .*\n/, 'const LayoutOperator = {}\n')
+    .replace(/import OrderForm from .*\n/, 'const OrderForm = {}\n')
+    .replace(/import \{ api \} from .*\n/, 'const api = globalThis.__cancelOrderTestApi\n')
+    .replace(/import \{ getAuthRole \} from .*\n/, "const getAuthRole = () => 'manager'\n"))
+  const previousConfirm = globalThis.confirm
+  try {
+    assert.equal(state.canCancel, true)
+    state.order = { ...baseline, can_correct_accounting: false }
+    assert.equal(state.canCancel, false)
+    state.order = baseline
+    globalThis.confirm = () => false
+    await state.doCancel()
+    assert.equal(calls.length, 0)
+    globalThis.confirm = message => { assert.match(message, /返金/); return true }
+    await state.doCancel()
+    assert.deepEqual(calls, [{ id: 1, body: { expected_updated_at: baseline.updated_at } }])
+    assert.equal(state.order.status, 'CANCELLED')
+    assert.equal(state.canCancel, false)
+    assert.equal(state.correctionChanges(state.order.accounting_corrections[0]), '')
+  } finally {
+    globalThis.confirm = previousConfirm
+    delete globalThis.__cancelOrderTestApi
+    unmount()
+  }
+})
+
 test('operator conflict preserves the draft while latest data is inspected; replacing it requires confirmation', async () => {
   const api = {
     getCustomers: async () => [{ id: 1 }], getCasts: async () => [{ id: 1 }],

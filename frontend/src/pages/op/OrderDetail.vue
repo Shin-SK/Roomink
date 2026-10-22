@@ -152,7 +152,8 @@ const displayStatus = computed(() => {
 const canModify = computed(() => order.value?.can_modify !== false)
 const canConfirm = computed(() => canModify.value && order.value?.status === 'REQUESTED')
 const canCancel = computed(() =>
-  canModify.value && order.value && !['DONE', 'CANCELLED'].includes(order.value.status)
+  canModify.value && order.value && order.value.status !== 'CANCELLED'
+  && (order.value.status !== 'DONE' || order.value.can_correct_accounting)
 )
 const canDone = computed(() =>
   canModify.value
@@ -169,7 +170,7 @@ const doneLabel = computed(() => {
 // キャンセルボタン文言：会計待ち以降は「取消」、それ以前は「キャンセル」
 const cancelLabel = computed(() => {
   const s = order.value?.status
-  if (s === 'PENDING_FINALIZE') return '会計取消'
+  if (['PENDING_FINALIZE', 'DONE'].includes(s)) return '会計取消'
   return 'キャンセル'
 })
 const canEdit = computed(() =>
@@ -290,10 +291,13 @@ async function doConfirm() {
 
 async function doCancel() {
   const label = cancelLabel.value
-  if (!confirm(`この予約を「${label}」にしますか？`)) return
+  const message = order.value?.status === 'DONE'
+    ? '終了済みの予約を取り消しますか？売上・報酬の集計から除外されます。実際の返金や現金の受け渡しは別途確認してください。'
+    : `この予約を「${label}」にしますか？`
+  if (!confirm(message)) return
   acting.value = true
   try {
-    order.value = await api.cancelOrder(props.id)
+    order.value = await api.cancelOrder(props.id, { expected_updated_at: order.value.updated_at })
   } catch (e) {
     alert(e.message)
   } finally {
@@ -833,7 +837,8 @@ async function saveRecipientCustomerLink() {
             <div class="card-body">
               <h6>会計の訂正履歴</h6>
               <div v-for="item in order.accounting_corrections" :key="item.id" class="border-top pt-2 mt-2">
-                <div>{{ item.before.total_price.toLocaleString() }}円 → {{ item.after.total_price.toLocaleString() }}円</div>
+                <div v-if="item.after.status === 'CANCELLED'">終了済み → 取消（売上・報酬の集計から除外）</div>
+                <div v-else>{{ item.before.total_price.toLocaleString() }}円 → {{ item.after.total_price.toLocaleString() }}円</div>
                 <div v-if="correctionChanges(item)" class="small text-muted">変更項目：{{ correctionChanges(item) }}</div>
                 <div class="small">{{ item.reason }}</div>
                 <div class="small text-muted">{{ formatDt(item.created_at) }} / {{ item.corrected_by_name }}</div>
