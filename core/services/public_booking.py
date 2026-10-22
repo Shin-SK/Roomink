@@ -22,7 +22,7 @@ from core.models import (
     Store,
 )
 from core.serializers import OrderCreateSerializer
-from core.services.notify import notify_cast_order, notify_order_confirmed, send_sms
+from core.services.notify import notify_web_booking_received, send_sms
 from core.services.order_availability import build_available_order_slots
 from core.services.business_datetime import build_business_interval
 from core.utils.phone import normalize_phone
@@ -447,7 +447,7 @@ def confirm_public_booking(verification_id, code):
                     status_code=409,
                 )
             order = serializer.save()
-            order.status = Order.Status.CONFIRMED
+            order.status = Order.Status.REQUESTED
             order.save(update_fields=["status", "updated_at"])
             challenge.consumed_at = now
             challenge.save(update_fields=["consumed_at"])
@@ -458,8 +458,7 @@ def confirm_public_booking(verification_id, code):
     from core.services.operator_notifications import notify_public_booking_created
 
     notify_public_booking_created(order)
-    customer_sms = notify_order_confirmed(order)
-    notify_cast_order(order)
+    customer_sms = notify_web_booking_received(order)
     return {
         "id": order.id,
         "status": order.status,
@@ -472,7 +471,7 @@ def confirm_public_booking(verification_id, code):
         "payment_method": order.payment_method,
         "nomination_fee_name": order.nomination_fee_name,
         "nomination_fee_price": order.nomination_fee_price,
-        "room_name": order.room.name if order.room and order.payment_method != Order.PaymentMethod.CARD else "",
-        "room_address": order.room.address if order.room and order.payment_method != Order.PaymentMethod.CARD else "",
+        "room_name": "",
+        "room_address": "",
         "sms_status": customer_sms.status,
     }

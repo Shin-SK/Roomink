@@ -364,6 +364,17 @@ def build_card_payment_confirmed_body(order: Order) -> str:
 
 # ── high-level: 予約承認 ─────────────────────
 
+def notify_web_booking_received(order: Order, created_by=None) -> SmsLog:
+    """受付を知らせる。店舗確認前の金額・住所・決済リンクは送らない。"""
+    return send_sms(
+        to_phone=order.customer.phone,
+        body=f"【{order.store.name}】予約のお申し込みを受け付けました。\n現在、店舗で確認中です。まだ予約は確定していません。\n確認後に改めてSMSでご案内します。",
+        order=order,
+        template_type=SmsLog.TemplateType.OTHER,
+        created_by=created_by,
+    )
+
+
 def notify_order_confirmed(order: Order, created_by=None) -> SmsLog:
     """予約確定時に顧客へ通知"""
     if order.payment_method == Order.PaymentMethod.CARD:

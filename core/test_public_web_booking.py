@@ -172,7 +172,7 @@ class PublicWebBookingTest(TestCase):
         self.assertEqual(PublicBookingVerification.objects.count(), 1)
         self.assertEqual(SmsLog.objects.count(), 1)
 
-    def test_correct_code_atomically_confirms_booking_and_issues_guest_reservation_link(self):
+    def test_correct_code_atomically_accepts_booking_without_confirming(self):
         requested = self.request_code()
         confirmed = self.client.post(
             "/api/public/booking/confirm/",
@@ -184,31 +184,31 @@ class PublicWebBookingTest(TestCase):
         )
 
         self.assertEqual(confirmed.status_code, 201, confirmed.data)
-        self.assertEqual(confirmed.data["status"], Order.Status.CONFIRMED)
-        self.assertEqual(confirmed.data["room_address"], self.room.address)
+        self.assertEqual(confirmed.data["status"], Order.Status.REQUESTED)
+        self.assertEqual(confirmed.data["room_address"], "")
         customer = Customer.objects.get()
         self.assertEqual(customer.phone, "09012345678")
         self.assertEqual(customer.display_name, "公開予約 太郎")
         order = Order.objects.get()
         self.assertEqual(order.customer, customer)
         self.assertEqual(order.room, self.room)
-        self.assertEqual(order.status, Order.Status.CONFIRMED)
+        self.assertEqual(order.status, Order.Status.REQUESTED)
         self.assertEqual(order.total_price, 22000)
         self.assertEqual(list(order.options.all()), [self.option])
         challenge = PublicBookingVerification.objects.get()
         self.assertIsNotNone(challenge.consumed_at)
-        self.assertTrue(hasattr(order, "guest_access"))
+        self.assertFalse(hasattr(order, "guest_access"))
         confirmation = SmsLog.objects.get(
             order=order,
-            template_type=SmsLog.TemplateType.RESERVATION_CONFIRMATION,
+            template_type=SmsLog.TemplateType.OTHER,
         )
-        self.assertIn("[予約リンク]", confirmation.body)
+        self.assertIn("まだ予約は確定していません", confirmation.body)
         notification = OperatorNotification.objects.get(order=order)
         self.assertEqual(notification.store, self.store)
         self.assertEqual(notification.kind, OperatorNotification.Kind.PUBLIC_BOOKING)
         self.assertEqual(
             notification.target_path,
-            f"/op/schedule?date=2030-01-15&highlight={order.id}",
+            f"/op/orders/{order.id}",
         )
 
     def test_confirm_sends_store_email_when_notification_address_is_configured(self):
@@ -228,7 +228,7 @@ class PublicWebBookingTest(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["booking@example.com"])
-        self.assertIn("Web予約が入りました", mail.outbox[0].subject)
+        self.assertIn("Web予約の受付がきました", mail.outbox[0].subject)
         self.assertIn("公開予約 太郎様", mail.outbox[0].body)
         self.assertIn("2030年01月15日 12:30〜14:30", mail.outbox[0].body)
 
@@ -252,7 +252,7 @@ class PublicWebBookingTest(TestCase):
 
         self.assertEqual(response.status_code, 201, response.data)
         order = Order.objects.get()
-        self.assertEqual(order.status, Order.Status.CONFIRMED)
+        self.assertEqual(order.status, Order.Status.REQUESTED)
         self.assertTrue(OperatorNotification.objects.filter(order=order).exists())
 
     def test_wrong_code_changes_nothing_and_counts_attempt(self):

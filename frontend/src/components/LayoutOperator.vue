@@ -137,7 +137,7 @@ onBeforeUnmount(() => {
     <aside class="sidebar operator-sidebar" :class="{ show: sidebarOpen }">
       <div class="sidebar-header">
         <div class="sidebar-notifications--desktop">
-          <OperatorNotifications v-if="currentUser" />
+          <OperatorNotifications v-if="currentUser" show-booking-popup />
         </div>
         <router-link to="/op/profile" class="sidebar-profile-avatar sidebar-profile-avatar--mobile" aria-label="プロフィール" @click="closeSidebar">
           <UserAvatar :name="currentUser?.display_name" :avatar-url="currentUser?.avatar_url" :size="40" />

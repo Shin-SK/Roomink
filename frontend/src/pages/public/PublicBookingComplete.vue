@@ -33,10 +33,11 @@ function formatYen(value) {
     <main class="complete-card">
       <img src="/logo.svg" alt="Roomink" class="complete-logo">
       <div class="complete-icon"><i class="ti ti-check"></i></div>
-      <p class="complete-kicker">{{ result?.payment_method === 'CARD' ? 'PAYMENT REQUIRED' : 'RESERVATION CONFIRMED' }}</p>
-      <h1>{{ result?.payment_method === 'CARD' ? '仮予約を受け付けました' : 'ご予約が確定しました' }}</h1>
-      <p v-if="result?.payment_method === 'CARD'" class="text-muted">SMSの案内ページでお支払いください。店舗の入金確認後に本予約が確定します。</p>
-      <p class="text-muted">予約内容とお客様ページのご案内をSMSでお送りしました。</p>
+      <p class="complete-kicker">RESERVATION REQUEST RECEIVED</p>
+      <h1>仮予約を受け付けました</h1>
+      <p class="text-muted">現在、店舗で内容を確認しています。まだ予約は確定していません。確認後にSMSでご案内します。</p>
+      <p v-if="result?.payment_method === 'CARD'" class="text-muted">カード決済のご案内も店舗の確認後にお送りします。入金確認後に本予約が確定します。</p>
+      <p v-if="['SENT', 'DUMMY'].includes(result?.sms_status)" class="text-muted">受付のSMSを送信しました。</p>
 
       <div v-if="result" class="reservation-summary text-start">
         <div><span>予約番号</span><strong>#{{ result.id }}</strong></div>
@@ -45,12 +46,13 @@ function formatYen(value) {
         <div><span>担当</span><strong>{{ result.cast_name }}</strong></div>
         <div><span>コース</span><strong>{{ result.course_name }}</strong></div>
         <div v-if="result.nomination_fee_name"><span>指名</span><strong>{{ result.nomination_fee_name }}（{{ formatYen(result.nomination_fee_price) }}）</strong></div>
-        <div><span>料金</span><strong>{{ formatYen(result.total_price) }}</strong></div>
+        <div><span>料金目安</span><strong>{{ formatYen(result.total_price) }}</strong></div>
+        <p class="small text-muted mt-2 mb-0">割引などを含む最終内容は、店舗確認後のご案内をご確認ください。</p>
         <div v-if="result.room_name"><span>ルーム</span><strong>{{ result.room_name }}</strong></div>
         <div v-if="result.room_address"><span>住所</span><strong>{{ result.room_address }}</strong></div>
       </div>
       <div v-else class="alert alert-info text-start">
-        予約内容はSMSに記載されたURLから確認できます。
+        受付結果を表示できません。お申し込み済みの場合は、SMSまたは店舗へご確認ください。
       </div>
 
       <div v-if="result?.sms_status && !['SENT', 'DUMMY'].includes(result.sms_status)" class="alert alert-warning text-start">

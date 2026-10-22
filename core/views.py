@@ -865,9 +865,42 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.status = Order.Status.CONFIRMED
             order.updated_by = request.user
             order.save(update_fields=["status", "updated_by", "updated_at"])
-        notify_order_confirmed(order, created_by=request.user)
-        notify_cast_order(order, created_by=request.user)
+            notify_order_confirmed(order, created_by=request.user)
+            web_card_waiting = (
+                order.payment_method == Order.PaymentMethod.CARD
+                and OperatorNotification.objects.filter(
+                    order=order, kind=OperatorNotification.Kind.PUBLIC_BOOKING,
+                ).exists()
+            )
+            if not web_card_waiting:
+                notify_cast_order(order, created_by=request.user)
         return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=["post"], url_path="retry-booking-sms")
+    def retry_booking_sms(self, request, pk=None):
+        """失敗した受付/案内だけを再試行する。送信済み・送信中は再送しない。"""
+        from .services.notify import notify_web_booking_received
+
+        with transaction.atomic():
+            order = self._lock_order_for_mutation(self.get_object())
+            if order.status not in (Order.Status.REQUESTED, Order.Status.CONFIRMED):
+                raise ValidationError("受付中または確定済みの予約だけが対象です。")
+            if order.status == Order.Status.REQUESTED:
+                if not OperatorNotification.objects.filter(order=order, kind=OperatorNotification.Kind.PUBLIC_BOOKING).exists():
+                    raise ValidationError("Web予約の受付だけが対象です。")
+                template_type = SmsLog.TemplateType.OTHER
+                send = notify_web_booking_received
+            elif order.payment_method == Order.PaymentMethod.CARD:
+                template_type = (SmsLog.TemplateType.CARD_PAYMENT_CONFIRMED if order.card_payment_confirmed_at else SmsLog.TemplateType.CARD_PAYMENT_REQUEST)
+                send = notify_card_payment_confirmed if order.card_payment_confirmed_at else notify_card_payment_requested
+            else:
+                template_type = SmsLog.TemplateType.RESERVATION_CONFIRMATION
+                send = notify_order_confirmed
+            logs = order.sms_logs.filter(template_type=template_type)
+            if not logs.exists() or logs.filter(status__in=(SmsLog.Status.SENT, SmsLog.Status.DUMMY, SmsLog.Status.PENDING)).exists():
+                raise ValidationError("失敗したSMSだけを再送できます。送信済みの場合は重複送信しません。")
+            send(order, created_by=request.user)
+        return Response(OrderSerializer(order, context={"request": request}).data)
 
     @action(detail=True, methods=["post"], url_path="send-card-payment-request")
     def send_card_payment_request(self, request, pk=None):
@@ -943,6 +976,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                     "updated_at",
                 ])
             notify_card_payment_confirmed(locked_order, created_by=request.user)
+            notify_cast_order(locked_order, created_by=request.user)
 
         return Response(
             OrderSerializer(locked_order, context={"request": request}).data,
@@ -5012,6 +5046,7 @@ def _apply_shift_request_approval(
     user,
     room=None,
     start_day_offset=0,
+    allow_room_overlap=False,
 ):
     """ShiftRequest承認の共通処理（ShiftAssignment作成 + ShiftRequestの承認内容/履歴保存）。
     OpShiftRequestViewSet.approve() と シフト申請CSV戻し承認(import_apply) の両方から呼ばれる。
@@ -5025,6 +5060,7 @@ def _apply_shift_request_approval(
         return False, "申請中のもののみ承認できます。最新の一覧をご確認ください。"
 
     sa_data = {
+        "allow_room_overlap": allow_room_overlap,
         "date": date,
         "cast": obj.cast_id,
         "start_time": start_time,
@@ -5038,6 +5074,8 @@ def _apply_shift_request_approval(
         context={"store": store},
     )
     if not sa_serializer.is_valid():
+        if "room_overlap" in sa_serializer.errors:
+            return False, sa_serializer.errors
         messages = []
         for field, errs in sa_serializer.errors.items():
             for e in errs:
@@ -5141,9 +5179,10 @@ class OpShiftRequestViewSet(viewsets.ReadOnlyModelViewSet):
             request.user,
             room=room,
             start_day_offset=start_day_offset,
+            allow_room_overlap=request.data.get("allow_room_overlap", False),
         )
         if not ok:
-            return Response({"detail": err}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(err if isinstance(err, dict) else {"detail": err}, status=status.HTTP_400_BAD_REQUEST)
         return Response(OpShiftRequestSerializer(obj).data)
 
     @action(detail=True, methods=["post"])
@@ -8807,6 +8846,7 @@ class OperatorNotificationListView(APIView):
                     "kind": item.kind,
                     "title": item.title,
                     "message": item.message,
+                    "order_status": item.order.status if item.order_id else None,
                     "target_path": item.target_path,
                     "created_at": item.created_at.isoformat(),
                     "is_read": item.id in read_ids,
@@ -8928,9 +8968,10 @@ class WeeklyShiftView(APIView):
             "days": days,
         })
 
+    @transaction.atomic
     def post(self, request):
         _require_staff_or_manager(request)
-        store = get_user_store(request)
+        store = Store.objects.select_for_update().get(pk=get_user_store(request).pk)
 
         week_start = _parse_date(request.data.get("week_start"), "week_start")
         week_end = week_start + timedelta(days=6)
@@ -8953,6 +8994,7 @@ class WeeklyShiftView(APIView):
                 errors.append({"date": item.get("date"), "detail": "指定した週の範囲外です"})
                 continue
             payloads.append({
+                "allow_room_overlap": request.data.get("allow_room_overlap", False),
                 "date": d.isoformat(),
                 "cast": cast.id,
                 "room": item.get("room"),
@@ -8981,7 +9023,7 @@ class WeeklyShiftView(APIView):
                     f"{k}: {' '.join(str(x) for x in v)}" if isinstance(v, list) else f"{k}: {v}"
                     for k, v in ser.errors.items()
                 )
-                errors.append({"date": p["date"], "detail": detail})
+                errors.append({"date": p["date"], "detail": detail, **({"room_overlap": ser.errors["room_overlap"]} if "room_overlap" in ser.errors else {})})
 
         # リクエスト内での重複（翌日まで続くシフトも含む）
         seen_intervals = []

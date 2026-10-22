@@ -38,7 +38,7 @@ def _public_booking_text(order):
     customer_name = order.customer.display_name or order.customer.phone
     date_label = local_start.strftime("%Y年%m月%d日")
     time_label = f"{local_start:%H:%M}〜{local_end:%H:%M}"
-    title = f"Web予約が入りました（{local_start:%m/%d %H:%M}）"
+    title = f"Web予約の受付がきました（{local_start:%m/%d %H:%M}）"
     message = (
         f"{customer_name}様／{order.cast.name}／"
         f"{order.course_name}／{date_label} {time_label}"
@@ -58,7 +58,7 @@ def notify_public_booking_created(order):
         order=order,
         title=title,
         message=message,
-        target_path=f"/op/schedule?date={order.start.astimezone(ZoneInfo(order.store.timezone)):%Y-%m-%d}&highlight={order.id}",
+        target_path=f"/op/orders/{order.id}",
     )
 
     recipient = (order.store.public_booking_notification_email or "").strip()
@@ -68,7 +68,8 @@ def notify_public_booking_created(order):
     frontend_url = (settings.FRONTEND_URL or "").rstrip("/")
     schedule_url = f"{frontend_url}{notification.target_path}" if frontend_url else ""
     body_lines = [
-        f"{order.store.name}にWeb予約が入りました。",
+        f"{order.store.name}にWeb予約のお申し込みが入りました。",
+        "仮予約・店舗確認待ちです。内容と割引を確認してから、お客様へSMSをご案内ください。",
         "",
         f"日時：{date_label} {time_label}",
         f"お客様：{customer_name}様",
@@ -76,7 +77,7 @@ def notify_public_booking_created(order):
         f"コース：{order.course_name}",
     ]
     if schedule_url:
-        body_lines.extend(["", f"予約タイムライン：{schedule_url}"])
+        body_lines.extend(["", f"予約内容の確認：{schedule_url}"])
     body_lines.extend(["", "このメールはRoominkから自動送信されています。"])
 
     try:

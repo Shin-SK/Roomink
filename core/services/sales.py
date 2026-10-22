@@ -267,7 +267,16 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
         )
         .order_by("-sales")
     )
-    casts = {c.id: c for c in Cast.objects.filter(pk__in=[r["cast_id"] for r in cast_rows])}
+    cast_queryset = Cast.objects.filter(store=store)
+    if cast_id:
+        cast_queryset = cast_queryset.filter(pk=cast_id)
+    casts = {c.id: c for c in cast_queryset}
+    present_ids = {row["cast_id"] for row in cast_rows}
+    cast_rows.extend({
+        "cast_id": cast.id, "sales": 0, "orders": 0,
+        "course_sales": 0, "options_sales": 0, "nomination_sales": 0,
+    } for cast in casts.values() if cast.id not in present_ids)
+    cast_rows.sort(key=lambda row: (-(row["sales"] or 0), casts[row["cast_id"]].name, row["cast_id"]))
     by_cast = []
     for row in cast_rows:
         cast = casts.get(row["cast_id"])

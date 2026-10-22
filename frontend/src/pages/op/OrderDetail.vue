@@ -110,8 +110,27 @@ const smsStatusCls = {
   CONFIG_MISSING: 'bg-warning text-dark',
 }
 
+const canRetryBookingSms = computed(() => {
+  if (!order.value || !['REQUESTED', 'CONFIRMED'].includes(order.value.status)) return false
+  const type = order.value.status === 'REQUESTED' ? 'OTHER'
+    : order.value.payment_method === 'CARD'
+      ? (order.value.card_payment_confirmed_at ? 'CARD_PAYMENT_CONFIRMED' : 'CARD_PAYMENT_REQUEST')
+      : 'RESERVATION_CONFIRMATION'
+  const logs = smsLogs.value.filter(log => log.template_type === type)
+  return logs.length > 0 && !logs.some(log => ['SENT', 'DUMMY', 'PENDING'].includes(log.status))
+})
+
+async function retryBookingSms() {
+  if (!confirm('失敗したSMSを再送しますか？')) return
+  acting.value = true
+  try {
+    order.value = await api.retryBookingSms(props.id)
+    await fetchSmsLogs()
+  } catch (e) { alert(e.message) } finally { acting.value = false }
+}
+
 const statusMap = {
-  REQUESTED: { text: '予約リクエスト', cls: 'badge-pending' },
+  REQUESTED: { text: '仮予約・店舗確認待ち', cls: 'badge-pending' },
   CONFIRMED: { text: '確定済', cls: 'badge-approved' },
   IN_PROGRESS: { text: '施術中', cls: 'badge-approved' },
   PENDING_FINALIZE: { text: '会計待ち', cls: 'badge-attention' },
@@ -257,7 +276,7 @@ function onOrderUpdated({ order: updated }) {
 }
 
 async function doConfirm() {
-  if (!confirm('この予約を確定しますか？')) return
+  if (!confirm(order.value.payment_method === 'CARD' ? '予約内容を確認しましたか？\nお客様へカード決済案内のSMSを送信します。入金確認後に本予約となります。' : '割引・金額・日時を確認しましたか？\n予約を確定し、お客様へ案内SMSを送信します。')) return
   acting.value = true
   try {
     order.value = await api.confirmOrder(props.id)
@@ -729,6 +748,7 @@ async function saveRecipientCustomerLink() {
           </div>
 
           <!-- SMS送信履歴（表示のみ） -->
+          <button v-if="canRetryBookingSms" class="btn btn-outline-warning mb-3" :disabled="acting" @click="retryBookingSms">送信に失敗したSMSを再送する</button>
           <div class="card mb-4">
             <div class="card-header d-flex align-items-center justify-content-between">
               <span><i class="ti ti-message-2"></i> SMS送信履歴</span>
@@ -788,7 +808,7 @@ async function saveRecipientCustomerLink() {
               :disabled="acting"
               @click="doConfirm"
             >
-              <i class="ti ti-check"></i> 予約確定
+              <i class="ti ti-check"></i> {{ order.payment_method === 'CARD' ? '内容を確認して決済案内を送信' : '予約を確定してSMSを送信' }}
             </button>
             <button
               v-if="canDone"
