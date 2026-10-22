@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { api } from '../api.js'
+import RoomCashCollection from './RoomCashCollection.vue'
 import { roomCashYen as yen, validCashCount, roomCashDrafts } from '../roomCashDisplay.js'
 
 const props = defineProps({ date: { type: String, required: true }, castMode: Boolean })
@@ -9,6 +10,7 @@ const drafts = ref({})
 const loading = ref(false)
 const error = ref('')
 const saving = ref({})
+const collecting = ref(false)
 const rowErrors = ref({})
 const conflicts = ref({})
 const saved = ref({})
@@ -46,7 +48,7 @@ async function reload(preserve = false) {
 
 async function save(row) {
   const draft = drafts.value[row.room]
-  if (!row.can_count || (props.castMode && needsRoomSelection.value) || error.value || loading.value || !validCashCount(draft?.actual_cash_amount) || Object.values(saving.value).some(Boolean) || conflicts.value[row.room]) return
+  if (collecting.value || !row.can_count || (props.castMode && needsRoomSelection.value) || error.value || loading.value || !validCashCount(draft?.actual_cash_amount) || Object.values(saving.value).some(Boolean) || conflicts.value[row.room]) return
   const amount = Number(draft.actual_cash_amount)
   if (!window.confirm(`${row.room_name}で今数えた現金 ${yen(amount)} を記録します。よろしいですか？`)) return
   const date = props.date
@@ -92,7 +94,7 @@ async function refreshWhenIdle() {
   const hasDraft = Object.values(drafts.value).some(draft => (
     String(draft.actual_cash_amount ?? '') !== '' || String(draft.memo ?? '') !== ''
   ))
-  if (loading.value || Object.values(saving.value).some(Boolean) || hasDraft) return false
+  if (collecting.value || loading.value || Object.values(saving.value).some(Boolean) || hasDraft) return false
   await reload(true)
   return true
 }
@@ -105,7 +107,7 @@ defineExpose({ reload, refreshWhenIdle })
   <section aria-label="ルーム現金状況">
     <div class="d-flex justify-content-between align-items-center gap-2 mb-2 small">
       <span class="text-muted">{{ castMode ? 'ルームの現金・受け取り見込み' : 'ルームごとの残金・受け渡し見込み' }}</span>
-      <button type="button" class="btn btn-outline-secondary btn-sm flex-shrink-0" :disabled="loading || Object.values(saving).some(Boolean)" @click="reload(true)"><i class="ti ti-refresh"></i> 更新</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm flex-shrink-0" :disabled="loading || collecting || Object.values(saving).some(Boolean)" @click="reload(true)"><i class="ti ti-refresh"></i> 更新</button>
     </div>
     <div v-if="castMode && roomChoices.length > 1" class="mb-3">
       <label for="cast-cash-room" class="form-label small">現金を確認するルーム</label>
@@ -122,7 +124,8 @@ defineExpose({ reload, refreshWhenIdle })
         <span v-else-if="row.requires_confirmation" class="badge bg-warning text-dark">実残の確認が必要</span>
       </div>
       <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center small mb-2"><span class="text-muted">ルームの計算上の残金</span><strong class="text-primary">{{ yen(row.expected_cash_amount) }}</strong></div>
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-3"><span class="text-muted small">金庫の想定残高</span><strong class="text-primary fs-4">{{ yen(row.expected_cash_amount) }}</strong></div>
+        <RoomCashCollection v-if="!castMode" :key="`${date}-${row.room}`" :row="row" :date="date" :disabled="loading || !!error || Object.values(saving).some(Boolean)" @busy="collecting = $event" @changed="reload(true)" />
         <div v-if="!castMode" class="row g-2 small border-top pt-2 mb-2"><div class="col-7 text-muted">実残・差額（最終確認時）</div><div class="col-5 text-end">{{ row.actual_cash_amount == null ? '未確認' : yen(row.actual_cash_amount) }}<span v-if="row.difference_amount != null" :class="row.difference_amount ? 'text-danger' : 'text-muted'"> / {{ yen(row.difference_amount) }}</span></div></div>
         <div v-for="warning in row.warnings || []" :key="warning" class="alert alert-warning small py-2 mb-2">{{ warning }}</div>
         <div v-if="!settlements(row).length" class="small text-muted">対象のキャストはいません。</div>

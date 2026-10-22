@@ -25,11 +25,64 @@ test('counts require an explicit nonnegative whole yen amount, never default the
 
 const baseRoom = { room: 1, room_name: 'Aルーム', revision: 'first', expected_cash_amount: 26000, actual_cash_amount: null, balance_known: true, can_count: true, casts: [] }
 
+test('full collection only fills the amount; registration and retry use the same request ID', async () => {
+  const previousWindow = globalThis.window
+  globalThis.window = { confirm: () => true }
+  const calls = []
+  const { state, unmount } = await mountPanel({ saveRoomCashCount: async body => { calls.push(body); throw new Error('offline') } },
+    { row: { ...baseRoom, expected_cash_amount: 15000 }, date: '2026-10-22', disabled: false }, '../src/components/RoomCashCollection.vue')
+  try {
+    state.fillAll()
+    assert.equal(state.amount, '15000')
+    assert.equal(state.after, 0)
+    assert.equal(calls.length, 0)
+    state.amount = '10000'
+    assert.equal(state.after, 5000)
+    await state.submit(); await state.submit()
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0].request_id, calls[1].request_id)
+    assert.equal(calls[0].amount, 10000)
+    assert.equal(calls[0].operation, 'collect')
+    state.amount = '16000'
+    await state.submit()
+    assert.equal(calls.length, 2)
+  } finally { unmount(); globalThis.window = previousWindow }
+})
+
+test('collection conflict preserves input through refresh, then submits against the new revision', async () => {
+  const previousWindow = globalThis.window
+  globalThis.window = { confirm: () => true }
+  const calls = []
+  const props = reactive({ row: { ...baseRoom }, date: '2026-10-22', disabled: false })
+  const { state, unmount } = await mountPanel({ saveRoomCashCount: async body => {
+    calls.push(body)
+    if (calls.length === 1) throw Object.assign(new Error('conflict'), { status: 409 })
+    return { rooms: [] }
+  } }, props, '../src/components/RoomCashCollection.vue')
+  try {
+    state.amount = '10000'; state.memo = '回収備考'
+    await state.submit(); await state.submit()
+    assert.equal(calls.length, 1)
+    props.row = { ...baseRoom, revision: 'latest', expected_cash_amount: 20000 }
+    await nextTick()
+    assert.equal(state.amount, '10000')
+    assert.equal(state.memo, '回収備考')
+    await state.submit()
+    assert.equal(calls[1].expected_revision, 'latest')
+    assert.equal(state.amount, '')
+    assert.match(state.success, /10,000円の回収を登録/)
+    props.row = { ...baseRoom, revision: 'saved' }
+    await nextTick()
+    assert.match(state.success, /登録しました/)
+  } finally { unmount(); globalThis.window = previousWindow }
+})
+
 async function mountPanel(api, props, relative = '../src/components/RoomCashPanel.vue', transform = code => code) {
   const root = dirname(fileURLToPath(import.meta.url))
   const filename = resolve(root, relative)
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   const code = transform(compileScript(descriptor, { id: 'room-cash-test' }).content)
+    .replace(/import RoomCashCollection from [^\n]+/, 'const RoomCashCollection = {}')
     .replace(/import \{ api \} from [^\n]+/, 'const api = globalThis.__roomCashApi')
     .replace(/from (['"])(\.[^'"]+)\1/g, (_, quote, specifier) => `from ${quote}${pathToFileURL(resolve(dirname(filename), specifier)).href}${quote}`)
   const temporary = mkdtempSync(join(root, '.room-cash-test-'))

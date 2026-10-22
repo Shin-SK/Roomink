@@ -78,7 +78,7 @@ def _hash(value):
 
 
 def room_cash_summary(store, d, *, room_ids=None, cast_id=None):
-    from core.models import Room, RoomCashCheckpoint, RoomCashMovement, RoomCashCount
+    from core.models import Room, RoomCashCheckpoint, RoomCashMovement, RoomCashCount, RoomCashCollection
     from django.utils import timezone
 
     orders, checkouts = _sources(store, d)
@@ -99,21 +99,24 @@ def room_cash_summary(store, d, *, room_ids=None, cast_id=None):
     for room in rooms.order_by("sort_order", "id"):
         items = by_room[room.pk]
         source_amount = sum(item["amount"] for item in items)
+        collections = RoomCashCollection.objects.filter(store=store, room=room, date__lte=d)
+        collection_net = collections.filter(cancelled_at__isnull=True).aggregate(total=Sum("amount"))["total"] or 0
         checkpoint = RoomCashCheckpoint.objects.filter(store=store, room=room, date__lte=d).first()
         legacy = RoomCashCount.objects.filter(store=store, room=room, date__lt=d).order_by("-date").first() if not checkpoint else None
         expected = None
         opening = None
         if checkpoint:
             opening = checkpoint.actual_cash_amount
-            expected = opening + source_amount - checkpoint.source_cash_amount
+            expected = opening + source_amount - checkpoint.source_cash_amount - (collection_net - checkpoint.collected_cash_amount)
         elif legacy:
             opening = legacy.actual_cash_amount
             expected = opening + sum(item["amount"] for item in items if item["date"] > legacy.date.isoformat())
+            expected -= collections.filter(date__gt=legacy.date, cancelled_at__isnull=True).aggregate(total=Sum("amount"))["total"] or 0
         movements = RoomCashMovement.objects.filter(store=store, room=room, date__lte=d)
         last_movement = movements.aggregate(last=Max("id"))["last"] or 0
         revision = _hash({"sources": items, "checkpoint": checkpoint.pk if checkpoint else None,
                           "legacy": [legacy.pk, legacy.actual_cash_amount, legacy.counted_at.isoformat()] if legacy else None,
-                          "movement": last_movement, "date": d.isoformat()})
+                          "movement": last_movement, "collections": [(c.pk, c.amount, c.cancelled_at.isoformat() if c.cancelled_at else None) for c in collections], "date": d.isoformat()})
         history = []
         for movement in movements.order_by("-id")[:30]:
             history.append({
@@ -183,6 +186,13 @@ def room_cash_summary(store, d, *, room_ids=None, cast_id=None):
             "revision": revision, "requires_confirmation": needs_confirmation or missing_room or missing_history,
             "can_count": d == today, "warnings": warnings, "history": history,
             "casts": cast_data, "source_cash_amount": source_amount,
+            "collected_cash_amount": collection_net,
+            "collections": [{"id": c.pk, "amount": c.amount, "memo": c.memo,
+                             "recorded_by": c.recorded_by.get_username() if c.recorded_by else "削除済みアカウント",
+                             "created_at": c.created_at.isoformat(),
+                             "cancelled_at": c.cancelled_at.isoformat() if c.cancelled_at else None,
+                             "cancelled_by": c.cancelled_by.get_username() if c.cancelled_by else None}
+                            for c in collections.select_related("recorded_by", "cancelled_by")[:30]],
         })
     return rows
 
@@ -276,11 +286,76 @@ def save_room_cash_checkpoint(store, d, payload, actor, *, allowed_room_ids=None
     RoomCashCheckpoint.objects.create(
         store=store, room=room, date=d, actual_cash_amount=actual_amount,
         source_cash_amount=row["source_cash_amount"], expected_cash_amount=row["expected_cash_amount"],
+        collected_cash_amount=row["collected_cash_amount"],
         source_revision=row["revision"],
         movement_cursor=RoomCashMovement.objects.filter(store=store, room=room).order_by("-id").values_list("id", flat=True).first() or 0,
         request_id=request_id, memo=memo, counted_by=actor,
     )
     return room_id
+
+
+def save_room_cash_collection(store, d, payload, actor):
+    """Caller holds the same store lock as count/source saves."""
+    import uuid
+    from django.utils import timezone
+    from rest_framework.exceptions import APIException, ValidationError
+    from core.models import Room, RoomCashCollection
+
+    class Conflict(APIException):
+        status_code = 409
+
+    today = business_date_for_datetime(timezone.now(), store.timezone)
+    if d != today:
+        raise ValidationError({"detail": "回収・取消は現在の営業日で登録してください"})
+    raw_room = payload.get("room")
+    if isinstance(raw_room, bool) or not str(raw_room).isdecimal():
+        raise ValidationError({"detail": "ルームの形式が不正です"})
+    room = Room.objects.filter(pk=int(raw_room), store=store).first()
+    if not room:
+        raise ValidationError({"detail": "対象ルームが見つかりません"})
+    operation = payload.get("operation")
+    if operation == "collect":
+        raw_amount = payload.get("amount")
+        if isinstance(raw_amount, bool) or not isinstance(raw_amount, (str, int)) or not str(raw_amount).isdecimal() or not 1 <= int(raw_amount) <= 2147483647:
+            raise ValidationError({"detail": "回収額は1〜2,147,483,647円の整数で入力してください"})
+        amount = int(raw_amount)
+        memo = payload.get("memo", "")
+        if not isinstance(memo, str) or len(memo) > 1000:
+            raise ValidationError({"detail": "備考は1000文字以内で入力してください"})
+        try:
+            request_id = uuid.UUID(str(payload.get("request_id", "")))
+        except ValueError:
+            raise ValidationError({"detail": "リクエストIDが不正です"})
+        existing = RoomCashCollection.objects.filter(store=store, request_id=request_id).first()
+        if existing:
+            if (existing.room_id, existing.amount, existing.memo, existing.recorded_by_id, existing.date) != (room.pk, amount, memo, actor.pk, d):
+                raise Conflict("同じリクエストIDで別の回収は登録できません")
+            return
+    elif operation == "cancel_collection":
+        raw_id = payload.get("collection_id")
+        if isinstance(raw_id, bool) or not str(raw_id).isdecimal():
+            raise ValidationError({"detail": "回収記録が不正です"})
+        existing = RoomCashCollection.objects.filter(pk=int(raw_id), store=store, room=room).first()
+        if not existing:
+            raise ValidationError({"detail": "回収記録が見つかりません"})
+        if existing.cancelled_at:
+            return
+    else:
+        raise ValidationError({"detail": "操作が不正です"})
+    row = room_cash_summary(store, d, room_ids={room.pk})[0]
+    if payload.get("expected_revision") != row["revision"]:
+        raise Conflict("現金の情報が更新されました。最新の残高を確認してください")
+    if operation == "collect":
+        if row["expected_cash_amount"] is None or row["requires_confirmation"]:
+            raise ValidationError({"detail": "実際の現金を確認・記録してから回収してください"})
+        if amount > row["expected_cash_amount"]:
+            raise ValidationError({"detail": "回収額が想定残高を超えています"})
+        RoomCashCollection.objects.create(store=store, room=room, date=d, amount=amount, memo=memo, request_id=request_id, recorded_by=actor)
+    else:
+        # Restoring the net outflow also works when a count was recorded after collection.
+        existing.cancelled_at = timezone.now()
+        existing.cancelled_by = actor
+        existing.save(update_fields=["cancelled_at", "cancelled_by"])
 
 
 def cast_room_cash_ids(cast, d):
