@@ -4122,8 +4122,12 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         # snapshot are therefore one consistent instant, including on GET.
         Store.objects.select_for_update().get(pk=store.pk)
         if request.method == "POST":
-            from .services.room_cash import save_room_cash_checkpoint
-            save_room_cash_checkpoint(store, target_date, request.data, request.user)
+            from .services.room_cash import save_room_cash_checkpoint, save_room_cash_collection
+            operation = request.data.get("operation", "count")
+            if operation == "count":
+                save_room_cash_checkpoint(store, target_date, request.data, request.user)
+            else:
+                save_room_cash_collection(store, target_date, request.data, request.user)
         return Response({"date": target_date.isoformat(), "rooms": _room_cash_summary(store, target_date)})
 
     @action(detail=False, methods=["get"])

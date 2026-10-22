@@ -1987,6 +1987,7 @@ class RoomCashCheckpoint(models.Model):
     date = models.DateField()
     actual_cash_amount = models.PositiveIntegerField()
     source_cash_amount = models.BigIntegerField()
+    collected_cash_amount = models.BigIntegerField(default=0)
     expected_cash_amount = models.BigIntegerField(null=True)
     source_revision = models.CharField(max_length=64)
     movement_cursor = models.PositiveBigIntegerField(default=0)
@@ -1998,6 +1999,25 @@ class RoomCashCheckpoint(models.Model):
     class Meta:
         ordering = ["-id"]
         constraints = [models.UniqueConstraint(fields=["store", "request_id"], name="room_cash_count_request_unique")]
+        indexes = [models.Index(fields=["store", "room", "date"])]
+
+
+class RoomCashCollection(models.Model):
+    """実際の金庫回収。取消も削除せず記録する。"""
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    room = models.ForeignKey(Room, on_delete=models.CASCADE)
+    date = models.DateField()
+    amount = models.PositiveIntegerField()
+    memo = models.TextField(blank=True, default="")
+    request_id = models.UUIDField()
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="room_cash_collections")
+    created_at = models.DateTimeField(auto_now_add=True)
+    cancelled_at = models.DateTimeField(null=True)
+    cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="cancelled_cash_collections")
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [models.UniqueConstraint(fields=["store", "request_id"], name="room_cash_collection_request_unique")]
         indexes = [models.Index(fields=["store", "room", "date"])]
 
 
