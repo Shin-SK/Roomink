@@ -318,7 +318,7 @@ function formatInvitationDate(value) {
               </tr>
               <tr>
                 <th>旧システム利用履歴</th>
-                <td style="white-space: pre-wrap;">{{ customer.legacy_usage_history || '—' }}</td>
+                <td><div style="white-space: pre-wrap;">{{ customer.legacy_usage_history || '—' }}</div><router-link :to="{ path: '/op/legacy-histories', query: { customer: customer.id } }">取り込んだ旧システムの履歴を見る</router-link></td>
               </tr>
               <tr>
                 <th>フラグ</th>

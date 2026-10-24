@@ -52,7 +52,7 @@ from .models import (
     CastDailyCheckout, CastExpense, CastExpenseTemplate, CastOfficeCashReceipt, RoomCashCount,
     CastExpenseTemplateHistory, CastNote, Course, Customer,
     CustomerMergeLog, DailySettlement, DailySettlementAuditEvent, Discount, Extension, Medium,
-    LineNotificationLog, NominationFee, OperatorNotification,
+    LegacyCustomerHistory, LineNotificationLog, NominationFee, OperatorNotification,
     OperatorNotificationReadReceipt, Option, Order, OrderOption, PointLog,
     OrderServiceRecipientLinkLog, OrderAccountingCorrection,
     Room, ShiftAssignment, ShiftConfirmNotificationLog, ShiftRequest, SmsLog,
@@ -3365,6 +3365,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 service_recipient_customer=merge_customer,
             ).update(service_recipient_customer=keep)
             calls_moved = CallLog.objects.filter(customer=merge_customer).update(customer=keep)
+            LegacyCustomerHistory.objects.filter(store=store, customer=merge_customer).update(customer=keep)
 
             # 2) 空欄補完
             if not keep.display_name and merge_customer.display_name:
@@ -6074,10 +6075,16 @@ def _cti_call_payload(call, *, include_attention=False):
         history_calls = (
             CallLog.objects.filter(store_id=call.store_id, from_phone=call.from_phone)
             .exclude(pk=call.pk)
+            .filter(notes__isnull=False)
+            .distinct()
             .prefetch_related("notes")
             .order_by("-created_at", "-id")[:10]
-        )
+        ) if call.from_phone.isascii() and call.from_phone.isdigit() and 10 <= len(call.from_phone) <= 15 else []
         payload["customer_history"] = {
+            "legacy_records": [
+                {"id": item.pk, "visit_count": len(item.entries)}
+                for item in (LegacyCustomerHistory.objects.filter(store_id=call.store_id, customer=customer) if customer else [])
+            ],
             # Migrated usage exists only when the caller is a matched member.
             "legacy_usage_history": customer.legacy_usage_history if customer else "",
             # Inquiry memos can predate customer registration, so match them
@@ -6089,6 +6096,10 @@ def _cti_call_payload(call, *, include_attention=False):
                 }
                 for history_call in history_calls
                 if history_call.notes.all()
+            ],
+            "current_notes": [
+                {"id": note.pk, "body": note.body, "created_at": note.created_at}
+                for note in call.notes.order_by("created_at", "id")
             ],
         }
     return payload
@@ -6364,26 +6375,40 @@ class CtiCallNoteView(APIView):
 
     def post(self, request, pk):
         store = get_user_store(request)
-        try:
-            call = CallLog.objects.get(pk=pk, store=store)
-        except CallLog.DoesNotExist:
-            return Response({"detail": "コールが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
-
-        body = (request.data.get("body") or "").strip()
+        raw_body = request.data.get("body")
+        body = raw_body.strip() if isinstance(raw_body, str) else ""
         if not body:
             return Response(
                 {"detail": "body は必須です"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        note = CallNote.objects.create(call=call, author=request.user, body=body)
+        if len(body) > 2000:
+            return Response({"detail": "メモは2,000文字以内で入力してください"}, status=status.HTTP_400_BAD_REQUEST)
+        complete = request.data.get("complete_reception", False)
+        if not isinstance(complete, bool):
+            return Response({"detail": "受付完了の指定が正しくありません"}, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            try:
+                call = CallLog.objects.select_for_update().get(pk=pk, store=store)
+            except CallLog.DoesNotExist:
+                return Response({"detail": "コールが見つかりません"}, status=status.HTTP_404_NOT_FOUND)
+            # A lost response or repeated click must not duplicate the same
+            # operator's memo on the same call. The call lock serializes retries.
+            note = CallNote.objects.filter(call=call, author=request.user, body=body).order_by("id").first()
+            created = note is None
+            if created:
+                note = CallNote.objects.create(call=call, author=request.user, body=body)
+            if complete and call.status != CallLog.Status.DONE:
+                call.status = CallLog.Status.DONE
+                call.save(update_fields=["status", "updated_at"])
         return Response({
             "id": note.id,
             "call_id": call.id,
             "author": request.user.username,
             "body": note.body,
             "created_at": note.created_at,
-        }, status=status.HTTP_201_CREATED)
+            "status": call.status,
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 # ──────────────────────────────────────

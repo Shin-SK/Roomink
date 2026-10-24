@@ -63,6 +63,7 @@ function exportCsv() {
 <template>
   <LayoutOperator>
     <template #title>顧客管理</template>
+    <router-link to="/op/legacy-histories" class="btn btn-outline-secondary btn-sm mb-3">旧システムの利用履歴</router-link>
 
     <div v-if="loading" class="text-center py-5">
       <div class="spinner-border text-primary"></div>

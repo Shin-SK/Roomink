@@ -12,7 +12,7 @@ from . import (
     voice_routing,
 )
 
-from . import attendance_views
+from . import attendance_views, legacy_history_views
 
 router = DefaultRouter()
 router.register("orders", views.OrderViewSet)
@@ -45,6 +45,7 @@ op_sr_router = DefaultRouter()
 op_sr_router.register("shift-requests", views.OpShiftRequestViewSet, basename="op-shift-request")
 op_sr_router.register("call-logs", views.CallLogViewSet, basename="op-call-log")
 op_sr_router.register("store-phones", views.StorePhoneNumberViewSet, basename="op-store-phone")
+op_sr_router.register("legacy-histories", legacy_history_views.LegacyHistoryViewSet, basename="op-legacy-history")
 
 urlpatterns = [
     # Roomink運営公式LINE。既存の店舗LINE webhookとは完全に分離する。

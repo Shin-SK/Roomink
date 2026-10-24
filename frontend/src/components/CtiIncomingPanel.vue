@@ -108,7 +108,7 @@ async function openDraft(call) {
     const context = await api.getCtiCallContext(call.id)
     const existing = drafts.value.find(d => d.id === call.id)
     if (existing?.blocked) drafts.value = drafts.value.filter(d => d.id !== call.id)
-    if (!existing || existing.blocked) drafts.value.push({ id: call.id, context, client: callApi(call.id), blocked: false, result: null })
+    if (!existing || existing.blocked) drafts.value.push({ id: call.id, context, client: callApi(call.id), blocked: false, result: null, noteText: '', noteError: '', noteSaving: false })
     activeId.value = call.id
     await callApi(call.id).markSeen()
     await nextTick(); panel.value?.querySelector('.cti-detail')?.focus()
@@ -138,8 +138,9 @@ async function changeStatus(call, action) {
   finally { busy.value = false }
 }
 function discardDraft(id) {
+  if (busy.value || drafts.value.some(d => d.orderSaving)) return
   const entry = drafts.value.find(d => d.id === id)
-  if (!entry?.result && !entry?.blocked && !window.confirm('この着信の予約入力を破棄しますか？')) return
+  if ((!entry?.result || entry?.noteText?.trim()) && !entry?.blocked && !window.confirm('この着信の入力中の内容を破棄しますか？')) return
   drafts.value = drafts.value.filter(d => d.id !== id); activeId.value = null
 }
 async function created(entry, result) {
@@ -155,8 +156,8 @@ async function created(entry, result) {
   finally { busy.value = false }
 }
 async function finishReception(entry) {
-  if (busy.value) return
-  if (!window.confirm('予約を作成せずに、この受付を完了しますか？入力中の内容は破棄されます。')) return
+  if (busy.value || entry.orderSaving) return
+  if (!window.confirm(entry.noteText?.trim() ? 'メモはまだ保存されていません。メモと予約入力を破棄して受付を完了しますか？' : '予約を作成せずに、この受付を完了しますか？入力中の内容は破棄されます。')) return
   busy.value = true; error.value = ''
   try {
     await callApi(entry.id).done()
@@ -170,12 +171,30 @@ async function finishReception(entry) {
   } catch (e) { error.value = e.message || '受付を完了できませんでした。' }
   finally { busy.value = false }
 }
+async function saveInquiry(entry) {
+  const body = entry.noteText.trim()
+  if (!body || busy.value || entry.noteSaving || entry.orderSaving) return
+  if (body.length > 2000) { entry.noteError = 'メモは2,000文字以内で入力してください'; return }
+  busy.value = true; entry.noteSaving = true; entry.noteError = ''
+  try {
+    const saved = await entry.client.saveInquiry(body)
+    if (!entry.context.customer_history) entry.context.customer_history = {}
+    const notes = entry.context.customer_history.current_notes || []
+    entry.context.customer_history.current_notes = [...notes.filter(n => n.id !== saved.id), saved]
+    entry.noteText = ''
+    entry.result = entry.result || { inquiryOnly: true }
+    await refresh()
+    await refreshHistory()
+  } catch (e) {
+    entry.noteError = e.message || 'メモを保存できませんでした。入力内容は残っています。'
+  } finally { busy.value = false; entry.noteSaving = false }
+}
 function keydown(event) {
   if (!isOpen.value) return
   if (event.key === 'Escape') { event.preventDefault(); closePanel(); return }
 }
-function beforeUnload(event) { if (drafts.value.some(d => !d.result && !d.blocked)) { event.preventDefault(); event.returnValue = '' } }
-onBeforeRouteLeave(() => !drafts.value.some(d => !d.result && !d.blocked) || window.confirm('受付パネルの入力を破棄して移動しますか？'))
+function beforeUnload(event) { if (drafts.value.some(d => (!d.result || d.noteText?.trim()) && !d.blocked)) { event.preventDefault(); event.returnValue = '' } }
+onBeforeRouteLeave(() => !drafts.value.some(d => (!d.result || d.noteText?.trim()) && !d.blocked) || window.confirm('受付パネルの入力を破棄して移動しますか？'))
 onMounted(() => { cycle(); window.addEventListener('beforeunload', beforeUnload) })
 onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(completionTimer); window.removeEventListener('beforeunload', beforeUnload); document.body.classList.remove('cti-modal-open') })
 </script>
@@ -204,7 +223,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
         <div class="cti-body">
           <aside class="cti-inbox" aria-label="着信一覧">
             <div class="cti-inbox-head"><strong>未対応の電話</strong><span>{{ newCount }}件</span></div>
-            <div v-if="drafts.length" class="cti-drafts"><span class="cti-caption">入力を再開</span><button v-for="d in drafts" :key="d.id" :class="{ selected: activeId === d.id }" @click="activeId = d.id"><i class="ti ti-pencil" aria-hidden="true"></i><span>{{ d.blocked ? '利用できない着信' : d.context?.store_name }}<small>{{ d.result ? '予約作成済み' : '入力を保持しています' }}</small></span></button></div>
+            <div v-if="drafts.length" class="cti-drafts"><span class="cti-caption">入力を再開</span><button v-for="d in drafts" :key="d.id" :class="{ selected: activeId === d.id }" @click="activeId = d.id"><i class="ti ti-pencil" aria-hidden="true"></i><span>{{ d.blocked ? '利用できない着信' : d.context?.store_name }}<small>{{ d.result?.inquiryOnly ? 'メモ保存済み' : d.result ? '予約作成済み' : '入力を保持しています' }}</small></span></button></div>
             <div v-if="loading" class="cti-empty" role="status">着信を確認しています…</div>
             <template v-else>
               <div v-if="!visibleCalls.length" class="cti-empty cti-empty-current"><i class="ti ti-phone-check" aria-hidden="true"></i><strong>現在、着信はありません</strong></div>
@@ -257,8 +276,10 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
                 </div>
                 <section v-if="d.context.customer_history" class="cti-history-summary" aria-label="顧客と問い合わせの履歴">
                   <div v-if="d.context.customer_id" class="cti-history-summary__section">
-                    <strong><i class="ti ti-history" aria-hidden="true"></i>利用履歴</strong>
-                    <p>{{ d.context.customer_history.legacy_usage_history || '登録されていません' }}</p>
+                    <strong><i class="ti ti-history" aria-hidden="true"></i>旧システムの利用履歴</strong>
+                    <p v-if="d.context.customer_history.legacy_usage_history">{{ d.context.customer_history.legacy_usage_history }}</p>
+                    <p v-else-if="!d.context.customer_history.legacy_records?.length">登録されていません</p>
+                    <p v-for="record in d.context.customer_history.legacy_records" :key="record.id"><a :href="`/op/legacy-histories?id=${record.id}&store=${d.context.store_id}`" target="_blank" rel="noopener">旧システムのオーダー履歴 {{ record.visit_count }}件を見る<span class="visually-hidden">（別タブ）</span></a></p>
                   </div>
                   <div class="cti-history-summary__section">
                     <strong><i class="ti ti-message-2" aria-hidden="true"></i>問い合わせ履歴メモ</strong>
@@ -268,8 +289,20 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
                     </ul>
                   </div>
                 </section>
-                <div v-if="d.result" class="cti-success" role="status"><i class="ti ti-circle-check" aria-hidden="true"></i><h3>{{ d.result.confirmationError ? '予約を保存しました・確定は未完了' : '予約を作成しました' }}</h3><p>保存しました。</p><p v-if="d.result.confirmationError">{{ d.result.confirmationError }}</p><div class="cti-success__actions"><button class="btn btn-outline-primary" type="button" @click="copyTherapistMessage(d.result.order)"><i class="ti ti-copy me-1" aria-hidden="true"></i>セラピスト共有文をコピー</button><a class="btn btn-primary" :href="`/op/schedule?store=${d.context.store_id}&date=${d.result.startDate}&highlight=${d.result.order.id}`" target="_blank" rel="noopener">タイムラインを開く</a></div></div>
-                <fieldset v-else :disabled="d.offline" class="border-0 p-0 m-0"><OrderForm :api-client="d.client" :call-bound="true" :initial-phone="numericPhone(d.context.from_phone) ? d.context.from_phone : ''" :initial-customer-id="d.context.customer_id || ''" :embedded="true" :show-flow-hint="false" cancel-label="一覧に戻る（入力を保持）" @cancel="activeId = null" @created="created(d, $event)" /></fieldset>
+                <section class="cti-inquiry" aria-label="今回の問い合わせメモ">
+                  <strong>今回の問い合わせメモ</strong>
+                  <ul v-if="d.context.customer_history?.current_notes?.length" class="cti-inquiry__saved"><li v-for="note in d.context.customer_history.current_notes" :key="note.id"><time>{{ formatDateTime(note.created_at) }}</time><p>{{ note.body }}</p></li></ul>
+                  <template v-if="!d.result?.inquiryOnly">
+                    <label :for="`cti-note-${d.id}`">予約に至らなかった内容も共有できます</label>
+                    <textarea :id="`cti-note-${d.id}`" v-model="d.noteText" class="form-control" rows="3" maxlength="2000" placeholder="例：希望時間が満席のため、明日また問い合わせ予定" :disabled="busy || d.orderSaving || d.offline"></textarea>
+                    <p v-if="d.noteError" class="text-danger" role="alert">{{ d.noteError }}</p>
+                    <button type="button" class="btn btn-outline-primary" :disabled="busy || d.orderSaving || d.offline || !d.noteText?.trim()" @click="saveInquiry(d)">{{ d.noteSaving ? '保存中…' : d.result ? 'メモを保存' : 'メモを保存して受付完了' }}</button>
+                    <small v-if="!d.result">予約入力中の内容は保存されません。</small>
+                  </template>
+                </section>
+                <div v-if="d.result?.inquiryOnly" class="cti-success" role="status"><i class="ti ti-circle-check" aria-hidden="true"></i><h3>問い合わせメモを保存しました</h3><p>予約を作成せず、受付を完了しました。</p></div>
+                <div v-else-if="d.result" class="cti-success" role="status"><i class="ti ti-circle-check" aria-hidden="true"></i><h3>{{ d.result.confirmationError ? '予約を保存しました・確定は未完了' : '予約を作成しました' }}</h3><p>保存しました。</p><p v-if="d.result.confirmationError">{{ d.result.confirmationError }}</p><div class="cti-success__actions"><button class="btn btn-outline-primary" type="button" @click="copyTherapistMessage(d.result.order)"><i class="ti ti-copy me-1" aria-hidden="true"></i>セラピスト共有文をコピー</button><a class="btn btn-primary" :href="`/op/schedule?store=${d.context.store_id}&date=${d.result.startDate}&highlight=${d.result.order.id}`" target="_blank" rel="noopener">タイムラインを開く</a></div></div>
+                <fieldset v-else :disabled="d.offline || busy" class="border-0 p-0 m-0"><OrderForm :api-client="d.client" :call-bound="true" :initial-phone="numericPhone(d.context.from_phone) ? d.context.from_phone : ''" :initial-customer-id="d.context.customer_id || ''" :embedded="true" :show-flow-hint="false" cancel-label="一覧に戻る（入力を保持）" @cancel="activeId = null" @created="created(d, $event)" @submitting-change="d.orderSaving = $event" /></fieldset>
               </template>
               <button v-if="!d.result && !d.blocked" class="cti-finish" :disabled="busy" @click="finishReception(d)">予約を作成せず、受付を完了</button>
               <button class="cti-discard" @click="discardDraft(d.id)">{{ d.result || d.blocked ? 'この入力タブを閉じる' : 'この入力を破棄' }}</button>
@@ -282,6 +315,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
 </template>
 
 <style scoped>
+.cti-history-summary__heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}.cti-history-summary__heading a{font-size:12px}.cti-history-summary li a{display:grid;gap:3px;color:#365e55;text-decoration:none;overflow-wrap:anywhere}.cti-history-summary small{display:block;margin-top:8px;color:#71857c;font-size:11px}.cti-inquiry{border:1px solid #dceae3;border-radius:14px;padding:14px 16px;margin-bottom:16px;font-size:13px}.cti-inquiry strong{display:block;color:#365e55;margin-bottom:8px}.cti-inquiry label{display:block;font-size:12px;margin-bottom:7px}.cti-inquiry textarea{margin-bottom:10px}.cti-inquiry .btn{min-height:44px;font-size:13px}.cti-inquiry small{display:block;color:#71857c;font-size:12px;margin-top:7px}.cti-inquiry__saved{list-style:none;padding:0;margin:0}.cti-inquiry__saved li+li{border-top:1px solid #dceae3;padding-top:8px}.cti-inquiry__saved time{font-size:11px;color:#71857c}.cti-inquiry__saved p{white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0 10px}
 .cti-work{--bs-primary:#4e9a91;--bs-primary-rgb:78,154,145}
 :global(body.cti-modal-open){overflow:hidden}
 .cti-work :deep(.select-grid){grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}

@@ -12,6 +12,7 @@ const Phone = () => import('./pages/op/Phone.vue')
 const OrderDetail = () => import('./pages/op/OrderDetail.vue')
 const CustomerList = () => import('./pages/op/CustomerList.vue')
 const CustomerDetail = () => import('./pages/op/CustomerDetail.vue')
+const LegacyHistories = () => import('./pages/op/LegacyHistories.vue')
 const ShiftList = () => import('./pages/op/ShiftList.vue')
 const ShiftWeekly = () => import('./pages/op/ShiftWeekly.vue')
 const SettingsSmsTemplates = () => import('./pages/op/SettingsSmsTemplates.vue')
@@ -102,6 +103,7 @@ const routes = [
   { path: '/op/phone', name: 'phone', component: Phone },
   { path: '/op/orders/:id', name: 'order-detail', component: OrderDetail, props: true },
   { path: '/op/customers', name: 'customer-list', component: CustomerList },
+  { path: '/op/legacy-histories', name: 'legacy-histories', component: LegacyHistories },
   { path: '/op/customers/:id', name: 'customer-detail', component: CustomerDetail, props: true },
   { path: '/op/shifts', name: 'shift-list', component: ShiftList },
   { path: '/op/shifts/weekly', name: 'shift-weekly', component: ShiftWeekly },
