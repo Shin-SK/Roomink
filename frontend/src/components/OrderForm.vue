@@ -23,7 +23,7 @@ const props = defineProps({
   completedCorrection: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['created', 'updated', 'cancel'])
+const emit = defineEmits(['created', 'updated', 'cancel', 'submitting-change'])
 const api = props.apiClient || defaultApi
 const formId = useId()
 const loadError = ref('')
@@ -57,6 +57,7 @@ const discounts = ref([])
 const paymentFeeRates = ref({ card_fee_rate: 10, paypay_fee_rate: 5 })
 const loading = ref(true)
 const submitting = ref(false)
+watch(submitting, value => emit('submitting-change', value), { flush: 'sync' })
 const errorMsg = ref('')
 const editBaseline = ref(null)
 const editConflict = ref(false)

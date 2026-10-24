@@ -1315,6 +1315,36 @@ class WorkDeviceEvent(models.Model):
         ordering = ["-created_at", "-id"]
 
 
+class LegacyCustomerHistory(models.Model):
+    """Reference-only source records; never reservations or accounting entries."""
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="legacy_customer_histories")
+    customer = models.ForeignKey(Customer, null=True, blank=True, on_delete=models.SET_NULL, related_name="legacy_histories")
+    source = models.CharField(max_length=50)
+    legacy_customer_id = models.CharField(max_length=80)
+    display_name = models.CharField(max_length=200)
+    phone = models.CharField(max_length=100, blank=True)
+    entries = models.JSONField(default=list)
+    source_fingerprint = models.CharField(max_length=64)
+    link_reason = models.CharField(max_length=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["store", "source", "legacy_customer_id"], name="unique_legacy_customer_history")]
+        ordering = ["legacy_customer_id", "id"]
+
+    @property
+    def history_text(self):
+        return "\n\n".join(
+            "\n".join(filter(None, [
+                f"{entry['date']} {entry['time']}　{entry['therapist']} / {entry['course']}",
+                f"料金 {entry['charge']}円 / {entry['payment']}",
+                *[f"{label}: {entry[key]}" for key, label in (("nomination", "指名"), ("extension", "延長"), ("options", "オプション"), ("discount", "割引"), ("memo", "備考")) if entry.get(key)],
+            ]))
+            for entry in self.entries
+        )
+
+
 class CallLog(models.Model):
     class Status(models.TextChoices):
         NEW = "NEW", "新規"

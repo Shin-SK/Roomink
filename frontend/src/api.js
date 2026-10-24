@@ -157,6 +157,7 @@ export function callApi(callId) {
     markSeen: () => send('POST', '/op/cti/calls/mark-seen/', { call_ids: [callId] }),
     start: () => send('POST', `/op/cti/calls/${callId}/start/`, {}),
     done: () => send('POST', `/op/cti/calls/${callId}/done/`, {}),
+    saveInquiry: (body) => send('POST', `/op/cti/calls/${callId}/notes/`, { body, complete_reception: true }),
   })
 }
 
@@ -268,6 +269,8 @@ export const api = {
   ),
 
   // Customers
+  getLegacyHistories: (params = '') => request('GET', `/op/legacy-histories/?${params}`),
+  getLegacyHistory: (id) => request('GET', `/op/legacy-histories/${id}/`),
   getCustomers: (params = '') => listRequest('GET', `/customers/${params ? '?' + params : '?limit=1000'}`),
   getCustomer: (id) => request('GET', `/customers/${id}/`),
   getCustomerReservationContext: (id) => request('GET', `/customers/${id}/reservation-context/`),
