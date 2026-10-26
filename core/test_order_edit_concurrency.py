@@ -1,9 +1,9 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
-from django.utils import timezone
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
@@ -23,7 +23,9 @@ class OrderEditConcurrencyTest(TestCase):
         self.course = Course.objects.create(store=self.store, name="60分", duration=60, price=20000)
         self.room = Room.objects.create(store=self.store, name="A")
         customer = Customer.objects.create(store=self.store, phone="09000000000")
-        start = timezone.now().replace(second=0, microsecond=0)
+        # Keep the reservation inside its business day even in 04:00 CI runs.
+        # Leave the real update clock running for the version-conflict checks.
+        start = datetime(2026, 10, 26, 12, tzinfo=ZoneInfo("Asia/Tokyo"))
         self.order = Order.objects.create(
             store=self.store, cast=self.cast, course=self.course, customer=customer, room=self.room,
             start=start, end=start + timedelta(minutes=60), status="CONFIRMED", payment_method="CASH",
