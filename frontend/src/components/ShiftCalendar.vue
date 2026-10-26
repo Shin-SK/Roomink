@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { calendarDays, layoutDayEvents, shiftMinutes } from '../shiftCalendar.js'
+import { calendarDays, compactDayEvents, shiftMinutes } from '../shiftCalendar.js'
 const props = defineProps({
   mode: { type: String, required: true }, anchor: { type: String, required: true },
   today: { type: String, required: true }, selected: { type: String, required: true },
@@ -20,6 +20,7 @@ const range = computed(() => {
 })
 const hours = computed(() => Array.from({ length: (range.value.end - range.value.start) / 60 }, (_, i) => range.value.start / 60 + i))
 const height = computed(() => hours.value.length * 44)
+const weekEvents = computed(() => new Map(days.value.map(day => [day, compactDayEvents(byDay.value.get(day))])))
 const weekdays = ['月', '火', '水', '木', '金', '土', '日']
 function timeLabel(s) { return `${s.start_time_extended || s.start_time?.slice(0, 5)}〜${s.end_time_extended || s.end_time?.slice(0, 5)}` }
 function status(s) { return s.is_absent ? '当欠' : s.clocked_in_at ? '出勤済み' : '未打刻' }
@@ -43,14 +44,15 @@ function eventStyle(item) {
     </div>
     <div v-else class="week-scroll" tabindex="0" aria-label="週表示。左右にスクロールできます">
       <div class="week-grid">
-        <div class="week-header"><span class="time-zone">営業日</span><button v-for="(day, i) in days" :key="day" type="button" :class="{ selected: day === selected }" :aria-label="`${day}のシフトを見る`" @click="emit('select-day', day)"><span>{{ weekdays[i] }}</span><strong :class="{ today: day === today }">{{ Number(day.slice(-2)) }}</strong></button></div>
+        <div class="week-header"><span class="time-zone">営業日</span><button v-for="(day, i) in days" :key="day" type="button" :class="{ selected: day === selected }" :aria-label="`${day}の全${byDay.get(day).length}件を見る`" @click="emit('select-day', day)"><span>{{ weekdays[i] }}</span><strong :class="{ today: day === today }">{{ Number(day.slice(-2)) }}</strong><span>{{ byDay.get(day).length }}件</span></button></div>
         <div class="week-body" :style="{ height: `${height}px` }">
           <div class="time-axis"><div v-for="hour in hours" :key="hour" class="time-label">{{ String(hour).padStart(2, '0') }}:00</div></div>
           <div v-for="day in days" :key="day" class="week-day" :class="{ 'selected-column': day === selected }">
             <div v-for="hour in hours" :key="hour" class="hour-line"></div>
-            <button v-for="item in layoutDayEvents(byDay.get(day))" :key="item.shift.id" type="button" class="week-event" :class="{ absent: item.shift.is_absent, attended: item.shift.clocked_in_at && !item.shift.is_absent }" :style="eventStyle(item)" :title="title(item.shift)" :aria-label="`${title(item.shift)}を編集`" @click="emit('select-shift', item.shift)">
+            <button v-for="item in weekEvents.get(day).visible" :key="item.shift.id" type="button" class="week-event" :class="{ absent: item.shift.is_absent, attended: item.shift.clocked_in_at && !item.shift.is_absent }" :style="eventStyle(item)" :title="title(item.shift)" :aria-label="`${title(item.shift)}を編集`" @click="emit('select-shift', item.shift)">
               <strong>{{ item.shift.cast_name }}</strong><span>{{ timeLabel(item.shift) }}</span><span>{{ item.shift.room_name || 'ルーム未定' }}</span><span>{{ status(item.shift) }}</span>
             </button>
+            <button v-for="item in weekEvents.get(day).overflow" :key="item.key" type="button" class="week-event week-overflow" :style="eventStyle(item)" :aria-label="`${day}の重なるシフト他${item.count}件を一覧で見る`" @click="emit('select-day', day)">他{{ item.count }}件<span>一覧で確認</span></button>
           </div>
         </div>
       </div>
@@ -66,7 +68,7 @@ function eventStyle(item) {
 .month-day { min-height: 144px; border-right: 1px solid var(--calendar-line); border-bottom: 1px solid var(--calendar-line); padding: 5px; min-width: 0; }
 .month-day:nth-child(7n) { border-right: 0; }.month-day:nth-last-child(-n+7) { border-bottom: 0; }
 .outside { background: #f8f9fa; color: #90959e; }.selected { background: #eaf2ff; }
-.day-number { display: block; width: 28px; height: 28px; border: 0; background: transparent; color: inherit; border-radius: 50%; margin: 0 auto 4px; font-size: 13px; }
+.day-number { display: block; width: 28px; height: 28px; line-height: 28px; padding: 0; white-space: nowrap; border: 0; background: transparent; color: inherit; border-radius: 50%; margin: 0 auto 4px; font-size: 13px; }
 .today { background: var(--calendar-blue) !important; color: white !important; border-radius: 50%; }
 .month-event { display: flex; align-items: center; width: 100%; gap: 4px; border: 0; border-radius: 4px; padding: 3px 4px; background: #e8f0fe; color: #174ea6; margin-bottom: 3px; font-size: 12px; text-align: left; }
 .event-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }.event-start { font-size: 10px; white-space: nowrap; }
@@ -81,5 +83,6 @@ function eventStyle(item) {
 .week-day { position: relative; border-left: 1px solid var(--calendar-line); }.selected-column { background: #f7faff; }.time-label { height: 44px; font-size: 10px; text-align: right; padding: 0 6px; color: #6b7280; }
 .hour-line { height: 44px; border-bottom: 1px solid var(--calendar-line); }.week-event { position: absolute; border: 0; border-left: 3px solid var(--calendar-blue); border-radius: 5px; background: #e8f0fe; color: #174ea6; padding: 5px; text-align: left; overflow: auto; font-size: 11px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .calendar-hint { font-size: 12px; color: #6b7280; margin: 10px 0 18px; }button:focus-visible { outline: 2px solid var(--calendar-blue); outline-offset: -2px; }button:hover { filter: brightness(.97); }
+.week-overflow { background: #f1f3f4; color: #5f6368; border-left-color: #9aa0a6; }.week-header button.selected { background: #eaf2ff; }
 @media(max-width: 600px) { .month-day { min-height: 110px; padding: 2px; }.month-event { padding: 2px; gap: 2px; font-size: 10px; }.event-start, .event-dot { display: none; }.day-number { width: 25px; height: 25px; }.more-events { font-size: 10px; padding: 1px; }.week-scroll { max-height: 560px; } }
 </style>

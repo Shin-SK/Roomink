@@ -46,7 +46,7 @@ export function layoutDayEvents(shifts) {
       lanes[lane] = item.end
       item.lane = lane
     }
-    result.push(...group.map(item => ({ ...item, columns: lanes.length })))
+    result.push(...group.map(item => ({ ...item, columns: lanes.length, groupStart: group[0].start, groupEnd: Math.max(...group.map(row => row.end)) })))
     group = []
   }
   for (const item of sorted) {
@@ -56,4 +56,21 @@ export function layoutDayEvents(shifts) {
   }
   finish()
   return result
+}
+
+// Dense overlap groups use the calendar's familiar "+N" affordance rather than
+// squeezing names into a few pixels. The complete day remains in the list.
+export function compactDayEvents(shifts) {
+  const items = layoutDayEvents(shifts)
+  const visible = [], overflow = new Map()
+  for (const item of items) {
+    if (item.columns <= 3 || item.lane < 2) {
+      visible.push({ ...item, columns: Math.min(item.columns, 3) })
+    } else {
+      const key = `${item.groupStart}-${item.groupEnd}`
+      if (!overflow.has(key)) overflow.set(key, { start: item.groupStart, end: item.groupEnd, columns: 3, lane: 2, count: 0, key })
+      overflow.get(key).count++
+    }
+  }
+  return { visible, overflow: [...overflow.values()] }
 }

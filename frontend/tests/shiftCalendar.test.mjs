@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { calendarDays, movePeriod, addDays, shiftMinutes, layoutDayEvents } from '../src/shiftCalendar.js'
+import { calendarDays, movePeriod, addDays, shiftMinutes, layoutDayEvents, compactDayEvents } from '../src/shiftCalendar.js'
 
 test('month grid includes all six weeks across year boundaries and leap day', () => {
   const december = calendarDays('2026-12-31', 'month')
@@ -30,4 +30,16 @@ test('overlapping shifts get separate columns, adjacent shifts reuse the full wi
   assert.equal(rows[3].columns, 1)
   assert.equal(rows[3].lane, 0)
   assert.deepEqual(layoutDayEvents([]), [])
+})
+
+test('dense days keep readable cards and expose every hidden shift through the day list', () => {
+  const shifts = Array.from({ length: 12 }, (_, id) => ({ id, start_time: '10:00', end_time: '18:00' }))
+  shifts.push({ id: 13, start_time: '19:00', end_time: '20:00' })
+  const result = compactDayEvents(shifts)
+  assert.equal(result.visible.length, 3)
+  assert.equal(result.overflow.length, 1)
+  assert.equal(result.overflow[0].count, 10)
+  assert.equal(result.overflow[0].columns, 3)
+  assert.equal(result.visible.at(-1).columns, 1)
+  assert.equal(result.visible.length + result.overflow.reduce((n, group) => n + group.count, 0), shifts.length)
 })

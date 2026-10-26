@@ -46,7 +46,11 @@ function goToday() {
   calendarAnchor.value = today.value; selectedDay.value = today.value
   if (!isCalendar.value) { filterDate.value = today.value; viewMode.value = 'today' }
 }
-function selectCalendarDay(day) { selectedDay.value = day }
+async function selectCalendarDay(day) {
+  selectedDay.value = day
+  await nextTick()
+  document.getElementById('selected-shift-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 const filterDate = ref(today.value)
 const searchQuery = ref('')
 
@@ -511,7 +515,7 @@ async function onClearClockIn(s) {
         </div>
 
         <ShiftCalendar v-if="isCalendar && !loading" :mode="viewMode" :anchor="calendarAnchor" :today="today" :selected="selectedDay" :shifts="filteredShifts" @select-day="selectCalendarDay" @select-shift="openEdit" />
-        <div v-if="isCalendar && !loading" class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+        <div v-if="isCalendar && !loading" id="selected-shift-list" class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2" style="scroll-margin-top: 40px">
           <h3 class="h6 m-0">{{ formatDateLabel(selectedDay) }}のシフト</h3>
           <button type="button" class="btn btn-sm btn-outline-primary" @click="openCreate(); form.date = selectedDay">この日にシフトを追加</button>
         </div>
