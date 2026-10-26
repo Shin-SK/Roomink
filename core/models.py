@@ -1994,6 +1994,20 @@ class OrderAccountingCorrection(models.Model):
         ordering = ["-created_at", "-id"]
 
 
+class CastCheckoutCashCorrection(models.Model):
+    """日単位の実受渡入力の訂正。予約取消・事務所払いの履歴とは分ける。"""
+    checkout = models.ForeignKey(CastDailyCheckout, on_delete=models.CASCADE, related_name="cash_corrections")
+    order = models.ForeignKey(Order, null=True, blank=True, on_delete=models.SET_NULL)
+    reason = models.CharField(max_length=500)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    corrected_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
 class CastOfficeCashReceipt(models.Model):
     """事務所でキャストへ渡した現金の、消さない受取履歴。"""
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="cast_office_cash_receipts")

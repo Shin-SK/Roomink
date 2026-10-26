@@ -32,6 +32,7 @@ const detailError = ref('')
 const managerMemoDraft = ref('')
 const actionSaving = ref(false)
 const settlementForm = ref({ room_cash_taken_amount: 0 })
+const cashCorrectionReason = ref('')
 const officePaymentForm = ref({ amount: 0, received_on: '', memo: '' })
 
 const CHECKLIST_ITEMS = [
@@ -127,6 +128,7 @@ onMounted(async () => {
 watch([filterDate, filterCast, filterStatus], () => loadCheckouts())
 
 async function openDetail(row) {
+  cashCorrectionReason.value = ''
   showDetail.value = true
   detail.value = null
   detailError.value = ''
@@ -154,10 +156,16 @@ async function saveDetail() {
   actionSaving.value = true
   detailError.value = ''
   try {
-    detail.value = await api.updateCastCheckoutCashSettlement(detail.value.id, {
-      ...settlementForm.value,
-      manager_memo: managerMemoDraft.value,
-    })
+    if (Number(settlementForm.value.room_cash_taken_amount) !== detail.value.room_cash_taken_amount) {
+      detail.value = await api.correctCastCheckoutCashReceipt(detail.value.id, {
+        room_cash_taken_amount: settlementForm.value.room_cash_taken_amount,
+        expected_updated_at: detail.value.updated_at, reason: cashCorrectionReason.value,
+        manager_memo: managerMemoDraft.value,
+      })
+      cashCorrectionReason.value = ''
+    } else {
+      detail.value = await api.updateCastCheckoutCashSettlement(detail.value.id, { manager_memo: managerMemoDraft.value })
+    }
     await Promise.all([loadCheckouts(), loadRoomCash()])
   } catch (e) {
     detailError.value = e.message
@@ -420,14 +428,20 @@ function createAdjustmentFromCheckout() {
                 </div>
                 <div class="row g-2">
                   <div class="col-md-4">
-                    <label for="cast-settlement-amount" class="form-label small mb-1">キャスト精算額</label>
+                    <label for="cast-settlement-amount" class="form-label small mb-1">ルームから実際に渡した金額（1日分）</label>
                     <div class="input-group input-group-sm">
-                      <input id="cast-settlement-amount" v-model.number="settlementForm.room_cash_taken_amount" type="number" min="0" :max="Math.max(0, detail.carryover_opening_amount + detail.compensation_amount - detail.office_cash_paid_amount)" class="form-control" />
+                      <input id="cast-settlement-amount" v-model.number="settlementForm.room_cash_taken_amount" type="number" min="0" step="1" class="form-control" />
                       <span class="input-group-text">円</span>
                     </div>
-                    <div class="form-text">今回キャストへ精算する金額</div>
+                    <div class="form-text">同日の別予約の受渡額も含めた合計です。練習入力で現金を渡していなければ0円へ訂正できます。</div>
+                  </div>
+                  <div v-if="Number(settlementForm.room_cash_taken_amount) !== detail.room_cash_taken_amount" class="col-md-8">
+                    <label for="checkout-correction-reason" class="form-label small mb-1">訂正理由（必須）</label><textarea id="checkout-correction-reason" v-model="cashCorrectionReason" maxlength="500" class="form-control form-control-sm" rows="2" placeholder="実際の受渡額と異なる理由を入力"></textarea>
+                    <div class="form-text">訂正前後の金額・理由・操作者を保存します。事務所払いや返金は変更しません。</div>
                   </div>
                 </div>
+
+                <details v-if="detail.cash_corrections?.length" class="mt-3"><summary class="small fw-bold">実受渡額の訂正履歴（{{ detail.cash_corrections.length }}件）</summary><div v-for="item in detail.cash_corrections" :key="item.id" class="small border-top py-2 mt-2"><strong>{{ formatYen(item.before.room_cash_taken_amount) }} → {{ formatYen(item.after.room_cash_taken_amount) }}</strong><div>{{ item.reason }}</div><div class="text-muted">{{ item.corrected_by_name }}・{{ formatDateTime(item.created_at) }}</div></div></details>
 
                 <div class="border-top mt-3 pt-3">
                   <div class="fw-bold small mb-2">事務所で渡した現金を記録</div>

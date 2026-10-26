@@ -527,6 +527,7 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
     compensation_amount = serializers.SerializerMethodField()
     carryover_opening_amount = serializers.SerializerMethodField()
     carryover_closing_amount = serializers.SerializerMethodField()
+    cash_corrections = serializers.SerializerMethodField()
 
     class Meta:
         model = CastDailyCheckout
@@ -540,12 +541,21 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
             "compensation_amount", "carryover_opening_amount", "carryover_closing_amount",
             "checklist_json", "cast_memo", "manager_memo",
             "submitted_at", "reviewed_at", "reviewed_by", "reviewed_by_name",
-            "expense_snapshots", "created_at", "updated_at",
+            "expense_snapshots", "cash_corrections", "created_at", "updated_at",
         ]
         read_only_fields = [f for f in fields if f != "manager_memo"]
 
     def get_reviewed_by_name(self, obj) -> Optional[str]:
         return obj.reviewed_by.username if obj.reviewed_by else None
+
+    @extend_schema_field({"type": "array", "items": {"type": "object", "additionalProperties": True}})
+    def get_cash_corrections(self, obj) -> list:
+        return [{
+            "id": item.pk, "order": item.order_id, "reason": item.reason,
+            "before": item.before, "after": item.after,
+            "corrected_by_name": (item.corrected_by.get_full_name() or item.corrected_by.username) if item.corrected_by else "記録なし",
+            "created_at": item.created_at.isoformat(),
+        } for item in obj.cash_corrections.all()]
 
     def get_compensation_amount(self, obj) -> int:
         from .views import _checkout_compensation

@@ -116,6 +116,7 @@ class ExtensionCompensationTest(TestCase):
                     self.order.refresh_from_db()
                     response = self.manager_client.post(f"/api/orders/{self.order.pk}/cancel/", {
                         "expected_updated_at": self.order.updated_at.isoformat(),
+                        "checkout_cash_review": {"action": "keep", "expected_updated_at": checkout.updated_at.isoformat()},
                     }, format="json")
                     self.assertEqual(response.status_code, 200, response.data)
                     checkout.refresh_from_db()
