@@ -276,6 +276,12 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
                 </div>
                 <section v-if="d.context.customer_history" class="cti-history-summary" aria-label="顧客と問い合わせの履歴">
                   <div v-if="d.context.customer_id" class="cti-history-summary__section">
+                    <div class="cti-history-summary__heading"><strong><i class="ti ti-history" aria-hidden="true"></i>Roominkでの利用履歴</strong><a :href="`/op/customers/${d.context.customer_id}?store=${d.context.store_id}`" target="_blank" rel="noopener">すべて見る</a></div>
+                    <p v-if="!d.context.customer_history.visits?.length">Roominkでの利用履歴はまだありません。</p>
+                    <ul v-else><li v-for="visit in d.context.customer_history.visits" :key="visit.id"><a :href="`/op/orders/${visit.id}?store=${d.context.store_id}`" target="_blank" rel="noopener"><time>{{ formatDateTime(visit.start) }}</time><span>{{ visit.cast_name }} · {{ visit.course_name }}</span></a></li></ul>
+                    <small v-if="d.context.customer_history.visits?.length">完了した予約の直近5件まで表示</small>
+                  </div>
+                  <div v-if="d.context.customer_id" class="cti-history-summary__section">
                     <strong><i class="ti ti-history" aria-hidden="true"></i>旧システムの利用履歴</strong>
                     <p v-if="d.context.customer_history.legacy_usage_history">{{ d.context.customer_history.legacy_usage_history }}</p>
                     <p v-else-if="!d.context.customer_history.legacy_records?.length">登録されていません</p>
