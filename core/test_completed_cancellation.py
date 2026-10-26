@@ -33,7 +33,7 @@ class CompletedCancellationTest(TestCase):
     def test_submitted_checkout_updates_and_keeps_actual_cash(self, notify, now):
         response = self.cast_client.post("/api/cast/checkout/", {"room_cash_taken_amount": 5000}, format="json")
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(self.cancel().status_code, 200)
+        self.assertEqual(self.cancel(checkout_cash_review={"action": "keep", "expected_updated_at": response.data["updated_at"]}).status_code, 200)
         checkout = CastDailyCheckout.objects.get()
         self.assertEqual((checkout.done_count, checkout.total_sales, checkout.estimated_pay), (0, 0, 0))
         self.assertEqual(checkout.room_cash_taken_amount, 5000)

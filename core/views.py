@@ -983,6 +983,21 @@ class OrderViewSet(viewsets.ModelViewSet):
             OrderSerializer(locked_order, context={"request": request}).data,
         )
 
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @action(detail=True, methods=["get"], url_path="cancellation-checkout")
+    def cancellation_checkout(self, request, pk=None):
+        order = self.get_object()
+        day = business_date_for_datetime(order.start, order.store.timezone)
+        checkout = CastDailyCheckout.objects.filter(store=order.store, cast=order.cast, date=day).first()
+        return Response({"checkout": ({
+            "id": checkout.pk, "date": checkout.date.isoformat(), "cast_name": checkout.cast.name,
+            "room_cash_taken_amount": checkout.room_cash_taken_amount,
+            "office_cash_paid_amount": checkout.office_cash_paid_amount,
+            "cash_returned_to_room_amount": checkout.cash_returned_to_room_amount,
+            "expected_updated_at": checkout.updated_at.isoformat(),
+            "can_correct": get_request_profile(request).role == "manager",
+        } if checkout else None)})
+
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         order = self.get_object()
@@ -1010,6 +1025,17 @@ class OrderViewSet(viewsets.ModelViewSet):
                             ),
                             **payment_financial_summary(order.store, get_done_orders_for_business_range(order.store, day, day).filter(cast=order.cast))}
                 checkout = CastDailyCheckout.objects.select_for_update().filter(store=order.store, cast=order.cast, date=day).first()
+                cash_review = request.data.get("checkout_cash_review")
+                cash_correction = None
+                if checkout and (cash_review is not None or checkout.room_cash_taken_amount or checkout.office_cash_paid_amount):
+                    from .services.checkout_cash_correction import require_current_checkout, validate_cash_correction
+                    if not isinstance(cash_review, dict) or cash_review.get("action") not in ("keep", "correct"):
+                        raise ValidationError("精算済みです。その日の実際の受渡額を確認してから取り消してください。")
+                    require_current_checkout(checkout, cash_review.get("expected_updated_at"))
+                    if cash_review["action"] == "correct":
+                        if get_request_profile(request).role != "manager":
+                            raise PermissionDenied("実受渡額の訂正は店舗管理者のみ行えます。")
+                        cash_correction = validate_cash_correction(cash_review)
                 previous = totals()
                 if checkout and checkout.total_sales != previous["total_sales"]:
                     raise ValidationError("退勤提出と現在の売上が一致しません。先に退勤内容を確認してください。")
@@ -1036,6 +1062,9 @@ class OrderViewSet(viewsets.ModelViewSet):
                     checkout.reviewed_at = None
                     checkout.reviewed_by = None
                     checkout.save(update_fields=[*previous, "status", "reviewed_at", "reviewed_by", "updated_at"])
+                    if cash_correction:
+                        from .services.checkout_cash_correction import correct_cash_receipt
+                        correct_cash_receipt(checkout, *cash_correction, request.user, order=order)
                 OrderAccountingCorrection.objects.create(
                     order=order, checkout=checkout, corrected_by=request.user,
                     reason="終了後の予約取消", before=cancellation_before, after={"status": "CANCELLED"},
@@ -4016,7 +4045,7 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
     queryset = (
         CastDailyCheckout.objects
         .select_related("cast", "room", "reviewed_by")
-        .prefetch_related("expense_snapshots")
+        .prefetch_related("expense_snapshots", "cash_corrections__corrected_by")
         .order_by("-date", "cast")
     )
     serializer_class = CastDailyCheckoutSerializer
@@ -4092,6 +4121,14 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         """運営だけが、ルーム現金・返金・メモを退勤精算に追記する。"""
         self.check_manager(request)
         instance = self.get_object()
+        audit_fields = ("room_cash_taken_amount", "actual_take_home_amount", "office_cash_paid_amount", "cash_returned_to_room_amount", "room_id")
+        before_cash = {field: getattr(instance, field) for field in audit_fields}
+        if any(field in request.data for field in ("room_cash_taken_amount", "cash_returned_to_room_amount", "room")):
+            _require_daily_settlement_open(instance.store, instance.date)
+        if "room_cash_taken_amount" in request.data and instance.room_cash_taken_amount:
+            from .services.checkout_cash_correction import require_current_checkout, validate_cash_correction
+            validate_cash_correction(request.data)
+            require_current_checkout(instance, request.data.get("expected_updated_at"))
         numeric_fields = (
             "room_cash_taken_amount",
             "cash_returned_to_room_amount",
@@ -4140,6 +4177,32 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
             updates.append("actual_take_home_amount")
         instance._cash_recorded_by_id = request.user.pk
         instance.save(update_fields=[*updates, "updated_at"])
+        after_cash = {field: getattr(instance, field) for field in audit_fields}
+        if before_cash != after_cash:
+            from .models import CastCheckoutCashCorrection
+            reason = request.data.get("reason") or request.data.get("manager_memo") or "店舗による現金精算入力"
+            CastCheckoutCashCorrection.objects.create(checkout=instance, before=before_cash, after=after_cash, reason=str(reason)[:500], corrected_by=request.user)
+            instance._prefetched_objects_cache = {}
+        return Response(CastDailyCheckoutSerializer(instance).data)
+
+    @extend_schema(request=OpenApiTypes.OBJECT, responses=CastDailyCheckoutSerializer)
+    @action(detail=True, methods=["patch"], url_path="cash-receipt-correction")
+    def cash_receipt_correction(self, request, pk=None):
+        """既に取消済みの日も含め、実受渡額だけを理由付きで訂正する。"""
+        self.check_manager(request)
+        instance = self.get_object()
+        instance = CastDailyCheckout.objects.select_for_update().get(pk=instance.pk, store=instance.store)
+        _require_daily_settlement_open(instance.store, instance.date)
+        from .services.checkout_cash_correction import require_current_checkout, validate_cash_correction, correct_cash_receipt
+        amount, reason = validate_cash_correction(request.data)
+        require_current_checkout(instance, request.data.get("expected_updated_at"))
+        correct_cash_receipt(instance, amount, reason, request.user)
+        if "manager_memo" in request.data:
+            memo = request.data["manager_memo"]
+            if not isinstance(memo, str):
+                raise ValidationError("管理者メモは文字列で入力してください。")
+            instance.manager_memo = memo
+            instance.save(update_fields=["manager_memo", "updated_at"])
         return Response(CastDailyCheckoutSerializer(instance).data)
 
     @action(detail=True, methods=["post"], url_path="office-payment")

@@ -51,6 +51,7 @@ test('completed order cancellation requires confirmation, sends revision and res
   const calls = []
   globalThis.__cancelOrderTestApi = {
     getOrder: async () => baseline, getPaymentFeeSettings: async () => ({}),
+    getCancellationCheckout: async () => ({ checkout: null }),
     getCustomers: async () => [], getOrderSmsLogs: async () => [],
     cancelOrder: async (id, body) => { calls.push({ id, body }); return { ...baseline, status: 'CANCELLED', accounting_corrections: [{ before: { status: 'DONE' }, after: { status: 'CANCELLED' } }] } },
   }
@@ -80,6 +81,40 @@ test('completed order cancellation requires confirmation, sends revision and res
     delete globalThis.__cancelOrderTestApi
     unmount()
   }
+})
+
+test('settled cancellation waits for an explicit daily cash choice and keeps input after a conflict', async () => {
+  const baseline = { ...initial, status: 'DONE', can_modify: true, can_correct_accounting: true }
+  const calls = []
+  globalThis.__cancelOrderTestApi = {
+    getOrder: async () => baseline, getPaymentFeeSettings: async () => ({}),
+    getCustomers: async () => [], getOrderSmsLogs: async () => [],
+    getCancellationCheckout: async () => ({ checkout: { id: 9, room_cash_taken_amount: 13500, expected_updated_at: 'checkout-revision', can_correct: true } }),
+    cancelOrder: async (id, body) => { calls.push({ id, body }); throw conflict() },
+  }
+  const { state, unmount } = await mountSource('../src/pages/op/OrderDetail.vue', { id: 1 }, code => code
+    .replace(/import \{ useRouter \} from 'vue-router'/, 'const useRouter = () => ({ push() {} })')
+    .replace(/import LayoutOperator from .*\n/, 'const LayoutOperator = {}\n')
+    .replace(/import OrderForm from .*\n/, 'const OrderForm = {}\n')
+    .replace(/import \{ api \} from .*\n/, 'const api = globalThis.__cancelOrderTestApi\n')
+    .replace(/import \{ getAuthRole \} from .*\n/, "const getAuthRole = () => 'manager'\n"))
+  try {
+    await state.doCancel()
+    assert.equal(state.showCashReview, true)
+    assert.equal(state.cashReviewChoice, '')
+    assert.equal(state.cancellationCashAmount, 13500)
+    await state.confirmCashReviewCancellation()
+    assert.equal(calls.length, 0)
+    state.cashReviewChoice = 'correct'
+    state.cancellationCashAmount = 0
+    state.cancellationCashReason = '操作練習で受渡しなし'
+    await state.confirmCashReviewCancellation()
+    assert.deepEqual(calls[0].body, { expected_updated_at: baseline.updated_at, checkout_cash_review: { action: 'correct', expected_updated_at: 'checkout-revision', room_cash_taken_amount: 0, reason: '操作練習で受渡しなし' } })
+    assert.equal(state.showCashReview, true)
+    assert.equal(state.cancellationCashAmount, 0)
+    assert.equal(state.cancellationCashReason, '操作練習で受渡しなし')
+    assert.match(state.cancellationError, /更新/)
+  } finally { delete globalThis.__cancelOrderTestApi; unmount() }
 })
 
 test('operator conflict preserves the draft while latest data is inspected; replacing it requires confirmation', async () => {

@@ -17,6 +17,12 @@ const error = ref('')
 const acting = ref(false)
 const paymentMethodSaving = ref(false)
 const paymentMethodError = ref('')
+const cancellationCheckout = ref(null)
+const cashReviewChoice = ref('')
+const cancellationCashAmount = ref(0)
+const cancellationCashReason = ref('')
+const cancellationError = ref('')
+const showCashReview = ref(false)
 const mode = ref('confirm') // 'confirm' | 'edit'
 const isManager = computed(() => getAuthRole() === 'manager')
 
@@ -290,6 +296,22 @@ async function doConfirm() {
 }
 
 async function doCancel() {
+  if (order.value?.status === 'DONE') {
+    acting.value = true
+    try {
+      const data = await api.getCancellationCheckout(props.id)
+      if (data.checkout) {
+        cancellationCheckout.value = data.checkout
+        cashReviewChoice.value = ''
+        cancellationCashAmount.value = data.checkout.room_cash_taken_amount
+        cancellationCashReason.value = ''
+        cancellationError.value = ''
+        showCashReview.value = true
+        return
+      }
+    } catch (e) { alert(e.message); return }
+    finally { acting.value = false }
+  }
   const label = cancelLabel.value
   const message = order.value?.status === 'DONE'
     ? '終了済みの予約を取り消しますか？売上・報酬の集計から除外されます。実際の返金や現金の受け渡しは別途確認してください。'
@@ -303,6 +325,22 @@ async function doCancel() {
   } finally {
     acting.value = false
   }
+}
+
+async function confirmCashReviewCancellation() {
+  if (acting.value || !cashReviewChoice.value) return
+  acting.value = true
+  cancellationError.value = ''
+  const review = { action: cashReviewChoice.value, expected_updated_at: cancellationCheckout.value.expected_updated_at }
+  if (review.action === 'correct') {
+    review.room_cash_taken_amount = cancellationCashAmount.value
+    review.reason = cancellationCashReason.value
+  }
+  try {
+    order.value = await api.cancelOrder(props.id, { expected_updated_at: order.value.updated_at, checkout_cash_review: review })
+    showCashReview.value = false
+  } catch (e) { cancellationError.value = e.message }
+  finally { acting.value = false }
 }
 
 async function doDone() {
@@ -921,6 +959,28 @@ async function saveRecipientCustomerLink() {
 
         </template>
 
+        <div v-if="showCashReview" class="modal d-block" style="background: rgba(0,0,0,.4)" role="dialog" aria-modal="true" aria-labelledby="cancel-cash-title">
+          <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+            <div class="modal-header"><h2 id="cancel-cash-title" class="modal-title fs-5">会計取消前に、実際の受渡額を確認</h2><button type="button" class="btn-close" :disabled="acting" aria-label="閉じる" @click="showCashReview = false"></button></div>
+            <div class="modal-body">
+              <div v-if="cancellationError" class="alert alert-danger" role="alert">{{ cancellationError }}</div>
+              <p><strong>{{ cancellationCheckout.cast_name }}さん・{{ cancellationCheckout.date }}</strong>の精算です。予約を取り消すと、売上・報酬は再計算されます。</p>
+              <div class="border rounded p-3 mb-3 bg-light">ルームから渡した記録：<strong>{{ Number(cancellationCheckout.room_cash_taken_amount).toLocaleString() }}円</strong><br>事務所払い：{{ Number(cancellationCheckout.office_cash_paid_amount).toLocaleString() }}円 ／ ルームへの返金：{{ Number(cancellationCheckout.cash_returned_to_room_amount).toLocaleString() }}円</div>
+              <p class="small">受渡額は<strong>この予約だけでなく、その日全体の合計</strong>です。同日の別の予約で渡したお金も含めて確認してください。実際に渡したお金は、会計取消だけでは消えません。</p>
+              <label class="d-block border rounded p-3 mb-2"><input v-model="cashReviewChoice" type="radio" value="keep" name="cancel-cash-choice" class="form-check-input me-2">記録どおりに渡したので、そのまま残す</label>
+              <label v-if="cancellationCheckout.can_correct" class="d-block border rounded p-3"><input v-model="cashReviewChoice" type="radio" value="correct" name="cancel-cash-choice" class="form-check-input me-2">実際に渡した金額へ訂正する</label>
+              <div v-if="cashReviewChoice === 'correct'" class="mt-3">
+                <label for="cancel-actual-cash" class="form-label">その日にルームから実際に渡した合計額</label>
+                <div class="input-group mb-2"><input id="cancel-actual-cash" v-model.number="cancellationCashAmount" type="number" min="0" step="1" class="form-control"><span class="input-group-text">円</span></div>
+                <p class="small text-muted">操作練習で現金を渡していなければ0円にします。事務所払いや返金の記録は変更しません。</p>
+                <label for="cancel-cash-reason" class="form-label">訂正理由</label><textarea id="cancel-cash-reason" v-model="cancellationCashReason" maxlength="500" class="form-control" rows="2" placeholder="例：操作練習の入力で、実際の現金受渡しなし"></textarea>
+              </div>
+              <p v-if="!cancellationCheckout.can_correct" class="small text-muted mt-3">受渡額の訂正が必要な場合は、店舗管理者へ依頼してください。</p>
+              <p class="small text-muted mt-3 mb-0">受渡記録を残したまま報酬が減ると、翌日以降にマイナスの繰越が出る場合があります。訂正した金額と理由は履歴に残ります。</p>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" :disabled="acting" @click="showCashReview = false">戻る</button><button type="button" class="btn btn-danger" :disabled="acting || !cashReviewChoice || (cashReviewChoice === 'correct' && (!cancellationCashReason.trim() || !Number.isInteger(cancellationCashAmount) || cancellationCashAmount < 0))" @click="confirmCashReviewCancellation">{{ acting ? '処理中…' : '確認して会計を取り消す' }}</button></div>
+          </div></div>
+        </div>
       </main>
     </template>
   </LayoutOperator>

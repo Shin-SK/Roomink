@@ -1,4 +1,6 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -24,6 +26,10 @@ User = get_user_model()
 
 class CastOrderControlsTest(TestCase):
     def setUp(self):
+        # A real 03:30+ clock would put the 90-minute fixture beyond 29:00.
+        clock = patch("django.utils.timezone.now", return_value=datetime(2026, 10, 26, 12, tzinfo=ZoneInfo("Asia/Tokyo")))
+        clock.start()
+        self.addCleanup(clock.stop)
         self.store = Store.objects.create(
             name="セラピスト予約操作テスト店",
             timezone="Asia/Tokyo",

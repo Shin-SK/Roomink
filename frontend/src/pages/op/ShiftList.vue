@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import LayoutOperator from '../../components/LayoutOperator.vue'
+import ShiftCalendar from '../../components/ShiftCalendar.vue'
+import { calendarDays, movePeriod, parseDay } from '../../shiftCalendar.js'
 import { api } from '../../api.js'
 import { normalizeShiftTime as normalizeExtendedTime } from '../../shiftTime.js'
 
@@ -25,7 +27,30 @@ const shiftAlerts = ref([])
 const shiftAlertsLoading = ref(true)
 
 // Filter: 'all' | 'upcoming' | 'today' | 'date'
-const viewMode = ref('all')
+const viewMode = ref('month')
+const calendarAnchor = ref(today.value)
+const selectedDay = ref(today.value)
+const filterRoom = ref('')
+const isCalendar = computed(() => ['month', 'week'].includes(viewMode.value))
+const periodLabel = computed(() => {
+  const d = parseDay(calendarAnchor.value)
+  if (viewMode.value === 'month') return `${d.getFullYear()}年${d.getMonth() + 1}月`
+  const days = calendarDays(calendarAnchor.value, 'week')
+  return `${days[0].replaceAll('-', '/')} 〜 ${days[6].replaceAll('-', '/')}`
+})
+function changePeriod(direction) {
+  calendarAnchor.value = movePeriod(calendarAnchor.value, viewMode.value, direction)
+  selectedDay.value = calendarAnchor.value
+}
+function goToday() {
+  calendarAnchor.value = today.value; selectedDay.value = today.value
+  if (!isCalendar.value) { filterDate.value = today.value; viewMode.value = 'today' }
+}
+async function selectCalendarDay(day) {
+  selectedDay.value = day
+  await nextTick()
+  document.getElementById('selected-shift-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 const filterDate = ref(today.value)
 const searchQuery = ref('')
 
@@ -56,25 +81,36 @@ async function loadMasters() {
 }
 
 function buildParams() {
+  if (isCalendar.value) {
+    const days = calendarDays(calendarAnchor.value, viewMode.value)
+    return `date__gte=${days[0]}&date__lte=${days.at(-1)}&limit=500`
+  }
   if (viewMode.value === 'today') return `date=${today.value}&limit=500`
   if (viewMode.value === 'upcoming') return `date__gte=${today.value}&limit=500`
   if (viewMode.value === 'date') return `date=${filterDate.value}&limit=500`
   return 'limit=500' // all
 }
 
+let shiftLoadSequence = 0
+let disposed = false
 async function loadShifts() {
+  if (disposed) return
+  const sequence = ++shiftLoadSequence
   loading.value = true
   error.value = ''
   try {
     const data = await api.getShifts(buildParams())
+    if (sequence !== shiftLoadSequence) return
     shifts.value = Array.isArray(data) ? data : []
   } catch (e) {
+    if (sequence !== shiftLoadSequence) return
+    shifts.value = []
     error.value = e.message
   } finally {
-    loading.value = false
+    if (sequence === shiftLoadSequence) loading.value = false
   }
   await nextTick()
-  scrollToToday()
+  if (sequence === shiftLoadSequence && !isCalendar.value) scrollToToday()
 }
 
 function scrollToToday() {
@@ -131,7 +167,9 @@ onMounted(async () => {
   } catch (e) {
     error.value = e.message
   }
+  if (disposed) return
   await loadShifts()
+  if (disposed) return
   await loadShiftAlerts()
   nowTimer = setInterval(() => {
     now.value = new Date()
@@ -144,10 +182,16 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
+  shiftLoadSequence++
   if (nowTimer) clearInterval(nowTimer)
 })
 
-watch(viewMode, () => loadShifts())
+watch(viewMode, () => {
+  if (isCalendar.value && !calendarDays(calendarAnchor.value, viewMode.value).includes(selectedDay.value)) selectedDay.value = calendarAnchor.value
+  loadShifts()
+})
+watch(calendarAnchor, () => { if (isCalendar.value) loadShifts() })
 watch(filterDate, () => {
   if (viewMode.value === 'date') loadShifts()
 })
@@ -229,10 +273,10 @@ async function onDelete(id) {
 
 const filteredShifts = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return shifts.value
   return shifts.value.filter(s => {
+    if (filterRoom.value && String(s.room || '') !== filterRoom.value) return false
     const name = (s.cast_name || castName(s.cast)).toLowerCase()
-    return name.includes(q)
+    return !q || name.includes(q)
   })
 })
 
@@ -240,6 +284,7 @@ const filteredShifts = computed(() => {
 const groupedShifts = computed(() => {
   const map = new Map()
   for (const s of filteredShifts.value) {
+    if (isCalendar.value && s.date !== selectedDay.value) continue
     if (!map.has(s.date)) map.set(s.date, [])
     map.get(s.date).push(s)
   }
@@ -396,9 +441,21 @@ async function onClearClockIn(s) {
         </button>
       </div>
       <div class="card-body">
-        <!-- View mode + Search -->
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-          <div class="btn-group" role="group">
+          <button type="button" class="btn btn-sm btn-outline-secondary" @click="goToday">今日</button>
+          <template v-if="isCalendar">
+            <button type="button" class="btn btn-sm btn-outline-secondary" :aria-label="viewMode === 'month' ? '前の月' : '前の週'" @click="changePeriod(-1)">‹</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" :aria-label="viewMode === 'month' ? '次の月' : '次の週'" @click="changePeriod(1)">›</button>
+            <strong class="me-auto" style="font-size: clamp(.85rem, 2vw, 1.2rem)">{{ periodLabel }}</strong>
+          </template>
+          <div class="btn-group ms-auto" role="group" aria-label="シフトの表示方法">
+            <button type="button" class="btn btn-sm" :class="viewMode === 'month' ? 'btn-primary' : 'btn-outline-secondary'" :aria-pressed="viewMode === 'month'" @click="viewMode = 'month'">月</button>
+            <button type="button" class="btn btn-sm" :class="viewMode === 'week' ? 'btn-primary' : 'btn-outline-secondary'" :aria-pressed="viewMode === 'week'" @click="viewMode = 'week'">週</button>
+            <button type="button" class="btn btn-sm" :class="!isCalendar ? 'btn-primary' : 'btn-outline-secondary'" :aria-pressed="!isCalendar" @click="viewMode = 'upcoming'">一覧</button>
+          </div>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+          <div v-if="!isCalendar" class="btn-group" role="group">
             <button
               type="button"
               class="btn btn-sm"
@@ -437,7 +494,12 @@ async function onClearClockIn(s) {
             class="form-control form-control-sm flex-grow-1"
             style="max-width: 280px;"
             placeholder="キャスト名で検索..."
+            aria-label="キャスト名で検索"
           />
+          <select v-model="filterRoom" class="form-select form-select-sm" style="max-width: 200px" aria-label="ルームで絞り込み">
+            <option value="">すべてのルーム</option>
+            <option v-for="room in rooms" :key="room.id" :value="String(room.id)">{{ room.name }}</option>
+          </select>
           <button
             v-if="viewMode === 'all' || viewMode === 'upcoming'"
             type="button"
@@ -452,11 +514,17 @@ async function onClearClockIn(s) {
           <div class="spinner-border text-primary"></div>
         </div>
 
-        <div v-else-if="!totalCount" class="text-muted text-center py-4">
+        <ShiftCalendar v-if="isCalendar && !loading" :mode="viewMode" :anchor="calendarAnchor" :today="today" :selected="selectedDay" :shifts="filteredShifts" @select-day="selectCalendarDay" @select-shift="openEdit" />
+        <div v-if="isCalendar && !loading" id="selected-shift-list" class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2" style="scroll-margin-top: 40px">
+          <h3 class="h6 m-0">{{ formatDateLabel(selectedDay) }}のシフト</h3>
+          <button type="button" class="btn btn-sm btn-outline-primary" @click="openCreate(); form.date = selectedDay">この日にシフトを追加</button>
+        </div>
+
+        <div v-if="!loading && !groupedShifts.length" class="text-muted text-center py-4">
           {{ searchQuery ? '該当するシフトがありません' : 'シフトがありません' }}
         </div>
 
-        <div v-else class="shift-groups">
+        <div v-else-if="!loading" class="shift-groups">
           <div
             v-for="g in groupedShifts"
             :key="g.date"
@@ -498,7 +566,8 @@ async function onClearClockIn(s) {
                   :class="{ 'row-late': isLate(s), 'row-done': s.clocked_in_at }"
                 >
                   <td>
-                    <span v-if="s.clocked_in_at" class="badge bg-success">
+                    <span v-if="s.is_absent" class="badge bg-danger">当欠</span>
+                    <span v-else-if="s.clocked_in_at" class="badge bg-success">
                       <i class="ti ti-check"></i> 出勤 {{ formatClockedAt(s.clocked_in_at) }}
                     </span>
                     <span v-else-if="isLate(s)" class="badge bg-danger">未出勤</span>
