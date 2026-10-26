@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from django.db import connection
 from django.db.migrations.loader import MigrationLoader
 from django.test import TestCase, TransactionTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from core import test_sales_allocation as fixtures
 from core.models import CastDailyCheckout, DailySettlement, Order, SmsLog, LineNotificationLog
@@ -167,6 +168,16 @@ class ExtensionCompensationTest(TestCase):
         )
         checkout = CastDailyCheckout.objects.get(pk=old_checkout.pk)
         self.assertEqual((checkout.pay_calculation_version, checkout.estimated_pay, checkout.room_cash_taken_amount), (1, 15000, 3000))
+
+    def test_dashboard_query_count_does_not_grow_with_casts(self, now):
+        from core.models import Cast
+        with CaptureQueriesContext(connection) as small:
+            get_sales_dashboard(self.store, self.day, self.day)
+        for index in range(8):
+            Cast.objects.create(store=self.store, name=f"人数増加確認{index}")
+        with CaptureQueriesContext(connection) as large:
+            get_sales_dashboard(self.store, self.day, self.day)
+        self.assertEqual(len(small), len(large))
 
 
 class CheckoutPayVersionMigrationTest(TransactionTestCase):

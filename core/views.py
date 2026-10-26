@@ -7824,7 +7824,7 @@ class DailySettlementView(APIView):
         if not cast_ids:
             return Response({"date": date_str, "rows": [], "totals": {}})
 
-        casts = {c.id: c for c in Cast.objects.filter(pk__in=cast_ids)}
+        casts = {c.id: c for c in Cast.objects.filter(pk__in=cast_ids).select_related("store")}
 
         # DONE 注文
         done_orders = get_done_orders_for_business_range(store, d, d).filter(

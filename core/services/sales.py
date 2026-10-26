@@ -268,7 +268,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
         )
         .order_by("-sales")
     )
-    cast_queryset = Cast.objects.filter(store=store)
+    cast_queryset = Cast.objects.filter(store=store).select_related("store")
     if cast_id:
         cast_queryset = cast_queryset.filter(pk=cast_id)
     casts = {c.id: c for c in cast_queryset}
