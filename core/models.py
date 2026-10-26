@@ -1907,6 +1907,10 @@ class CastDailyCheckout(models.Model):
     done_count = models.PositiveIntegerField(default=0)
     total_sales = models.PositiveIntegerField(default=0)
     estimated_pay = models.PositiveIntegerField(default=0)
+    pay_calculation_version = models.PositiveSmallIntegerField(
+        default=2, db_default=1, choices=[(1, "旧計算"), (2, "延長を含む計算")],
+        help_text="提出時の報酬計算方式。既存提出と旧プロセスの保存は1を保持する。",
+    )
     course_sales = models.PositiveIntegerField(default=0)
     options_sales = models.PositiveIntegerField(default=0)
     daily_expense_total = models.PositiveIntegerField(
