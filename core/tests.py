@@ -415,6 +415,47 @@ class CtiWorkQueueTest(RoomankOpsSmokeTestBase):
         self.assertEqual(history["legacy_usage_history"], "旧システム: 63回利用")
         self.assertEqual(history["inquiries"][0]["notes"], ["希望時間が埋まっていたため折り返し"])
 
+    def test_context_shows_only_five_latest_completed_customer_visits(self):
+        now = timezone.now()
+        orders = []
+        for i in range(7):
+            start = now - timedelta(days=max(0, i - 1))
+            orders.append(Order.objects.create(
+                store=self.store_a, customer=self.customer, cast=self.cast_a,
+                course=self.course, course_name="当時のコース" if i == 1 else "",
+                start=start, end=start + timedelta(minutes=60), status=Order.Status.DONE,
+            ))
+        other = Customer.objects.create(store=self.store_a, phone="09000000009")
+        for customer, status in ((self.customer, Order.Status.CONFIRMED),
+                                 (self.customer, Order.Status.CANCELLED),
+                                 (other, Order.Status.DONE)):
+            Order.objects.create(store=self.store_a, customer=customer, cast=self.cast_a,
+                                 course=self.course, start=now, end=now+timedelta(minutes=60), status=status)
+        client = self.client_as(self.manager_a)
+        response = client.get(f"/api/op/cti/calls/{self.call_a.pk}/context/")
+        self.assertEqual(response.status_code, 200)
+        visits = response.data["customer_history"]["visits"]
+        self.assertEqual([x["id"] for x in visits], [orders[i].pk for i in (1, 0, 2, 3, 4)])
+        self.assertEqual(visits[0]["course_name"], "当時のコース")
+        self.assertEqual(visits[1]["course_name"], self.course.name)
+        self.assertEqual(visits[0]["cast_name"], self.cast_a.name)
+        queue = client.get(self.endpoint)
+        call = next(x for x in queue.data["calls"] if x["id"] == self.call_a.pk)
+        self.assertEqual(call["customer_history"]["visits"], visits)
+
+    def test_context_never_shows_visits_for_unmatched_or_foreign_customer(self):
+        client = self.client_as(self.manager_a)
+        response = client.get(f"/api/op/cti/calls/{self.call_b.pk}/context/")
+        self.assertEqual(response.data["customer_history"]["visits"], [])
+        foreign = Customer.objects.create(store=self.store_b, phone=self.customer.phone)
+        self.call_a.customer = foreign
+        self.call_a.save(update_fields=["customer"])
+        response = client.get(f"/api/op/cti/calls/{self.call_a.pk}/context/")
+        self.assertIsNone(response.data["customer_id"])
+        self.assertEqual(response.data["customer_history"]["visits"], [])
+        self.assertEqual(self.client_as(self.cast_user_a).get(
+            f"/api/op/cti/calls/{self.call_a.pk}/context/").status_code, 403)
+
     def test_context_includes_named_booking_restrictions(self):
         self.customer.flag = Customer.Flag.BAN
         self.customer.ban_type = Customer.BanType.CAST_NG

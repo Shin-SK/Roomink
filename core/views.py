@@ -6081,6 +6081,14 @@ def _cti_call_payload(call, *, include_attention=False):
             .order_by("-created_at", "-id")[:10]
         ) if call.from_phone.isascii() and call.from_phone.isdigit() and 10 <= len(call.from_phone) <= 15 else []
         payload["customer_history"] = {
+            "visits": [
+                {"id": order.pk, "start": order.start, "cast_name": order.cast.name, "course_name": order.course_name or order.course.name}
+                for order in (
+                    Order.objects.filter(store_id=call.store_id, customer=customer, status=Order.Status.DONE)
+                    .select_related("cast", "course").order_by("-start", "-id")[:5]
+                    if customer else []
+                )
+            ],
             "legacy_records": [
                 {"id": item.pk, "visit_count": len(item.entries)}
                 for item in (LegacyCustomerHistory.objects.filter(store_id=call.store_id, customer=customer) if customer else [])
