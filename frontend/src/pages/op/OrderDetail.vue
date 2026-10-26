@@ -508,6 +508,20 @@ async function saveRecipientCustomerLink() {
                     <td>{{ formatDt(order.start) }} – {{ formatTime(order.end) }}</td>
                   </tr>
                   <tr>
+                    <th>受付者</th>
+                    <td class="text-break">
+                      <div>{{ order.created_by_name || '記録なし' }}</div>
+                      <div class="small text-muted">{{ formatDt(order.created_at) }}</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>最終更新者</th>
+                    <td class="text-break">
+                      <div>{{ order.updated_by_name || '記録なし' }}</div>
+                      <div class="small text-muted">{{ formatDt(order.updated_at) }}</div>
+                    </td>
+                  </tr>
+                  <tr>
                     <th>連絡者</th>
                     <td>{{ order.customer_label }}</td>
                   </tr>
@@ -869,12 +883,10 @@ async function saveRecipientCustomerLink() {
           </router-link>
 
           <div class="text-muted small text-center mt-3">
-            Order #{{ order.id }} / 申請: {{ formatDt(order.created_at) }}
+            Order #{{ order.id }}
           </div>
-          <div class="text-muted small text-center mt-1">
-            作成: {{ order.created_by_name || 'Web予約・記録なし' }}
-            <template v-if="order.updated_by_name"> / 最終操作: {{ order.updated_by_name }}</template>
-            <template v-if="order.cancelled_by_name"> / キャンセル: {{ order.cancelled_by_name }}</template>
+          <div v-if="order.cancelled_by_name" class="text-muted small text-center mt-1">
+            キャンセル: {{ order.cancelled_by_name }}
           </div>
         </template>
 
