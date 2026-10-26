@@ -133,6 +133,7 @@ from .services.cast_user import (
 from .services.customer_context import resolve_customer
 from .services.operator_notifications import send_public_booking_test_email
 from .services.pricing import recalculate_order_total
+from .services.compensation import CURRENT_PAY_VERSION, compensation_total
 from .services.order_editing import require_current_order, order_edit_snapshot, record_order_edit
 from .services.sales import (
     get_sales_summary, get_sales_csv,
@@ -759,16 +760,16 @@ class OrderViewSet(viewsets.ModelViewSet):
                 (order.cast_id, business_date_for_datetime(order.start, order.store.timezone)): order.cast,
                 (target_cast.pk, business_date_for_datetime(target_start, order.store.timezone)): target_cast,
             }
-            def totals(cast, date):
+            def totals(cast, date, version):
                 return {
-                    **_compute_cast_done_sales(cast, date),
+                    **_compute_cast_done_sales(cast, date, pay_version=version),
                     **payment_financial_summary(order.store, get_done_orders_for_business_range(order.store, date, date).filter(cast=cast)),
                 }
             checkouts = []
             for (cast_id, date), cast in sorted(groups.items()):
                 checkout = CastDailyCheckout.objects.select_for_update().filter(store=order.store, cast_id=cast_id, date=date).first()
                 if checkout:
-                    previous = totals(cast, date)
+                    previous = totals(cast, date, checkout.pay_calculation_version)
                     if checkout.total_sales != previous["total_sales"]:
                         raise ValidationError("退勤提出と現在の売上が一致しません。先に退勤内容を確認してください。")
                     checkouts.append((checkout, cast, date, previous))
@@ -777,7 +778,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             if before == after:
                 raise ValidationError("変更する予約内容を入力してください。")
             for checkout, cast, date, previous in checkouts:
-                current = totals(cast, date)
+                current = totals(cast, date, checkout.pay_calculation_version)
                 # 訂正差分だけ反映し、過去の報酬スナップショット・雑費・受渡現金を保つ。
                 for field in previous:
                     value = getattr(checkout, field) + current[field] - previous[field]
@@ -1003,7 +1004,10 @@ class OrderViewSet(viewsets.ModelViewSet):
                 from .services.sales import payment_financial_summary
                 day = business_date_for_datetime(order.start, order.store.timezone)
                 def totals():
-                    return {**_compute_cast_done_sales(order.cast, day),
+                    return {**_compute_cast_done_sales(
+                                order.cast, day,
+                                pay_version=checkout.pay_calculation_version if checkout else CURRENT_PAY_VERSION,
+                            ),
                             **payment_financial_summary(order.store, get_done_orders_for_business_range(order.store, day, day).filter(cast=order.cast))}
                 checkout = CastDailyCheckout.objects.select_for_update().filter(store=order.store, cast=order.cast, date=day).first()
                 previous = totals()
@@ -1826,10 +1830,8 @@ class CastScheduleView(APIView):
         })
 
 
-def _compute_cast_done_sales(cast, d):
+def _compute_cast_done_sales(cast, d, *, pay_version=CURRENT_PAY_VERSION):
     """指定キャスト・指定日のDONE注文を集計し、売上/給与見込みを返す（CastTodaySalesView/CastCheckoutViewで共用）"""
-    import math
-
     done_orders = get_done_orders_for_business_range(cast.store, d, d).filter(cast=cast)
 
     done_count = done_orders.count()
@@ -1837,11 +1839,11 @@ def _compute_cast_done_sales(cast, d):
     course_sales = sum(o.course_price for o in done_orders)
     options_sales = sum(o.options_price for o in done_orders)
 
-    course_back = math.floor(course_sales * cast.course_back_rate / 100)
-    option_back = math.floor(options_sales * cast.option_back_rate / 100)
-    estimated_pay = course_back + option_back
-    if cast.store.nomination_fullback_enabled:
-        estimated_pay += sum(o.nomination_fee_price for o in done_orders)
+    estimated_pay = compensation_total(
+        cast, course_sales, options_sales,
+        sum(o.nomination_fee_price for o in done_orders),
+        sum(o.extension_price for o in done_orders), version=pay_version,
+    )
 
     return {
         "done_count": done_count,
@@ -2067,14 +2069,15 @@ class CastCheckoutView(APIView):
     def get(self, request):
         from .services.cast_checkout_dates import checkout_context
         cast, today, current_day, pending, locked = checkout_context(request)
-        sales = _compute_cast_done_sales(cast, today)
+        existing = CastDailyCheckout.objects.filter(cast=cast, date=today).select_related("reviewed_by").prefetch_related("expense_snapshots").first()
+        pay_version = existing.pay_calculation_version if existing and existing.status != CastDailyCheckout.Status.RETURNED else CURRENT_PAY_VERSION
+        sales = _compute_cast_done_sales(cast, today, pay_version=pay_version)
         fee = _compute_payment_summary(cast.store, cast, today)
         expenses = _cast_expense_totals(cast, today, sales["done_count"])
         allocation = _allocation_amounts(
             sales["estimated_pay"], fee["net_sales_after_payment_fee"], expenses,
         )
 
-        existing = CastDailyCheckout.objects.filter(cast=cast, date=today).select_related("reviewed_by").prefetch_related("expense_snapshots").first()
         if existing and existing.status != CastDailyCheckout.Status.RETURNED:
             fixed_items = existing.expense_snapshots.all()
         else:
@@ -2166,6 +2169,7 @@ class CastCheckoutView(APIView):
             instance.done_count = sales["done_count"]
             instance.total_sales = sales["total_sales"]
             instance.estimated_pay = sales["estimated_pay"]
+            instance.pay_calculation_version = CURRENT_PAY_VERSION
             instance.course_sales = sales["course_sales"]
             instance.options_sales = sales["options_sales"]
             instance.daily_expense_total = expenses["daily_expense_total"]
@@ -7841,7 +7845,6 @@ class DailySettlementView(APIView):
         )
         points_by_cast = {row["cast_id"]: row["total"] or 0 for row in point_agg}
 
-        import math
         from .services.sales import payment_financial_summary
 
         rows = []
@@ -7862,6 +7865,10 @@ class DailySettlementView(APIView):
         total_cash_sales = 0
         total_net = 0
 
+        pay_versions = dict(CastDailyCheckout.objects.filter(store=store, date=d)
+                            .exclude(status=CastDailyCheckout.Status.RETURNED)
+                            .values_list("cast_id", "pay_calculation_version"))
+
         for cast_id in sorted(cast_ids, key=lambda cid: casts[cid].name):
             cast = casts[cast_id]
             cast_orders = orders_by_cast.get(cast_id, [])
@@ -7870,11 +7877,12 @@ class DailySettlementView(APIView):
             course_sales = sum(o.course_price for o in cast_orders)
             options_sales = sum(o.options_price for o in cast_orders)
 
-            course_back = math.floor(course_sales * cast.course_back_rate / 100)
-            option_back = math.floor(options_sales * cast.option_back_rate / 100)
-            back_amount = course_back + option_back
-            if store.nomination_fullback_enabled:
-                back_amount += sum(o.nomination_fee_price for o in cast_orders)
+            back_amount = compensation_total(
+                cast, course_sales, options_sales,
+                sum(o.nomination_fee_price for o in cast_orders),
+                sum(o.extension_price for o in cast_orders),
+                version=pay_versions.get(cast_id, CURRENT_PAY_VERSION),
+            )
 
             payment_summary = payment_financial_summary(store, cast_orders)
             cast_sales = payment_summary["total_sales"]

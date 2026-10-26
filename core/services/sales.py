@@ -4,6 +4,8 @@ from datetime import timedelta
 
 from django.db.models import Sum, Count
 
+from .compensation import compensation_parts, compensation_total
+
 from .business_datetime import (
     business_date_for_datetime,
     business_day_range,
@@ -204,8 +206,6 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
     決済方法別/キャスト別（給与見込み込み）/部屋別/日別に内訳集計して返す。
     既存の get_sales_summary() / Sales.vue には影響しない別関数。
     """
-    import math
-
     from ..models import Cast, Order, Room
 
     qs = get_done_orders_for_business_range(store, date_from, date_to)
@@ -263,6 +263,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
             orders=Count("id"),
             course_sales=Sum("course_price"),
             options_sales=Sum("options_price"),
+            extension_sales=Sum("extension_price"),
             nomination_sales=Sum("nomination_fee_price"),
         )
         .order_by("-sales")
@@ -274,7 +275,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
     present_ids = {row["cast_id"] for row in cast_rows}
     cast_rows.extend({
         "cast_id": cast.id, "sales": 0, "orders": 0,
-        "course_sales": 0, "options_sales": 0, "nomination_sales": 0,
+        "course_sales": 0, "options_sales": 0, "extension_sales": 0, "nomination_sales": 0,
     } for cast in casts.values() if cast.id not in present_ids)
     cast_rows.sort(key=lambda row: (-(row["sales"] or 0), casts[row["cast_id"]].name, row["cast_id"]))
     by_cast = []
@@ -284,8 +285,6 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
             continue
         course_sales = row["course_sales"] or 0
         options_sales = row["options_sales"] or 0
-        course_back = math.floor(course_sales * cast.course_back_rate / 100)
-        option_back = math.floor(options_sales * cast.option_back_rate / 100)
         by_cast.append({
             "cast_id": cast.id,
             "cast_name": cast.name,
@@ -296,8 +295,9 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
             "course_back_rate": cast.course_back_rate,
             "option_back_rate": cast.option_back_rate,
             "option_fullback_enabled": cast.option_fullback_enabled,
-            "estimated_pay": course_back + option_back + (
-                (row["nomination_sales"] or 0) if store.nomination_fullback_enabled else 0
+            "estimated_pay": compensation_total(
+                cast, course_sales, options_sales, row["nomination_sales"] or 0,
+                row["extension_sales"] or 0,
             ),
         })
 
@@ -392,8 +392,6 @@ def get_sales_cast_detail(
     店舗配分見込みと、会計項目ごとの小計をまとめる。報酬は日次集計と一致する
     よう、累計額にバック率を掛けた差分を各予約へ配賦する。
     """
-    import math
-
     queryset = get_done_orders_for_business_range(store, date_from, date_to).filter(cast=cast)
     if room_id:
         queryset = queryset.filter(room_id=room_id)
@@ -430,6 +428,7 @@ def get_sales_cast_detail(
 
     rows = []
     cumulative_course_sales = 0
+    cumulative_extension_sales = 0
     cumulative_options_sales = 0
     allocated_course_pay = 0
     allocated_option_pay = 0
@@ -441,13 +440,14 @@ def get_sales_cast_detail(
         option_label = " / ".join(option_names) if option_names else "なし"
 
         cumulative_course_sales += order.course_price
+        cumulative_extension_sales += order.extension_price
         cumulative_options_sales += order.options_price
-        course_pay_total = math.floor(
-            cumulative_course_sales * cast.course_back_rate / 100
+        parts = compensation_parts(
+            cast, cumulative_course_sales, cumulative_options_sales,
+            extension_sales=cumulative_extension_sales,
         )
-        option_pay_total = math.floor(
-            cumulative_options_sales * cast.option_back_rate / 100
-        )
+        course_pay_total = parts["course_pay"]
+        option_pay_total = parts["option_pay"]
         order_pay = (
             course_pay_total - allocated_course_pay
             + option_pay_total - allocated_option_pay
