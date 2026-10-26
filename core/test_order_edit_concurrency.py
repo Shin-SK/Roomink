@@ -1,5 +1,6 @@
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -10,6 +11,7 @@ from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from core.models import Cast, Course, Customer, Option, Order, OrderEditLog, Room, Store, UserProfile
 from core.serializers import OrderUpdateSerializer
+from core.services.business_datetime import business_date_for_datetime
 
 
 @override_settings(SMS_DUMMY_MODE=True)
@@ -23,7 +25,10 @@ class OrderEditConcurrencyTest(TestCase):
         self.course = Course.objects.create(store=self.store, name="60分", duration=60, price=20000)
         self.room = Room.objects.create(store=self.store, name="A")
         customer = Customer.objects.create(store=self.store, phone="09000000000")
-        start = timezone.now().replace(second=0, microsecond=0)
+        # Keep the reservation inside its business day even in 04:00 CI runs.
+        # Leave the real update clock running for the version-conflict checks.
+        day = business_date_for_datetime(timezone.now(), self.store.timezone)
+        start = datetime.combine(day, time(12), tzinfo=ZoneInfo(self.store.timezone))
         self.order = Order.objects.create(
             store=self.store, cast=self.cast, course=self.course, customer=customer, room=self.room,
             start=start, end=start + timedelta(minutes=60), status="CONFIRMED", payment_method="CASH",
