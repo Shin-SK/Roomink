@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import datetime, time, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -144,10 +144,63 @@ class LineFollowupTest(TestCase):
     def test_sales_includes_zero_rows_and_keeps_filters_and_store_boundary(self):
         zero = Cast.objects.create(store=self.store, name="売上ゼロ", course_back_rate=50)
         foreign = Cast.objects.create(store=self.other_store, name="他店")
+        clocked = datetime.combine(self.business_date, time(13), tzinfo=booking_fixtures.TOKYO)
+        ShiftAssignment.objects.filter(cast=self.cast).update(clocked_in_at=clocked)
+        ShiftAssignment.objects.create(store=self.store, cast=zero, room=self.room,
+            date=self.business_date, start_time=time(13), end_time=time(15), clocked_in_at=clocked)
+        Cast.objects.create(store=self.store, name="登録のみ")
         data = get_sales_dashboard(self.store, self.business_date, self.business_date)
         self.assertEqual({r["cast_id"] for r in data["by_cast"]}, {self.cast.pk, zero.pk})
         self.assertTrue(all(r["sales"] == r["estimated_pay"] == r["orders"] == 0 for r in data["by_cast"]))
         filtered = get_sales_dashboard(self.store, self.business_date, self.business_date, cast_id=zero.pk)
         self.assertEqual([r["cast_id"] for r in filtered["by_cast"]], [zero.pk])
         self.assertEqual(get_sales_dashboard(self.store, self.business_date, self.business_date, cast_id=foreign.pk)["by_cast"], [])
-        self.assertIn("売上ゼロ", get_sales_dashboard_csv(self.store, self.business_date, self.business_date))
+        csv = get_sales_dashboard_csv(self.store, self.business_date, self.business_date)
+        self.assertIn("売上ゼロ", csv)
+        self.assertNotIn("登録のみ", csv)
+
+    def test_zero_sales_excludes_unclocked_absent_and_out_of_range_shifts(self):
+        clocked = datetime.combine(self.business_date, time(13), tzinfo=booking_fixtures.TOKYO)
+        cases = [
+            ("出勤済み", self.business_date, clocked, False, None),
+            ("事前確認のみ", self.business_date, None, False, clocked),
+            ("当欠", self.business_date, clocked, True, None),
+            ("前日", self.business_date-timedelta(days=1), clocked, False, None),
+            ("翌日", self.business_date+timedelta(days=1), clocked, False, None),
+        ]
+        expected = None
+        for name, day, actual, absent, confirmed in cases:
+            cast = Cast.objects.create(store=self.store, name=name)
+            ShiftAssignment.objects.create(store=self.store, cast=cast, room=self.room,
+                date=day, start_time=time(13), end_time=time(15), clocked_in_at=actual,
+                is_absent=absent, confirmed_at=confirmed)
+            if name == "出勤済み":
+                expected = cast.pk
+        result = self.op.get(f"/api/op/sales-dashboard/?date_from={self.business_date}&date_to={self.business_date}")
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual([r["cast_id"] for r in result.data["by_cast"]], [expected])
+
+    def test_attended_zero_rows_follow_period_room_and_cast_filters_without_duplicates(self):
+        clocked = datetime.combine(self.business_date, time(1), tzinfo=booking_fixtures.TOKYO)
+        room = Room.objects.create(store=self.store, name="別ルーム")
+        cast = Cast.objects.create(store=self.store, name="深夜の出勤")
+        for start, end in [(time(23), time(23, 30)), (time(23, 30), time(23, 59))]:
+            ShiftAssignment.objects.create(store=self.store, cast=cast, room=room,
+                date=self.business_date, start_time=start, end_time=end,
+                clocked_in_at=clocked+timedelta(days=1))
+        rows = get_sales_dashboard(self.store, self.business_date-timedelta(days=1), self.business_date,
+            cast_id=cast.pk, room_id=room.pk, payment_method="CASH")["by_cast"]
+        self.assertEqual([r["cast_id"] for r in rows], [cast.pk])
+        self.assertEqual(get_sales_dashboard(self.store, self.business_date, self.business_date,
+            room_id=self.room.pk)["by_cast"], [])
+        self.assertEqual(get_sales_dashboard(self.other_store, self.business_date, self.business_date)["by_cast"], [])
+
+    def test_completed_sales_remain_visible_without_attendance_and_keep_compensation(self):
+        order = self.accept_web()
+        Order.objects.filter(pk=order.pk).update(status=Order.Status.DONE)
+        ShiftAssignment.objects.filter(cast=self.cast).delete()
+        data = get_sales_dashboard(self.store, self.business_date, self.business_date)
+        self.assertEqual([r["cast_id"] for r in data["by_cast"]], [self.cast.pk])
+        self.assertEqual((data["by_cast"][0]["orders"], data["by_cast"][0]["sales"]), (1, order.total_price))
+        self.assertEqual(data["by_cast"][0]["estimated_pay"],
+            order.course_price*self.cast.course_back_rate//100+order.options_price*self.cast.option_back_rate//100)

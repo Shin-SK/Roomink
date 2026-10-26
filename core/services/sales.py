@@ -206,7 +206,7 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
     決済方法別/キャスト別（給与見込み込み）/部屋別/日別に内訳集計して返す。
     既存の get_sales_summary() / Sales.vue には影響しない別関数。
     """
-    from ..models import Cast, Order, Room
+    from ..models import Cast, Order, Room, ShiftAssignment
 
     qs = get_done_orders_for_business_range(store, date_from, date_to)
     if cast_id:
@@ -273,10 +273,17 @@ def get_sales_dashboard(store, date_from, date_to, cast_id=None, room_id=None, p
         cast_queryset = cast_queryset.filter(pk=cast_id)
     casts = {c.id: c for c in cast_queryset}
     present_ids = {row["cast_id"] for row in cast_rows}
+    attended_shifts = ShiftAssignment.objects.filter(
+        store=store, date__range=(date_from, date_to),
+        clocked_in_at__isnull=False, is_absent=False,
+    )
+    if room_id:
+        attended_shifts = attended_shifts.filter(room_id=room_id)
+    attended_ids = set(attended_shifts.values_list("cast_id", flat=True))
     cast_rows.extend({
         "cast_id": cast.id, "sales": 0, "orders": 0,
         "course_sales": 0, "options_sales": 0, "extension_sales": 0, "nomination_sales": 0,
-    } for cast in casts.values() if cast.id not in present_ids)
+    } for cast in casts.values() if cast.id in attended_ids and cast.id not in present_ids)
     cast_rows.sort(key=lambda row: (-(row["sales"] or 0), casts[row["cast_id"]].name, row["cast_id"]))
     by_cast = []
     for row in cast_rows:

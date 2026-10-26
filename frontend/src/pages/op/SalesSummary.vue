@@ -399,6 +399,7 @@ onMounted(async () => {
 
             <!-- キャスト別売上 -->
             <div class="fw-bold small mb-1"><i class="ti ti-user"></i> キャスト別売上・給与見込み</div>
+            <div class="text-muted small mb-2">売上0円は、期間内に出勤打刻のあるセラピスト（当欠を除く）を表示します。</div>
             <div v-if="data.by_cast && data.by_cast.length" class="table-responsive mb-4">
               <table class="table table-sm table-bordered mb-0">
                 <thead>
