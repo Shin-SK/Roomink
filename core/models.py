@@ -1980,6 +1980,45 @@ class CastDailyCheckout(models.Model):
             return result
 
 
+class EnvelopeSubmission(models.Model):
+    """Immutable envelope expectation captured only on a real checkout submission."""
+    checkout = models.ForeignKey(CastDailyCheckout, on_delete=models.CASCADE, related_name="envelope_submissions")
+    cash_amount = models.PositiveIntegerField()
+    taken_amount = models.PositiveIntegerField()
+    deposit_amount = models.PositiveIntegerField()
+    withdrawal_amount = models.PositiveIntegerField()
+    source_signature = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+
+
+class EnvelopeReceipt(models.Model):
+    """Accounting verification only; never a cash movement or salary payment."""
+    checkout = models.OneToOneField(CastDailyCheckout, on_delete=models.CASCADE, related_name="envelope_receipt")
+    actual_amount = models.PositiveIntegerField(null=True)
+    memo = models.CharField(max_length=1000, blank=True, default="")
+    received = models.BooleanField(default=False)
+    source_revision = models.CharField(max_length=64, blank=True, default="")
+    version = models.PositiveIntegerField(default=0)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    reviewed_at = models.DateTimeField(null=True)
+
+
+class EnvelopeReceiptEvent(models.Model):
+    receipt = models.ForeignKey(EnvelopeReceipt, on_delete=models.CASCADE, related_name="events")
+    request_id = models.UUIDField(unique=True)
+    request_signature = models.CharField(max_length=64)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+
+
 class OrderAccountingCorrection(models.Model):
     """日締め前の予約会計訂正。現金の受渡履歴とは分けて保存する。"""
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="accounting_corrections")

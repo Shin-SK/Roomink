@@ -2226,6 +2226,8 @@ class CastCheckoutView(APIView):
                 )
                 for t in templates
             ])
+            from .services.envelope_receipts import capture
+            capture(instance)
         instance.refresh_from_db()
         return Response(
             CastDailyCheckoutSerializer(instance).data,
