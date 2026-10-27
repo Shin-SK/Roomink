@@ -474,6 +474,8 @@ export const api = {
   correctCastCheckoutCashReceipt: (id, body) => request('PATCH', `/cast-checkouts/${id}/cash-receipt-correction/`, body),
   recordCastCheckoutOfficePayment: (id, body) => request('POST', `/cast-checkouts/${id}/office-payment/`, body),
   getRoomCashSummary: (date) => request('GET', `/cast-checkouts/room-cash/?date=${encodeURIComponent(date)}`),
+  getEnvelopeReceipts: (date) => request('GET', `/op/envelope-receipts/?date=${encodeURIComponent(date)}`),
+  saveEnvelopeReceipt: (body) => request('POST', '/op/envelope-receipts/', body),
   saveRoomCashCount: (body) => request('POST', '/cast-checkouts/room-cash/', body),
   getCastCheckoutsExportUrl: (params = '') => scopedExportUrl(`${BASE}/cast-checkouts/export_csv/${params ? '?' + params : ''}`),
 

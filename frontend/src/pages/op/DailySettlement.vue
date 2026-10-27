@@ -3,6 +3,7 @@ import { settlementStoreShare } from '../../settlementDisplay.js'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
+import EnvelopeReceiptCell from '../../components/EnvelopeReceiptCell.vue'
 import { api } from '../../api.js'
 
 const loading = ref(true)
@@ -10,6 +11,15 @@ const error = ref('')
 const route = useRoute()
 const selectedDate = ref(/^\d{4}-\d{2}-\d{2}$/.test(route.query.date || '') ? route.query.date : new Date().toISOString().slice(0, 10))
 const rows = ref([])
+const envelopeRows = ref([])
+let fetchNumber = 0
+async function refreshEnvelopes() {
+  const date = selectedDate.value
+  try {
+    const data = await api.getEnvelopeReceipts(date)
+    if (date === selectedDate.value) envelopeRows.value = data.rows || []
+  } catch (e) { if (date === selectedDate.value) error.value = e.message }
+}
 const totals = ref({})
 const settlementStatus = ref('OPEN')
 const lockedAt = ref(null)
@@ -19,22 +29,27 @@ const unlockReason = ref('')
 const csvExportUrl = computed(() => api.getDailySettlementExportUrl(selectedDate.value))
 
 async function fetchSettlement() {
+  const number = ++fetchNumber
   loading.value = true
   error.value = ''
   try {
-    const data = await api.getDailySettlement(selectedDate.value)
+    envelopeRows.value = []
+    const [data, envelopes] = await Promise.all([api.getDailySettlement(selectedDate.value), api.getEnvelopeReceipts(selectedDate.value)])
+    if (number !== fetchNumber) return
+    envelopeRows.value = envelopes.rows || []
     rows.value = data.rows || []
     totals.value = data.totals || {}
     settlementStatus.value = data.settlement_status || 'OPEN'
     lockedAt.value = data.locked_at || null
     lockedBy.value = data.locked_by || null
   } catch (e) {
+    if (number !== fetchNumber) return
     error.value = e.message
     rows.value = []
     totals.value = {}
     settlementStatus.value = 'OPEN'
   } finally {
-    loading.value = false
+    if (number === fetchNumber) loading.value = false
   }
 }
 
@@ -208,6 +223,7 @@ function formatDt(iso) {
                 <th class="text-end">現金件数</th>
                 <th class="text-end">現金預り</th>
                 <th class="text-end fw-bold">振込額</th>
+                <th>封筒の受領確認</th>
               </tr>
             </thead>
             <tbody>
@@ -232,6 +248,7 @@ function formatDt(iso) {
                   {{ yen(r.net_pay) }}
                   <div v-if="r.net_pay < 0" class="small fw-normal" style="font-size: 0.65rem;">手元残 {{ yen(-r.net_pay) }}</div>
                 </td>
+                <td><EnvelopeReceiptCell :key="`${selectedDate}-${r.cast_id}`" :entry="envelopeRows.find(item => item.cast_id === r.cast_id)" @saved="refreshEnvelopes" /></td>
               </tr>
             </tbody>
             <tfoot>
@@ -248,10 +265,17 @@ function formatDt(iso) {
                 <td class="text-end">{{ totals.cash_order_count || '—' }}</td>
                 <td class="text-end text-danger">{{ totals.cash_sales_total ? '-' + yen(totals.cash_sales_total) : '—' }}</td>
                 <td class="text-end" :class="totals.net_pay < 0 ? 'text-danger' : ''">{{ yen(totals.net_pay) }}</td>
+                <td></td>
               </tr>
             </tfoot>
           </table>
         </div>
+
+        <div v-for="entry in envelopeRows.filter(item => !rows.some(row => row.cast_id === item.cast_id))" :key="`${selectedDate}-${entry.checkout}`" class="border rounded p-3 mt-3">
+          <h6>{{ entry.cast_name }}（日給明細にない提出）</h6>
+          <EnvelopeReceiptCell :entry="entry" @saved="refreshEnvelopes" />
+        </div>
+        <p v-if="envelopeRows.length" class="small text-muted mt-3">封筒の受領確認は給与・繰越・金庫残高を変更しません。過去日の封筒は、その営業日を選択して確認してください。</p>
 
         <div v-if="rows.length" class="mt-3 text-muted" style="font-size: 0.75rem;">
           <i class="ti ti-info-circle"></i>

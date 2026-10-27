@@ -122,6 +122,8 @@ const checkoutBalance = computed(() => checkoutBalanceDisplay(
 ))
 
 const checkoutDeposit = computed(() => {
+  const snapshot = checkoutIsReadOnly.value ? checkoutData.value?.checkout?.envelope_submission : null
+  if (snapshot) return snapshot
   const cash = Number(checkoutData.value?.cash_sales_total ?? 0)
   const net = cash - checkoutCarryover.value.roomCash
   return { cash, deposit: Math.max(0, net), withdrawal: Math.max(0, -net) }
@@ -1035,10 +1037,10 @@ function formatMonthDay(dateStr) {
                 <div class="border border-primary rounded p-3 mb-3" role="status" aria-live="polite">
                   <div class="small text-muted">金庫へ入れる金額</div>
                   <div class="fs-2 fw-bold text-primary">{{ formatYen(checkoutDeposit.deposit) }}</div>
-                  <div class="small mt-2">お客様から受け取った現金 {{ formatYen(checkoutDeposit.cash) }} − 今回ルームで受け取る報酬 {{ formatYen(checkoutCarryover.roomCash) }}</div>
+                  <div class="small mt-2">お客様から受け取った現金 {{ formatYen(checkoutDeposit.cash) }} − 今回ルームで受け取る報酬 {{ formatYen(checkoutDeposit.taken ?? checkoutCarryover.roomCash) }}</div>
                   <div v-if="checkoutDeposit.withdrawal" class="small mt-2">投函は不要です。報酬の不足分 {{ formatYen(checkoutDeposit.withdrawal) }} をルーム内の現金から受け取る計算です。実際の残金を確認してください。</div>
                   <div class="small text-muted mt-2">現金払いのオプション代を含みます。個人のチップなど、Roominkに登録していないお金は含みません。</div>
-                  <div class="small text-muted">現在の予約記録と{{ checkoutIsReadOnly ? '提出済みの受取額' : '下の入力欄の受取額' }}から計算しています。</div>
+                  <div class="small text-muted">{{ checkoutIsReadOnly && checkoutData?.checkout?.envelope_submission ? '精算提出時点の記録です。提出後に訂正された内容とは異なる場合があります。' : checkoutIsReadOnly ? '提出時の投函額は記録されていません。現在の予約記録から計算した参考値です。' : '現在の予約記録と下の入力欄の受取額から計算しています。' }}</div>
                 </div>
 
                 <div class="bg-light rounded p-3 mb-3">

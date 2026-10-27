@@ -13,6 +13,7 @@ from . import (
 )
 
 from . import attendance_views, legacy_history_views
+from .envelope_views import EnvelopeReceiptsView
 
 router = DefaultRouter()
 router.register("orders", views.OrderViewSet)
@@ -48,6 +49,7 @@ op_sr_router.register("store-phones", views.StorePhoneNumberViewSet, basename="o
 op_sr_router.register("legacy-histories", legacy_history_views.LegacyHistoryViewSet, basename="op-legacy-history")
 
 urlpatterns = [
+    path("op/envelope-receipts/", EnvelopeReceiptsView.as_view(), name="envelope-receipts"),
     # Roomink運営公式LINE。既存の店舗LINE webhookとは完全に分離する。
     path(
         "webhook/operations-line-inbox/",

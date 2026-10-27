@@ -528,6 +528,7 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
     carryover_opening_amount = serializers.SerializerMethodField()
     carryover_closing_amount = serializers.SerializerMethodField()
     cash_corrections = serializers.SerializerMethodField()
+    envelope_submission = serializers.SerializerMethodField()
 
     class Meta:
         model = CastDailyCheckout
@@ -541,12 +542,20 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
             "compensation_amount", "carryover_opening_amount", "carryover_closing_amount",
             "checklist_json", "cast_memo", "manager_memo",
             "submitted_at", "reviewed_at", "reviewed_by", "reviewed_by_name",
-            "expense_snapshots", "cash_corrections", "created_at", "updated_at",
+            "expense_snapshots", "cash_corrections", "envelope_submission", "created_at", "updated_at",
         ]
         read_only_fields = [f for f in fields if f != "manager_memo"]
 
     def get_reviewed_by_name(self, obj) -> Optional[str]:
         return obj.reviewed_by.username if obj.reviewed_by else None
+
+    @extend_schema_field({"type": "object", "nullable": True, "additionalProperties": True})
+    def get_envelope_submission(self, obj):
+        snapshot = obj.envelope_submissions.first()
+        if not snapshot:
+            return None
+        return {"cash": snapshot.cash_amount, "taken": snapshot.taken_amount,
+                "deposit": snapshot.deposit_amount, "withdrawal": snapshot.withdrawal_amount}
 
     @extend_schema_field({"type": "array", "items": {"type": "object", "additionalProperties": True}})
     def get_cash_corrections(self, obj) -> list:
