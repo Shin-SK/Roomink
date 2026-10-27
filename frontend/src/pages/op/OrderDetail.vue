@@ -548,7 +548,20 @@ async function saveRecipientCustomerLink() {
                   <tr>
                     <th>受付者</th>
                     <td class="text-break">
-                      <div>{{ order.created_by_name || '記録なし' }}</div>
+                      <div>{{ order.reception_staff_name || '未指定' }}</div>
+                      <details v-if="order.reception_staff_history?.length" class="small mt-2">
+                        <summary>受付者の変更履歴</summary>
+                        <div v-for="(log, index) in order.reception_staff_history" :key="index" class="mt-2">
+                          {{ log.before_name || '未指定' }} → {{ log.after_name || '未指定' }}
+                          <div class="text-muted">{{ formatDt(log.created_at) }} ／ 操作：{{ log.acted_by_name || '記録なし' }}</div>
+                        </div>
+                      </details>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>登録操作</th>
+                    <td class="text-break">
+                      <div>{{ order.created_by_name || 'Web予約・記録なし' }}</div>
                       <div class="small text-muted">{{ formatDt(order.created_at) }}</div>
                     </td>
                   </tr>

@@ -137,6 +137,7 @@ export function callApi(callId) {
   const send = (method, path, body) => request(method, path, body, callId)
   const list = async (path) => { const data = await send('GET', path); return data?.results || data }
   return Object.freeze({
+    getReceptionStaffs: () => send('GET', '/orders/reception-staffs/'),
     getCustomers: () => list('/customers/?limit=1000'),
     getCasts: () => list('/casts/?limit=200'),
     getCourses: () => list('/courses/?limit=200'),
@@ -302,6 +303,7 @@ export const api = {
 
   // Staffs
   getStaffs: () => listRequest('GET', '/staffs/?limit=200'),
+  getReceptionStaffs: () => request('GET', '/orders/reception-staffs/'),
   createStaff: (body) => request('POST', '/staffs/', body),
   updateStaff: (id, body) => request('PATCH', `/staffs/${id}/`, body),
   deleteStaff: (id) => request('DELETE', `/staffs/${id}/`),

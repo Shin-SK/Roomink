@@ -714,6 +714,12 @@ class Medium(models.Model):
 
 
 class Order(models.Model):
+    reception_staff = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="received_orders",
+    )
+    reception_staff_name = models.CharField(max_length=320, blank=True, default="")
+
     class Status(models.TextChoices):
         REQUESTED = "REQUESTED", "リクエスト"
         CONFIRMED = "CONFIRMED", "確定"

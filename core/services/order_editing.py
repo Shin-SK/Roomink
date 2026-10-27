@@ -25,6 +25,8 @@ def require_current_order(order, expected_updated_at, *, required=False):
 def order_edit_snapshot(order):
     # Deliberately exclude customer details and free-text notes.
     return {
+        "reception_staff_id": order.reception_staff_id,
+        "reception_staff_name": order.reception_staff_name,
         "option_ids": sorted(order.options.values_list("id", flat=True)),
         **{field: getattr(order, field) for field in (
             "course_price", "options_price", "extension_price",

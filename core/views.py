@@ -643,7 +643,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.select_related(
         "store", "cast", "room", "customer", "service_recipient_customer", "course",
         "created_by", "updated_by", "cancelled_by", "guest_access",
-    ).prefetch_related("options").order_by("start")
+    ).prefetch_related("options", "edit_logs__acted_by").order_by("start")
 
     filterset_fields = {
         "status": ["exact", "in"],
@@ -678,6 +678,19 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @action(detail=False, methods=["get"], url_path="reception-staffs")
+    def reception_staffs(self, request):
+        members = StoreMembership.objects.filter(
+            store=get_user_store(request), is_active=True, user__is_active=True,
+            role__in=("manager", "staff"),
+        ).select_related("user").order_by("user__username")
+        return Response({
+            "current_user": request.user.pk,
+            "staffs": [{"id": member.user_id, "name": member.user.get_full_name() or member.user.username}
+                       for member in members],
+        })
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)

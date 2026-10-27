@@ -46,6 +46,7 @@ const isEdit = computed(() => props.mode === 'edit')
 const correctionReason = ref('')
 
 const customers = ref([])
+const receptionStaffs = ref([])
 const casts = ref([])
 const courses = ref([])
 const options = ref([])
@@ -82,6 +83,7 @@ const form = ref({
   discount: '',
   service_recipient_name: '',
   memo: '',
+  reception_staff: '',
   payment_method: 'UNSET',
   card_include_options: false,
   timeline_status: 'AUTO',
@@ -353,6 +355,7 @@ function applyInitialOrder(o = props.initialOrder) {
   form.value.discount = o.discount ?? ''
   form.value.service_recipient_name = o.service_recipient_name || ''
   form.value.memo = o.memo || ''
+  form.value.reception_staff = o.reception_staff ?? ''
   form.value.payment_method = o.payment_method || 'UNSET'
   form.value.card_include_options = Boolean(o.card_include_options)
   form.value.timeline_status = o.timeline_status || 'AUTO'
@@ -365,7 +368,7 @@ async function loadMasters() {
   loading.value = true
   loadError.value = ''
   try {
-    const [custData, castData, courseData, optData, extData, nfData, mdData, dcData, feeData] = await Promise.all([
+    const [custData, castData, courseData, optData, extData, nfData, mdData, dcData, feeData, receptionData] = await Promise.all([
       api.getCustomers(),
       api.getCasts(),
       api.getCourses(),
@@ -375,7 +378,11 @@ async function loadMasters() {
       api.getMedia(),
       api.getDiscounts(),
       api.getPaymentFeeSettings(),
+      api.getReceptionStaffs(),
     ])
+    receptionStaffs.value = receptionData.staffs || []
+    if (!isEdit.value) form.value.reception_staff = receptionStaffs.value.some(s => s.id === receptionData.current_user)
+      ? receptionData.current_user : ''
     customers.value = Array.isArray(custData) ? custData : []
     if (props.initialCustomerId && !customers.value.some(c => c.id === Number(props.initialCustomerId))) {
       customers.value.push(await api.getCustomer(props.initialCustomerId))
@@ -542,6 +549,7 @@ async function submitCreate() {
     start_time_extended: startDateTime.value.normalizedTime,
     service_recipient_name: form.value.service_recipient_name,
     memo: form.value.memo,
+    reception_staff: form.value.reception_staff ? Number(form.value.reception_staff) : null,
   }
   if (form.value.options.length) body.options = form.value.options
   if (form.value.extension) body.extension = Number(form.value.extension)
@@ -601,6 +609,7 @@ async function submitEdit() {
     card_include_options: Boolean(form.value.card_include_options),
   }
   const discount = form.value.discount ? Number(form.value.discount) : null
+  if (!props.completedCorrection) body.reception_staff = form.value.reception_staff ? Number(form.value.reception_staff) : null
   if (props.completedCorrection) body.timeline_status = form.value.timeline_status
   if (discount !== (editBaseline.value?.discount ?? null)) body.discount = discount
   const extension = form.value.extension ? Number(form.value.extension) : null
@@ -1139,6 +1148,16 @@ function formatYen(n) {
                   <div v-if="isEdit" class="form-text">延長・指名・割引は、下の「保存」でまとめて反映されます。</div>
                 </div>
               </div>
+            </div>
+
+            <div v-if="!completedCorrection" class="mb-3">
+              <label :for="`${formId}-reception-staff`" class="form-label">受付スタッフ</label>
+              <select :id="`${formId}-reception-staff`" class="form-select" v-model="form.reception_staff">
+                <option value="">未指定</option>
+                <option v-if="isEdit && form.reception_staff && !receptionStaffs.some(s => s.id === Number(form.reception_staff))" :value="form.reception_staff">{{ initialOrder?.reception_staff_name || '以前の受付スタッフ' }}（現在選択不可）</option>
+                <option v-for="staff in receptionStaffs" :key="staff.id" :value="staff.id">{{ staff.name }}</option>
+              </select>
+              <div class="form-text">実際に予約を受け付けたスタッフを選択してください。入力した人の記録は別に残ります。</div>
             </div>
 
             <div class="mb-3">
