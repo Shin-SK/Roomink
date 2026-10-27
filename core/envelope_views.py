@@ -25,7 +25,6 @@ class EnvelopeReceiptsView(APIView):
     @transaction.atomic
     def get(self, request):
         store = get_user_store(request)
-        Store.objects.select_for_update().get(pk=store.pk)
         try:
             day = date.fromisoformat(request.query_params.get("date", ""))
         except (ValueError, TypeError):
