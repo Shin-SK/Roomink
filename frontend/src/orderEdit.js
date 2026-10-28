@@ -14,7 +14,7 @@ export function changedOrderFields(order, proposed) {
   for (const [key, value] of Object.entries(proposed)) {
     let before = original[key]
     let after = value
-    if (['cast', 'course', 'medium', 'nomination_fee', 'discount', 'extension'].includes(key)) {
+    if (['cast', 'course', 'medium', 'nomination_fee', 'discount', 'extension', 'reception_staff'].includes(key)) {
       before = nullableId(before)
       after = nullableId(after)
     } else if (key === 'options') {

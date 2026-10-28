@@ -1449,6 +1449,7 @@ def build_customer_label(customer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    reception_staff_history = serializers.SerializerMethodField()
     can_correct_accounting = serializers.SerializerMethodField()
     accounting_corrections = serializers.SerializerMethodField()
     business_date = serializers.SerializerMethodField()
@@ -1481,6 +1482,7 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
+            "reception_staff", "reception_staff_name", "reception_staff_history",
             "id", "store", "cast", "room", "customer", "course",
             "cast_name", "room_name", "course_name", "customer_label", "service_recipient_name",
             "service_recipient_customer", "service_recipient_customer_label",
@@ -1537,6 +1539,20 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def get_created_by_name(self, obj) -> str:
         return self._operator_name(obj.created_by)
+
+    @extend_schema_field({"type": "array", "items": {"type": "object", "additionalProperties": True}})
+    def get_reception_staff_history(self, obj) -> list:
+        profile = get_request_profile(self.context.get("request"))
+        if profile is None or profile.role not in ("manager", "staff"):
+            return []
+        return [{
+            "before_name": log.before.get("reception_staff_name", ""),
+            "after_name": log.after.get("reception_staff_name", ""),
+            "acted_by_name": self._operator_name(log.acted_by),
+            "created_at": log.created_at.isoformat(),
+        } for log in obj.edit_logs.all()
+            if (log.before.get("reception_staff_id"), log.before.get("reception_staff_name"))
+            != (log.after.get("reception_staff_id"), log.after.get("reception_staff_name"))]
 
     def get_updated_by_name(self, obj) -> str:
         return self._operator_name(obj.updated_by)
@@ -1656,7 +1672,31 @@ class ServiceRecipientCustomerLinkSerializer(serializers.Serializer):
 # Order — create
 # ──────────────────────────────────────
 
-class OrderCreateSerializer(serializers.ModelSerializer):
+class ReceptionStaffMixin:
+    def validate_reception_staff(self, value):
+        request = self.context.get("request")
+        profile = get_request_profile(request)
+        if profile is None or profile.role not in ("manager", "staff"):
+            raise PermissionDenied("受付スタッフを指定できるのは店舗スタッフのみです。")
+        self._require_reception_member(value, profile.store)
+        return value
+
+    @staticmethod
+    def _require_reception_member(user, store):
+        if user is not None and not StoreMembership.objects.filter(
+            user=user, store=store, is_active=True, user__is_active=True,
+            role__in=("manager", "staff"),
+        ).exists():
+            raise serializers.ValidationError({"reception_staff": "この店舗の有効なスタッフを選択してください。"})
+
+    def _set_reception_name(self, data, store):
+        if "reception_staff" in data:
+            user = data["reception_staff"]
+            self._require_reception_member(user, store)
+            data["reception_staff_name"] = (user.get_full_name() or user.username) if user else ""
+
+
+class OrderCreateSerializer(ReceptionStaffMixin, serializers.ModelSerializer):
     business_date = serializers.DateField(write_only=True, required=False)
     start_time_extended = serializers.CharField(write_only=True, required=False)
     end_time_extended = serializers.CharField(write_only=True, required=False)
@@ -1685,6 +1725,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
+            "reception_staff",
             "cast", "customer", "course", "start", "end",
             "service_recipient_name", "memo", "options", "extension", "extension_duration", "extension_price",
             "nomination_fee", "medium", "discount", "payment_method", "card_include_options",
@@ -1886,6 +1927,15 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             ).exists():
                 raise serializers.ValidationError("指定ルームは使用中です")
             option_objs = validated_data.pop("options", [])
+            if "reception_staff" not in validated_data:
+                request = self.context.get("request")
+                profile = get_request_profile(request)
+                if profile and profile.role in ("manager", "staff") and StoreMembership.objects.filter(
+                    user=request.user, store=store, is_active=True, user__is_active=True,
+                    role__in=("manager", "staff"),
+                ).exists():
+                    validated_data["reception_staff"] = request.user
+            self._set_reception_name(validated_data, store)
             course = validated_data["course"]
             validated_data["course_name"] = course.name
             validated_data["course_price"] = course.price
@@ -1949,7 +1999,7 @@ class ExtensionApplySerializer(serializers.Serializer):
 # Order — update (partial)
 # ──────────────────────────────────────
 
-class OrderUpdateSerializer(serializers.ModelSerializer):
+class OrderUpdateSerializer(ReceptionStaffMixin, serializers.ModelSerializer):
     expected_updated_at = serializers.DateTimeField(write_only=True, required=False)
     business_date = serializers.DateField(write_only=True, required=False)
     start_time_extended = serializers.CharField(write_only=True, required=False)
@@ -1968,6 +2018,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
+            "reception_staff",
             "cast", "course", "start", "end", "service_recipient_name",
             "memo", "medium", "options", "nomination_fee", "payment_method", "card_include_options",
             "timeline_status", "expected_updated_at", "discount", "extension", "extension_duration", "extension_price",
@@ -2118,7 +2169,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
             instance = Order.objects.select_for_update().get(pk=instance.pk, store=store)
             require_current_order(
                 instance, validated_data.pop("expected_updated_at", None),
-                required="options" in validated_data,
+                required="options" in validated_data or "reception_staff" in validated_data,
             )
             if instance.status == Order.Status.CANCELLED or (
                 instance.status == Order.Status.DONE and not self.context.get("allow_completed_addons")
@@ -2164,6 +2215,7 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
                 ).exclude(pk=instance.pk).exists():
                     raise serializers.ValidationError("指定ルームは使用中です")
             before = order_edit_snapshot(instance)
+            self._set_reception_name(validated_data, store)
             instance = self._update_unlocked(instance, validated_data)
             request = self.context.get("request")
             record_order_edit(instance, before, request.user if request else None, "operator")

@@ -46,6 +46,34 @@ const initial = {
 const latest = { ...initial, option_ids: [3, 4], options: ['既存', '追加'], options_price: 7000, total_price: 27000, updated_at: '2026-10-16T08:01:00.123456Z' }
 const conflict = () => Object.assign(new Error('予約が更新されています'), { status: 409 })
 
+test('reception staff defaults to the operator on creation; editing preserves the receiver and versions only intentional changes', async () => {
+  const patches = []
+  const api = {
+    getReceptionStaffs: async () => ({ current_user: 11, staffs: [{ id: 11, name: '入力担当' }, { id: 22, name: '電話受付' }] }),
+    getCustomers: async () => [{ id: 1 }], getCasts: async () => [{ id: 1 }],
+    getCourses: async () => [{ id: 1, name: '60分', price: 20000, duration: 60 }],
+    getOptions: async () => [], getExtensions: async () => [], getNominationFees: async () => [],
+    getMedia: async () => [], getDiscounts: async () => [], getPaymentFeeSettings: async () => ({}),
+    getCustomerReservationContext: async () => ({}), getSchedule: async () => ({}),
+    updateOrder: async (id, patch) => { patches.push(patch); return { ...initial, ...patch } },
+  }
+  const create = await mountSource('../src/components/OrderForm.vue', { apiClient: api })
+  try { assert.equal(create.state.form.reception_staff, 11) } finally { create.unmount() }
+  const edit = await mountSource('../src/components/OrderForm.vue', {
+    apiClient: api, mode: 'edit', orderId: 1, initialOrder: { ...initial, reception_staff: 22 },
+  })
+  try {
+    assert.equal(edit.state.form.reception_staff, 22)
+    edit.state.form.memo = '備考のみ'
+    await edit.state.submitEdit()
+    assert.equal('reception_staff' in patches[0], false)
+    edit.state.form.reception_staff = 11
+    await edit.state.submitEdit()
+    assert.equal(patches[1].reception_staff, 11)
+    assert.equal(patches[1].expected_updated_at, initial.updated_at)
+  } finally { edit.unmount() }
+})
+
 test('completed order cancellation requires confirmation, sends revision and respects settlement lock', async () => {
   const baseline = { ...initial, status: 'DONE', can_modify: true, can_correct_accounting: true }
   const calls = []
@@ -119,6 +147,7 @@ test('settled cancellation waits for an explicit daily cash choice and keeps inp
 
 test('operator conflict preserves the draft while latest data is inspected; replacing it requires confirmation', async () => {
   const api = {
+    getReceptionStaffs: async () => ({ staffs: [], current_user: null }),
     getCustomers: async () => [{ id: 1 }], getCasts: async () => [{ id: 1 }],
     getCourses: async () => [{ id: 1, name: '60分', price: 20000, duration: 60 }],
     getOptions: async () => [{ id: 3, name: '既存', price: 5000 }, { id: 4, name: '追加', price: 2000 }],
@@ -166,6 +195,7 @@ test('after conflict recovery, removing a newly added discount and extension sav
   const withExtras = { ...latest, discount: 9, extension: 8, extension_duration: 30, extension_price: 5000, end_time_extended: '13:30' }
   const patches = []
   const api = {
+    getReceptionStaffs: async () => ({ staffs: [], current_user: null }),
     getCustomers: async () => [{ id: 1 }], getCasts: async () => [{ id: 1 }],
     getCourses: async () => [{ id: 1, name: '60分', price: 20000, duration: 60 }],
     getOptions: async () => [], getExtensions: async () => [{ id: 8, duration: 30, price: 5000, is_active: true }],
