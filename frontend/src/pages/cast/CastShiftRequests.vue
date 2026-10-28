@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, ref, onMounted } from 'vue'
 import { normalizeShiftTime } from '../../shiftTime.js'
+import { shiftRequestError } from '../../shiftRequestError.js'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 
@@ -12,6 +13,7 @@ const shiftRequestStartHour = ref(11)
 const showForm = ref(false)
 const form = ref(emptyForm())
 const formError = ref('')
+const formErrorAlert = ref(null)
 const saving = ref(false)
 const shiftEditorScroll = ref(null)
 
@@ -146,6 +148,7 @@ function normalizeExtendedEndTime(value) {
 }
 
 async function onSave() {
+  if (saving.value) return
   saving.value = true
   formError.value = ''
   try {
@@ -174,7 +177,9 @@ async function onSave() {
     showForm.value = false
     await load()
   } catch (e) {
-    formError.value = e.message
+    formError.value = e.data || e.status || e instanceof TypeError ? shiftRequestError(e) : e.message
+    await nextTick()
+    formErrorAlert.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   } finally {
     saving.value = false
   }
@@ -262,7 +267,7 @@ function formatDateTime(s) {
               <button type="button" class="btn-close" @click="showForm = false"></button>
             </div>
             <div class="modal-body weekly-shift-modal-body">
-              <div v-if="formError" class="alert alert-danger">{{ formError }}</div>
+              <div v-if="formError" ref="formErrorAlert" class="alert alert-danger" role="alert" style="white-space: pre-line;">{{ formError }}</div>
               <div class="weekly-shift-picker">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                   <button type="button" class="btn btn-outline-secondary weekly-week-button" aria-label="前の7日" @click="changeWeek(-1)">
