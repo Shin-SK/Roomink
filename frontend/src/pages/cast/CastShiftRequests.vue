@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, ref, onMounted } from 'vue'
 import { normalizeShiftTime } from '../../shiftTime.js'
-import { shiftRequestError } from '../../shiftRequestError.js'
+import { shiftRequestError, shiftRequestFieldErrors } from '../../shiftRequestError.js'
 import LayoutCast from '../../components/LayoutCast.vue'
 import { api } from '../../api.js'
 
@@ -14,6 +14,7 @@ const showForm = ref(false)
 const form = ref(emptyForm())
 const formError = ref('')
 const formErrorAlert = ref(null)
+const dayErrors = ref({})
 const saving = ref(false)
 const shiftEditorScroll = ref(null)
 
@@ -81,6 +82,8 @@ const startTimeOptions = computed(() => buildTimeOptions(29, shiftRequestStartHo
 const endTimeOptions = buildTimeOptions(29)
 
 function changeWeek(offset) {
+  dayErrors.value = {}
+  formError.value = ''
   const start = new Date(`${form.value.week_start}T00:00:00`)
   start.setDate(start.getDate() + offset * 7)
   form.value.week_start = formatLocalDate(start)
@@ -92,11 +95,16 @@ const selectedDays = computed(() => form.value.days.filter((day) => day.enabled)
 
 async function toggleDay(day) {
   day.enabled = !day.enabled
-  if (!day.enabled) return
+  if (!day.enabled) { clearDayError(day.date); return }
 
   await nextTick()
   const editor = shiftEditorScroll.value?.querySelector(`[data-shift-date="${day.date}"]`)
   editor?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
+
+function clearDayError(date) {
+  delete dayErrors.value[date]
+  if (!Object.keys(dayErrors.value).length) formError.value = ''
 }
 
 async function load() {
@@ -122,6 +130,7 @@ async function load() {
 onMounted(load)
 
 function openCreate() {
+  dayErrors.value = {}
   form.value = emptyForm()
   formError.value = ''
   showForm.value = true
@@ -151,6 +160,7 @@ async function onSave() {
   if (saving.value) return
   saving.value = true
   formError.value = ''
+  dayErrors.value = {}
   try {
     const selectedItems = form.value.days.filter((day) => day.enabled)
     if (!selectedItems.length) throw new Error('出勤する日を1日以上選択してください')
@@ -177,9 +187,13 @@ async function onSave() {
     showForm.value = false
     await load()
   } catch (e) {
+    dayErrors.value = shiftRequestFieldErrors(e, form.value.days, requests.value)
     formError.value = e.data || e.status || e instanceof TypeError ? shiftRequestError(e) : e.message
     await nextTick()
-    formErrorAlert.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    const firstDate = Object.keys(dayErrors.value).sort()[0]
+    const firstEditor = firstDate && shiftEditorScroll.value?.querySelector(`[data-shift-date="${firstDate}"]`)
+    if (firstEditor) firstEditor.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    else formErrorAlert.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   } finally {
     saving.value = false
   }
@@ -286,7 +300,8 @@ function formatDateTime(s) {
                     :key="day.date"
                     type="button"
                     class="weekly-day-button"
-                    :class="[{ 'weekly-day-button--selected': day.enabled }, weekdayClass(day.date)]"
+                    :class="[{ 'weekly-day-button--selected': day.enabled, 'weekly-day-button--invalid': dayErrors[day.date] }, weekdayClass(day.date)]"
+                    :aria-invalid="!!dayErrors[day.date]"
                     :aria-pressed="day.enabled"
                     :aria-label="`${dateLabel(day.date)}を${day.enabled ? '選択解除' : '選択'}`"
                     @click="toggleDay(day)"
@@ -305,6 +320,7 @@ function formatDateTime(s) {
                   v-for="day in selectedDays"
                   :key="day.date"
                   class="weekly-shift-editor"
+                  :class="{ 'weekly-shift-editor--invalid': dayErrors[day.date] }"
                   :data-shift-date="day.date"
                 >
                   <div class="d-flex justify-content-between align-items-center mb-2">
@@ -316,19 +332,20 @@ function formatDateTime(s) {
                   <div class="weekly-shift-time">
                     <div>
                       <label class="form-label small text-muted">開始時間</label>
-                      <select v-model="day.start_time" class="form-select" :aria-label="`${dateLabel(day.date)}の開始時間`">
+                      <select v-model="day.start_time" class="form-select" :class="{ 'is-invalid': dayErrors[day.date] }" :aria-invalid="!!dayErrors[day.date]" :aria-describedby="dayErrors[day.date] ? `shift-error-${day.date}` : undefined" :aria-label="`${dateLabel(day.date)}の開始時間`" @change="clearDayError(day.date)">
                         <option value="">選択</option>
                         <option v-for="time in startTimeOptions" :key="time" :value="time">{{ time }}</option>
                       </select>
                     </div>
                     <div>
                       <label class="form-label small text-muted">終了時間</label>
-                      <select v-model="day.end_time" class="form-select" :aria-label="`${dateLabel(day.date)}の終了時間`">
+                      <select v-model="day.end_time" class="form-select" :class="{ 'is-invalid': dayErrors[day.date] }" :aria-invalid="!!dayErrors[day.date]" :aria-describedby="dayErrors[day.date] ? `shift-error-${day.date}` : undefined" :aria-label="`${dateLabel(day.date)}の終了時間`" @change="clearDayError(day.date)">
                         <option value="">選択</option>
                         <option v-for="time in endTimeOptions" :key="time" :value="time">{{ time }}</option>
                       </select>
                     </div>
                   </div>
+                  <p v-if="dayErrors[day.date]" :id="`shift-error-${day.date}`" class="weekly-shift-error mb-0 mt-2">{{ dayErrors[day.date] }}</p>
                 </div>
                 <div v-if="selectedDays.length" class="form-text mb-3">翌朝の開始・終了時間は24:00〜29:00から選択できます。</div>
                 <p class="small text-muted mb-3">
@@ -405,6 +422,23 @@ function formatDateTime(s) {
   border-color: var(--bs-primary);
   background: var(--bs-primary);
   color: #fff;
+}
+
+.weekly-day-button--invalid {
+  border: 2px solid #b02a37;
+  background: #fff1f2;
+  color: #b02a37;
+}
+
+.weekly-shift-editor--invalid {
+  outline: 1px solid #dc3545;
+  background: #fff8f8;
+}
+
+.weekly-shift-error {
+  color: #b02a37;
+  font-size: 0.875rem;
+  white-space: pre-line;
 }
 
 .weekly-day-button--saturday:not(.weekly-day-button--selected) {
