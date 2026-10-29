@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import AttentionMemo from './AttentionMemo.vue'
 
 const props = defineProps({
   customer: { type: Object, default: null },
@@ -133,6 +134,7 @@ watch(
                 </div>
               </div>
 
+              <AttentionMemo :text="customer.attention_memo" />
               <div v-if="customer.memo" class="mb-2">
                 <small class="text-muted">顧客メモ</small>
                 <div class="border rounded p-2 rk-cic-memo">{{ customer.memo }}</div>

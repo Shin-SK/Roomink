@@ -3333,6 +3333,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
             "customer_id": customer.id,
             "restrictions": _customer_restriction_context(customer),
             "staff_memo": customer.staff_memo or "",
+            "attention_memo": customer.attention_memo or "",
             "cast_history": [
                 {
                     "cast_id": row["cast_id"],
@@ -6138,6 +6139,7 @@ def _cti_call_payload(call, *, include_attention=False):
                 "flag": customer.flag,
                 "ban_type": customer.ban_type,
                 "staff_memo": customer.staff_memo,
+                "attention_memo": customer.attention_memo,
                 "restrictions": restrictions,
             }
             if customer else None
@@ -6348,15 +6350,37 @@ class CtiCallHistoryView(APIView):
     permission_classes = [IsAuthenticated, IsCtiOperator]
 
     def get(self, request):
+        raw_date = request.query_params.get("date")
+        try:
+            day = datetime.strptime(raw_date, "%Y-%m-%d").date() if raw_date else None
+            offset = int(request.query_params.get("offset", "0"))
+            if offset < 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response({"detail": "営業日はYYYY-MM-DD、offsetは0以上で指定してください。"}, status=400)
+        accessible = _accessible_cti_calls(request)
+        stores = list(Store.objects.filter(pk__in=accessible.values("store_id")).order_by("id"))
+        # One displayed date must mean the same requested business date for
+        # every store, even when their day boundaries differ.
+        if day is None:
+            first = stores[0] if stores else None
+            day = business_date_for_datetime(timezone.now(), first.timezone if first else "Asia/Tokyo", first.business_day_boundary_hour if first else 5)
+        periods = Q(pk__in=[])
+        for store in stores:
+            start, end = business_day_range(day, store.timezone, store.business_day_boundary_hour)
+            periods |= Q(store_id=store.pk, created_at__gte=start, created_at__lt=end)
         calls = (
-            _accessible_cti_calls(request)
+            accessible.filter(periods)
             .exclude(contact_id__startswith="manual-")
             .filter(status__in=[CallLog.Status.DONE, CallLog.Status.MISSED])
             .select_related("store", "customer", "assigned_to")
-            .order_by("-updated_at", "-id")
+            .order_by("-created_at", "-id")
         )
+        page = list(calls[offset:offset + 101])
         return Response({
-            "calls": [_cti_call_payload(call) for call in calls[:100]],
+            "calls": [_cti_call_payload(call) for call in page[:100]],
+            "date": day,
+            "has_more": len(page) > 100,
         })
 
 

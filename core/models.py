@@ -424,6 +424,7 @@ class Customer(models.Model):
         help_text="個別セラピストNGの対象。flag=BAN / ban_type=CAST_NG 時に参照する。",
     )
     memo = models.TextField(blank=True, default="")
+    attention_memo = models.TextField(blank=True, default="", help_text="要注意メモ（運営専用・メモの先頭に表示）")
     staff_memo = models.TextField(blank=True, default="", help_text="運営専用メモ（manager/staffのみ閲覧可）")
     legacy_usage_history = models.TextField(
         blank=True,

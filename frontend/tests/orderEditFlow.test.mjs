@@ -17,6 +17,7 @@ async function mountSource(relative, props, transform = code => code) {
   const filename = resolve(root, relative)
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   let code = compileScript(descriptor, { id: 'order-edit-test' }).content
+    .replace(/import AttentionMemo from '[^']+'/g, 'const AttentionMemo = {}')
   code = transform(code).replace(/from (['"])(\.[^'"]+)\1/g, (_, quote, specifier) => (
     `from ${quote}${pathToFileURL(resolve(dirname(filename), specifier)).href}${quote}`
   ))

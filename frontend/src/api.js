@@ -572,7 +572,7 @@ export const api = {
   // CTI
   getCtiQueue: () => request('GET', '/op/cti/queue/'),
   getCtiWorkQueue: () => request('GET', '/op/cti/work-queue/'),
-  getCtiCallHistory: () => request('GET', '/op/cti/history/'),
+  getCtiCallHistory: (date = '', offset = 0) => request('GET', `/op/cti/history/?${new URLSearchParams({ ...(date ? { date } : {}), offset })}`),
   getCtiCallContext: (id) => request('GET', `/op/cti/calls/${id}/context/`),
   markCtiCallsSeen: (callIds) => request('POST', '/op/cti/calls/mark-seen/', { call_ids: callIds }),
   ctiCallStart: (id) => request('POST', `/op/cti/calls/${id}/start/`),

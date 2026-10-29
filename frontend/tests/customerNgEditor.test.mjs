@@ -39,6 +39,7 @@ async function mountEditor({ id = 'new', query = {}, fail = false, customer = nu
   let code = compileScript(descriptor, { id: 'customer-ng-editor-test' }).content
     .replace(/import \{ useRouter, useRoute \} from 'vue-router'/, 'const useRouter = () => globalThis.__customerNgTest.router; const useRoute = () => globalThis.__customerNgTest.route')
     .replace(/import LayoutOperator from '[^']+'/g, 'const LayoutOperator = {}')
+    .replace(/import AttentionMemo from '[^']+'/g, 'const AttentionMemo = {}')
     .replace(/import \{ api \} from '[^']+'/g, 'const api = globalThis.__customerNgTest.api')
     .replace(/import \{ getAuthRole \} from '[^']+'/g, "const getAuthRole = () => 'manager'")
   const dir = mkdtempSync(join(root, '.customer-ng-test-'))
@@ -56,6 +57,7 @@ test('new customer immediately displays server result and loads detail sections 
   const e = await mountEditor()
   try {
     e.state.form.phone = '09000000001'; e.state.customerCategory = 'CAST_NG'; e.state.form.ng_casts = [2]
+    e.state.form.attention_memo = '70分限定\nAルームNG'
     await e.state.save(); await nextTick()
     assert.equal(e.state.customer.id, 42)
     assert.equal(e.state.customer.display_name, '保存済みのお客様')
@@ -66,6 +68,7 @@ test('new customer immediately displays server result and loads detail sections 
     assert.ok(e.calls.some(([kind, id]) => kind === 'invitation' && id === '42'))
     assert.ok(e.calls.some(([kind, id]) => kind === 'duplicates' && id === 42))
     assert.deepEqual(e.saved[0].ng_casts, [2])
+    assert.equal(e.saved[0].attention_memo, '70分限定\nAルームNG')
   } finally { e.unmount() }
 })
 

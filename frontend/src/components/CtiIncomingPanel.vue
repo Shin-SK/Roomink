@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { api, callApi } from '../api.js'
 import OrderForm from './OrderForm.vue'
+import AttentionMemo from './AttentionMemo.vue'
 
 const calls = ref([]), history = ref([]), drafts = ref([]), activeId = ref(null)
 const isOpen = ref(false), loading = ref(true), historyLoading = ref(false), error = ref(''), busy = ref(false), completion = ref('')
@@ -11,6 +12,9 @@ let timer, completionTimer, disposed = false, polling = false, previousFocus = n
 const draft = computed(() => drafts.value.find(d => d.id === activeId.value))
 const visibleCalls = computed(() => calls.value)
 const visibleHistory = computed(() => history.value)
+const historyDate = ref(''), historyHasMore = ref(false), historyError = ref('')
+const historyContext = ref(null), historyDetailLoading = ref(false)
+let historyRequest = 0, detailRequest = 0
 const newCount = computed(() => calls.value.filter(c => c.status === 'NEW').length)
 const hasActiveReception = computed(() => drafts.value.some(d => !d.result && !d.blocked))
 const floatingCalls = computed(() => (isOpen.value || hasActiveReception.value ? [] : calls.value.filter(c => c.status === 'NEW')))
@@ -23,6 +27,7 @@ const hasCustomerAttention = attention => Boolean(
   attention && (
     attention.flag !== 'NONE'
     || attention.staff_memo
+    || attention.attention_memo
     || attention.restrictions?.store_ng
     || attention.restrictions?.individual_cast_ng
     || attention.restrictions?.online_booking_ng
@@ -76,19 +81,42 @@ async function refresh() {
     error.value = ''
   } catch (e) {
     calls.value = []
+    if (denied(e)) { closeHistory(); history.value = [] }
     error.value = '着信情報を更新できません。接続と所属店舗をご確認ください。'
     drafts.value.forEach(d => { if (denied(e)) blockDraft(d); else d.offline = true })
   } finally { loading.value = false; polling = false }
 }
-async function refreshHistory() {
+async function refreshHistory(more = false) {
+  const request = ++historyRequest
+  const date = historyDate.value
   historyLoading.value = true
+  historyError.value = ''
   try {
-    const data = await api.getCtiCallHistory()
-    if (!disposed) history.value = data.calls || []
+    const data = await api.getCtiCallHistory(date, more ? history.value.length : 0)
+    if (!disposed && request === historyRequest) {
+      history.value = more ? [...history.value, ...(data.calls || [])] : data.calls || []
+      historyDate.value = data.date
+      historyHasMore.value = Boolean(data.has_more)
+    }
   } catch (e) {
-    if (!disposed) history.value = []
-  } finally { historyLoading.value = false }
+    if (!disposed && request === historyRequest) {
+      if (!more) history.value = []
+      historyError.value = '履歴を取得できませんでした。もう一度更新してください。'
+    }
+  } finally { if (request === historyRequest) historyLoading.value = false }
 }
+async function openHistory(call) {
+  activeId.value = null
+  const request = ++detailRequest
+  historyContext.value = null; historyDetailLoading.value = true
+  try {
+    const context = await api.getCtiCallContext(call.id)
+    if (!disposed && request === detailRequest) historyContext.value = context
+  } catch {
+    if (request === detailRequest) historyError.value = 'この履歴を開けません。権限と接続をご確認ください。'
+  } finally { if (request === detailRequest) historyDetailLoading.value = false }
+}
+function closeHistory() { ++detailRequest; historyContext.value = null; historyDetailLoading.value = false }
 async function cycle() { await refresh(); if (!disposed) timer = setTimeout(cycle, document.hidden ? 30000 : 5000) }
 async function openPanel() {
   previousFocus = document.activeElement
@@ -102,6 +130,7 @@ function closePanel() {
   nextTick(() => { if (previousFocus?.isConnected) previousFocus.focus(); else toggle.value?.focus() })
 }
 async function openDraft(call) {
+  closeHistory()
   if (busy.value) return
   busy.value = true; error.value = ''
   try {
@@ -214,7 +243,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
   <span class="visually-hidden" aria-live="polite">未対応の着信 {{ newCount }}件</span>
   <Teleport to="body">
     <div v-show="isOpen" class="cti-overlay">
-      <section ref="panel" class="cti-work" :class="{ editing: activeId }" role="complementary" aria-labelledby="cti-title" tabindex="-1" @keydown="keydown">
+      <section ref="panel" class="cti-work" :class="{ editing: activeId || historyContext || historyDetailLoading }" role="complementary" aria-labelledby="cti-title" tabindex="-1" @keydown="keydown">
         <header class="cti-header">
           <div class="cti-heading"><span class="cti-icon"><i class="ti ti-phone-incoming" aria-hidden="true"></i></span><h2 id="cti-title">着信・予約受付</h2></div>
           <button class="cti-close" aria-label="入力を保持して閉じる" @click="closePanel"><i class="ti ti-x" aria-hidden="true"></i></button>
@@ -223,7 +252,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
         <div class="cti-body">
           <aside class="cti-inbox" aria-label="着信一覧">
             <div class="cti-inbox-head"><strong>未対応の電話</strong><span>{{ newCount }}件</span></div>
-            <div v-if="drafts.length" class="cti-drafts"><span class="cti-caption">入力を再開</span><button v-for="d in drafts" :key="d.id" :class="{ selected: activeId === d.id }" @click="activeId = d.id"><i class="ti ti-pencil" aria-hidden="true"></i><span>{{ d.blocked ? '利用できない着信' : d.context?.store_name }}<small>{{ d.result?.inquiryOnly ? 'メモ保存済み' : d.result ? '予約作成済み' : '入力を保持しています' }}</small></span></button></div>
+            <div v-if="drafts.length" class="cti-drafts"><span class="cti-caption">入力を再開</span><button v-for="d in drafts" :key="d.id" :class="{ selected: activeId === d.id }" @click="closeHistory(); activeId = d.id"><i class="ti ti-pencil" aria-hidden="true"></i><span>{{ d.blocked ? '利用できない着信' : d.context?.store_name }}<small>{{ d.result?.inquiryOnly ? 'メモ保存済み' : d.result ? '予約作成済み' : '入力を保持しています' }}</small></span></button></div>
             <div v-if="loading" class="cti-empty" role="status">着信を確認しています…</div>
             <template v-else>
               <div v-if="!visibleCalls.length" class="cti-empty cti-empty-current"><i class="ti ti-phone-check" aria-hidden="true"></i><strong>現在、着信はありません</strong></div>
@@ -244,25 +273,52 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
                 <div class="cti-actions"><button :disabled="busy" @click="changeStatus(call, 'start')">対応開始</button><button :disabled="busy" @click="changeStatus(call, 'done')">対応完了</button><span v-if="call.seen_by_me">確認済み</span></div>
               </article>
               <section class="cti-history" aria-label="着信履歴">
+                <label class="d-block mb-2">営業日<input v-model="historyDate" type="date" class="form-control form-control-sm" aria-label="着信履歴の営業日" @change="closeHistory(); refreshHistory()"></label>
+                <button type="button" class="btn btn-sm btn-outline-secondary mb-2" :disabled="historyLoading" @click="refreshHistory()">履歴を更新</button>
+                <p v-if="historyError" role="alert">{{ historyError }}</p>
                 <div class="cti-history-head"><strong>着信履歴</strong><span v-if="historyLoading">読み込み中…</span><span v-else>{{ visibleHistory.length }}件</span></div>
                 <div v-if="!historyLoading && !visibleHistory.length" class="cti-history-empty">履歴はありません</div>
                 <article v-for="call in visibleHistory" :key="`history-${call.id}`" class="cti-call cti-call-history">
-                  <div class="cti-call-top"><span class="cti-store"><i class="ti ti-building-store" aria-hidden="true"></i>{{ call.store_name }}</span><time>{{ time(call.updated_at || call.created_at) }}</time></div>
-                  <div class="cti-name">{{ call.customer_name || (numericPhone(call.from_phone) ? '新規のお客様' : '非通知のお客様') }}</div>
+                  <div class="cti-call-top"><span class="cti-store"><i class="ti ti-building-store" aria-hidden="true"></i>{{ call.store_name }}</span><time>{{ time(call.created_at) }}</time></div>
+                  <button type="button" class="cti-name cti-history-link" @click="openHistory(call)">{{ call.customer_name || (numericPhone(call.from_phone) ? '新規のお客様' : '非通知のお客様') }}<span class="visually-hidden">の履歴を見る</span></button>
                   <div class="cti-phone">{{ phoneLabel(call.from_phone) }}</div>
                   <div class="cti-status"><span class="cti-pill working">{{ historyStatus(call.status) }}</span><span v-if="call.is_repeat">再着信</span><span v-if="call.assigned_to">担当：{{ call.assigned_to }}</span></div>
                 </article>
+                <button v-if="historyHasMore" class="btn btn-sm btn-outline-secondary" :disabled="historyLoading" @click="refreshHistory(true)">さらに表示</button>
               </section>
             </template>
           </aside>
           <main class="cti-detail" tabindex="-1" aria-label="着信店舗の予約入力">
+            <button v-if="historyContext || historyDetailLoading" class="cti-back" @click="closeHistory">着信一覧へ</button>
+            <p v-if="historyDetailLoading" role="status">履歴を読み込んでいます…</p>
+            <section v-if="historyContext" aria-label="着信履歴の詳細" class="cti-history-summary">
+              <div class="cti-history-summary__section"><h3>{{ historyContext.customer_name || '名前未登録のお客様' }}</h3><p>{{ historyContext.store_name }} · {{ formatDateTime(historyContext.created_at) }}</p></div>
+              <div class="cti-history-summary__section">
+                <AttentionMemo :text="historyContext.customer_attention?.attention_memo" />
+                <strong>運営専用メモ</strong><p>{{ historyContext.customer_attention?.staff_memo || '登録されていません' }}</p>
+              </div>
+              <div class="cti-history-summary__section"><strong>Roominkでの利用履歴</strong>
+                <p v-if="!historyContext.customer_history?.visits?.length">利用履歴はありません</p>
+                <ul><li v-for="visit in historyContext.customer_history?.visits" :key="visit.id"><a :href="`/op/orders/${visit.id}?store=${historyContext.store_id}`" target="_blank" rel="noopener">{{ formatDateTime(visit.start) }} · {{ visit.cast_name }} · {{ visit.course_name }}</a></li></ul>
+                <a v-if="historyContext.customer_id" :href="`/op/customers/${historyContext.customer_id}?store=${historyContext.store_id}`" target="_blank" rel="noopener">お客様の全利用履歴・メモを見る</a>
+              </div>
+              <div class="cti-history-summary__section"><strong>旧システムの利用履歴</strong><p v-if="historyContext.customer_history?.legacy_usage_history">{{ historyContext.customer_history.legacy_usage_history }}</p>
+                <p v-for="record in historyContext.customer_history?.legacy_records" :key="record.id"><a :href="`/op/legacy-histories?id=${record.id}&store=${historyContext.store_id}`" target="_blank" rel="noopener">旧オーダー履歴 {{ record.visit_count }}件を見る</a></p>
+              </div>
+              <div class="cti-history-summary__section"><strong>保存した問い合わせ履歴</strong>
+                <p v-if="!historyContext.customer_history?.current_notes?.length && !historyContext.customer_history?.inquiries?.length">問い合わせ履歴はありません</p>
+                <ul><li v-for="note in historyContext.customer_history?.current_notes" :key="note.id"><time>{{ formatDateTime(note.created_at) }}</time><p>{{ note.body }}</p></li>
+                  <li v-for="inquiry in historyContext.customer_history?.inquiries" :key="inquiry.created_at"><time>{{ formatDateTime(inquiry.created_at) }}</time><p v-for="note in inquiry.notes" :key="note">{{ note }}</p></li></ul>
+              </div>
+            </section>
             <button v-if="activeId" class="cti-back" @click="activeId = null"><i class="ti ti-arrow-left" aria-hidden="true"></i>着信一覧へ <span>入力は保持されます</span></button>
-            <div v-if="!draft" class="cti-welcome"><img src="/icon.svg" alt="Roomink"></div>
+            <div v-if="!draft && !historyContext && !historyDetailLoading" class="cti-welcome"><img src="/icon.svg" alt="Roomink"></div>
             <section v-for="d in drafts" v-show="d.id === activeId" :key="d.id">
               <div v-if="d.blocked" class="alert alert-warning">この着信を確認できなくなりました。所属権限と接続をご確認のうえ、着信一覧から開き直してください。</div>
               <template v-else>
                 <div v-if="d.offline" class="alert alert-warning" role="status">通信を確認しています。入力は保持していますが、再接続まで保存できません。</div>
                 <div class="cti-context"><span class="cti-caption"><i class="ti ti-lock" aria-hidden="true"></i> この予約の保存先</span><h3>{{ d.context.store_name }}</h3><p>{{ d.context.customer_name || '新規のお客様' }} <span>· {{ phoneLabel(d.context.from_phone) }}</span></p></div>
+                <AttentionMemo :text="d.context.customer_attention?.attention_memo" />
                 <div v-if="hasCustomerAttention(d.context.customer_attention)" class="cti-attention detail">
                   <strong>{{ attentionLabel(d.context.customer_attention.flag) }}</strong>
                   <div class="cti-attention__badges">
@@ -321,6 +377,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); clearTimeout(compl
 </template>
 
 <style scoped>
+.cti-history-link{border:0;background:transparent;padding:4px 0;text-align:left;color:#246b5a;text-decoration:underline;min-height:32px;overflow-wrap:anywhere}
 .cti-history-summary__heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}.cti-history-summary__heading a{font-size:12px}.cti-history-summary li a{display:grid;gap:3px;color:#365e55;text-decoration:none;overflow-wrap:anywhere}.cti-history-summary small{display:block;margin-top:8px;color:#71857c;font-size:11px}.cti-inquiry{border:1px solid #dceae3;border-radius:14px;padding:14px 16px;margin-bottom:16px;font-size:13px}.cti-inquiry strong{display:block;color:#365e55;margin-bottom:8px}.cti-inquiry label{display:block;font-size:12px;margin-bottom:7px}.cti-inquiry textarea{margin-bottom:10px}.cti-inquiry .btn{min-height:44px;font-size:13px}.cti-inquiry small{display:block;color:#71857c;font-size:12px;margin-top:7px}.cti-inquiry__saved{list-style:none;padding:0;margin:0}.cti-inquiry__saved li+li{border-top:1px solid #dceae3;padding-top:8px}.cti-inquiry__saved time{font-size:11px;color:#71857c}.cti-inquiry__saved p{white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0 10px}
 .cti-work{--bs-primary:#4e9a91;--bs-primary-rgb:78,154,145}
 :global(body.cti-modal-open){overflow:hidden}

@@ -1,4 +1,5 @@
 <script setup>
+import AttentionMemo from '../../components/AttentionMemo.vue'
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
@@ -41,7 +42,7 @@ const hasPhoneDuplicate = computed(() => createWarnings.value.some(w => w.reason
 const editing = ref(false)
 const saving = ref(false)
 const editError = ref('')
-const form = ref({ phone: '', display_name: '', email: '', legacy_usage_history: '', flag: 'NONE', ban_type: 'NONE', online_booking_ng: false, ng_casts: [], memo: '', staff_memo: '' })
+const form = ref({ phone: '', display_name: '', email: '', legacy_usage_history: '', flag: 'NONE', ban_type: 'NONE', online_booking_ng: false, ng_casts: [], memo: '', staff_memo: '', attention_memo: '' })
 const customerCategory = computed({
   get() {
     if (form.value.flag !== 'BAN') return form.value.flag
@@ -192,6 +193,7 @@ function startEdit() {
     online_booking_ng: Boolean(customer.value.online_booking_ng),
     ng_casts: Array.isArray(customer.value.ng_casts) ? [...customer.value.ng_casts] : [],
     memo: customer.value.memo || '',
+    attention_memo: customer.value.attention_memo || '',
     staff_memo: customer.value.staff_memo || '',
   }
   editing.value = true
@@ -226,6 +228,7 @@ async function save() {
         ban_type: form.value.ban_type,
         ...restrictionFields,
         memo: form.value.memo,
+        attention_memo: form.value.attention_memo,
         staff_memo: form.value.staff_memo,
       }
       const created = await api.createCustomer(body)
@@ -252,6 +255,7 @@ async function save() {
         ban_type: form.value.ban_type,
         ...restrictionFields,
         memo: form.value.memo,
+        attention_memo: form.value.attention_memo,
         staff_memo: form.value.staff_memo,
       }
       customer.value = await api.updateCustomer(props.id, body)
@@ -370,6 +374,10 @@ function formatInvitationDate(value) {
                   <span v-if="customer.online_booking_ng" class="badge bg-dark">ネット予約NG</span>
                   <span v-else class="text-muted">制限なし</span>
                 </td>
+              </tr>
+              <tr>
+                <th>要注意メモ（運営専用）</th>
+                <td><AttentionMemo :text="customer.attention_memo" /><span v-if="!customer.attention_memo">—</span></td>
               </tr>
               <tr>
                 <th>お客様備考</th>
@@ -495,6 +503,10 @@ function formatInvitationDate(value) {
                 <span class="d-block small text-muted mt-1">お客様からのネット予約を受け付けません。店舗の予約受付画面にも注意表示します。</span>
                 </span>
               </label>
+            </div>
+            <div class="mb-3">
+              <label class="form-label text-danger" for="attention-memo">要注意メモ（運営専用・最上部に表示）</label>
+              <textarea id="attention-memo" v-model="form.attention_memo" class="form-control" rows="3" placeholder="例：このセラピストは70分限定／AルームNG"></textarea>
             </div>
             <div class="mb-3">
               <label class="form-label">お客様備考</label>
