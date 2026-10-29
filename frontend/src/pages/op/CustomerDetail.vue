@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
@@ -233,7 +233,15 @@ async function save() {
       if (returnUrl && typeof returnUrl === 'string' && returnUrl.startsWith('/')) {
         router.replace(returnUrl)
       } else {
-        router.replace(`/op/customers/${created.id}`)
+        customer.value = created
+        editing.value = false
+        await router.replace(`/op/customers/${created.id}`)
+        await nextTick()
+        loadVisits()
+        loadInvitation()
+        api.getCustomerDuplicates(created.id).then(data => {
+          duplicates.value = Array.isArray(data) ? data : []
+        }).catch(() => {})
       }
     } else {
       const body = {
