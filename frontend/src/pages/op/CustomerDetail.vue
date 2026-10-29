@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
@@ -42,6 +42,21 @@ const editing = ref(false)
 const saving = ref(false)
 const editError = ref('')
 const form = ref({ phone: '', display_name: '', email: '', legacy_usage_history: '', flag: 'NONE', ban_type: 'NONE', online_booking_ng: false, ng_casts: [], memo: '', staff_memo: '' })
+const customerCategory = computed({
+  get() {
+    if (form.value.flag !== 'BAN') return form.value.flag
+    return ['STORE_BAN', 'CAST_NG'].includes(form.value.ban_type) ? form.value.ban_type : 'BAN'
+  },
+  set(value) {
+    if (['STORE_BAN', 'CAST_NG'].includes(value)) {
+      form.value.flag = 'BAN'
+      form.value.ban_type = value
+    } else {
+      form.value.flag = value
+      form.value.ban_type = 'NONE'
+    }
+  },
+})
 const duplicates = ref([])
 const createWarnings = ref([])
 const isManager = computed(() => getAuthRole() === 'manager')
@@ -218,7 +233,15 @@ async function save() {
       if (returnUrl && typeof returnUrl === 'string' && returnUrl.startsWith('/')) {
         router.replace(returnUrl)
       } else {
-        router.replace(`/op/customers/${created.id}`)
+        customer.value = created
+        editing.value = false
+        await router.replace(`/op/customers/${created.id}`)
+        await nextTick()
+        loadVisits()
+        loadInvitation()
+        api.getCustomerDuplicates(created.id).then(data => {
+          duplicates.value = Array.isArray(data) ? data : []
+        }).catch(() => {})
       }
     } else {
       const body = {
@@ -384,7 +407,7 @@ function formatInvitationDate(value) {
           <div v-if="editError" class="alert alert-danger py-2 px-3 mb-3" style="font-size: 0.875rem;">
             {{ editError }}
           </div>
-          <form @submit.prevent="save">
+          <form class="customer-edit-form" @submit.prevent="save">
             <div class="mb-3">
               <label class="form-label">電話番号</label>
               <input
@@ -441,20 +464,15 @@ function formatInvitationDate(value) {
             </div>
 
             <div class="mb-3">
-              <label class="form-label">フラグ</label>
-              <select v-model="form.flag" class="form-select">
+              <label for="customer-category" class="form-label">顧客の区分</label>
+              <select id="customer-category" v-model="customerCategory" class="form-select">
                 <option value="NONE">なし</option>
                 <option value="ATTENTION">要注意</option>
-                <option value="BAN">出禁</option>
-              </select>
-            </div>
-            <div v-if="form.flag === 'BAN'" class="mb-3">
-              <label class="form-label">出禁種別</label>
-              <select v-model="form.ban_type" class="form-select">
-                <option value="NONE">なし</option>
                 <option value="STORE_BAN">店NG</option>
                 <option value="CAST_NG">個別セラピストNG</option>
+                <option v-if="customerCategory === 'BAN'" value="BAN">出禁（種別未設定）</option>
               </select>
+              <div class="form-text">店NGは店舗全体、個別セラピストNGは選択したセラピストが対象です。</div>
             </div>
             <div v-if="form.flag === 'BAN' && form.ban_type === 'CAST_NG'" class="mb-3">
               <label class="form-label">個別NGの対象セラピスト</label>
@@ -470,10 +488,12 @@ function formatInvitationDate(value) {
               <div class="form-text">未設定のまま保存した場合、予約画面では「対象未設定」と警告します。</div>
             </div>
             <div class="mb-3">
-              <label class="form-check border rounded p-3">
+              <label class="booking-ng-option border rounded p-3">
                 <input v-model="form.online_booking_ng" class="form-check-input" type="checkbox">
+                <span>
                 <span class="form-check-label fw-bold">ネット予約NG</span>
                 <span class="d-block small text-muted mt-1">お客様からのネット予約を受け付けません。店舗の予約受付画面にも注意表示します。</span>
+                </span>
               </label>
             </div>
             <div class="mb-3">
@@ -632,3 +652,28 @@ function formatInvitationDate(value) {
     </template>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.customer-edit-form {
+  font-size: 0.875rem;
+}
+
+.customer-edit-form .form-control,
+.customer-edit-form .form-select,
+.customer-edit-form .form-control::placeholder {
+  font-size: 0.875rem;
+}
+
+.booking-ng-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.booking-ng-option .form-check-input {
+  flex-shrink: 0;
+  float: none;
+  margin: 0.2em 0 0;
+}
+</style>
