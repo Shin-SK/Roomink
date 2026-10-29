@@ -669,7 +669,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <section v-if="viewMode === 'cast'" class="mb-3" aria-label="セラピストの表示対象">
+    <section v-if="viewMode === 'cast'" class="timeline-segments mb-3" aria-label="セラピストの表示対象">
       <div class="d-flex flex-wrap gap-2">
         <button v-for="[value, label] in timelineSegments" :key="value" type="button"
           class="btn btn-sm" :class="castSegment === value ? 'btn-primary' : 'btn-outline-secondary'"
@@ -1046,7 +1046,9 @@ onBeforeUnmount(() => {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    flex-shrink: 0;
+    flex-wrap: wrap;
+    max-width: 100%;
+    min-width: 0;
   }
 
   &__search {
@@ -1063,6 +1065,9 @@ onBeforeUnmount(() => {
     }
   }
 }
+
+/* Reserve the top-right toolbar button; it must not intercept a segment tap. */
+.timeline-segments { padding-right: 52px; }
 
 /* スマホは検索フォームを次行いっぱい */
 @media (max-width: 575.98px) {
