@@ -1,4 +1,5 @@
 <script setup>
+import AttentionMemo from './AttentionMemo.vue'
 import { ref, onMounted, computed, watch, useId } from 'vue'
 import { api as defaultApi, normalizePhone } from '../api.js'
 import { reservationDateTime, courseEndTime } from '../reservationTime.js'
@@ -230,6 +231,7 @@ const hasCustomerAttention = computed(() => {
   const restrictions = customerContext.value?.restrictions
   return Boolean(
     customerContext.value?.staff_memo
+    || customerContext.value?.attention_memo
     || restrictions?.store_ng
     || restrictions?.individual_cast_ng
     || restrictions?.online_booking_ng
@@ -827,6 +829,7 @@ function formatYen(n) {
               <div v-else-if="customerContext.restrictions.individual_cast_ng_target_missing" class="small mb-1">
                 個別NGの対象セラピストが未設定です。顧客詳細を確認してください。
               </div>
+              <AttentionMemo :text="customerContext.attention_memo" />
               <div v-if="customerContext.staff_memo" class="customer-attention-panel__memo">{{ customerContext.staff_memo }}</div>
             </div>
             <div class="row">

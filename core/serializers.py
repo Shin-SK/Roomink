@@ -2320,7 +2320,7 @@ class ScheduleShiftSerializer(serializers.ModelSerializer):
             "id", "room_id", "room_name", "room_color",
             "start_time", "start_day_offset", "start_time_extended",
             "end_time", "end_day_offset", "end_time_extended",
-            "clocked_in_at", "confirmed_at",
+            "clocked_in_at", "clocked_out_at", "confirmed_at",
             "daily_memo", "is_absent",
         ]
 

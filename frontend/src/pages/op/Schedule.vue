@@ -11,6 +11,7 @@ import OrderForm from '../../components/OrderForm.vue'
 import UnavailableTimeModal from '../../components/UnavailableTimeModal.vue'
 import { api, normalizePhone } from '../../api.js'
 import { getAuthRole } from '../../router.js'
+import { timelineSegments, segmentTimeline } from '../../timelineSegments.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -123,7 +124,9 @@ const roomOrdersAdapter = computed(() =>
   }))
 )
 
-const displayCasts = computed(() => viewMode.value === 'room' ? roomCastsAdapter.value : casts.value)
+const castSegment = ref('scheduled')
+const segmentedCasts = computed(() => segmentTimeline(casts.value, orders.value, castSegment.value))
+const displayCasts = computed(() => viewMode.value === 'room' ? roomCastsAdapter.value : segmentedCasts.value)
 const displayOrders = computed(() => viewMode.value === 'room' ? roomOrdersAdapter.value : orders.value)
 const displayUnavailableTimes = computed(() => viewMode.value === 'room' ? [] : unavailableTimes.value)
 const showLegend = ref(false)
@@ -665,6 +668,15 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <section v-if="viewMode === 'cast'" class="mb-3" aria-label="セラピストの表示対象">
+      <div class="d-flex flex-wrap gap-2">
+        <button v-for="[value, label] in timelineSegments" :key="value" type="button"
+          class="btn btn-sm" :class="castSegment === value ? 'btn-primary' : 'btn-outline-secondary'"
+          :aria-pressed="castSegment === value" @click="castSegment = value">{{ label }}</button>
+      </div>
+      <p class="small text-muted mt-2 mb-0">{{ segmentedCasts.length }}名を表示 · 出退勤の打刻状況で絞り込みます。予約がある方は見落とし防止のため表示に残ります。</p>
+    </section>
 
     <!-- 新規予約 / 番号検索 -->
     <div class="rk-actions mb-2">
