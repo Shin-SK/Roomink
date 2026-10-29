@@ -6359,13 +6359,15 @@ class CtiCallHistoryView(APIView):
         except (ValueError, TypeError):
             return Response({"detail": "営業日はYYYY-MM-DD、offsetは0以上で指定してください。"}, status=400)
         accessible = _accessible_cti_calls(request)
-        stores = Store.objects.filter(pk__in=accessible.values("store_id")).order_by("id")
+        stores = list(Store.objects.filter(pk__in=accessible.values("store_id")).order_by("id"))
+        # One displayed date must mean the same requested business date for
+        # every store, even when their day boundaries differ.
+        if day is None:
+            first = stores[0] if stores else None
+            day = business_date_for_datetime(timezone.now(), first.timezone if first else "Asia/Tokyo", first.business_day_boundary_hour if first else 5)
         periods = Q(pk__in=[])
-        display_day = day
         for store in stores:
-            store_day = day or business_date_for_datetime(timezone.now(), store.timezone, store.business_day_boundary_hour)
-            display_day = display_day or store_day
-            start, end = business_day_range(store_day, store.timezone, store.business_day_boundary_hour)
+            start, end = business_day_range(day, store.timezone, store.business_day_boundary_hour)
             periods |= Q(store_id=store.pk, created_at__gte=start, created_at__lt=end)
         calls = (
             accessible.filter(periods)
@@ -6377,7 +6379,7 @@ class CtiCallHistoryView(APIView):
         page = list(calls[offset:offset + 101])
         return Response({
             "calls": [_cti_call_payload(call) for call in page[:100]],
-            "date": display_day or business_date_for_datetime(timezone.now(), "Asia/Tokyo"),
+            "date": day,
             "has_more": len(page) > 100,
         })
 

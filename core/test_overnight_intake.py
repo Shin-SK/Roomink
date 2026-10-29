@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from unittest.mock import patch
 from django.utils import timezone
 from core.tests import RoomankOpsSmokeTestBase
 from core.models import CallLog, CallNote
@@ -27,6 +28,10 @@ class OvernightIntakeTest(RoomankOpsSmokeTestBase):
         self.assertEqual({x['id'] for x in response.data['calls']},{b.pk,end.pk})
         self.assertEqual(c.get('/api/op/cti/history/?date=invalid').status_code,400)
         self.assertEqual(c.get('/api/op/cti/history/?offset=-1').status_code,400)
+        with patch('core.views.timezone.now', return_value=stamp):
+            default=c.get('/api/op/cti/history/')
+        self.assertEqual(str(default.data['date']), '2026-10-29')
+        self.assertEqual({x['id'] for x in default.data['calls']},{a.pk,start.pk})
 
     def test_history_pagination_and_context_are_read_only_and_scoped(self):
         stamp=timezone.now()
