@@ -47,6 +47,63 @@
 }
 
 /* 横型：左=キャスト列(固定) / 上=時間行(固定) / 右下=本体 */
+.rk-timeline-scroll {
+  position: sticky;
+  bottom: 12px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid #cbd8d2;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 10px #15352d18;
+
+  button {
+    flex: 0 0 32px;
+    height: 32px;
+    border: 1px solid #cbd8d2;
+    border-radius: 6px;
+    background: #f3f7f5;
+    color: #245c47;
+    font-size: 24px;
+    line-height: 1;
+    &:disabled { opacity: 0.35; }
+  }
+
+  input {
+    appearance: none;
+    flex: 1;
+    min-width: 0;
+    height: 12px;
+    border: 1px solid #cbd8d2;
+    border-radius: 6px;
+    background: #e7eee9;
+    cursor: pointer;
+    &::-webkit-slider-thumb {
+      appearance: none;
+      width: 64px;
+      height: 18px;
+      border: 1px solid #245c47;
+      border-radius: 6px;
+      background: #438268;
+    }
+    &::-moz-range-thumb {
+      width: 64px;
+      height: 16px;
+      border: 1px solid #245c47;
+      border-radius: 6px;
+      background: #438268;
+    }
+  }
+
+  :focus-visible { outline: 2px solid #245c47; outline-offset: 3px; }
+  @media (max-width: 767px) { display: none; }
+}
+
+/* 横型：左=キャスト列(固定) / 上=時間行(固定) / 右下=本体 */
 .rk-sheet {
   position: relative;
   display: grid;

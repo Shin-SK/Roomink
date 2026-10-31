@@ -14,6 +14,27 @@ const props = defineProps({
 const emit = defineEmits(['block-click', 'create-order', 'toggle-absence'])
 
 const gridRef = ref(null)
+const scrollRef = ref(null)
+const horizontalPosition = ref(0)
+const horizontalLimit = ref(0)
+let scrollObserver = null
+
+function syncHorizontalScroll() {
+  const element = scrollRef.value
+  if (!element) return
+  horizontalLimit.value = Math.max(0, element.scrollWidth - element.clientWidth)
+  horizontalPosition.value = Math.min(element.scrollLeft, horizontalLimit.value)
+}
+
+function moveHorizontalScroll(value) {
+  if (!scrollRef.value) return
+  scrollRef.value.scrollLeft = Math.max(0, Math.min(Number(value), horizontalLimit.value))
+  syncHorizontalScroll()
+}
+
+function stepHorizontalScroll(direction) {
+  moveHorizontalScroll(horizontalPosition.value + direction * scrollRef.value.clientWidth * 0.75)
+}
 const nowMs = ref(Date.now())
 let nowTimer = null
 
@@ -435,7 +456,7 @@ function layoutBlocks() {
   })
 }
 
-function onResize() { layoutBlocks() }
+function onResize() { layoutBlocks(); syncHorizontalScroll() }
 
 function onGridClick(ev) {
   const target = ev.target
@@ -472,7 +493,13 @@ function onGridClick(ev) {
 }
 
 onMounted(() => {
-  nextTick(layoutBlocks)
+  nextTick(() => {
+    layoutBlocks()
+    syncHorizontalScroll()
+    scrollObserver = new ResizeObserver(syncHorizontalScroll)
+    if (scrollRef.value) scrollObserver.observe(scrollRef.value)
+    if (scrollRef.value?.firstElementChild) scrollObserver.observe(scrollRef.value.firstElementChild)
+  })
   window.addEventListener('resize', onResize)
   window.addEventListener('scroll', onScrollClose, true)
   document.addEventListener('mousedown', onDocumentMousedown)
@@ -481,6 +508,7 @@ onMounted(() => {
 })
 watch(() => [props.casts, props.orders, props.unavailableTimes], () => nextTick(layoutBlocks))
 onBeforeUnmount(() => {
+  scrollObserver?.disconnect()
   window.removeEventListener('resize', onResize)
   window.removeEventListener('scroll', onScrollClose, true)
   document.removeEventListener('mousedown', onDocumentMousedown)
@@ -492,7 +520,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="rk-schedule" style="--rk-row-hour-h: 112px">
-    <div class="rk-sheet-scroll">
+    <div ref="scrollRef" class="rk-sheet-scroll" @scroll="syncHorizontalScroll">
       <div
         class="rk-sheet"
         :data-rows="casts.length"
@@ -636,6 +664,12 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+    </div>
+
+    <div v-if="horizontalLimit > 0" class="rk-timeline-scroll" role="group" aria-label="タイムラインの横移動">
+      <button type="button" aria-label="タイムラインを左へ" :disabled="horizontalPosition <= 0" @click="stepHorizontalScroll(-1)"><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
+      <input type="range" aria-label="タイムラインの横位置" min="0" :max="horizontalLimit" step="1" :value="horizontalPosition" @input="moveHorizontalScroll($event.target.value)">
+      <button type="button" aria-label="タイムラインを右へ" :disabled="horizontalPosition >= horizontalLimit - 1" @click="stepHorizontalScroll(1)"><i class="ti ti-chevron-right" aria-hidden="true"></i></button>
     </div>
 
     <Teleport to="body">
