@@ -55,6 +55,8 @@
   align-items: center;
   gap: 12px;
   margin-top: 8px;
+  // Keep the fixed incoming-call launcher clear, including when the page reaches the bottom.
+  margin-right: 76px;
   padding: 6px 10px;
   border: 1px solid #cbd8d2;
   border-radius: 10px;
