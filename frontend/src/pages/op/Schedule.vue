@@ -1,5 +1,5 @@
 <script setup>
-import { settlementStoreShare } from '../../settlementDisplay.js'
+import { settlementStoreShare, settlementCashBalance, settlementCashTotals } from '../../settlementDisplay.js'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
@@ -64,6 +64,11 @@ const allocationDate = ref('')
 const allocationRows = ref([])
 const allocationTotals = ref({})
 const allocationStatus = ref('OPEN')
+const allocationCashTotals = computed(() => settlementCashTotals(allocationRows.value))
+
+function cashYen(value) {
+  return value == null ? '確認不可' : yen(value)
+}
 
 function yen(value) {
   return `¥${Number(value || 0).toLocaleString()}`
@@ -915,15 +920,20 @@ onBeforeUnmount(() => {
                 <div><span>売上</span><strong>{{ yen(allocationTotals.total_sales) }}</strong></div>
                 <div><span>報酬</span><strong class="text-primary">{{ yen(allocationTotals.compensation) }}</strong></div>
                 <div><span>店落ち</span><strong>{{ yen(settlementStoreShare(allocationTotals)) }}</strong></div>
+                <div><span>投函額（見込み）合計</span><strong>{{ cashYen(allocationCashTotals?.deposit) }}</strong></div>
+                <div><span>給与不足額（見込み）合計</span><strong :class="{ 'text-danger': allocationCashTotals?.shortfall > 0 }">{{ cashYen(allocationCashTotals?.shortfall) }}</strong></div>
               </div>
               <details v-for="row in allocationRows" :key="row.cast_id" class="allocation-row">
-                <summary><strong>{{ row.cast_name }}</strong><span>売上 {{ yen(row.total_sales) }}</span><span class="text-primary">報酬 {{ yen(row.compensation) }}</span><span>店落ち {{ yen(settlementStoreShare(row)) }}</span><i class="ti ti-chevron-down"></i></summary>
+                <summary><strong>{{ row.cast_name }}</strong><span>売上 {{ yen(row.total_sales) }}</span><span class="text-primary">報酬 {{ yen(row.compensation) }}</span><span>店落ち {{ yen(settlementStoreShare(row)) }}</span><i class="ti ti-chevron-down"></i>
+                  <span class="allocation-cash-preview"><span>投函額（見込み） <b>{{ cashYen(settlementCashBalance(row)?.deposit) }}</b></span><span :class="{ 'text-danger': settlementCashBalance(row)?.shortfall > 0 }">給与不足額（見込み） <b>{{ cashYen(settlementCashBalance(row)?.shortfall) }}</b></span></span>
+                </summary>
                 <div class="allocation-details">
+                  <span>現金受領額 {{ cashYen(row.cash_sales_total) }}</span>
                   <span>完了済み {{ row.order_count }}本</span><span>コース {{ yen(row.course_sales) }}</span><span>オプション {{ yen(row.options_sales) }}</span>
                   <span>給与見込み {{ yen(row.back_amount) }}</span><span>固定雑費 -{{ yen(row.fixed_expense_total) }}</span><span>当日雑費 -{{ yen(row.daily_expense_total) }}</span>
                 </div>
               </details>
-              <p class="small text-muted mt-3 mb-0">報酬＝給与見込み−雑費。店落ち＝売上−報酬。振込額は現金預りなどを反映するため別の金額です。</p>
+              <p class="small text-muted mt-3 mb-0">報酬＝給与見込み−雑費。店落ち＝売上−報酬。投函額・給与不足額は、現金受領額（カード決済時の現金オプション代を含む）と報酬の差額です。合計は各セラピストの見込み額を合算し、不足を他の方の投函額と相殺しません。実際の受渡・封筒記録や振込額とは異なります。旧形式で現金額の記録がない場合は確認不可と表示します。</p>
             </template>
           </div>
           <footer class="allocation-footer"><router-link :to="{ path: '/op/daily-settlement', query: { date: allocationDate } }" class="btn btn-outline-primary btn-sm" @click="showAllocation = false">日給一覧を見る</router-link><button class="btn btn-primary btn-sm" @click="showAllocation = false">閉じる</button></footer>
@@ -1096,6 +1106,7 @@ onBeforeUnmount(() => {
 .allocation-row { border-bottom: 1px solid #e7eeeb; }
 .allocation-row summary { display: grid; grid-template-columns: 1.1fr repeat(3, 1fr) 18px; align-items: center; gap: 8px; padding: 14px 4px; cursor: pointer; list-style: none; font-size: .82rem; }
 .allocation-row summary::-webkit-details-marker { display: none; }
+.allocation-cash-preview { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 20px; }
 .allocation-details { display: flex; flex-wrap: wrap; gap: 5px 14px; padding: 0 8px 14px; color: #61716b; font-size: .77rem; }
 @media (min-width: 768px) { .allocation-backdrop { align-items: center; } .allocation-panel { border-radius: 18px; } }
 @media (max-width: 767px) { .schedule-create-drawer { width: 100%; } .schedule-create-drawer__header { padding: 13px 16px; } .schedule-create-drawer__body { padding: 16px; } }
