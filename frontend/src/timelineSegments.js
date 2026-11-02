@@ -13,10 +13,11 @@ export function castAttendanceState(cast) {
   return 'before'
 }
 
-export function segmentTimeline(casts, orders, segment) {
+export function segmentTimeline(casts, orders, segment, unavailableTimes = []) {
   // Keep visible reservations even when the associated shift is missing or
   // belongs to a different attendance segment. Never change the source data.
   const reserved = new Set(orders.filter(order => order.status !== 'CANCELLED').map(order => Number(order.cast_id)))
+  for (const item of unavailableTimes) reserved.add(Number(item.cast_id))
   return casts.filter(cast => segment === 'all'
     || (segment === 'scheduled' ? cast.shifts?.length : castAttendanceState(cast) === segment)
     || reserved.has(Number(cast.id)))

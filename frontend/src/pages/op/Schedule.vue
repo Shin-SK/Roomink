@@ -130,7 +130,7 @@ const roomOrdersAdapter = computed(() =>
 )
 
 const castSegment = ref('scheduled')
-const segmentedCasts = computed(() => segmentTimeline(casts.value, orders.value, castSegment.value))
+const segmentedCasts = computed(() => segmentTimeline(casts.value, orders.value, castSegment.value, unavailableTimes.value))
 const displayCasts = computed(() => viewMode.value === 'room' ? roomCastsAdapter.value : segmentedCasts.value)
 const displayOrders = computed(() => viewMode.value === 'room' ? roomOrdersAdapter.value : orders.value)
 const displayUnavailableTimes = computed(() => viewMode.value === 'room' ? [] : unavailableTimes.value)

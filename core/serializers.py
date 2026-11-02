@@ -1143,10 +1143,6 @@ class CastUnavailableTimeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"end_at": "終了日時は開始日時より後にしてください"})
 
         if cast and start_at and end_at:
-            if find_covering_shift(store, cast, start_at, end_at) is None:
-                raise serializers.ValidationError(
-                    "予約不可時間はキャストの出勤シフト内に設定してください"
-                )
             if Order.objects.filter(
                 cast=cast,
                 status__in=Order.ACTIVE_STATUSES,
