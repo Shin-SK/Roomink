@@ -7914,14 +7914,27 @@ class DailySettlementView(APIView):
         )
         cast_ids = set()
         cast_shifts = {}
+        absent_cast_ids = set()
+        active_cast_ids = set()
         for s in shifts:
             cast_ids.add(s.cast_id)
+            (absent_cast_ids if s.is_absent else active_cast_ids).add(s.cast_id)
             if s.cast_id not in cast_shifts:
                 cast_shifts[s.cast_id] = []
             cast_shifts[s.cast_id].append(
                 f"{str(s.start_time)[:5]}-"
                 f"{format_extended_time(s.end_time, s.end_day_offset)}"
             )
+
+        # Hide absence-only rows, but never hide existing accounting records.
+        absent_only = absent_cast_ids - active_cast_ids
+        if absent_only:
+            recorded = set(get_done_orders_for_business_range(store, d, d)
+                           .filter(cast_id__in=absent_only).values_list("cast_id", flat=True))
+            for model in (CastDailyCheckout, CastExpense, PointLog):
+                recorded.update(model.objects.filter(store=store, date=d, cast_id__in=absent_only)
+                                .values_list("cast_id", flat=True))
+            cast_ids -= absent_only - recorded
 
         if not cast_ids:
             return Response({"date": date_str, "rows": [], "totals": {}})

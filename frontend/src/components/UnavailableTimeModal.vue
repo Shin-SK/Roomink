@@ -108,7 +108,7 @@ onMounted(resetForm)
         <div class="modal-body">
           <div class="alert alert-info py-2 px-3 small">
             休憩・遅刻・早退・中抜けなど、予約を受けられない時間を登録します。
-            シフト外や既存予約と重なる時間は保存できません。
+            出勤時間外も登録できます。既存予約や他の予約不可時間と重なる時間は保存できません。
           </div>
           <div v-if="error" class="alert alert-danger py-2 px-3 small">{{ error }}</div>
 

@@ -20,3 +20,9 @@ test('reservations remain visible even without shifts or outside the chosen segm
   assert.deepEqual(segmentTimeline(casts,orders,'working').map(c=>c.id),[1,3])
   assert.equal(casts.length,6)
 })
+test('unavailable time remains on its own cast row without a shift', () => {
+  const blocked = [{ cast_id: '1' }]
+  assert.deepEqual(segmentTimeline(casts, [], 'scheduled', blocked).map(c => c.id), [1,2,3,4,5,6])
+  assert.deepEqual(segmentTimeline(casts, [], 'working', blocked).map(c => c.id), [1,3])
+  assert.deepEqual(segmentTimeline(casts, [], 'scheduled').map(c => c.id), [2,3,4,5,6])
+})

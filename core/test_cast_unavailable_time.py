@@ -170,7 +170,7 @@ class CastUnavailableTimeTest(TestCase):
         block.refresh_from_db()
         self.assertEqual(block.memo, "")
 
-    def test_outside_shift_and_existing_order_overlap_are_rejected(self):
+    def test_outside_shift_is_allowed_but_existing_order_overlap_is_rejected(self):
         outside = self.manager_client.post(
             "/api/cast-unavailable-times/",
             self.payload(9, 10),
@@ -183,9 +183,27 @@ class CastUnavailableTimeTest(TestCase):
             format="json",
         )
 
-        self.assertEqual(outside.status_code, 400, outside.data)
+        self.assertEqual(outside.status_code, 201, outside.data)
         self.assertEqual(overlap.status_code, 400, overlap.data)
-        self.assertEqual(CastUnavailableTime.objects.count(), 0)
+        self.assertEqual(CastUnavailableTime.objects.count(), 1)
+
+    def test_no_shift_and_overnight_block_can_be_created_updated_and_deleted(self):
+        ShiftAssignment.objects.filter(cast=self.cast).delete()
+        response = self.staff_client.post('/api/cast-unavailable-times/', {
+            'cast': self.cast.pk, 'business_date': str(self.business_date),
+            'start_time_extended': '24:30', 'end_time_extended': '26:00',
+            'type': 'CHANGEOVER', 'memo': 'シフト外の入れ替え',
+        }, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        url = f'/api/cast-unavailable-times/{response.data["id"]}/'
+        updated = self.staff_client.patch(url, {'memo': '夜間の確認'}, format='json')
+        self.assertEqual(updated.status_code, 200, updated.data)
+        schedule = self.manager_client.get('/api/op/schedule/', {'date': str(self.business_date)})
+        self.assertEqual(schedule.status_code, 200, schedule.data)
+        block = schedule.data['unavailable_times'][0]
+        self.assertEqual((block['start_time_extended'], block['end_time_extended'], block['memo']),
+                         ('24:30', '26:00', '夜間の確認'))
+        self.assertEqual(self.staff_client.delete(url).status_code, 204)
 
     def test_cancelled_order_does_not_block_registration(self):
         self.create_order(13, 14, status=Order.Status.CANCELLED)

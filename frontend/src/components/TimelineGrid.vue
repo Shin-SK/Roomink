@@ -415,7 +415,8 @@ const intervalBlocks = computed(() => {
   return blocks
 })
 
-const unavailableBlocks = computed(() => (props.unavailableTimes || []).map(item => ({
+const unavailableBlocks = computed(() => (props.unavailableTimes || [])
+  .filter(item => castIndexMap.value[item.cast_id] != null).map(item => ({
   ...item,
   start: item.start_time_extended,
   end: item.end_time_extended,
@@ -644,10 +645,12 @@ onBeforeUnmount(() => {
             :data-row="castIndexMap[item.cast_id] ?? 0"
             :data-start="item.start"
             :data-end="item.end"
-            :title="`${item.type_display}${item.memo ? `: ${item.memo}` : ''}`"
+            :title="`${item.start}〜${item.end} ${item.type_display}${item.memo ? `: ${item.memo}` : ''}`"
             @click.stop.prevent
           >
             <span class="rk-unavailable__label">{{ item.type_display }}</span>
+            <span class="rk-unavailable__time">{{ item.start }}〜{{ item.end }}</span>
+            <span v-if="item.memo" class="rk-unavailable__memo">{{ item.memo }}</span>
           </div>
 
           <div
