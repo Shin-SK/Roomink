@@ -42,8 +42,8 @@ export default function SetupScreen() {
       <Text style={[styles.body, { color: muted }]}>Groundwireの接続を確認し、管理者が同じ設定画面で「Groundwireに戻す」を押します。次の着信から有効です。通話中の電話は移動しません。</Text>
       <Text style={[styles.body, { color: muted }]}>設定画面を開けない場合は運営へ連絡してください。電話サービス全体の障害時は、運営と連携して元回線の転送を解除し、元の電話で受けます。解除方法と受ける電話は使用開始前に確認します。</Text>
       {helpOrigin && <>
-        <Link href={`${helpOrigin}/work/support.html`} style={[styles.link, { color: accent }]}>サポート・お問い合わせ ↗</Link>
-        <Link href={`${helpOrigin}/work/privacy.html`} style={[styles.link, { color: accent }]}>プライバシーポリシー ↗</Link>
+        <Link href={`${helpOrigin}/support/work.html`} style={[styles.link, { color: accent }]}>サポート・お問い合わせ ↗</Link>
+        <Link href={`${helpOrigin}/legal/privacy.html`} style={[styles.link, { color: accent }]}>プライバシーポリシー ↗</Link>
       </>}
     </ScrollView>
   </SafeAreaView>;
