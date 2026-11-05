@@ -9,6 +9,7 @@ from . import (
     views,
     work_device_views,
     work_voice_views,
+    work_voice_demo,
     voice_routing,
 )
 
@@ -87,6 +88,9 @@ urlpatterns = [
     path("work/personal-stores/", work_device_views.PersonalStoreLookupView.as_view()),
     path("work/history/", work_device_views.WorkDeviceHistoryView.as_view()),
     path("work/voice-token/", work_device_views.WorkDeviceVoiceTokenView.as_view()),
+    path("work/demo/devices/", work_voice_demo.DemoDevicesView.as_view()),
+    path("work/demo/call/", work_voice_demo.DemoCallView.as_view()),
+    path("work/demo/status/", work_voice_demo.status_callback),
     path("work/voice-test/incoming/", work_voice_views.incoming),
     path("work/voice-test/finished/", work_voice_views.finished),
     path("webhook/twilio/work-status/", work_voice_views.routed_finished),

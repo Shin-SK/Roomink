@@ -1,0 +1,7 @@
+label { display: block; margin: 1.25rem 0 .4rem; font-weight: 650; }
+input, select, button { box-sizing: border-box; width: 100%; padding: .85rem; font: inherit; border: 1px solid #a9c2bb; border-radius: .5rem; }
+button { margin-top: 1.25rem; background: #086758; color: white; font-weight: 650; cursor: pointer; }
+button:disabled { opacity: .6; cursor: wait; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 3px solid #b6dcd1; outline-offset: 2px; }
+#message { min-height: 2rem; font-weight: 650; }
+[lang="en"] { color: #586c65; }
