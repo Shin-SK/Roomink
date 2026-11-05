@@ -24,7 +24,6 @@ export default function SetupScreen() {
         <View style={styles.appCopy}><Text style={[styles.heading, { color: ink }]}>Roomink Work</Text><Text style={[styles.body, { color: muted }]}>これから使う受付アプリ</Text></View>
       </View>
       <View style={styles.appRow}>
-        <Image source={require('../../assets/groundwire-app.jpg')} style={styles.icon} accessibilityLabel="Groundwireのアプリアイコン" />
         <View style={styles.appCopy}><Text style={[styles.heading, { color: ink }]}>Groundwire</Text><Text style={[styles.body, { color: muted }]}>削除せず、予備として残すアプリ</Text></View>
       </View>
       <Text style={[styles.heading, { color: ink }]}>Groundwireは残してください</Text>
