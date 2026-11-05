@@ -48,6 +48,14 @@
         "resourceClass": "m-medium"
       }
     },
+    "sk-testflight-staging": {
+      "extends": "sk-testflight",
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_ROOMINK_API_BASE_URL": "https://api-staging.roomink.net/api",
+        "ROOMINK_WORK_SK_STAGING": "1"
+      }
+    },
     "testflight": {
       "distribution": "store",
       "env": {

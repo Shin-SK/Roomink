@@ -1,6 +1,7 @@
 const isSkTestFlight = process.env.ROOMINK_WORK_SK_TESTFLIGHT === '1';
-const isProductionBuild = isSkTestFlight || process.env.ROOMINK_WORK_PRODUCTION_BUILD === '1';
-const usesDistributionPush = isProductionBuild || ['development', 'preview', 'testflight'].includes(process.env.EAS_BUILD_PROFILE);
+const isSkStaging = process.env.ROOMINK_WORK_SK_STAGING === '1';
+const isProductionBuild = (isSkTestFlight && !isSkStaging) || process.env.ROOMINK_WORK_PRODUCTION_BUILD === '1';
+const usesDistributionPush = isProductionBuild || isSkStaging || ['development', 'preview', 'testflight'].includes(process.env.EAS_BUILD_PROFILE);
 
 /** @type {import('expo/config').ExpoConfig} */
 module.exports = {
