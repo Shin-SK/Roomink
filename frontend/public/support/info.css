@@ -1,0 +1,12 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #182723; background: #f4f8f7; }
+body { margin: 0; }
+main { max-width: 44rem; margin: 2rem auto; padding: clamp(1.25rem, 5vw, 3rem); background: #fff; border-radius: 1rem; overflow-wrap: anywhere; }
+h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); line-height: 1.25; }
+h2 { font-size: 1.25rem; margin-top: 2rem; }
+p, li { line-height: 1.8; }
+a { color: #086758; text-underline-offset: .2em; }
+.brand { color: #086758; font-weight: 750; }
+nav { display: flex; flex-wrap: wrap; gap: 1rem; }
+footer { margin-top: 2rem; border-top: 1px solid #d9e5e1; padding-top: 1rem; }
+address { font-style: normal; line-height: 1.8; }
+@media (max-width: 48rem) { main { margin: 0; border-radius: 0; } }

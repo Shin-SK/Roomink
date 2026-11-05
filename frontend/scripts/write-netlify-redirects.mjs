@@ -30,7 +30,7 @@ if (environment === 'staging' && apiHost !== 'api-staging.roomink.net') {
 
 fs.writeFileSync(
   path.join(root, 'dist', '_redirects'),
-  `/api/*  ${apiUrl}/api/:splat  200\n/admin/*  ${apiUrl}/admin/  302!\n/*    /index.html   200\n`,
+  `/api/*  ${apiUrl}/api/:splat  200\n/admin/*  ${apiUrl}/admin/  302!\n/work/privacy  /legal/privacy.html  301!\n/work/privacy.html  /legal/privacy.html  301!\n/work/support  /support/work.html  301!\n/work/support.html  /support/work.html  301!\n/*    /index.html   200\n`,
 )
 
 const apiOrigin = new URL(apiUrl).origin
