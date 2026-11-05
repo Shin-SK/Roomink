@@ -1,5 +1,6 @@
-const isProductionInternal = process.env.ROOMINK_WORK_PRODUCTION_BUILD === '1';
-const usesDistributionPush = isProductionInternal || ['development', 'preview', 'testflight'].includes(process.env.EAS_BUILD_PROFILE);
+const isSkTestFlight = process.env.ROOMINK_WORK_SK_TESTFLIGHT === '1';
+const isProductionBuild = isSkTestFlight || process.env.ROOMINK_WORK_PRODUCTION_BUILD === '1';
+const usesDistributionPush = isProductionBuild || ['development', 'preview', 'testflight'].includes(process.env.EAS_BUILD_PROFILE);
 
 /** @type {import('expo/config').ExpoConfig} */
 module.exports = {
@@ -11,7 +12,7 @@ module.exports = {
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',
   ios: {
-    bundleIdentifier: 'net.roomink.work',
+    bundleIdentifier: isSkTestFlight ? 'net.roomink.work.sk' : 'net.roomink.work',
     supportsTablet: true,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
@@ -30,8 +31,8 @@ module.exports = {
   },
   web: { favicon: './assets/favicon.png' },
   extra: {
-    workBuildChannel: isProductionInternal ? '本番用' : '検証版',
-    workBuildLabel: isProductionInternal ? '2026.10.19-1' : '2026.10.15-2',
+    workBuildChannel: isProductionBuild ? '本番用' : '検証版',
+    workBuildLabel: isProductionBuild ? '2026.10.19-1' : '2026.10.15-2',
     eas: { projectId: 'a0245d29-73b8-440e-9b45-8197a7c88273' },
   },
   plugins: [

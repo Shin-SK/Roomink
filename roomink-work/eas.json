@@ -36,6 +36,18 @@
         "resourceClass": "m-medium"
       }
     },
+    "sk-testflight": {
+      "distribution": "store",
+      "environment": "production",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_ROOMINK_API_BASE_URL": "https://api.roomink.net/api",
+        "ROOMINK_WORK_SK_TESTFLIGHT": "1"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    },
     "testflight": {
       "distribution": "store",
       "env": {
@@ -47,6 +59,13 @@
     }
   },
   "submit": {
-    "testflight": {}
+    "testflight": {},
+    "sk-testflight": {
+      "ios": {
+        "ascAppId": "6830960683",
+        "appleTeamId": "BZAV3NZG87",
+        "bundleIdentifier": "net.roomink.work.sk"
+      }
+    }
   }
 }
