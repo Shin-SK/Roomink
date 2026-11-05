@@ -14,7 +14,7 @@ module.exports = {
   userInterfaceStyle: 'automatic',
   ios: {
     bundleIdentifier: isSkTestFlight ? 'net.roomink.work.sk' : 'net.roomink.work',
-    supportsTablet: true,
+    supportsTablet: !isSkTestFlight,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
     },
