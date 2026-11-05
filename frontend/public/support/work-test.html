@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>テスト着信 | Roomink Work</title>
+  <link rel="stylesheet" href="/support/info.css">
+  <link rel="stylesheet" href="/support/work-test.css">
+  <script src="/support/work-test.js" defer></script>
+</head>
+<body><main>
+  <p class="brand">Roomink Work</p>
+  <h1>テスト着信</h1>
+  <p>検証用アカウント専用のページです。最初にiPhoneのRoomink Workへログインし、検証店舗の着信をONにしてください。</p>
+  <p lang="en">For demo accounts only. Sign in to Roomink Work on your iPhone first and turn on receiving for the demo store. Use the same credentials below to send an incoming test call to your own device.</p>
+  <form id="login">
+    <label for="username">ユーザー名 / Username</label>
+    <input id="username" name="username" autocomplete="username" required maxlength="150" autocapitalize="none" spellcheck="false">
+    <label for="password">パスワード / Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button id="lookup" type="submit">自分の受電端末を確認 / Find my devices</button>
+  </form>
+  <section id="target" hidden>
+    <label for="device">着信させる端末 / Your device</label>
+    <select id="device"></select>
+    <p>着信はすぐに届きます。iPhoneで応答すると確認用音声が流れ、約15秒で終了します。一般の電話番号への発信は行いません。</p>
+    <p lang="en">The call arrives immediately. Answer on your iPhone to hear a test message. The call ends automatically. This does not dial an external phone number.</p>
+    <button id="send" type="button">テスト着信を送る / Send test call</button>
+  </section>
+  <p id="message" role="status" aria-live="polite"></p>
+  <p>1分に1回、検証店舗全体で24時間に20回まで利用できます。</p>
+  <p lang="en">Limit: one call per minute, up to 20 calls per 24 hours for the demo store.</p>
+  <footer><a href="/support/work.html">サポート / Support</a> · <a href="/legal/privacy.html">プライバシーポリシー / Privacy policy</a></footer>
+</main></body>
+</html>
