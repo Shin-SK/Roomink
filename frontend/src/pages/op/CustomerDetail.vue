@@ -25,7 +25,7 @@ async function loadVisits() {
   visitsLoading.value = true
   visitsError.value = ''
   try {
-    const result = await api.getOrdersPage(`customer=${encodeURIComponent(props.id)}&status=DONE&ordering=-start&limit=20&offset=${visits.value.length}`)
+    const result = await api.getOrdersPage(`customer=${encodeURIComponent(props.id)}&ordering=-start&limit=20&offset=${visits.value.length}`)
     visits.value.push(...(Array.isArray(result) ? result : result.results || []))
     visitCount.value = result.count ?? visits.value.length
   } catch (e) {
@@ -392,20 +392,21 @@ function formatInvitationDate(value) {
         </div>
 
         <div v-if="!editing && !isNew" class="card-body border-top">
-          <h2 class="h6">Roominkの利用履歴（完了済み）</h2>
+          <h2 class="h6">Roominkの予約・利用履歴</h2>
           <div v-if="visitsError" class="alert alert-warning py-2" role="alert">{{ visitsError }}</div>
           <div v-if="visits.length" class="table-responsive">
             <table class="table table-sm align-middle">
-              <thead><tr><th>日時</th><th>セラピスト</th><th>コース</th><th>予約</th></tr></thead>
+              <thead><tr><th>日時</th><th>セラピスト</th><th>コース</th><th>状態</th><th>予約</th></tr></thead>
               <tbody><tr v-for="visit in visits" :key="visit.id">
                 <td class="text-nowrap">{{ visit.business_date }} {{ visit.start_time_extended }}〜{{ visit.end_time_extended }}</td>
                 <td>{{ casts.find(c => c.id === visit.cast)?.name || '—' }}</td>
                 <td>{{ visit.course_name }}</td>
+                <td>{{ { REQUESTED: '受付中', CONFIRMED: '確定', IN_PROGRESS: '施術中', PENDING_FINALIZE: '会計待ち', DONE: '完了', CANCELLED: 'キャンセル' }[visit.status] || '—' }}</td>
                 <td><RouterLink :to="{ name: 'order-detail', params: { id: visit.id } }" target="_blank" rel="noopener">予約詳細</RouterLink></td>
               </tr></tbody>
             </table>
           </div>
-          <p v-else-if="!visitsLoading && !visitsError" class="text-muted small mb-0">完了済みの利用履歴はありません。</p>
+          <p v-else-if="!visitsLoading && !visitsError" class="text-muted small mb-0">予約・利用履歴はありません。</p>
           <div v-if="visitsLoading" class="text-muted small" role="status">利用履歴を読み込んでいます…</div>
           <button v-if="visitsError || visits.length < visitCount" class="btn btn-outline-secondary btn-sm mt-2" :disabled="visitsLoading" @click="loadVisits">{{ visitsError ? '再読み込み' : 'さらに表示' }}</button>
         </div>

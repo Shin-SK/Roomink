@@ -32,7 +32,7 @@ test('opening customer detail loads completed visits, then appends the next page
   await p.mount()
   await Promise.resolve()
   assert.equal(p.calls.length, 1, 'initial navigation must load the history')
-  assert.equal(p.calls[0], 'customer=7&status=DONE&ordering=-start&limit=20&offset=0')
+  assert.equal(p.calls[0], 'customer=7&ordering=-start&limit=20&offset=0')
   assert.equal(vm.runInContext('visits.value.length', p.context), 20)
   await vm.runInContext('loadVisits()', p.context)
   assert.ok(p.calls[1].endsWith('offset=20'))

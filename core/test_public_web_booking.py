@@ -105,6 +105,31 @@ class PublicWebBookingTest(TestCase):
                 format="json",
             )
 
+    def test_public_booking_assigns_free_and_saves_named_fee(self):
+        for choice, fee, expected_cast, clock_time in (
+            ("free", 0, "フリー", 12),
+            (self.cast.pk, 1000, self.cast.name, 13),
+        ):
+            with self.subTest(choice=choice):
+                if choice != "free":
+                    Order.objects.all().update(status=Order.Status.CANCELLED)
+                response = self.request_code(
+                    cast=choice, nomination_mode="automatic",
+                    start=datetime(2030, 1, 15, clock_time, tzinfo=TOKYO).isoformat(),
+                )
+                self.assertEqual(response.status_code, 201, response.data)
+                result = self.client.post(
+                    "/api/public/booking/confirm/",
+                    {"verification_id": response.data["verification_id"], "code": "123456"},
+                    format="json",
+                )
+                self.assertEqual(result.status_code, 201, result.data)
+                order = Order.objects.get(pk=result.data["id"])
+                self.assertEqual(order.cast_id, self.cast.pk)
+                self.assertEqual(order.nomination_fee_price, fee)
+                self.assertEqual(order.total_price, 22000 + fee)
+                self.assertEqual(result.data["cast_name"], expected_cast)
+
     def test_anonymous_can_load_options_and_course_length_aware_slots(self):
         Cast.objects.create(store=self.store, name="別日出勤キャスト")
         options = self.client.get(
