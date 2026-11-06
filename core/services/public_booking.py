@@ -22,6 +22,7 @@ from core.models import (
     Store,
 )
 from core.serializers import OrderCreateSerializer
+from core.services.booking_restrictions import customer_booking_blocked
 from core.services.notify import notify_web_booking_received, send_sms
 from core.services.order_availability import build_available_order_slots
 from core.services.business_datetime import build_business_interval
@@ -182,7 +183,7 @@ def _clean_display_name(value):
     return display_name
 
 
-def _clean_booking_selection(data, store, now=None, lock_cast=False):
+def _clean_booking_selection(data, store, now=None, lock_cast=False, customer=None):
     try:
         cast_choice = data.get("cast")
         cast_id = "free" if cast_choice == "free" else int(cast_choice)
@@ -211,6 +212,10 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False):
     now = now or timezone.now()
     matching_slot = None
     for cast in candidates.order_by("pk"):
+        if customer is not None and customer_booking_blocked(customer, cast.pk, online=True):
+            if cast_id != "free":
+                raise PublicBookingError("予約を受け付けられません。店舗へお問い合わせください。")
+            continue
         matching_slot = next(
             (slot for slot in get_public_booking_slots(store, cast.pk, course.pk, business_date, now)
              if parse_datetime(slot["start_at"]) == start),
@@ -377,7 +382,7 @@ def request_public_booking_verification(data):
     return result
 
 
-def _find_or_create_verified_customer(challenge, cast_id):
+def _find_or_create_verified_customer(challenge):
     candidates = list(
         Customer.objects.select_for_update()
         .filter(store=challenge.store, phone__endswith=challenge.phone[-4:])
@@ -390,8 +395,7 @@ def _find_or_create_verified_customer(challenge, cast_id):
         raise PublicBookingError("予約を受け付けられません。店舗へお問い合わせください。")
     if matching:
         customer = matching[0]
-        from .booking_restrictions import customer_booking_blocked
-        if customer_booking_blocked(customer, cast_id, online=True):
+        if customer_booking_blocked(customer, None, online=True):
             raise PublicBookingError("予約を受け付けられません。店舗へお問い合わせください。")
         if not customer.display_name:
             customer.display_name = challenge.display_name
@@ -442,13 +446,14 @@ def confirm_public_booking(verification_id, code):
             challenge.store = Store.objects.select_for_update().get(
                 pk=challenge.store_id,
             )
+            customer = _find_or_create_verified_customer(challenge)
             selection = _clean_booking_selection(
                 challenge.booking_payload,
                 challenge.store,
                 now=now,
                 lock_cast=True,
+                customer=customer,
             )
-            customer = _find_or_create_verified_customer(challenge, selection["cast"].pk)
             serializer = OrderCreateSerializer(data={
                 "customer": customer.id,
                 "cast": selection["cast"].id,

@@ -130,6 +130,27 @@ class PublicWebBookingTest(TestCase):
                 self.assertEqual(order.total_price, 22000 + fee)
                 self.assertEqual(result.data["cast_name"], expected_cast)
 
+    def test_free_booking_skips_cast_blocked_for_verified_customer(self):
+        customer = Customer.objects.create(
+            store=self.store, phone="09012345678",
+            flag=Customer.Flag.BAN, ban_type=Customer.BanType.CAST_NG,
+        )
+        customer.ng_casts.add(self.cast)
+        fallback = Cast.objects.create(store=self.store, name="別の担当")
+        ShiftAssignment.objects.create(
+            store=self.store, date=self.business_date, cast=fallback,
+            room=self.room, start_time=time(12), end_time=time(15),
+        )
+        response = self.request_code(cast="free")
+        self.assertEqual(response.status_code, 201, response.data)
+        result = self.client.post(
+            "/api/public/booking/confirm/",
+            {"verification_id": response.data["verification_id"], "code": "123456"},
+            format="json",
+        )
+        self.assertEqual(result.status_code, 201, result.data)
+        self.assertEqual(Order.objects.get(pk=result.data["id"]).cast_id, fallback.pk)
+
     def test_anonymous_can_load_options_and_course_length_aware_slots(self):
         Cast.objects.create(store=self.store, name="別日出勤キャスト")
         options = self.client.get(
