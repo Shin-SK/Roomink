@@ -2570,7 +2570,8 @@ class PublicBookingSlotsView(APIView):
 
     def get(self, request):
         try:
-            cast_id = int(request.query_params.get("cast"))
+            cast_selection = request.query_params.get("cast")
+            cast_id = "free" if cast_selection == "free" else int(cast_selection)
             course_id = int(request.query_params.get("course"))
             business_date = date_type.fromisoformat(request.query_params.get("date", ""))
         except (TypeError, ValueError):

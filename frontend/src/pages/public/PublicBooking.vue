@@ -22,7 +22,6 @@ const stores = ref([])
 const casts = ref([])
 const courses = ref([])
 const options = ref([])
-const nominationFees = ref([])
 const slots = ref([])
 const selectedSlotStartAt = ref('')
 const castSearch = ref('')
@@ -52,7 +51,7 @@ const form = ref({
   time: '',
   options: [],
   memo: '',
-  nomination_fee: null,
+  nomination_mode: 'automatic',
   payment_method: '',
 })
 
@@ -70,9 +69,11 @@ const bookingDates = computed(() => Array.from({ length: 14 }, (_, index) => {
 const selectedStore = computed(() => stores.value.find(item => item.store_id === Number(form.value.store)))
 const selectedCast = computed(() => casts.value.find(item => item.id === Number(form.value.cast)))
 const selectedCourse = computed(() => courses.value.find(item => item.id === Number(form.value.course)))
-const selectedNominationFee = computed(() => nominationFees.value.find(item => item.id === Number(form.value.nomination_fee)))
+const nominationPrice = computed(() => form.value.cast && form.value.cast !== "free" ? 1000 : 0)
 const eligibleCourses = computed(() => courses.value.filter(item => (
-  !item.target_cast_ids?.length || item.target_cast_ids.includes(Number(form.value.cast))
+  !item.target_cast_ids?.length || (form.value.cast === "free"
+    ? casts.value.some(cast => item.target_cast_ids.includes(cast.id))
+    : item.target_cast_ids.includes(Number(form.value.cast)))
 )))
 const areaOptions = computed(() => [...new Set(casts.value.flatMap(cast => cast.area_names || []))].sort())
 const durationOptions = computed(() => [...new Set(eligibleCourses.value.map(course => course.duration))].sort((a, b) => a - b))
@@ -102,7 +103,7 @@ const totalPrice = computed(() => {
   for (const optionId of form.value.options) {
     total += options.value.find(item => item.id === optionId)?.price || 0
   }
-  return total + (selectedNominationFee.value?.price || 0)
+  return total + nominationPrice.value
 })
 
 function formatYen(value) {
@@ -121,7 +122,7 @@ function selectSlot(slot) {
 }
 
 function selectCast(castId) {
-  if (Number(form.value.cast) === castId) return
+  if (form.value.cast === castId) return
   form.value.cast = castId
   form.value.course = ''
   courseSearch.value = ''
@@ -146,8 +147,6 @@ async function loadOptions() {
     casts.value = data.casts || []
     courses.value = data.courses || []
     options.value = data.options || []
-    nominationFees.value = data.nomination_fees || []
-    form.value.nomination_fee = (nominationFees.value.find(item => item.name.includes('写真')) || nominationFees.value[0])?.id ?? null
     form.value.cast = ''
     form.value.course = ''
     form.value.options = []
@@ -213,7 +212,6 @@ onMounted(async () => {
 
 function validateBookingForm() {
   if (!['CASH', 'CARD'].includes(form.value.payment_method)) return '支払い方法を選択してください。'
-  if (nominationFees.value.length && !selectedNominationFee.value) return '指名区分を選択してください。'
   if (!form.value.store || !form.value.display_name.trim() || !normalizePhone(form.value.phone)) {
     return '店舗、お名前、電話番号を入力してください。'
   }
@@ -237,7 +235,7 @@ async function requestVerification() {
       ...form.value,
       store: Number(form.value.store),
       store_slug: storeSlug,
-      cast: Number(form.value.cast),
+      cast: form.value.cast,
       course: Number(form.value.course),
       phone: normalizePhone(form.value.phone),
       start: selectedSlotStartAt.value,
@@ -361,6 +359,9 @@ async function confirmBooking() {
             <p v-if="!casts.length" class="empty-message">この日は出勤予定のキャストがいません。別の日付をお選びください。</p>
             <p v-else-if="!filteredCasts.length" class="empty-message">条件に合うキャストが見つかりません。</p>
             <div v-else class="cast-grid">
+              <button type="button" class="cast-card" :class="{ active: form.cast === 'free' }" @click="selectCast('free')">
+                <span class="cast-card__content"><strong>フリー</strong><small>お店におまかせ</small></span>
+              </button>
               <button
                 v-for="cast in visibleCasts"
                 :key="cast.id"
@@ -502,12 +503,6 @@ async function confirmBooking() {
               >
             </div>
           </div>
-          <div v-if="nominationFees.length" class="mb-3">
-            <label class="form-label" for="public-nomination">指名区分</label>
-            <select id="public-nomination" v-model="form.nomination_fee" class="form-select" required>
-              <option v-for="fee in nominationFees" :key="fee.id" :value="fee.id">{{ fee.name }}（+{{ formatYen(fee.price) }}）</option>
-            </select>
-          </div>
           <div class="mb-3">
             <label class="form-label" for="public-payment">支払い方法 <span class="required">必須</span></label>
             <select id="public-payment" v-model="form.payment_method" class="form-select" required>
@@ -522,10 +517,10 @@ async function confirmBooking() {
 
           <div class="summary">
             <div><span>店舗</span><strong>{{ selectedStore?.store_name || '-' }}</strong></div>
-            <div><span>担当</span><strong>{{ selectedCast?.name || '-' }}</strong></div>
+            <div><span>担当</span><strong>{{ form.cast === 'free' ? 'フリー' : selectedCast?.name || '-' }}</strong></div>
             <div><span>日時</span><strong>{{ form.date }} {{ form.time || '-' }}</strong></div>
             <div><span>コース</span><strong>{{ selectedCourse?.name || '-' }}</strong></div>
-            <div v-if="selectedNominationFee"><span>{{ selectedNominationFee.name }}</span><strong>{{ formatYen(selectedNominationFee.price) }}</strong></div>
+            <div v-if="nominationPrice"><span>指名料</span><strong>{{ formatYen(nominationPrice) }}</strong></div>
             <div><span>支払い方法</span><strong>{{ form.payment_method === 'CARD' ? 'カード' : form.payment_method === 'CASH' ? '現金' : '未選択' }}</strong></div>
             <div class="summary__total"><span>合計</span><strong>{{ formatYen(totalPrice) }}</strong></div>
           </div>

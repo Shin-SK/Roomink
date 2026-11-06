@@ -22,9 +22,12 @@ from core.models import (
     Store,
 )
 from core.serializers import OrderCreateSerializer
+from core.services.booking_restrictions import customer_booking_blocked
 from core.services.notify import notify_web_booking_received, send_sms
 from core.services.order_availability import build_available_order_slots
 from core.services.business_datetime import build_business_interval
+from core.services.pricing import recalculate_order_total
+from core.services.reservation_access import customer_facing_cast_name
 from core.utils.phone import normalize_phone
 
 
@@ -110,6 +113,17 @@ def serialize_public_booking_options(store, business_date=None):
 
 
 def get_public_booking_slots(store, cast_id, course_id, business_date, now=None):
+    now = now or timezone.now()
+    if cast_id == "free":
+        cast_ids = ShiftAssignment.objects.filter(
+            store=store, date=business_date, is_absent=False, room__isnull=False,
+        ).order_by("cast_id").values_list("cast_id", flat=True).distinct()
+        slots_by_start = {}
+        for eligible_cast_id in cast_ids:
+            for slot in get_public_booking_slots(store, eligible_cast_id, course_id, business_date, now):
+                slots_by_start.setdefault(slot["start_at"], slot)
+        return sorted(slots_by_start.values(), key=lambda slot: parse_datetime(slot["start_at"]))
+
     cast = Cast.objects.filter(store=store, pk=cast_id).first()
     course = Course.objects.filter(store=store, pk=course_id).first()
     if cast is None or course is None:
@@ -122,7 +136,7 @@ def get_public_booking_slots(store, cast_id, course_id, business_date, now=None)
         business_date,
         slot_minutes=5,
         duration_minutes=course.duration,
-        not_before=now or timezone.now(),
+        not_before=now + timedelta(minutes=15, microseconds=-1),
     )
     assigned_intervals = [build_business_interval(
         shift.date, shift.start_time, shift.end_time,
@@ -169,40 +183,46 @@ def _clean_display_name(value):
     return display_name
 
 
-def _clean_booking_selection(data, store, now=None, lock_cast=False):
+def _clean_booking_selection(data, store, now=None, lock_cast=False, customer=None):
     try:
-        cast_id = int(data.get("cast"))
+        cast_choice = data.get("cast")
+        cast_id = "free" if cast_choice == "free" else int(cast_choice)
         course_id = int(data.get("course"))
         business_date = date_type.fromisoformat(str(data.get("date") or ""))
     except (TypeError, ValueError):
         raise PublicBookingError("キャスト、コース、予約日を選択してください。")
 
     cast_queryset = Cast.objects.select_for_update() if lock_cast else Cast.objects
-    cast = cast_queryset.filter(store=store, pk=cast_id).first()
     course = Course.objects.filter(store=store, pk=course_id).first()
-    if cast is None or course is None:
+    if course is None:
         raise PublicBookingError("選択された予約内容を確認できません。")
-    if course.target_casts.exists() and not course.target_casts.filter(pk=cast.pk).exists():
-        raise PublicBookingError("このコースは選択したキャストでは予約できません。")
 
     start = parse_datetime(str(data.get("start") or ""))
     if start is None or start.utcoffset() is None:
         raise PublicBookingError("予約時刻を選択してください。")
 
-    available_slots = get_public_booking_slots(
-        store,
-        cast.id,
-        course.id,
-        business_date,
-        now=now or timezone.now(),
-    )
-    matching_slot = next(
-        (
-            slot for slot in available_slots
-            if parse_datetime(slot["start_at"]) == start
-        ),
-        None,
-    )
+    candidates = cast_queryset.filter(store=store)
+    if cast_id == "free":
+        candidates = candidates.filter(pk__in=ShiftAssignment.objects.filter(
+            store=store, date=business_date, is_absent=False, room__isnull=False,
+        ).values("cast_id"))
+    else:
+        candidates = candidates.filter(pk=cast_id)
+
+    now = now or timezone.now()
+    matching_slot = None
+    for cast in candidates.order_by("pk"):
+        if customer is not None and customer_booking_blocked(customer, cast.pk, online=True):
+            if cast_id != "free":
+                raise PublicBookingError("予約を受け付けられません。店舗へお問い合わせください。")
+            continue
+        matching_slot = next(
+            (slot for slot in get_public_booking_slots(store, cast.pk, course.pk, business_date, now)
+             if parse_datetime(slot["start_at"]) == start),
+            None,
+        )
+        if matching_slot is not None:
+            break
     if matching_slot is None:
         raise PublicBookingError(
             "選択した時間は埋まったか、現在予約できません。空き時間を選び直してください。",
@@ -229,7 +249,8 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False):
         raise PublicBookingError("支払い方法は現金またはカードを選択してください。")
     fees = NominationFee.objects.filter(store=store, is_active=True)
     nomination_fee = None
-    if data.get("nomination_fee") is not None:
+    automatic_nomination = cast_id == "free" or data.get("nomination_mode") == "automatic"
+    if not automatic_nomination and data.get("nomination_fee") is not None:
         raw_fee_id = data["nomination_fee"]
         if isinstance(raw_fee_id, bool) or not str(raw_fee_id).isascii() or not str(raw_fee_id).isdigit():
             raise PublicBookingError("指名区分を選び直してください。")
@@ -239,11 +260,13 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False):
             pass
         if nomination_fee is None:
             raise PublicBookingError("指名区分を選び直してください。")
-    elif fees.exists():
+    elif not automatic_nomination and fees.exists():
         raise PublicBookingError("指名区分を選択してください。")
 
     return {
         "cast": cast,
+        "cast_choice": cast_id,
+        "automatic_nomination": automatic_nomination,
         "course": course,
         "business_date": business_date,
         "start": start,
@@ -258,7 +281,8 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False):
 def _booking_payload(selection):
     """本人確認とひも付ける、再送判定用の予約内容を正規化する。"""
     return {
-        "cast": selection["cast"].id,
+        "cast": selection["cast_choice"],
+        **({"nomination_mode": "automatic"} if selection["automatic_nomination"] else {}),
         "course": selection["course"].id,
         "date": selection["business_date"].isoformat(),
         "start": selection["start"].isoformat(),
@@ -371,8 +395,7 @@ def _find_or_create_verified_customer(challenge):
         raise PublicBookingError("予約を受け付けられません。店舗へお問い合わせください。")
     if matching:
         customer = matching[0]
-        from .booking_restrictions import customer_booking_blocked
-        if customer_booking_blocked(customer, challenge.booking_payload.get("cast"), online=True):
+        if customer_booking_blocked(customer, None, online=True):
             raise PublicBookingError("予約を受け付けられません。店舗へお問い合わせください。")
         if not customer.display_name:
             customer.display_name = challenge.display_name
@@ -423,13 +446,14 @@ def confirm_public_booking(verification_id, code):
             challenge.store = Store.objects.select_for_update().get(
                 pk=challenge.store_id,
             )
+            customer = _find_or_create_verified_customer(challenge)
             selection = _clean_booking_selection(
                 challenge.booking_payload,
                 challenge.store,
                 now=now,
                 lock_cast=True,
+                customer=customer,
             )
-            customer = _find_or_create_verified_customer(challenge)
             serializer = OrderCreateSerializer(data={
                 "customer": customer.id,
                 "cast": selection["cast"].id,
@@ -448,7 +472,15 @@ def confirm_public_booking(verification_id, code):
                 )
             order = serializer.save()
             order.status = Order.Status.REQUESTED
-            order.save(update_fields=["status", "updated_at"])
+            order_fields = ["status", "updated_at"]
+            if selection["automatic_nomination"]:
+                is_free = selection["cast_choice"] == "free"
+                order.nomination_fee_name = "フリー" if is_free else "指名料"
+                order.nomination_fee_price = 0 if is_free else 1000
+                order_fields.extend(["nomination_fee_name", "nomination_fee_price"])
+            order.save(update_fields=order_fields)
+            if selection["automatic_nomination"]:
+                recalculate_order_total(order)
             challenge.consumed_at = now
             challenge.save(update_fields=["consumed_at"])
 
@@ -463,7 +495,7 @@ def confirm_public_booking(verification_id, code):
         "id": order.id,
         "status": order.status,
         "store_name": order.store.name,
-        "cast_name": order.cast.name,
+        "cast_name": customer_facing_cast_name(order),
         "course_name": order.course_name,
         "start": order.start.isoformat(),
         "end": order.end.isoformat(),
