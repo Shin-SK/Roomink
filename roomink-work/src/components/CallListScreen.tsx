@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'expo-router';
 import Constants from 'expo-constants';
-import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Switch, Text, useColorScheme, View } from 'react-native';
+import { FlatList, Image, Pressable, ScrollView, StyleSheet, Switch, Text, useColorScheme, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { callList } from '../lib/call-list';
@@ -19,7 +19,6 @@ type Props = {
   onLoadMore?: (missedOnly: boolean) => void;
   onMissedOnlyChange?: (missedOnly: boolean) => void;
   busy: boolean;
-  preparingVoice?: boolean;
   error: string | null;
   onRefresh: () => void;
   onToggleStore: (store: Store) => void;
@@ -64,7 +63,7 @@ function NavIcon({ name, color }: { name: 'calls' | 'settings'; color: string })
   </Svg>;
 }
 
-export function CallListScreen({ device, calls, history, missedHistory, missedLoaded = true, hasMoreAll = false, hasMoreMissed = false, loadingMore = false, onLoadMore, onMissedOnlyChange, busy, preparingVoice, error, onRefresh, onToggleStore, onLogout, preview = false }: Props) {
+export function CallListScreen({ device, calls, history, missedHistory, missedLoaded = true, hasMoreAll = false, hasMoreMissed = false, loadingMore = false, onLoadMore, onMissedOnlyChange, busy, error, onRefresh, onToggleStore, onLogout, preview = false }: Props) {
   const systemScheme = useColorScheme();
   const [previewDark, setPreviewDark] = useState(true);
   const dark = preview ? previewDark : systemScheme === 'dark';
@@ -79,16 +78,10 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
   const rows = useMemo(() => callList(device, calls, missedOnly ? [...(missedHistory ?? []), ...history] : history, selectedStore, missedOnly), [device, calls, history, missedHistory, selectedStore, missedOnly]);
   const detail = rows.find((row) => row.id === selectedCall);
   const hasMore = missedOnly ? hasMoreMissed : hasMoreAll;
-  const voiceNotice = error ? <Text style={styles.error}>{error}</Text> : preparingVoice ? (
-    <View style={styles.preparingVoice} accessibilityLiveRegion="polite">
-      <ActivityIndicator size="small" color={palette.accent} />
-      <Text style={styles.preparingVoiceText}>着信を準備しています</Text>
-    </View>
-  ) : null;
 
   const header = <>
     {preview ? <Text style={styles.preview}>画面プレビュー · 架空データ／実際の電話は鳴りません</Text> : null}
-    {voiceNotice}
+    {error ? <Text style={styles.error}>{error}</Text> : null}
     <View style={styles.segment}>
       <Pressable onPress={() => { setMissedOnly(false); onMissedOnlyChange?.(false); }} style={[styles.segmentButton, !missedOnly && styles.segmentActive]}><Text style={[styles.segmentText, !missedOnly && styles.segmentTextActive]}>すべて</Text></Pressable>
       <Pressable onPress={() => { setMissedOnly(true); onMissedOnlyChange?.(true); }} style={[styles.segmentButton, missedOnly && styles.segmentActive]}><Text style={[styles.segmentText, missedOnly && styles.segmentTextActive]}>不在</Text></Pressable>
@@ -114,7 +107,7 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
     </View>
     {section === 'settings' ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       {preview ? <Text style={styles.preview}>画面プレビュー · 架空データ／実際の電話は鳴りません</Text> : null}
-      {voiceNotice}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
       <Text style={styles.groupTitle}>この端末で着信を受ける店舗</Text>
       <Text style={styles.description}>アカウント：{device.owner || '共用端末'}</Text>
       <Text style={styles.description}>{Constants.expoConfig?.extra?.workBuildChannel || '検証版'} {Constants.expoConfig?.extra?.workBuildLabel || Constants.expoConfig?.version || '開発中'}</Text>
@@ -139,8 +132,6 @@ export function CallListScreen({ device, calls, history, missedHistory, missedLo
 function makeStyles(c: typeof palettes.light) { return StyleSheet.create({
   safe: { flex: 1, backgroundColor: c.bg }, screen: { flex: 1, backgroundColor: c.bg }, bottomInset: { backgroundColor: c.surface }, topBar: { height: 55, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: c.border }, topSide: { width: 80 }, mark: { width: 29, height: 29 }, topAction: { color: c.accent, fontSize: 13, fontWeight: '700', textAlign: 'right' }, backButton: { width: 44, height: 44, justifyContent: 'center' }, backArrow: { color: c.accent, fontSize: 32, lineHeight: 38 },
   listContent: { paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }, content: { padding: 18, paddingBottom: 36, gap: 13 }, preview: { color: c.caution, backgroundColor: c.cautionBg, borderRadius: 8, padding: 9, fontSize: 11, marginVertical: 9 }, error: { color: c.red, padding: 10, backgroundColor: c.cautionBg, borderRadius: 8 },
-  preparingVoice: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: c.surface, borderRadius: 8 },
-  preparingVoiceText: { color: c.muted, flexShrink: 1 },
   segment: { flexDirection: 'row', alignSelf: 'flex-start', padding: 3, backgroundColor: c.surface, borderRadius: 10, marginVertical: 10 }, segmentButton: { paddingVertical: 7, paddingHorizontal: 16, borderRadius: 8 }, segmentActive: { backgroundColor: c.accentBg }, segmentText: { color: c.muted, fontWeight: '700' }, segmentTextActive: { color: c.accent },
   filterTrigger: { alignSelf: 'flex-start', paddingVertical: 8, marginBottom: 4 }, filterText: { color: c.accent, fontSize: 12, fontWeight: '700' }, filters: { gap: 7, paddingBottom: 8 }, filterPill: { padding: 9, backgroundColor: c.surface, borderRadius: 20 },
   callRow: { minHeight: 72, paddingVertical: 11, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: c.border, gap: 5 }, firstLine: { flexDirection: 'row', alignItems: 'center', gap: 7 }, phone: { color: c.text, fontSize: 17, fontWeight: '800', flexShrink: 1 }, storeChip: { color: c.muted, fontSize: 10, flex: 1 }, time: { color: c.muted, fontSize: 11, marginLeft: 'auto' },

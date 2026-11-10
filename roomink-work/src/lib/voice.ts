@@ -46,8 +46,7 @@ export async function registerForIncomingCalls(accessToken: string, notify: (sta
       const sdk = await import('@twilio/voice-react-native-sdk');
       if (!voice) {
         voice = new sdk.Voice();
-        const showInvite = (invite: CallInvite) => {
-          if (pendingInvite?.getCallSid() === invite.getCallSid()) return;
+        voice.on(sdk.Voice.Event.CallInvite, (invite: CallInvite) => {
           if (activeCall || pendingInvite) { void invite.reject().catch(reportError); return; }
           pendingInvite = invite;
           notifyCurrent?.({ kind: 'invite', callSid: invite.getCallSid(), from: invite.getFrom() });
@@ -57,20 +56,9 @@ export async function registerForIncomingCalls(accessToken: string, notify: (sta
           };
           invite.on(sdk.CallInvite.Event.Cancelled, settle);
           invite.on(sdk.CallInvite.Event.Rejected, settle);
-        };
-        voice.on(sdk.Voice.Event.CallInvite, showInvite);
+        });
         voice.on(sdk.Voice.Event.Error, reportError);
-        if (Platform.OS === 'ios') {
-          // CallKit may have handled the call before JavaScript began listening.
-          const calls = await voice.getCalls();
-          const existingCall = calls.values().next().value;
-          if (!activeCall && existingCall) attachCall(existingCall, sdk);
-          const invites = await voice.getCallInvites();
-          if (!activeCall && !pendingInvite) {
-            const existingInvite = invites.values().next().value;
-            if (existingInvite) showInvite(existingInvite);
-          }
-        }
+        if (Platform.OS === 'ios') await voice.initializePushRegistry();
       }
       if (!activeCall && !pendingInvite) notifyCurrent?.({ kind: 'registering' });
       if (activeToken !== accessToken) await voice.register(accessToken);
