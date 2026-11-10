@@ -15,7 +15,9 @@ function mergeHistory(previous: WorkCall[], incoming: WorkCall[]) {
 }
 
 export default function HomeScreen() {
-  const [loading, setLoading] = useState(true);
+  const [startup, setStartup] = useState<'loading' | 'retry' | 'ready'>('loading');
+  const startupInFlight = useRef(false);
+  const startupComplete = useRef(false);
   const [device, setDevice] = useState<Device | null>(null);
   const [calls, setCalls] = useState<WorkCall[]>([]);
   const [history, setHistory] = useState<WorkCall[]>([]);
@@ -40,6 +42,7 @@ export default function HomeScreen() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceRegistrationState | null>(null);
   const deviceConnected = device !== null;
+  const sessionResolved = startup === 'ready' || deviceConnected;
   const canReceiveVoice = device?.status === 'active' && device.stores.some(
     (store) => store.is_receiving && store.is_entitled,
   );
@@ -65,6 +68,7 @@ export default function HomeScreen() {
       setHistory((previous) => mergeHistory(previous, nextHistory.calls));
       if (!historyInitializedRef.current) { setHistoryCursor(nextHistory.next_cursor); historyInitializedRef.current = true; }
       await workRequest('/work/heartbeat/', { method: 'POST', body: '{}' });
+      return true;
     } catch (reason) {
       if (generation !== sessionGenerationRef.current) return;
       if (reason instanceof WorkApiError && (reason.status === 401 || reason.status === 403)) {
@@ -72,9 +76,11 @@ export default function HomeScreen() {
         setDevice(null); setCalls([]); setHistory([]); setMissedHistory([]); setHistoryCursor(null); setMissedCursor(null); setMissedLoaded(false);
         historyInitializedRef.current = false; missedInitializedRef.current = false;
         setError('端末の認証が失効しました。もう一度連携してください。');
+        return true;
       } else {
         setError(reason instanceof Error ? reason.message : '読み込みに失敗しました。');
       }
+      return false;
     }
   }, []);
 
@@ -95,14 +101,42 @@ export default function HomeScreen() {
     finally { loadingMoreRef.current = false; setLoadingMore(false); }
   }
 
-  useEffect(() => { (async () => {
+  const restoreSession = useCallback(async () => {
+    if (startupComplete.current || startupInFlight.current) return;
+    // A VoIP push can start iOS while Keychain is still locked.
+    if (Platform.OS === 'ios' && AppState.currentState !== 'active') return;
+    startupInFlight.current = true;
+    setStartup('loading');
     try {
-      if (Platform.OS === 'web') return;
-      if (await getToken()) await refresh();
-      else setLink(await getPendingLink());
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '端末情報を読み込めませんでした。'); }
-    finally { setLoading(false); }
-  })(); }, [refresh]);
+      if (Platform.OS !== 'web') {
+        if (await getToken()) {
+          if (!await refresh()) {
+            setStartup('retry');
+            return;
+          }
+        } else {
+          setLink(await getPendingLink());
+        }
+      }
+      startupComplete.current = true;
+      setStartup('ready');
+    } catch {
+      setStartup('retry');
+    } finally {
+      startupInFlight.current = false;
+    }
+  }, [refresh]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void restoreSession();
+    });
+    const initialRestore = setTimeout(() => { void restoreSession(); }, 0);
+    return () => {
+      clearTimeout(initialRestore);
+      subscription.remove();
+    };
+  }, [restoreSession]);
 
   useEffect(() => {
     if (!deviceConnected || loggingOut) return;
@@ -118,7 +152,7 @@ export default function HomeScreen() {
   }, [deviceConnected, loggingOut, refresh]);
 
   useEffect(() => {
-    if (loggingOut) return;
+    if (loggingOut || !sessionResolved) return;
     if (!canReceiveVoice || Platform.OS === 'web') {
       void unregisterIncomingCalls().catch(() => {});
       return;
@@ -141,7 +175,7 @@ export default function HomeScreen() {
     void configureVoice();
     const timer = setInterval(() => { void configureVoice(); }, 50 * 60 * 1000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [canReceiveVoice, loggingOut]);
+  }, [canReceiveVoice, loggingOut, sessionResolved]);
 
   async function logoutDevice() {
     if (busy) return;
@@ -207,12 +241,15 @@ export default function HomeScreen() {
     finally { setBusy(false); }
   }
 
-  if (loading) return <Centered><ActivityIndicator color={colors.green} /></Centered>;
+  if (startup === 'loading') return <Centered><ActivityIndicator color={colors.green} /></Centered>;
+  if (startup === 'retry' && !device) return <Centered>
+    <Text>端末情報を確認できませんでした。画面のロックを解除し、通信を確認してからお試しください。</Text>
+    <Primary label="もう一度確認する" disabled={false} onPress={restoreSession} />
+  </Centered>;
   if (!device) return <AuthScreen {...{ mode, setMode, username, setUsername, password, setPassword, label, setLabel, stores, setStores, selectedIds, setSelectedIds, link, setLink, busy, error, findStores, completePersonalLogin, startSharedLink, checkSharedLink }} />;
-  const voiceNotice = !canReceiveVoice ? null : voiceState?.kind === 'registering'
-      ? 'iPhoneの着信登録を準備しています。'
-      : voiceState?.kind === 'error' ? voiceState.message : null;
-  return <View style={{ flex: 1 }}><VoiceControls state={voiceState} /><CallListScreen device={device} calls={calls} history={history} missedHistory={missedHistory} missedLoaded={missedLoaded} hasMoreAll={historyCursor !== null} hasMoreMissed={missedCursor !== null} loadingMore={loadingMore} onLoadMore={loadMoreHistory} onMissedOnlyChange={async (value) => { if (value && !missedLoaded) { try { await refreshMissed(); } catch (reason) { setError(reason instanceof Error ? reason.message : '不在着信を読み込めませんでした。'); } } }} busy={busy} error={error || voiceNotice} onRefresh={async () => { await refresh(); if (missedLoaded) await refreshMissed(); }} onToggleStore={toggleStore} onLogout={logoutDevice} /></View>;
+  const preparingVoice = canReceiveVoice && (!voiceState || voiceState.kind === 'registering');
+  const voiceError = canReceiveVoice && voiceState?.kind === 'error' ? voiceState.message : null;
+  return <View style={{ flex: 1 }}><VoiceControls state={voiceState} /><CallListScreen device={device} calls={calls} history={history} missedHistory={missedHistory} missedLoaded={missedLoaded} hasMoreAll={historyCursor !== null} hasMoreMissed={missedCursor !== null} loadingMore={loadingMore} onLoadMore={loadMoreHistory} onMissedOnlyChange={async (value) => { if (value && !missedLoaded) { try { await refreshMissed(); } catch (reason) { setError(reason instanceof Error ? reason.message : '不在着信を読み込めませんでした。'); } } }} busy={busy} preparingVoice={preparingVoice} error={error || voiceError} onRefresh={async () => { await refresh(); if (missedLoaded) await refreshMissed(); }} onToggleStore={toggleStore} onLogout={logoutDevice} /></View>;
 }
 
 type AuthScreenProps = {
