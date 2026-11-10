@@ -173,7 +173,6 @@ class PublicWebBookingTest(TestCase):
         self.assertEqual(options.data["casts"][0]["id"], self.cast.id)
         self.assertEqual(options.data["casts"][0]["area_names"], ["新宿"])
         self.assertEqual(options.data["casts"][0]["shift_summaries"][0], {
-            "room_name": "101",
             "area_name": "新宿",
             "start": "12:00",
             "end": "15:00",
