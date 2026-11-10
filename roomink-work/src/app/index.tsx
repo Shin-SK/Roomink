@@ -247,10 +247,9 @@ export default function HomeScreen() {
     <Primary label="もう一度確認する" disabled={false} onPress={restoreSession} />
   </Centered>;
   if (!device) return <AuthScreen {...{ mode, setMode, username, setUsername, password, setPassword, label, setLabel, stores, setStores, selectedIds, setSelectedIds, link, setLink, busy, error, findStores, completePersonalLogin, startSharedLink, checkSharedLink }} />;
-  const voiceNotice = !canReceiveVoice ? null : voiceState?.kind === 'registering'
-      ? 'iPhoneの着信登録を準備しています。'
-      : voiceState?.kind === 'error' ? voiceState.message : null;
-  return <View style={{ flex: 1 }}><VoiceControls state={voiceState} /><CallListScreen device={device} calls={calls} history={history} missedHistory={missedHistory} missedLoaded={missedLoaded} hasMoreAll={historyCursor !== null} hasMoreMissed={missedCursor !== null} loadingMore={loadingMore} onLoadMore={loadMoreHistory} onMissedOnlyChange={async (value) => { if (value && !missedLoaded) { try { await refreshMissed(); } catch (reason) { setError(reason instanceof Error ? reason.message : '不在着信を読み込めませんでした。'); } } }} busy={busy} error={error || voiceNotice} onRefresh={async () => { await refresh(); if (missedLoaded) await refreshMissed(); }} onToggleStore={toggleStore} onLogout={logoutDevice} /></View>;
+  const preparingVoice = canReceiveVoice && (!voiceState || voiceState.kind === 'registering');
+  const voiceError = canReceiveVoice && voiceState?.kind === 'error' ? voiceState.message : null;
+  return <View style={{ flex: 1 }}><VoiceControls state={voiceState} /><CallListScreen device={device} calls={calls} history={history} missedHistory={missedHistory} missedLoaded={missedLoaded} hasMoreAll={historyCursor !== null} hasMoreMissed={missedCursor !== null} loadingMore={loadingMore} onLoadMore={loadMoreHistory} onMissedOnlyChange={async (value) => { if (value && !missedLoaded) { try { await refreshMissed(); } catch (reason) { setError(reason instanceof Error ? reason.message : '不在着信を読み込めませんでした。'); } } }} busy={busy} preparingVoice={preparingVoice} error={error || voiceError} onRefresh={async () => { await refresh(); if (missedLoaded) await refreshMissed(); }} onToggleStore={toggleStore} onLogout={logoutDevice} /></View>;
 }
 
 type AuthScreenProps = {
