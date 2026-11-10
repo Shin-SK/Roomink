@@ -84,7 +84,6 @@ const filteredCasts = computed(() => {
     const matchesKeyword = !keyword || [
       cast.name,
       ...(cast.area_names || []),
-      ...(cast.shift_summaries || []).map(shift => shift.room_name),
     ].join(' ').toLowerCase().includes(keyword)
     return matchesArea && matchesKeyword
   })
@@ -342,7 +341,7 @@ async function confirmBooking() {
             <div v-if="casts.length" class="filter-panel">
               <label class="search-box">
                 <i class="ti ti-search"></i>
-                <input v-model="castSearch" type="search" placeholder="名前・エリア・ルームで検索" aria-label="キャストを検索">
+                <input v-model="castSearch" type="search" placeholder="名前・エリアで検索" aria-label="キャストを検索">
               </label>
               <div v-if="areaOptions.length" class="segment-scroller" aria-label="エリアで絞り込み">
                 <button type="button" :class="{ active: selectedArea === 'all' }" @click="selectedArea = 'all'">すべて</button>
@@ -378,7 +377,7 @@ async function confirmBooking() {
                     <i class="ti ti-map-pin"></i>{{ cast.shift_summaries[0].area_name }}
                   </small>
                   <small v-if="cast.shift_summaries?.length">
-                    {{ cast.shift_summaries[0].room_name }}・{{ cast.shift_summaries[0].start }}〜{{ cast.shift_summaries[0].end }}
+                    {{ cast.shift_summaries[0].start }}〜{{ cast.shift_summaries[0].end }}
                   </small>
                   <small v-if="cast.shift_summaries?.length > 1">ほか{{ cast.shift_summaries.length - 1 }}件</small>
                 </span>
