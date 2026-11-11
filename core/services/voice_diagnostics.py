@@ -9,7 +9,7 @@ from core.models import VoiceDiagnosticEvent
 logger = logging.getLogger(__name__)
 FIELDS = ("CallStatus", "DialCallStatus", "DialCallSid", "ParentCallSid", "SequenceNumber",
           "Timestamp", "CallDuration", "DialCallDuration", "SipResponseCode",
-          "DialSipResponseCode", "ErrorCode", "DeviceId")
+          "DialSipResponseCode", "ErrorCode")
 
 
 def record_voice_event(call, stage, data):
@@ -17,9 +17,7 @@ def record_voice_event(call, stage, data):
     details = {}
     for key in FIELDS:
         value = str(data.get(key, ""))
-        if key == "DeviceId":
-            valid = re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", value)
-        elif key.endswith("Sid"):
+        if key.endswith("Sid"):
             valid = re.fullmatch(r"CA[A-Za-z0-9_-]{1,126}", value)
         elif key.endswith("Status"):
             valid = value in {"queued", "initiated", "ringing", "in-progress", "answered", "completed", "busy", "failed", "no-answer", "canceled"}

@@ -108,7 +108,6 @@ onMounted(load)
 <template>
   <LayoutOperator>
     <template #title>Roomink Work端末</template>
-    <RouterLink to="/op/settings/work-diagnostics" class="btn btn-outline-primary mb-3">着信診断</RouterLink>
 
     <div v-if="error" class="alert alert-danger" role="alert">{{ error }}</div>
     <div v-if="message" class="alert alert-success" role="status">{{ message }}</div>

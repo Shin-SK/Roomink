@@ -1393,23 +1393,6 @@ class CallLog(models.Model):
         return f"Call#{self.pk} {self.from_phone} → {self.to_phone} ({self.status})"
 
 
-class WorkDiagnosticEvent(models.Model):
-    """Bounded, structured observations from authenticated Work installations."""
-    device = models.ForeignKey(WorkDevice, on_delete=models.CASCADE)
-    event_id = models.UUIDField()
-    call_sid = models.CharField(max_length=34, blank=True)
-    stage = models.CharField(max_length=32)
-    observed_at = models.DateTimeField()
-    received_at = models.DateTimeField(auto_now_add=True)
-    snapshot = models.JSONField(default=dict)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["device", "event_id"], name="work_diagnostic_device_event"),
-        ]
-        indexes = [models.Index(fields=["call_sid"], name="work_diagnostic_call_idx")]
-
-
 class VoiceDiagnosticEvent(models.Model):
     """Internal call tracing only; never store raw webhook bodies or phone numbers."""
     call = models.ForeignKey(CallLog, on_delete=models.CASCADE, related_name="diagnostic_events")

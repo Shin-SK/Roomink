@@ -11,7 +11,6 @@ from . import (
     work_voice_views,
     work_voice_demo,
     voice_routing,
-    work_diagnostics,
 )
 
 from . import attendance_views, legacy_history_views
@@ -79,8 +78,6 @@ urlpatterns = [
     path("op/operation-group/managers/", operation_group_views.OperationGroupManagerView.as_view()),
     path("op/work-devices/", work_device_views.OperationWorkDeviceListView.as_view()),
     path("op/voice-route/", voice_routing.OperationVoiceRouteView.as_view()),
-    path("op/work-diagnostics/", work_diagnostics.OperationDiagnosticsView.as_view()),
-    path("work/diagnostics/", work_diagnostics.DeviceDiagnosticsView.as_view()),
     path("op/work-devices/approve/", work_device_views.OperationWorkDeviceApproveView.as_view()),
     path("op/work-devices/<uuid:device_id>/action/", work_device_views.OperationWorkDeviceActionView.as_view()),
     path("work/personal-login/", work_device_views.PersonalDeviceLoginView.as_view()),

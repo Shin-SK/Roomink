@@ -2,10 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { acceptIncomingCall, endIncomingCall, rejectIncomingCall, VoiceRegistrationState } from '../lib/voice';
 
-export function VoiceControls({ state, operations }: {
-  state: VoiceRegistrationState | null;
-  operations?: { accept: () => Promise<void>; reject: () => Promise<void>; end: () => Promise<void> };
-}) {
+export function VoiceControls({ state }: { state: VoiceRegistrationState | null }) {
   const [busy, setBusy] = useState(false);
   if (!state || !['invite', 'connecting', 'connected', 'reconnecting'].includes(state.kind)) return null;
   const action = async (operation: () => Promise<void>) => {
@@ -18,9 +15,9 @@ export function VoiceControls({ state, operations }: {
     <Text style={styles.label}>{label}</Text>
     <View style={styles.actions}>
       {state.kind === 'invite' ? <>
-        <Pressable accessibilityRole="button" disabled={busy} style={styles.answer} onPress={() => { void action(operations?.accept ?? acceptIncomingCall); }}><Text style={styles.text}>応答</Text></Pressable>
-        <Pressable accessibilityRole="button" disabled={busy} style={styles.end} onPress={() => { void action(operations?.reject ?? rejectIncomingCall); }}><Text style={styles.text}>拒否</Text></Pressable>
-      </> : <Pressable accessibilityRole="button" disabled={busy} style={styles.end} onPress={() => { void action(operations?.end ?? endIncomingCall); }}><Text style={styles.text}>通話を終了</Text></Pressable>}
+        <Pressable accessibilityRole="button" disabled={busy} style={styles.answer} onPress={() => { void action(acceptIncomingCall); }}><Text style={styles.text}>応答</Text></Pressable>
+        <Pressable accessibilityRole="button" disabled={busy} style={styles.end} onPress={() => { void action(rejectIncomingCall); }}><Text style={styles.text}>拒否</Text></Pressable>
+      </> : <Pressable accessibilityRole="button" disabled={busy} style={styles.end} onPress={() => { void action(endIncomingCall); }}><Text style={styles.text}>通話を終了</Text></Pressable>}
     </View>
   </View>;
 }
