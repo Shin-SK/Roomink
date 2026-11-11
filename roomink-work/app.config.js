@@ -17,6 +17,7 @@ module.exports = {
     supportsTablet: !isSkTestFlight,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
+      RoominkDiagnosticRevision: process.env.EAS_BUILD_GIT_COMMIT_HASH || 'local',
     },
     entitlements: {
       // EAS internal builds use Ad Hoc distribution: their signed profile uses production APNs.

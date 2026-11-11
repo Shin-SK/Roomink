@@ -92,6 +92,7 @@ static void RKRecord(NSString *stage, NSString *sid, NSError *error) {
     @"model": [NSString stringWithUTF8String:system.machine],
     @"app_version": [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown",
     @"build": [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"unknown",
+    @"revision": [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RoominkDiagnosticRevision"] ?: @"unknown",
     @"network": RKNetwork,
     @"low_power": @(NSProcessInfo.processInfo.lowPowerModeEnabled),
     @"uptime_ms": @((long long)(NSProcessInfo.processInfo.systemUptime * 1000)),
@@ -154,6 +155,17 @@ RCT_EXPORT_MODULE();
     else RKNetwork = @"other";
   });
   nw_path_monitor_start(RKMonitor);
+  Class registryClass = NSClassFromString(@"TwilioVoicePushRegistry");
+  SEL invalidateSelector = NSSelectorFromString(@"pushRegistry:didInvalidatePushTokenForType:");
+  Method invalidateMethod = class_getInstanceMethod(registryClass, invalidateSelector);
+  if (invalidateMethod) {
+    IMP originalInvalidate = method_getImplementation(invalidateMethod);
+    method_setImplementation(invalidateMethod, imp_implementationWithBlock(^(id instance, id registry, id type) {
+      [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"roomink.diagnostics.push-token-present"];
+      RKRecord(@"registration_failed", @"", nil);
+      ((void (*)(id, SEL, id, id))originalInvalidate)(instance, invalidateSelector, registry, type);
+    }));
+  }
   // Observe Twilio's native notification before React Native has started.
   [[NSNotificationCenter defaultCenter] addObserverForName:@"TwilioVoicePushRegistryNotification" object:nil queue:nil usingBlock:^(NSNotification *notification) {
     if ([notification.userInfo[@"type"] isEqual:@"deviceTokenUpdated"]) {

@@ -51,8 +51,14 @@ export default function VoiceReplay() {
     if (!replay || !device || running) return;
     const current = ++generation.current;
     setRunning(true); setState(null); setTimeline([]); setError('');
-    const events = replay.device_events.filter(event => event.device === device);
-    const origin = events[0]?.at_ms ?? 0;
+    const events = replay.device_events.filter(event => event.device === device).sort((left, right) => {
+      const a = left.snapshot?.sequence;
+      const b = right.snapshot?.sequence;
+      return typeof a === 'number' && typeof b === 'number' ? a - b : left.at_ms - right.at_ms;
+    });
+    const useUptime = events.every(event => typeof event.snapshot?.uptime_ms === 'number');
+    const eventTime = (event: DeviceEvent) => useUptime ? Number(event.snapshot.uptime_ms) : event.at_ms;
+    const origin = events.length ? eventTime(events[0]) : 0;
     const transport = createReplaySdk();
     const session = createVoiceSession({
       platform: 'ios',
@@ -65,7 +71,7 @@ export default function VoiceReplay() {
       });
       await replayVoiceEvents({
         version: 1, clock: 'server_observed',
-        events: events.map(event => ({ ...event, at_ms: event.at_ms - origin, leg: device })),
+        events: events.map(event => ({ ...event, at_ms: eventTime(event) - origin, leg: device })),
       }, async (event: DeviceEvent) => {
         if (generation.current !== current) throw new Error('再生を停止しました。');
         setTimeline(previous => [...previous, JSON.stringify(event)]);

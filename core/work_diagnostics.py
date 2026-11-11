@@ -31,6 +31,7 @@ class Snapshot(serializers.Serializer):
     app_version = serializers.CharField(max_length=32, required=False)
     model = serializers.CharField(max_length=64, required=False)
     build = serializers.CharField(max_length=32, required=False)
+    revision = serializers.RegexField(r"^(?:[0-9a-f]{40}|local|unknown)$", required=False)
     network = serializers.ChoiceField(choices=["wifi", "cellular", "other", "unavailable", "unknown"], required=False)
     low_power = serializers.BooleanField(required=False)
     push_token_present = serializers.BooleanField(required=False)

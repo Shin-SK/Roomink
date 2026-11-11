@@ -39,7 +39,7 @@ export async function flushVoiceDiagnostics() {
 export function clearVoiceDiagnostics() { native?.clear(); }
 
 export function startVoiceDiagnostics() {
-  void flushVoiceDiagnostics();
+  recordVoiceDiagnostic('app_state');
   const subscription = AppState.addEventListener('change', () => {
     recordVoiceDiagnostic('app_state');
   });
