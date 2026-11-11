@@ -104,3 +104,10 @@ onMounted(load)
     </div>
   </LayoutOperator>
 </template>
+
+<style scoped>
+.list-group-item.active:hover {
+  background: var(--bs-list-group-active-bg);
+  color: var(--bs-list-group-active-color);
+}
+</style>
