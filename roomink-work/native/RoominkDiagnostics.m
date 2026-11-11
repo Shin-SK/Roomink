@@ -244,6 +244,7 @@ static void RKRecord(NSString *stage, NSString *sid, NSError *error) {
 @implementation RoominkDiagnostics
 RCT_EXPORT_MODULE();
 + (BOOL)requiresMainQueueSetup { return YES; }
+- (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
 RCT_REMAP_METHOD(read, readWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
   @synchronized(NSUserDefaults.standardUserDefaults) {
     resolve([NSUserDefaults.standardUserDefaults arrayForKey:RKQueueKey] ?: @[]);
