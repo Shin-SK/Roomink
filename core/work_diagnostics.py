@@ -120,9 +120,12 @@ class OperationDiagnosticsView(APIView):
             child = event.details.get("DialCallSid")
             if child:
                 sids.add(child)
+        targets = list(dict.fromkeys(
+            event.details["DeviceId"] for event in server_events if event.details.get("DeviceId")
+        ))
         devices = WorkDiagnosticEvent.objects.filter(
-            device__store_subscriptions__store__operation_group_id=group_id,
-            device__store_subscriptions__store_id=call.store_id,
+            Q(device_id__in=targets) |
+            Q(device__store_subscriptions__store_id=call.store_id),
         ).filter(
             Q(call_sid__in=sids) |
             Q(call_sid="", observed_at__gte=call.created_at - timedelta(minutes=5),
@@ -136,9 +139,6 @@ class OperationDiagnosticsView(APIView):
             "received_at": event.received_at,
         } for event in devices]
         replay = replay_case(call, server_events)
-        targets = list(dict.fromkeys(
-            event.details["DeviceId"] for event in server_events if event.details.get("DeviceId")
-        ))
         device_aliases = {target: f"device-{index + 1}" for index, target in enumerate(targets)}
         replay["device_events"] = []
         for event in observations:

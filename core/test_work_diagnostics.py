@@ -5,13 +5,13 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from .models import CallLog, VoiceDiagnosticEvent, WorkDiagnosticEvent
-from .test_work_devices import WorkDeviceFoundationTest
+from . import test_work_devices as foundation
 
 
 class WorkDiagnosticsTest(TestCase):
-    setUp = WorkDeviceFoundationTest.setUp
-    personal_login = WorkDeviceFoundationTest.personal_login
-    device_client = WorkDeviceFoundationTest.device_client
+    setUp = foundation.WorkDeviceFoundationTest.setUp
+    personal_login = foundation.WorkDeviceFoundationTest.personal_login
+    device_client = foundation.WorkDeviceFoundationTest.device_client
 
     def test_batch_retry_privacy_and_tenant_boundary(self):
         token = self.personal_login().data["token"]
@@ -39,6 +39,14 @@ class WorkDiagnosticsTest(TestCase):
         self.assertEqual(result.data["device_observation"], "observed")
         self.assertNotIn(sid, str(result.data["replay"]))
         self.assertNotIn("09012345678", str(result.data))
+        event_record = WorkDiagnosticEvent.objects.get()
+        VoiceDiagnosticEvent.objects.create(
+            call=call, event_key="target", stage="work_target_requested", call_sid=sid,
+            details={"DeviceId": str(event_record.device_id)},
+        )
+        event_record.device.store_subscriptions.all().delete()
+        historical = manager.get("/api/op/work-diagnostics/", {"call_id": call.pk})
+        self.assertEqual(historical.data["device_observation"], "observed")
         manager.force_authenticate(self.outsider)
         self.assertEqual(manager.get("/api/op/work-diagnostics/", {"call_id": call.pk}).status_code, 404)
 
