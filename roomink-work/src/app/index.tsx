@@ -4,7 +4,7 @@ import { ActivityIndicator, Alert, AppState, Platform, Pressable, SafeAreaView, 
 import { VoiceControls } from '../components/VoiceControls';
 import { CallListScreen } from '../components/CallListScreen';
 import { clearPendingLink, clearToken, claimSharedLink, createSharedLink, Device, getPendingLink, getToken, getVoiceAccessToken, loginPersonal, lookupPersonalStores, PendingLink, Store, WorkApiError, WorkCall, workRequest } from '../lib/roomink';
-import { registerForIncomingCalls, unregisterIncomingCalls, VoiceRegistrationState } from '../lib/voice';
+import { registerForIncomingCalls, unregisterIncomingCalls, synchronizeIncomingCalls, VoiceRegistrationState } from '../lib/voice';
 import { clearVoiceDiagnostics, startVoiceDiagnostics } from '../lib/diagnostics';
 
 type Mode = 'personal' | 'shared';
@@ -177,6 +177,15 @@ export default function HomeScreen() {
     void configureVoice();
     const timer = setInterval(() => { void configureVoice(); }, 50 * 60 * 1000);
     return () => { cancelled = true; clearInterval(timer); stopDiagnostics(); };
+  }, [canReceiveVoice, loggingOut, sessionResolved]);
+
+  useEffect(() => {
+    if (!canReceiveVoice || loggingOut || !sessionResolved) return;
+    const sync = () => { if (AppState.currentState === 'active') void synchronizeIncomingCalls(); };
+    sync();
+    const subscription = AppState.addEventListener('change', sync);
+    const timer = setInterval(sync, 2000);
+    return () => { subscription.remove(); clearInterval(timer); };
   }, [canReceiveVoice, loggingOut, sessionResolved]);
 
   async function logoutDevice() {

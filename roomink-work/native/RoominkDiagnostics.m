@@ -11,6 +11,7 @@ static NSMutableDictionary *RKCallIds;
 static BOOL RKUploading = NO;
 static NSString *RKNetwork = @"unknown";
 static nw_path_monitor_t RKMonitor;
+static __weak id RKVoiceInstance;
 
 static NSDictionary *RKCredentialQuery(void) {
   return @{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
@@ -186,6 +187,15 @@ static void RKRecord(NSString *stage, NSString *sid, NSError *error) {
   Method replacement = class_getInstanceMethod(CXProvider.class, @selector(rk_report:update:completion:));
   method_exchangeImplementations(original, replacement);
   Class voiceClass = NSClassFromString(@"TwilioVoiceReactNative");
+  SEL initializeSelector = NSSelectorFromString(@"initializePushRegistry");
+  Method initializeMethod = class_getInstanceMethod(voiceClass, initializeSelector);
+  if (initializeMethod) {
+    IMP originalInitialize = method_getImplementation(initializeMethod);
+    method_setImplementation(initializeMethod, imp_implementationWithBlock(^(id instance) {
+      RKVoiceInstance = instance;
+      ((void (*)(id, SEL))originalInitialize)(instance, initializeSelector);
+    }));
+  }
   SEL selector = NSSelectorFromString(@"reportNewIncomingCall:");
   Method method = class_getInstanceMethod(voiceClass, selector);
   if (method) {
@@ -245,6 +255,32 @@ static void RKRecord(NSString *stage, NSString *sid, NSError *error) {
 RCT_EXPORT_MODULE();
 + (BOOL)requiresMainQueueSetup { return YES; }
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
+RCT_REMAP_METHOD(voiceState, voiceStateWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  // Read identifiers only, on the same main queue as PushKit/CallKit. Calling
+  // the SDK's JS snapshot helpers repeatedly creates a new listener per item.
+  id voice = RKVoiceInstance;
+  if (!voice) {
+    reject(@"voice_state_unavailable", @"端末の通話状態を確認できませんでした。", nil);
+    return;
+  }
+  NSDictionary *callMap = [voice valueForKey:@"callMap"];
+  NSDictionary *inviteMap = [voice valueForKey:@"callInviteMap"];
+  if (![callMap isKindOfClass:NSDictionary.class] || ![inviteMap isKindOfClass:NSDictionary.class]) {
+    reject(@"voice_state_unavailable", @"端末の通話状態を確認できませんでした。", nil);
+    return;
+  }
+  NSMutableArray *calls = [NSMutableArray new];
+  NSMutableArray *invites = [NSMutableArray new];
+  for (id call in callMap.allValues) {
+    NSString *sid = [call valueForKey:@"sid"];
+    if ([sid isKindOfClass:NSString.class] && sid.length) [calls addObject:sid];
+  }
+  for (id invite in inviteMap.allValues) {
+    NSString *sid = [invite valueForKey:@"callSid"];
+    if ([sid isKindOfClass:NSString.class] && sid.length) [invites addObject:sid];
+  }
+  resolve(@{@"calls": calls, @"invites": invites});
+}
 RCT_REMAP_METHOD(read, readWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
   @synchronized(NSUserDefaults.standardUserDefaults) {
     resolve([NSUserDefaults.standardUserDefaults arrayForKey:RKQueueKey] ?: @[]);
