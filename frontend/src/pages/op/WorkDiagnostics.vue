@@ -75,7 +75,7 @@ onMounted(load)
         </ol>
         <h2 class="h5">端末の記録</h2>
         <p v-for="target in selected.targets" :key="target.device">
-          {{ target.device }} · {{ target.observation === 'observed' ? '記録あり' : '未確認' }}
+          {{ target.device }} · {{ target.last_stage ? '最後に確認できた段階 — ' + (stageLabels[target.last_stage] || target.last_stage) : '端末からの記録は未確認' }}
         </p>
         <p v-if="selected.device_observation === 'unobserved'" role="status">
           端末からの記録は未確認です。Push未達・未送信・診断未対応の可能性があります。

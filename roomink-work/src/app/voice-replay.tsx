@@ -65,16 +65,20 @@ export default function VoiceReplay() {
       loadSdk: async () => transport.sdk as unknown as typeof import('@twilio/voice-react-native-sdk'),
       record: () => {},
     });
+    let sessionReady = false;
     try {
-      await session.registerForIncomingCalls('replay', next => {
-        if (generation.current === current) setState(next);
-      });
       await replayVoiceEvents({
         version: 1, clock: 'server_observed',
         events: events.map(event => ({ ...event, at_ms: eventTime(event) - origin, leg: device })),
       }, async (event: DeviceEvent) => {
         if (generation.current !== current) throw new Error('再生を停止しました。');
         setTimeline(previous => [...previous, JSON.stringify(event)]);
+        if (!sessionReady && event.snapshot?.origin !== 'native') {
+          await session.registerForIncomingCalls('replay', next => {
+            if (generation.current === current) setState(next);
+          });
+          sessionReady = true;
+        }
         await transport.deliver(event);
       }, async (ms: number) => {
         // Check cancellation every 100ms even when recorded events are far apart.

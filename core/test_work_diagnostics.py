@@ -1,5 +1,6 @@
 import uuid
 
+from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -7,7 +8,11 @@ from .models import CallLog, VoiceDiagnosticEvent, WorkDiagnosticEvent
 from .test_work_devices import WorkDeviceFoundationTest
 
 
-class WorkDiagnosticsTest(WorkDeviceFoundationTest):
+class WorkDiagnosticsTest(TestCase):
+    setUp = WorkDeviceFoundationTest.setUp
+    personal_login = WorkDeviceFoundationTest.personal_login
+    device_client = WorkDeviceFoundationTest.device_client
+
     def test_batch_retry_privacy_and_tenant_boundary(self):
         token = self.personal_login().data["token"]
         client = self.device_client(token)

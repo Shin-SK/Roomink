@@ -62,3 +62,17 @@ test('cancelled invites use the real settlement handler and cannot be answered',
   assert.deepEqual(states, ['registering', 'registered', 'invite', 'registered']);
   await session.unregisterIncomingCalls();
 });
+
+test('restores a native answer that happened before JavaScript started', async () => {
+  const transport = createReplaySdk();
+  await transport.deliver({ stage: 'callkit_reported' });
+  await transport.deliver({ stage: 'accepted' });
+  await transport.deliver({ stage: 'connected' });
+  const states = [];
+  const session = createVoiceSession({
+    platform: 'ios', loadSdk: async () => transport.sdk, record: () => {},
+  });
+  await session.registerForIncomingCalls('fake', state => states.push(state.kind));
+  assert.deepEqual(states, ['connected']);
+  await session.unregisterIncomingCalls();
+});

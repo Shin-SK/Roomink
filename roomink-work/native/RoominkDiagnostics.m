@@ -73,7 +73,7 @@ static void RKUpload(void) {
   }] resume];
 }
 
-static void RKRecord(NSString *stage, NSString *sid, NSError *error) {
+static void RKRecordSource(NSString *stage, NSString *sid, NSError *error, NSString *origin) {
   // Only protocol identifiers and enumerated system state enter this queue.
   NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:@"^CA[0-9a-fA-F]{32}$" options:0 error:nil];
   if (![sid isKindOfClass:NSString.class] || [pattern numberOfMatchesInString:sid options:0 range:NSMakeRange(0, sid.length)] != 1) sid = @"";
@@ -99,6 +99,7 @@ static void RKRecord(NSString *stage, NSString *sid, NSError *error) {
     @"push_token_present": @([NSUserDefaults.standardUserDefaults boolForKey:@"roomink.diagnostics.push-token-present"]),
     @"app_state": appState
   } mutableCopy];
+  snapshot[@"origin"] = origin;
   if ([stage isEqualToString:@"registered"]) {
     [NSUserDefaults.standardUserDefaults setObject:[[NSISO8601DateFormatter new] stringFromDate:NSDate.date] forKey:@"roomink.diagnostics.last-registered"];
   }
@@ -122,6 +123,10 @@ static void RKRecord(NSString *stage, NSString *sid, NSError *error) {
     [NSUserDefaults.standardUserDefaults setObject:queue forKey:RKQueueKey];
   }
   RKUpload();
+}
+
+static void RKRecord(NSString *stage, NSString *sid, NSError *error) {
+  RKRecordSource(stage, sid, error, @"native");
 }
 
 @interface CXProvider (RoominkDiagnostics)
@@ -272,6 +277,6 @@ RCT_EXPORT_METHOD(record:(NSString *)stage callSid:(NSString *)sid code:(NSNumbe
   NSSet *allowed = [NSSet setWithArray:@[@"registering", @"registered", @"registration_failed", @"invite", @"accepted", @"rejected", @"cancelled", @"connecting", @"connected", @"reconnecting", @"ended", @"error", @"app_state"]];
   if (![allowed containsObject:stage]) return;
   NSError *error = code ? [NSError errorWithDomain:@"RoominkVoice" code:code.integerValue userInfo:nil] : nil;
-  RKRecord(stage, sid, error);
+  RKRecordSource(stage, sid, error, @"javascript");
 }
 @end

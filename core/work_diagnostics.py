@@ -32,6 +32,7 @@ class Snapshot(serializers.Serializer):
     model = serializers.CharField(max_length=64, required=False)
     build = serializers.CharField(max_length=32, required=False)
     revision = serializers.RegexField(r"^(?:[0-9a-f]{40}|local|unknown)$", required=False)
+    origin = serializers.ChoiceField(choices=["native", "javascript"], required=False)
     network = serializers.ChoiceField(choices=["wifi", "cellular", "other", "unavailable", "unknown"], required=False)
     low_power = serializers.BooleanField(required=False)
     push_token_present = serializers.BooleanField(required=False)
@@ -153,6 +154,10 @@ class OperationDiagnosticsView(APIView):
             ) else "unobserved",
             "targets": [{
                 "device": device_aliases[target],
+                "last_stage": next((
+                    event["stage"] for event in reversed(observations)
+                    if event["device"] == target and event["correlation"] == "call"
+                ), None),
                 "observation": "observed" if any(
                     event["device"] == target and event["correlation"] == "call"
                     for event in observations
