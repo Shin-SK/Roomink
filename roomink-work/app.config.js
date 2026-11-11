@@ -44,5 +44,6 @@ module.exports = {
       microphoneUsageDescription: 'Roomink Work は受信した通話の音声を扱うためにマイクを使用します。',
     }],
     './with-ios-voice-startup',
+    './with-ios-diagnostics',
   ],
 };

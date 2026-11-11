@@ -10,6 +10,7 @@ from django.views.decorators.http import require_POST
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import VoiceResponse
 from .models import CallLog, Store, WorkDevice
+from .services.voice_diagnostics import record_voice_event
 from .work_device_views import entitled_subscriptions
 
 PUBLIC_BASE = "https://api-staging.roomink.net"
@@ -95,6 +96,8 @@ def routed_finished(request):
     parent = request.GET.get("parent", request.POST.get("CallSid", ""))
     with transaction.atomic():
         call = CallLog.objects.select_for_update().filter(contact_id=parent).first()
+        if call:
+            record_voice_event(call, "work_progress", request.POST)
         if call and call.status != CallLog.Status.DONE:
             child = bool(request.GET.get("parent"))
             dial_status = request.POST.get("DialCallStatus")

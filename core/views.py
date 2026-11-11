@@ -7360,9 +7360,13 @@ def twilio_voice_webhook(request):
     from .voice_routing import configured, eligible_devices
     work_devices = eligible_devices(store.pk) if store.voice_receiver == "work" and configured() else []
     if work_devices and len(work_devices) <= 10:
+        record_voice_event(call, "work_route_requested", {"CallSid": call_sid})
         callback = settings.TWILIO_WEBHOOK_PUBLIC_BASE_URL + "/api/webhook/twilio/work-status/"
         dial = voice_response.dial(answer_on_bridge=True, timeout=30, action=callback, method="POST")
         for device in work_devices:
+            record_voice_event(call, "work_target_requested", {
+                "CallSid": call_sid, "DeviceId": str(device.pk),
+            })
             dial.client("roomink_work_" + device.pk.hex,
                         status_callback=callback + "?parent=" + call_sid,
                         status_callback_event="answered completed", status_callback_method="POST")
