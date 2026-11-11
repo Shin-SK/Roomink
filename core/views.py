@@ -7369,7 +7369,7 @@ def twilio_voice_webhook(request):
             })
             dial.client("roomink_work_" + device.pk.hex,
                         status_callback=callback + "?parent=" + call_sid,
-                        status_callback_event="answered completed", status_callback_method="POST")
+                        status_callback_event="initiated ringing answered completed", status_callback_method="POST")
         return HttpResponse(str(voice_response), content_type="application/xml")
 
     # No eligible Work receiver/configuration: preserve the existing SIP escape path.

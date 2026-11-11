@@ -87,7 +87,7 @@ def incoming(request):
         })
         dial.client("roomink_work_" + device.pk.hex,
                     status_callback=PUBLIC_BASE + "/api/work/voice-test/finished/?parent=" + sid,
-                    status_callback_event="answered completed", status_callback_method="POST")
+                    status_callback_event="initiated ringing answered completed", status_callback_method="POST")
     return _xml(response)
 
 

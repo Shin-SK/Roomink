@@ -181,7 +181,6 @@ export default function HomeScreen() {
 
   async function logoutDevice() {
     if (busy) return;
-    clearVoiceDiagnostics();
     sessionGenerationRef.current += 1;
     setBusy(true); setLoggingOut(true); setError(null);
     try {
@@ -191,6 +190,7 @@ export default function HomeScreen() {
         if (!(reason instanceof WorkApiError && [401, 403].includes(reason.status))) throw reason;
       }
       try { await unregisterIncomingCalls(); } catch { /* Server revocation already prevents delivery. */ }
+      clearVoiceDiagnostics();
       await clearToken();
       setDevice(null); setCalls([]); setHistory([]); setMissedHistory([]);
       setHistoryCursor(null); setMissedCursor(null); setMissedLoaded(false);
