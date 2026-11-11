@@ -77,9 +77,14 @@ def incoming(request):
     if not created and (call.store_id != store_id or call.status in (CallLog.Status.DONE, CallLog.Status.MISSED)):
         response.hangup()
         return _xml(response)
+    record_voice_event(call, "inbound_received", request.POST)
+    record_voice_event(call, "work_route_requested", {"CallSid": sid})
     dial = response.dial(timeout=20, time_limit=120, answer_on_bridge=True,
                          action=PUBLIC_BASE + "/api/work/voice-test/finished/", method="POST")
     for device in devices:
+        record_voice_event(call, "work_target_requested", {
+            "CallSid": sid, "DeviceId": str(device.pk),
+        })
         dial.client("roomink_work_" + device.pk.hex,
                     status_callback=PUBLIC_BASE + "/api/work/voice-test/finished/?parent=" + sid,
                     status_callback_event="answered completed", status_callback_method="POST")
@@ -133,6 +138,7 @@ def finished(request):
             store_id=store_id,
         ).first()
         if call:
+            record_voice_event(call, "work_progress", request.POST)
             dial_status = request.POST.get("DialCallStatus")
             call_status = request.POST.get("CallStatus")
             child_callback = bool(request.GET.get("parent"))

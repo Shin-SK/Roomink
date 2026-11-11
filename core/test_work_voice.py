@@ -41,6 +41,10 @@ class WorkVoiceIsolationTest(TestCase):
         self.assertContains(response, 'timeLimit="120"')
         self.assertNotContains(response, '<Sip>')
         self.assertEqual(CallLog.objects.get().store_id, self.store_a.pk)
+        call = CallLog.objects.get()
+        self.assertTrue(call.diagnostic_events.filter(stage="inbound_received").exists())
+        target = call.diagnostic_events.get(stage="work_target_requested")
+        self.assertEqual(target.details["DeviceId"], str(self.device.pk))
 
     def test_invalid_signature_and_parent_account_cannot_create_calls(self):
         self.assertEqual(self.client.post('/api/work/voice-test/incoming/', self.data).status_code, 403)

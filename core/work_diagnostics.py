@@ -112,6 +112,8 @@ class OperationDiagnosticsView(APIView):
         call = get_object_or_404(calls, pk=call_id if call_id.isdecimal() else 0)
         server_events = list(call.diagnostic_events.order_by("received_at", "id")[:500])
         sids = {call.contact_id}
+        if call.contact_id.startswith("work-test:"):
+            sids.add(call.contact_id.removeprefix("work-test:"))
         for event in server_events:
             sids.add(event.call_sid)
             child = event.details.get("DialCallSid")
