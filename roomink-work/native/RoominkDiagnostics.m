@@ -141,9 +141,9 @@ static void RKRecord(NSString *stage, NSString *sid, NSError *error) {
 
 @interface RoominkDiagnostics : NSObject <RCTBridgeModule>
 @end
-@implementation RoominkDiagnostics
-RCT_EXPORT_MODULE();
-+ (BOOL)requiresMainQueueSetup { return YES; }
+@interface RoominkDiagnosticsBootstrap : NSObject
+@end
+@implementation RoominkDiagnosticsBootstrap
 + (void)load {
   RKCallIds = [NSMutableDictionary new];
   RKMonitor = nw_path_monitor_create();
@@ -234,6 +234,11 @@ RCT_EXPORT_MODULE();
     }));
   }
 }
+@end
+
+@implementation RoominkDiagnostics
+RCT_EXPORT_MODULE();
++ (BOOL)requiresMainQueueSetup { return YES; }
 RCT_REMAP_METHOD(read, readWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
   @synchronized(NSUserDefaults.standardUserDefaults) {
     resolve([NSUserDefaults.standardUserDefaults arrayForKey:RKQueueKey] ?: @[]);
