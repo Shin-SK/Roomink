@@ -17,6 +17,7 @@ module.exports = {
     supportsTablet: !isSkTestFlight,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
+      RoominkDiagnosticRevision: process.env.EAS_BUILD_GIT_COMMIT_HASH || 'local',
     },
     entitlements: {
       // EAS internal builds use Ad Hoc distribution: their signed profile uses production APNs.
@@ -43,5 +44,7 @@ module.exports = {
       apsEnvironment: usesDistributionPush ? 'production' : 'development',
       microphoneUsageDescription: 'Roomink Work は受信した通話の音声を扱うためにマイクを使用します。',
     }],
+    './with-ios-voice-startup',
+    './with-ios-diagnostics',
   ],
 };

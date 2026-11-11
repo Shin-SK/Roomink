@@ -191,6 +191,7 @@ export const api = {
   setOperationGroupManager: (body) => request('POST', '/op/operation-group/managers/', body),
   getWorkDevices: () => request('GET', '/op/work-devices/'),
   getVoiceRoutes: () => request('GET', '/op/voice-route/'),
+  getWorkDiagnostics: (callId) => request('GET', '/op/work-diagnostics/' + (callId ? '?call_id=' + encodeURIComponent(callId) : '')),
   setVoiceRoute: (store_id, receiver) => request('POST', '/op/voice-route/', { store_id, receiver }),
   approveWorkDevice: (body) => request('POST', '/op/work-devices/approve/', body),
   setWorkDeviceAction: (id, action) => request('POST', `/op/work-devices/${id}/action/`, { action }),

@@ -10,6 +10,7 @@ from django.views.decorators.http import require_POST
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import VoiceResponse
 from .models import CallLog, Store, WorkDevice
+from .services.voice_diagnostics import record_voice_event
 from .work_device_views import entitled_subscriptions
 
 PUBLIC_BASE = "https://api-staging.roomink.net"
@@ -76,12 +77,17 @@ def incoming(request):
     if not created and (call.store_id != store_id or call.status in (CallLog.Status.DONE, CallLog.Status.MISSED)):
         response.hangup()
         return _xml(response)
+    record_voice_event(call, "inbound_received", request.POST)
+    record_voice_event(call, "work_route_requested", {"CallSid": sid})
     dial = response.dial(timeout=20, time_limit=120, answer_on_bridge=True,
                          action=PUBLIC_BASE + "/api/work/voice-test/finished/", method="POST")
     for device in devices:
+        record_voice_event(call, "work_target_requested", {
+            "CallSid": sid, "DeviceId": str(device.pk),
+        })
         dial.client("roomink_work_" + device.pk.hex,
                     status_callback=PUBLIC_BASE + "/api/work/voice-test/finished/?parent=" + sid,
-                    status_callback_event="answered completed", status_callback_method="POST")
+                    status_callback_event="initiated ringing answered completed", status_callback_method="POST")
     return _xml(response)
 
 
@@ -95,6 +101,8 @@ def routed_finished(request):
     parent = request.GET.get("parent", request.POST.get("CallSid", ""))
     with transaction.atomic():
         call = CallLog.objects.select_for_update().filter(contact_id=parent).first()
+        if call:
+            record_voice_event(call, "work_progress", request.POST)
         if call and call.status != CallLog.Status.DONE:
             child = bool(request.GET.get("parent"))
             dial_status = request.POST.get("DialCallStatus")
@@ -130,6 +138,7 @@ def finished(request):
             store_id=store_id,
         ).first()
         if call:
+            record_voice_event(call, "work_progress", request.POST)
             dial_status = request.POST.get("DialCallStatus")
             call_status = request.POST.get("CallStatus")
             child_callback = bool(request.GET.get("parent"))

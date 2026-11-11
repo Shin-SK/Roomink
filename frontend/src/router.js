@@ -127,6 +127,7 @@ const routes = [
   { path: '/op/settings/staffs', name: 'settings-staffs', component: SettingsStaffs, meta: { managerOnly: true } },
   { path: '/op/settings/operation-group', name: 'settings-operation-group', component: SettingsOperationGroup, meta: { operationGroupManagerOnly: true } },
   { path: '/op/settings/work-devices', name: 'settings-work-devices', component: SettingsWorkDevices, meta: { operationGroupManagerOnly: true } },
+  { path: '/op/settings/work-diagnostics', name: 'work-diagnostics', component: () => import('./pages/op/WorkDiagnostics.vue'), meta: { operationGroupManagerOnly: true } },
   { path: '/op/settings/rooms', name: 'settings-rooms', component: SettingsRooms, meta: { managerOnly: true } },
   { path: '/op/settings/courses', name: 'settings-courses', component: SettingsCourses, meta: { managerOnly: true } },
   { path: '/op/settings/options', name: 'settings-options', component: SettingsOptions, meta: { managerOnly: true } },
