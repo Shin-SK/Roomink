@@ -43,6 +43,7 @@ test('an open checkout keeps its displayed business day across polling and sends
     state.openCheckoutModal()
     await state.loadCheckout()
     assert.equal(reads, 1)
+    state.checkoutForm.room_cash_taken_amount = 0
     state.checkoutForm.checklist_json = Object.fromEntries(state.CHECKLIST_ITEMS.map(item => [item.key, true]))
     const first = state.submitCheckout()
     await state.submitCheckout()
@@ -51,6 +52,58 @@ test('an open checkout keeps its displayed business day across polling and sends
     await first
     assert.equal(reads, 2)
     assert.equal(state.showCheckoutModal, false)
+  } finally { unmount() }
+})
+
+test('a new checkout requires an explicit valid take-home amount before submission', async () => {
+  const calls = []
+  const { state, unmount } = await mount({ submitCastCheckout: async body => calls.push(body) })
+  try {
+    state.checkoutData = { date: '2026-11-10', can_submit: true, cash_sales_total: 60000, compensation: 32500 }
+    state.openCheckoutModal()
+    state.checkoutForm.checklist_json = Object.fromEntries(state.CHECKLIST_ITEMS.map(item => [item.key, true]))
+    assert.equal(state.checkoutForm.room_cash_taken_amount, '')
+    for (const amount of ['', -1, 1.5, 32501, NaN, Infinity]) {
+      state.checkoutForm.room_cash_taken_amount = amount
+      assert.equal(state.checkoutHasValidAmount, false)
+      assert.equal(state.checkoutReadyToSubmit, false)
+      await state.submitCheckout()
+    }
+    assert.equal(calls.length, 0)
+    state.checkoutForm.room_cash_taken_amount = 31000
+    assert.equal(state.checkoutHasValidAmount, true)
+    assert.equal(state.checkoutDeposit.deposit, 29000)
+    assert.equal(state.checkoutCarryover.closing, 1500)
+    assert.equal(state.checkoutReadyToSubmit, true)
+    state.checkoutForm.room_cash_taken_amount = 0
+    assert.equal(state.checkoutHasValidAmount, true)
+    assert.equal(state.checkoutDeposit.deposit, 60000)
+    assert.equal(state.checkoutReadyToSubmit, true)
+  } finally { unmount() }
+})
+
+test('checkout amount changes preserve split cash, withdrawals, returned forms and saved envelopes', async () => {
+  const { state, unmount } = await mount({})
+  try {
+    state.checkoutData = { date: '2026-11-10', cash_sales_total: 27000, compensation: 14500 }
+    state.openCheckoutModal()
+    state.checkoutForm.room_cash_taken_amount = 14500
+    assert.equal(state.checkoutDeposit.deposit, 12500)
+    state.checkoutData.cash_sales_total = 5000
+    assert.equal(state.checkoutDeposit.deposit, 0)
+    assert.equal(state.checkoutDeposit.withdrawal, 9500)
+    state.checkoutData.checkout = { status: 'RETURNED', room_cash_taken_amount: 0, checklist_json: {} }
+    state.openCheckoutModal()
+    assert.equal(state.checkoutForm.room_cash_taken_amount, 0)
+    assert.equal(state.checkoutHasValidAmount, true)
+    const snapshot = { cash: 60000, taken: 31000, deposit: 29000, withdrawal: 0 }
+    state.checkoutData.checkout = { status: 'SUBMITTED', room_cash_taken_amount: 31000, envelope_submission: snapshot }
+    state.openCheckoutModal()
+    assert.equal(state.checkoutHasValidAmount, true)
+    assert.equal(state.checkoutDeposit.deposit, 29000)
+    state.checkoutData.checkout = { status: 'REVIEWED', room_cash_taken_amount: 2000 }
+    assert.equal(state.checkoutHasValidAmount, true)
+    assert.equal(state.checkoutDeposit.deposit, 3000)
   } finally { unmount() }
 })
 

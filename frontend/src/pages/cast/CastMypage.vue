@@ -96,7 +96,7 @@ let checkoutRefreshTimer = null
 
 function emptyCheckoutForm() {
   return {
-    room_cash_taken_amount: 0,
+    room_cash_taken_amount: '',
     cast_memo: '',
     checklist_json: Object.fromEntries(CHECKLIST_ITEMS.map(i => [i.key, false])),
   }
@@ -121,6 +121,12 @@ const checkoutBalance = computed(() => checkoutBalanceDisplay(
   checkoutCarryover.value.available, checkoutCarryover.value.roomCash, checkoutCarryover.value.officeCash,
 ))
 
+const checkoutHasValidAmount = computed(() => checkoutIsReadOnly.value || (
+  Number.isSafeInteger(checkoutForm.value.room_cash_taken_amount)
+  && checkoutForm.value.room_cash_taken_amount >= 0
+  && checkoutForm.value.room_cash_taken_amount <= Math.max(0, checkoutCarryover.value.available)
+))
+
 const checkoutDeposit = computed(() => {
   const snapshot = checkoutIsReadOnly.value ? checkoutData.value?.checkout?.envelope_submission : null
   if (snapshot) return snapshot
@@ -130,7 +136,7 @@ const checkoutDeposit = computed(() => {
 })
 
 const checkoutReadyToSubmit = computed(() => (
-  CHECKLIST_ITEMS.every(item => checkoutForm.value.checklist_json?.[item.key])
+  checkoutHasValidAmount.value && CHECKLIST_ITEMS.every(item => checkoutForm.value.checklist_json?.[item.key])
 ))
 
 function checkoutStatusLabel(s) {
@@ -306,6 +312,10 @@ function openCheckoutModal() {
 
 async function submitCheckout() {
   if (checkoutSaving.value || !checkoutData.value?.can_submit) return
+  if (!checkoutHasValidAmount.value) {
+    checkoutError.value = '今回ルームで受け取る金額を、受取可能額の範囲内で入力してください。受け取らない場合は0円を選んでください。'
+    return
+  }
   if (!checkoutReadyToSubmit.value) {
     checkoutError.value = '退勤チェックをすべて完了してください。'
     return
@@ -315,7 +325,7 @@ async function submitCheckout() {
   try {
     const body = {
       date: checkoutModalDate.value,
-      room_cash_taken_amount: Number(checkoutForm.value.room_cash_taken_amount) || 0,
+      room_cash_taken_amount: checkoutForm.value.room_cash_taken_amount,
       cast_memo: checkoutForm.value.cast_memo,
       checklist_json: checkoutForm.value.checklist_json,
     }
@@ -1034,16 +1044,28 @@ function formatMonthDay(dateStr) {
               <div class="line-modal-body">
                 <div v-if="checkoutError" class="alert alert-danger py-2 small">{{ checkoutError }}</div>
 
-                <div class="border border-primary rounded p-3 mb-3" role="status" aria-live="polite">
-                  <div class="small text-muted">金庫へ入れる金額</div>
+                <div v-if="!checkoutIsReadOnly" class="mb-3">
+                  <label for="checkout-room-cash" class="form-label fw-bold">今回ルームで受け取る金額</label>
+                  <div class="small text-muted mb-2">対象日の受取可能額 {{ formatYen(checkoutCarryover.available) }}</div>
+                  <div class="input-group">
+                    <input id="checkout-room-cash" v-model.number="checkoutForm.room_cash_taken_amount" type="number" min="0" step="1" :max="Math.max(0, checkoutCarryover.available)" class="form-control" placeholder="受け取る金額を入力" aria-describedby="checkout-room-cash-help" :aria-invalid="checkoutForm.room_cash_taken_amount !== '' && !checkoutHasValidAmount" />
+                    <span class="input-group-text">円</span>
+                  </div>
+                  <button type="button" class="btn btn-outline-secondary btn-sm mt-2" @click="checkoutForm.room_cash_taken_amount = 0">今回は受け取らない（0円）</button>
+                  <div id="checkout-room-cash-help" class="form-text">ルーム内の現金から、実際に受け取る金額を入力してください。受け取らなかった分は、次回以降に受け取れます。</div>
+                </div>
+
+                <div v-if="checkoutHasValidAmount" class="border border-primary rounded p-3 mb-3" role="status" aria-live="polite">
+                  <div class="small text-muted">金庫へ投函する金額</div>
                   <div class="fs-2 fw-bold text-primary">{{ formatYen(checkoutDeposit.deposit) }}</div>
                   <div class="small mt-2">お客様から受け取った現金 {{ formatYen(checkoutDeposit.cash) }} − 今回ルームで受け取る報酬 {{ formatYen(checkoutDeposit.taken ?? checkoutCarryover.roomCash) }}</div>
                   <div v-if="checkoutDeposit.withdrawal" class="small mt-2">投函は不要です。報酬の不足分 {{ formatYen(checkoutDeposit.withdrawal) }} をルーム内の現金から受け取る計算です。実際の残金を確認してください。</div>
                   <div class="small text-muted mt-2">現金払いのオプション代を含みます。個人のチップなど、Roominkに登録していないお金は含みません。</div>
-                  <div class="small text-muted">{{ checkoutIsReadOnly && checkoutData?.checkout?.envelope_submission ? '精算提出時点の記録です。提出後に訂正された内容とは異なる場合があります。' : checkoutIsReadOnly ? '提出時の投函額は記録されていません。現在の予約記録から計算した参考値です。' : '現在の予約記録と下の入力欄の受取額から計算しています。' }}</div>
+                  <div class="small text-muted">{{ checkoutIsReadOnly && checkoutData?.checkout?.envelope_submission ? '精算提出時点の記録です。提出後に訂正された内容とは異なる場合があります。' : checkoutIsReadOnly ? '提出時の投函額は記録されていません。現在の予約記録から計算した参考値です。' : '現在の予約記録と、入力した受取額から計算しています。' }}</div>
                 </div>
+                <div v-else class="bg-light rounded p-3 mb-3 small" role="status" aria-live="polite">{{ checkoutForm.room_cash_taken_amount === '' ? '受け取る金額を入力すると、金庫へ投函する金額が表示されます。' : '受取可能額の範囲内で、0円以上の整数を入力してください。' }}</div>
 
-                <div class="bg-light rounded p-3 mb-3">
+                <div v-if="checkoutHasValidAmount" class="bg-light rounded p-3 mb-3">
                   <div class="small text-muted mb-1">対象日の受取可能額</div>
                   <div class="fs-2 fw-bold text-primary">{{ formatYen(checkoutCarryover.available) }}</div>
                   <div class="d-flex justify-content-between align-items-end border-top mt-3 pt-3">
@@ -1075,7 +1097,7 @@ function formatMonthDay(dateStr) {
                   </div>
                 </div>
 
-                <div class="mb-3">
+                <div v-if="checkoutHasValidAmount" class="mb-3">
                   <button type="button" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between" @click="showCheckoutCalculation = !showCheckoutCalculation">
                     <span><i class="ti ti-calculator"></i> 売上・精算の計算を見る</span>
                     <i :class="showCheckoutCalculation ? 'ti ti-chevron-up' : 'ti ti-chevron-down'"></i>
@@ -1130,11 +1152,6 @@ function formatMonthDay(dateStr) {
                 <!-- 入力フォーム（未提出 or 差戻し後） -->
                 <template v-else>
                   <div class="mb-3">
-                    <label for="checkout-room-cash" class="form-label small fw-bold">今回ルームで受け取る金額</label>
-                    <input id="checkout-room-cash" v-model.number="checkoutForm.room_cash_taken_amount" type="number" min="0" :max="Math.max(0, checkoutCarryover.available)" class="form-control" />
-                    <div class="form-text">ルーム内の現金から、実際に受け取る金額を入力してください。受け取らなかった分は、次回以降に受け取れます。</div>
-                  </div>
-                  <div class="mb-3">
                     <label class="form-label small fw-bold">退勤チェック <span class="text-danger">（すべて確認してください）</span></label>
                     <div v-for="item in CHECKLIST_ITEMS" :key="item.key" class="form-check">
                       <input
@@ -1158,10 +1175,10 @@ function formatMonthDay(dateStr) {
                   v-if="!checkoutIsReadOnly"
                   class="btn w-100"
                   :class="checkoutReadyToSubmit ? 'btn-primary' : 'btn-outline-secondary'"
-                  :disabled="checkoutSaving"
-                  @click="checkoutReadyToSubmit ? submitCheckout() : (showCheckoutModal = false)"
-                >{{ checkoutSaving ? '送信中...' : (checkoutReadyToSubmit ? '精算を提出する' : '閉じる') }}</button>
-                <div v-if="!checkoutIsReadOnly && !checkoutReadyToSubmit" class="small text-muted text-center mt-2">退勤チェックをすべて完了すると送信できます。</div>
+                  :disabled="checkoutSaving || !checkoutReadyToSubmit"
+                  @click="submitCheckout"
+                >{{ checkoutSaving ? '送信中...' : '精算を提出する' }}</button>
+                <div v-if="!checkoutIsReadOnly && !checkoutReadyToSubmit" class="small text-muted text-center mt-2">受取額の入力と退勤チェックをすべて完了すると送信できます。</div>
                 <button v-if="checkoutIsReadOnly" class="btn btn-outline-secondary w-100" @click="showCheckoutModal = false">閉じる</button>
               </div>
             </div>

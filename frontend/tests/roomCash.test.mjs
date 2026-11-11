@@ -291,7 +291,7 @@ test('checkout submission and service completion refresh the real cash panel thr
     .replace(/onMounted\(async \(\) =>/, '(() => {})(async () =>'))
   try {
     parent.state.checkoutRoomCashPanel = { refreshWhenIdle: panel.state.refreshWhenIdle }
-    parent.state.checkoutData = { date: '2026-10-16', can_submit: true }
+    parent.state.checkoutData = { date: '2026-10-16', can_submit: true, compensation: 31000 }
     parent.state.openCheckoutModal()
     assert.equal(panel.state.rooms[0].expected_cash_amount, 26000)
     parent.state.checkoutForm.room_cash_taken_amount = 26000
