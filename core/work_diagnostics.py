@@ -15,7 +15,7 @@ from rest_framework.views import APIView
 from .management.commands.export_voice_replay import replay_case
 from .models import CallLog, WorkDiagnosticEvent
 from .operation_group_views import operation_group_for_request
-from .work_device_views import IsWorkDevice, WorkDeviceAuthentication, entitled_subscriptions
+from .work_device_views import IsWorkDevice, WorkDeviceAuthentication
 
 
 STAGES = [
@@ -79,8 +79,8 @@ class DeviceDiagnosticsView(APIView):
         data = ObservationBatch(data=request.data)
         data.is_valid(raise_exception=True)
         device = request.work_device
-        if device.status != "active" or not entitled_subscriptions(device):
-            return Response({"detail": "有効な受信端末が必要です。"}, status=403)
+        # A paused receiver still needs to upload the incident that led to pausing.
+        # Revoked credentials and inactive owners are rejected by authentication.
         events = data.validated_data["events"]
         WorkDiagnosticEvent.objects.filter(
             device=device, observed_at__lt=timezone.now() - timedelta(days=7),

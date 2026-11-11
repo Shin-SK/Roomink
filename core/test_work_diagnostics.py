@@ -45,6 +45,11 @@ class WorkDiagnosticsTest(TestCase):
             details={"DeviceId": str(event_record.device_id)},
         )
         event_record.device.store_subscriptions.all().delete()
+        event_record.device.status = "paused"
+        event_record.device.save(update_fields=["status"])
+        self.assertEqual(client.post(
+            "/api/work/diagnostics/", {"events": [event]}, format="json",
+        ).status_code, 200)
         historical = manager.get("/api/op/work-diagnostics/", {"call_id": call.pk})
         self.assertEqual(historical.data["device_observation"], "observed")
         manager.force_authenticate(self.outsider)
