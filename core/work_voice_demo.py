@@ -1,6 +1,7 @@
 """Opt-in, owner-scoped incoming test calls; never a PSTN dialling endpoint."""
 import re
 import uuid
+from .services.voice_diagnostics import record_voice_event
 from datetime import timedelta
 
 from django.conf import settings
@@ -111,7 +112,7 @@ class DemoCallView(DemoDevicesView):
         audio.say("テストを終了します。", language="ja-JP")
         audio.hangup()
         try:
-            Client(settings.TWILIO_WORK_ACCOUNT_SID, settings.TWILIO_WORK_AUTH_TOKEN,
+            created_call = Client(settings.TWILIO_WORK_ACCOUNT_SID, settings.TWILIO_WORK_AUTH_TOKEN,
                    http_client=TwilioHttpClient(timeout=10)).calls.create(
                 to="client:roomink_work_" + device.pk.hex,
                 from_=settings.WORK_VOICE_DEMO_FROM_NUMBER,
@@ -120,6 +121,9 @@ class DemoCallView(DemoDevicesView):
                 status_callback_event=["initiated", "ringing", "answered", "completed"],
                 status_callback_method="POST",
             )
+            record_voice_event(call, "work_target_requested", {
+                "CallSid": created_call.sid, "DeviceId": str(device.pk),
+            })
         except TwilioException:
             # Failed attempts still count; a timeout might already have queued a call.
             CallLog.objects.filter(pk=call.pk, status=CallLog.Status.NEW).update(status=CallLog.Status.MISSED)
@@ -146,6 +150,8 @@ def status_callback(request):
     with transaction.atomic():
         call = CallLog.objects.select_for_update().filter(
             store_id=settings.WORK_VOICE_DEMO_STORE_ID, contact_id="work-demo:" + request_id).first()
+        if call:
+            record_voice_event(call, "work_progress", request.POST)
         if call and call.status not in (CallLog.Status.DONE, CallLog.Status.MISSED):
             state = request.POST.get("CallStatus")
             if state == "in-progress":
