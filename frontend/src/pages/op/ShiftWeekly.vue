@@ -9,6 +9,9 @@ const saving = ref(false)
 const error = ref('')
 const success = ref('')
 const rowErrors = ref([])
+const selectedShiftIds = ref([])
+const deleteConfirmation = ref(null)
+let weekRequestNumber = 0
 
 const casts = ref([])
 const rooms = ref([])
@@ -46,6 +49,8 @@ const weekEndLabel = computed(() => {
 })
 
 const enabledCount = computed(() => days.value.filter(d => d.enabled).length)
+const existingShifts = computed(() => days.value.flatMap(d => d.existing_shifts.map(s => ({ ...s, date: d.date }))))
+const selectedShifts = computed(() => existingShifts.value.filter(s => selectedShiftIds.value.includes(s.id)))
 
 function emptyDays() {
   const out = []
@@ -78,26 +83,32 @@ async function loadMasters() {
 }
 
 async function loadWeek() {
+  const requestNumber = ++weekRequestNumber
+  selectedShiftIds.value = []
+  deleteConfirmation.value = null
   rowErrors.value = []
   success.value = ''
   if (!selectedCast.value) {
     days.value = emptyDays()
+    loading.value = false
     return
   }
   loading.value = true
   error.value = ''
   try {
     const data = await api.getWeeklyShifts(selectedCast.value, weekStart.value)
+    if (requestNumber !== weekRequestNumber) return
     const base = emptyDays()
     data.days.forEach((d, i) => {
       base[i].existing_shifts = d.existing_shifts || []
     })
     days.value = base
   } catch (e) {
+    if (requestNumber !== weekRequestNumber) return
     error.value = e.message
     days.value = emptyDays()
   } finally {
-    loading.value = false
+    if (requestNumber === weekRequestNumber) loading.value = false
   }
 }
 
@@ -113,6 +124,40 @@ function applyBulk() {
 
 function clearAll() {
   days.value.forEach(d => { d.enabled = false })
+}
+
+function confirmDeletion() {
+  if (saving.value || loading.value || !selectedShifts.value.length) return
+  deleteConfirmation.value = {
+    cast: selectedCast.value,
+    castName: casts.value.find(c => String(c.id) === String(selectedCast.value))?.name || '',
+    week_start: weekStart.value,
+    shifts: selectedShifts.value.map(s => ({ ...s })),
+  }
+}
+
+async function deleteSelected() {
+  const confirmation = deleteConfirmation.value
+  if (!confirmation || saving.value) return
+  saving.value = true
+  error.value = ''
+  success.value = ''
+  rowErrors.value = []
+  try {
+    const result = await api.deleteWeeklyShifts({
+      cast: confirmation.cast,
+      week_start: confirmation.week_start,
+      shift_ids: confirmation.shifts.map(s => s.id),
+    })
+    await loadWeek()
+    success.value = `${result.deleted_count}件のシフトを削除しました`
+  } catch (e) {
+    error.value = e.message
+    if (Array.isArray(e.data?.errors)) rowErrors.value = e.data.errors
+  } finally {
+    deleteConfirmation.value = null
+    saving.value = false
+  }
 }
 
 async function onSubmit() {
@@ -201,8 +246,8 @@ onMounted(async () => {
     <div class="alert alert-info small">
       <i class="ti ti-info-circle"></i>
       キャストと週を選び、月〜日の出勤をまとめて登録できます。
-      既にシフトがある日は<strong>上書きしません</strong>（新規追加のみ）。
-      1日でもエラーがある場合は、1件も登録されません。
+      既にシフトがある日は<strong>上書きしません</strong>。
+      登録済みシフトは選択してまとめて削除できます。予約や打刻履歴のあるシフトは削除できません。
     </div>
 
     <div v-if="error" class="alert alert-danger" style="white-space: pre-wrap;">{{ error }}</div>
@@ -214,21 +259,21 @@ onMounted(async () => {
         <div class="row g-2 align-items-end">
           <div class="col-12 col-md-4">
             <label class="form-label small fw-bold">キャスト</label>
-            <select v-model="selectedCast" class="form-select form-select-sm">
+            <select v-model="selectedCast" :disabled="saving" class="form-select form-select-sm">
               <option value="">選択してください</option>
               <option v-for="c in casts" :key="c.id" :value="c.id">{{ c.name }}</option>
             </select>
           </div>
           <div class="col-12 col-md-4">
             <label class="form-label small fw-bold">週の開始日（月曜）</label>
-            <input v-model="weekStart" type="date" class="form-control form-control-sm" />
+            <input v-model="weekStart" :disabled="saving" type="date" class="form-control form-control-sm" />
           </div>
           <div class="col-12 col-md-4">
-            <div class="btn-group w-100">
+            <fieldset :disabled="saving" class="btn-group w-100">
               <button class="btn btn-sm btn-outline-secondary" @click="shiftWeek(-7)">前の週</button>
               <button class="btn btn-sm btn-outline-secondary" @click="weekStart = mondayOf(new Date())">今週</button>
               <button class="btn btn-sm btn-outline-secondary" @click="shiftWeek(7)">次の週</button>
-            </div>
+            </fieldset>
           </div>
         </div>
         <div class="text-muted small mt-2">
@@ -283,6 +328,14 @@ onMounted(async () => {
       <!-- 7日分 -->
       <div v-else class="card mb-3">
         <div class="card-header"><i class="ti ti-calendar-week"></i> 月〜日のシフト</div>
+        <div v-if="existingShifts.length" class="p-3 border-bottom">
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="saving" @click="selectedShiftIds = existingShifts.map(s => s.id)">登録済みをすべて選択</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="saving || !selectedShiftIds.length" @click="selectedShiftIds = []">選択解除</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" :disabled="saving || !selectedShifts.length" @click="confirmDeletion">選択した{{ selectedShifts.length }}件を削除</button>
+          </div>
+          <div class="small text-muted mt-2">削除できないシフトが1件でもあれば、すべて残します。</div>
+        </div>
         <div class="card-body p-0">
           <div
             v-for="d in days"
@@ -307,11 +360,12 @@ onMounted(async () => {
             </div>
 
             <div v-if="d.existing_shifts.length" class="day-row__existing small text-muted">
-              <div v-for="s in d.existing_shifts" :key="s.id">
-                既存: {{ s.start_time_extended || s.start_time?.slice(0, 5) }}〜{{ s.end_time_extended || s.end_time?.slice(0, 5) }} / {{ s.room_name }}
-              </div>
+              <label v-for="s in d.existing_shifts" :key="s.id" class="d-flex align-items-start gap-2 mb-2">
+                <input v-model="selectedShiftIds" type="checkbox" class="form-check-input flex-shrink-0" :value="s.id" :disabled="saving" :aria-label="`${d.date} ${s.start_time_extended || s.start_time?.slice(0, 5)}のシフトを削除対象に選択`" />
+                <span>既存: {{ s.start_time_extended || s.start_time?.slice(0, 5) }}〜{{ s.end_time_extended || s.end_time?.slice(0, 5) }} / {{ s.room_name || 'ルーム未定' }}</span>
+              </label>
               <div class="text-muted" style="font-size: 0.72rem;">
-                ※ 既存シフトの変更はシフト管理画面から行ってください
+                ※ 時間・ルームの変更はシフト管理画面から行ってください
               </div>
             </div>
 
@@ -366,6 +420,22 @@ onMounted(async () => {
 
     <div v-else class="text-muted text-center py-4 small">
       キャストを選択してください
+    </div>
+    <div v-if="deleteConfirmation" class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="weekly-delete-title" style="background: rgba(0,0,0,.45)">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header"><h2 id="weekly-delete-title" class="modal-title fs-5">シフト削除の確認</h2></div>
+          <div class="modal-body">
+            <p>{{ deleteConfirmation.castName }}さんの次の{{ deleteConfirmation.shifts.length }}件を削除します。</p>
+            <ul><li v-for="s in deleteConfirmation.shifts" :key="s.id">{{ s.date }} {{ s.start_time_extended || s.start_time?.slice(0, 5) }}〜{{ s.end_time_extended || s.end_time?.slice(0, 5) }} / {{ s.room_name || 'ルーム未定' }}</li></ul>
+            <p class="small mb-0">予約や打刻履歴のあるシフトが含まれる場合、1件も削除しません。削除は元に戻せません。</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" :disabled="saving" @click="deleteConfirmation = null">キャンセル</button>
+            <button type="button" class="btn btn-danger" :disabled="saving" @click="deleteSelected">{{ saving ? '削除中...' : `${deleteConfirmation.shifts.length}件を削除する` }}</button>
+          </div>
+        </div>
+      </div>
     </div>
   </LayoutOperator>
 </template>

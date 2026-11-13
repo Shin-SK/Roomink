@@ -135,6 +135,12 @@ const checkoutDeposit = computed(() => {
   return { cash, deposit: Math.max(0, net), withdrawal: Math.max(0, -net) }
 })
 
+const checkoutEstimate = computed(() => {
+  const taken = Math.max(0, checkoutCarryover.value.available - checkoutCarryover.value.officeCash)
+  const cash = Number(checkoutData.value?.cash_sales_total ?? 0)
+  return { taken, deposit: Math.max(0, cash - taken), withdrawal: Math.max(0, taken - cash) }
+})
+
 const checkoutReadyToSubmit = computed(() => (
   checkoutHasValidAmount.value && CHECKLIST_ITEMS.every(item => checkoutForm.value.checklist_json?.[item.key])
 ))
@@ -1043,6 +1049,14 @@ function formatMonthDay(dateStr) {
 
               <div class="line-modal-body">
                 <div v-if="checkoutError" class="alert alert-danger py-2 small">{{ checkoutError }}</div>
+
+                <div v-if="!checkoutIsReadOnly" class="bg-light rounded p-3 mb-3">
+                  <div class="fw-bold mb-2">システム上の精算見込み</div>
+                  <div class="d-flex justify-content-between gap-2"><span>受け取り額の目安</span><strong>{{ formatYen(checkoutEstimate.taken) }}</strong></div>
+                  <div class="d-flex justify-content-between gap-2 mt-2"><span>金庫への投函額の目安</span><strong>{{ formatYen(checkoutEstimate.deposit) }}</strong></div>
+                  <div v-if="checkoutEstimate.withdrawal" class="small mt-2">ルーム内の現金から、さらに {{ formatYen(checkoutEstimate.withdrawal) }} を受け取る見込みです。</div>
+                  <div class="small text-muted mt-2">受取可能額から、店舗で受け取り済みの金額を除いた全額を受け取る場合の目安です。登録済みの現金オプション代を含みます。未登録の個人オプションやチップは含みません。</div>
+                </div>
 
                 <div v-if="!checkoutIsReadOnly" class="mb-3">
                   <label for="checkout-room-cash" class="form-label fw-bold">今回ルームで受け取る金額</label>

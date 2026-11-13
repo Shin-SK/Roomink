@@ -392,6 +392,7 @@ export const api = {
   // 週次シフト入力（1キャスト×1週間まとめて登録）
   getWeeklyShifts: (castId, weekStart) => request('GET', `/op/shifts/weekly/?cast=${castId}&week_start=${weekStart}`),
   createWeeklyShifts: (body) => withRoomOverlapConfirmation(data => request('POST', '/op/shifts/weekly/', data), body),
+  deleteWeeklyShifts: (body) => request('DELETE', '/op/shifts/weekly/', body),
 
   // タイムライン並び替え（キャスト別表示の display_order）
   getScheduleCastOrder: (date) => request('GET', `/op/schedule-cast-order/?date=${date}`),

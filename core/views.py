@@ -33,7 +33,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Dial, VoiceResponse
 from .store_access import (
@@ -3077,6 +3077,23 @@ class CustomerReservationDetailView(APIView):
 # Shift / Customer / Master
 # ──────────────────────────────────────
 
+def _shift_deletion_error(shift):
+    if shift.clocked_in_at or shift.attendance_events.exists():
+        return "打刻履歴のある勤務は削除できません。打刻の訂正を利用してください"
+    shift_start, shift_end = build_business_interval(
+        shift.date, shift.start_time, shift.end_time,
+        start_day_offset=shift.start_day_offset,
+        end_day_offset=shift.end_day_offset,
+        timezone_name=shift.store.timezone,
+    )
+    if Order.objects.filter(
+        store=shift.store, cast=shift.cast, status__in=Order.ACTIVE_STATUSES,
+        start__lt=shift_end, end__gt=shift_start,
+    ).exists():
+        return "予約があるシフトは削除できません。先に予約を変更またはキャンセルしてください。"
+    return None
+
+
 class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsManagerOrStaff]
     queryset = ShiftAssignment.objects.select_related("cast", "room", "requested_area").order_by(
@@ -3119,25 +3136,10 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         Store.objects.select_for_update().get(pk=get_user_store(request).pk)
         shift = self.get_object()
-        if shift.clocked_in_at or shift.attendance_events.exists():
-            raise ValidationError("打刻履歴のある勤務は削除できません。打刻の訂正を利用してください")
-        shift_start, shift_end = build_business_interval(
-            shift.date,
-            shift.start_time,
-            shift.end_time,
-            start_day_offset=shift.start_day_offset,
-            end_day_offset=shift.end_day_offset,
-            timezone_name=shift.store.timezone,
-        )
-        if Order.objects.filter(
-            store=shift.store,
-            cast=shift.cast,
-            status__in=Order.ACTIVE_STATUSES,
-            start__lt=shift_end,
-            end__gt=shift_start,
-        ).exists():
+        deletion_error = _shift_deletion_error(shift)
+        if deletion_error:
             return Response(
-                {"detail": "予約があるシフトは削除できません。先に予約を変更またはキャンセルしてください。"},
+                {"detail": deletion_error},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return super().destroy(request, *args, **kwargs)
@@ -9146,13 +9148,41 @@ def _parse_date(value, field="date"):
 WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"]
 
 
+@extend_schema_view(delete=extend_schema(request=OpenApiTypes.OBJECT))
 @document_object_api_view
 class WeeklyShiftView(APIView):
-    """GET/POST /api/op/shifts/weekly/
-    1キャスト×1週間分のシフトをまとめて新規登録する。staff/manager のみ。
-    既存シフトの上書き・削除はしない（新規追加のみ）。"""
+    """1キャスト×1週間のシフトを取得・新規登録・選択削除。staff/manager のみ。"""
 
     permission_classes = [IsAuthenticated, IsManagerOrStaff]
+
+    @transaction.atomic
+    def delete(self, request):
+        _require_staff_or_manager(request)
+        store = Store.objects.select_for_update().get(pk=get_user_store(request).pk)
+        week_start = _parse_date(request.data.get("week_start"), "week_start")
+        cast = Cast.objects.filter(pk=request.data.get("cast"), store=store).first()
+        if cast is None:
+            return Response({"detail": "対象のキャストが見つかりません"}, status=404)
+        ids = request.data.get("shift_ids")
+        if (not isinstance(ids, list) or not ids or len(ids) > 100
+                or any(type(value) is not int or value <= 0 for value in ids)
+                or len(set(ids)) != len(ids)):
+            return Response({"detail": "削除するシフトIDを重複なく1〜100件指定してください"}, status=400)
+        shifts = list(ShiftAssignment.objects.select_for_update().filter(
+            store=store, cast=cast, date__gte=week_start,
+            date__lte=week_start + timedelta(days=6), pk__in=ids,
+        ).order_by("date", "id"))
+        if len(shifts) != len(ids):
+            return Response({"detail": "対象外または変更済みのシフトがあるため、1件も削除していません。再読み込みしてください。"}, status=400)
+        errors = []
+        for shift in shifts:
+            detail = _shift_deletion_error(shift)
+            if detail:
+                errors.append({"date": shift.date.isoformat(), "detail": detail})
+        if errors:
+            return Response({"detail": "削除できないシフトがあるため、1件も削除していません", "errors": errors}, status=400)
+        ShiftAssignment.objects.filter(store=store, pk__in=ids).delete()
+        return Response({"deleted_count": len(shifts)})
 
     def get(self, request):
         _require_staff_or_manager(request)
