@@ -6,6 +6,7 @@ from unittest import skipUnless
 
 from django.contrib.auth import get_user_model
 from django.db import close_old_connections, connection, transaction
+from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from rest_framework.test import APIClient
 
@@ -105,7 +106,13 @@ class WeeklyShiftDeleteTest(TestCase):
 
 @skipUnless(connection.vendor == "postgresql", "Row-lock concurrency requires PostgreSQL")
 class WeeklyShiftDeleteConcurrencyTest(TransactionTestCase):
-    setUp = test_sales_business_datetime.SalesBusinessDateTimeTest.setUp
+    def setUp(self):
+        super().setUp()
+        # Historical-schema tests can leave the shared transaction-test DB at
+        # their pinned version. This test exercises the current API/models.
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        test_sales_business_datetime.SalesBusinessDateTimeTest.setUp(self)
 
     def test_booking_transaction_commits_before_deletion_rechecks_protection(self):
         shift = ShiftAssignment.objects.get(cast=self.cast, date=self.business_date)
