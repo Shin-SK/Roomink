@@ -107,6 +107,27 @@ test('checkout amount changes preserve split cash, withdrawals, returned forms a
   } finally { unmount() }
 })
 
+test('initial estimate shows full available pay and cash deposit without inventing a received amount', async () => {
+  const { state, unmount } = await mount({})
+  try {
+    state.checkoutData = { date: '2026-11-13', can_submit: true, cash_sales_total: 60000, compensation: 32500 }
+    state.openCheckoutModal()
+    assert.deepEqual(state.checkoutEstimate, { taken: 32500, deposit: 27500, withdrawal: 0 })
+    assert.equal(state.checkoutForm.room_cash_taken_amount, '')
+    assert.equal(state.checkoutReadyToSubmit, false)
+    state.checkoutForm.room_cash_taken_amount = 31000
+    assert.equal(state.checkoutDeposit.deposit, 29000)
+    assert.equal(state.checkoutEstimate.deposit, 27500)
+    state.checkoutData.carryover_opening_amount = 1500
+    state.checkoutData.checkout = { status: 'RETURNED', room_cash_taken_amount: 10000, office_cash_paid_amount: 4000 }
+    assert.equal(state.checkoutEstimate.taken, 30000)
+    state.checkoutData.cash_sales_total = 5000
+    assert.deepEqual(state.checkoutEstimate, { taken: 30000, deposit: 0, withdrawal: 25000 })
+    state.checkoutData.compensation = -2000
+    assert.deepEqual(state.checkoutEstimate, { taken: 0, deposit: 5000, withdrawal: 0 })
+  } finally { unmount() }
+})
+
 test('a late response cannot overwrite a newly selected day; failed loads prevent opening a stale form', async () => {
   let finishOld
   const api = { getCastCheckout: date => date === '2026-10-20' ? new Promise(resolve => { finishOld = resolve }) : Promise.resolve({ date, can_submit: true }) }
