@@ -39,12 +39,12 @@ def find_covering_shift(store, cast, start_at, end_at):
 
 
 def cast_has_order_conflict(cast, start_at, end_at, exclude_order_id=None):
-    """既存予約後のキャスト別インターバルを含めて重複を判定する。"""
+    """両予約の終了後インターバルを含め、登録順に依存せず重複を判定する。"""
     interval = timedelta(minutes=cast.interval_minutes or 0)
     orders = Order.objects.filter(
         cast=cast,
         status__in=Order.ACTIVE_STATUSES,
-        start__lt=end_at,
+        start__lt=end_at + interval,
         end__gt=start_at - interval,
     )
     if exclude_order_id is not None:
@@ -55,7 +55,7 @@ def cast_has_order_conflict(cast, start_at, end_at, exclude_order_id=None):
             existing.start,
             existing.end + interval,
             start_at,
-            end_at,
+            end_at + interval,
         )
         for existing in orders
     )
@@ -116,7 +116,7 @@ def build_available_order_slots(
     orders = list(Order.objects.filter(
         cast=cast,
         status__in=Order.ACTIVE_STATUSES,
-        start__lt=window_end,
+        start__lt=window_end + interval,
         end__gt=window_start - interval,
     ))
     unavailable_times = list(CastUnavailableTime.objects.filter(
@@ -146,7 +146,7 @@ def build_available_order_slots(
                     existing.start,
                     existing.end + interval,
                     slot_start,
-                    slot_end,
+                    slot_end + interval,
                 )
                 for existing in orders
             )

@@ -105,6 +105,50 @@ class PublicWebBookingTest(TestCase):
                 format="json",
             )
 
+    def test_interval_before_existing_booking_is_hidden_and_rejected_for_named_and_free(self):
+        customer = Customer.objects.create(store=self.store, phone="08011112222", display_name="先約")
+        Order.objects.create(store=self.store, cast=self.cast, room=self.room, customer=customer,
+                             course=self.course, course_name=self.course.name, course_price=self.course.price,
+                             start=datetime(2030, 1, 15, 14, 30, tzinfo=TOKYO),
+                             end=datetime(2030, 1, 15, 15, 0, tzinfo=TOKYO), status=Order.Status.CONFIRMED)
+        for choice in [self.cast.pk, "free"]:
+            with self.subTest(choice=choice):
+                slots = self.client.get("/api/public/booking/slots/", {
+                    "store": self.store.pk, "cast": choice, "course": self.course.pk,
+                    "date": self.business_date.isoformat(),
+                })
+                self.assertEqual(slots.status_code, 200, slots.data)
+                starts = {slot["start"] for slot in slots.data["slots"]}
+                self.assertIn("12:15", starts)
+                self.assertNotIn("12:20", starts)
+                self.assertNotIn("12:30", starts)
+                response = self.request_code(cast=choice)
+                self.assertEqual(response.status_code, 409, response.data)
+        self.assertEqual(PublicBookingVerification.objects.count(), 0)
+        self.assertEqual(SmsLog.objects.count(), 0)
+        self.assertEqual(Customer.objects.count(), 1)
+        self.assertEqual(Order.objects.count(), 1)
+
+    def test_new_later_booking_during_sms_verification_rechecks_interval_without_side_effects(self):
+        requested = self.request_code()
+        self.assertEqual(requested.status_code, 201, requested.data)
+        customer = Customer.objects.create(store=self.store, phone="08011112222", display_name="先約")
+        Order.objects.create(store=self.store, cast=self.cast, room=self.room, customer=customer,
+                             course=self.course, course_name=self.course.name, course_price=self.course.price,
+                             start=datetime(2030, 1, 15, 14, 30, tzinfo=TOKYO),
+                             end=datetime(2030, 1, 15, 15, 0, tzinfo=TOKYO), status=Order.Status.CONFIRMED)
+        sms_count = SmsLog.objects.count()
+        for _ in range(2):
+            response = self.client.post("/api/public/booking/confirm/", {
+                "verification_id": requested.data["verification_id"], "code": "123456",
+            }, format="json")
+            self.assertEqual(response.status_code, 409, response.data)
+        self.assertEqual(Customer.objects.count(), 1)
+        self.assertEqual(Order.objects.count(), 1)
+        self.assertEqual(SmsLog.objects.count(), sms_count)
+        self.assertEqual(OperatorNotification.objects.count(), 0)
+        self.assertIsNone(PublicBookingVerification.objects.get().consumed_at)
+
     def test_public_booking_assigns_free_and_saves_named_fee(self):
         for choice, fee, expected_cast, clock_time in (
             ("free", 0, "フリー", 12),
