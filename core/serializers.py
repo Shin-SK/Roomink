@@ -529,6 +529,8 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
     carryover_closing_amount = serializers.SerializerMethodField()
     cash_corrections = serializers.SerializerMethodField()
     envelope_submission = serializers.SerializerMethodField()
+    registered_by_name = serializers.SerializerMethodField()
+    registration_history = serializers.SerializerMethodField()
 
     class Meta:
         model = CastDailyCheckout
@@ -542,12 +544,23 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
             "compensation_amount", "carryover_opening_amount", "carryover_closing_amount",
             "checklist_json", "cast_memo", "manager_memo",
             "submitted_at", "reviewed_at", "reviewed_by", "reviewed_by_name",
+            "registration_source", "registered_by", "registered_by_name", "registration_history",
             "expense_snapshots", "cash_corrections", "envelope_submission", "created_at", "updated_at",
         ]
         read_only_fields = [f for f in fields if f != "manager_memo"]
 
     def get_reviewed_by_name(self, obj) -> Optional[str]:
         return obj.reviewed_by.username if obj.reviewed_by else None
+
+    def get_registered_by_name(self, obj) -> Optional[str]:
+        return (obj.registered_by.get_full_name() or obj.registered_by.username) if obj.registered_by else None
+
+    @extend_schema_field({"type": "array", "items": {"type": "object", "additionalProperties": True}})
+    def get_registration_history(self, obj):
+        return [{"reason": event.reason, "snapshot": event.snapshot,
+                 "recorded_by": (event.recorded_by.get_full_name() or event.recorded_by.username) if event.recorded_by else "記録なし",
+                 "created_at": event.created_at.isoformat()}
+                for event in obj.registrations.select_related('recorded_by').order_by('-pk')[:30]]
 
     @extend_schema_field({"type": "object", "nullable": True, "additionalProperties": True})
     def get_envelope_submission(self, obj):
