@@ -4,6 +4,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import EnvelopeReceiptCell from '../../components/EnvelopeReceiptCell.vue'
+import SettlementHandover from '../../components/SettlementHandover.vue'
 import { api } from '../../api.js'
 
 const loading = ref(true)
@@ -181,6 +182,14 @@ function formatDt(iso) {
           この日に出勤したキャストはいません
         </div>
 
+        <div v-if="!loading && rows.some(row => row.receivable_amount !== undefined)" class="mb-4">
+          <h6 class="fw-bold mb-2">前回の残りを含めた受け取り状況</h6>
+          <p class="small text-muted">下の「当日分だけの計算」とは別に、前回からの未受取と実際の受取額を確認できます。{{ settlementStatus === 'LOCKED' ? 'この日を確定した時点の記録です。' : '' }}</p>
+          <SettlementHandover v-for="row in rows.filter(row => row.receivable_amount !== undefined)"
+            :key="`${selectedDate}-${row.cast_id}`" :row="row" :date="selectedDate"
+            :locked="settlementStatus === 'LOCKED'" @saved="fetchSettlement" />
+        </div>
+
         <div v-if="!loading && rows.some(row => row.compensation !== undefined)" class="mb-4">
           <h6 class="fw-bold mb-2">売上配分</h6>
           <div class="row g-2 mb-2">
@@ -191,7 +200,7 @@ function formatDt(iso) {
           <div v-for="row in rows" :key="'allocation-' + row.cast_id" class="d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom py-2 small">
             <strong>{{ row.cast_name }}</strong>
             <span>売上 {{ yen(row.total_sales) }}　報酬 <b class="text-primary">{{ yen(row.compensation) }}</b>　店落ち <b>{{ settlementStoreShare(row) == null ? '—' : yen(settlementStoreShare(row)) }}</b></span>
-            <span v-if="row.cash_settlement_amount != null">現金精算 <b>{{ yen(row.cash_settlement_amount) }}</b>（正＝店へ残す／負＝店から支払う）</span>
+            <span v-if="row.cash_settlement_amount != null">現金精算（当日分のみ） <b>{{ yen(row.cash_settlement_amount) }}</b>（正＝店へ残す／負＝店から支払う）</span>
           </div>
           <div class="small text-muted mt-2">報酬＝バック額−固定雑費−当日雑費。店落ち＝売上−報酬。</div>
         </div>
@@ -222,7 +231,7 @@ function formatDt(iso) {
                 <th class="text-end">ポイント</th>
                 <th class="text-end">現金件数</th>
                 <th class="text-end">現金預り</th>
-                <th class="text-end fw-bold">振込額</th>
+                <th class="text-end fw-bold">振込額（当日分のみ）</th>
                 <th>封筒の受領確認</th>
               </tr>
             </thead>
@@ -279,7 +288,7 @@ function formatDt(iso) {
 
         <div v-if="rows.length" class="mt-3 text-muted" style="font-size: 0.75rem;">
           <i class="ti ti-info-circle"></i>
-          振込額 = 報酬 + ポイント - 現金預り。現金預りには、カード払いの際に現金で受け取るオプション代も含みます。現金精算額は振込額の符号を反転した金額です。
+          当日分だけの計算です。前回の未受取・受取済みの額は含みません。振込額 = 報酬 + ポイント - 現金預り。現金預りには、カード払いの際に現金で受け取るオプション代も含みます。現金精算額は振込額の符号を反転した金額です。
           <span v-if="settlementStatus === 'LOCKED'" class="fw-bold"> この日は確定済みのため、スナップショットを表示しています。</span>
         </div>
       </div>

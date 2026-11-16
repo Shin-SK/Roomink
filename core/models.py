@@ -1975,6 +1975,12 @@ class CastDailyCheckout(models.Model):
     cast_memo = models.TextField(blank=True, default="")
     manager_memo = models.TextField(blank=True, default="")
 
+    registration_source = models.CharField(max_length=5, default="CAST", db_default="CAST", choices=[("CAST", "本人提出"), ("STORE", "店舗登録")])
+    registered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="registered_cast_checkouts",
+    )
+
     submitted_at = models.DateTimeField(null=True, blank=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
     reviewed_by = models.ForeignKey(
@@ -2002,6 +2008,17 @@ class CastDailyCheckout(models.Model):
             result = super().save(*args, **kwargs)
             record_cash_source_change(before, type(self).objects.get(pk=self.pk), actor_id=getattr(self, "_cash_recorded_by_id", None))
             return result
+
+
+class CastCheckoutRegistration(models.Model):
+    """Immutable provenance and retry protection for store-entered settlements."""
+    checkout = models.ForeignKey(CastDailyCheckout, on_delete=models.CASCADE, related_name="registrations")
+    request_id = models.UUIDField(unique=True)
+    request_signature = models.CharField(max_length=64)
+    reason = models.CharField(max_length=500)
+    snapshot = models.JSONField(default=dict)
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class EnvelopeSubmission(models.Model):

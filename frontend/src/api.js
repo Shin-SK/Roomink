@@ -470,6 +470,7 @@ export const api = {
   // count/next/previous を保持したまま返す版（ページネーションUI用）
   getCastCheckoutsPage: (params = '') => request('GET', `/cast-checkouts/${params ? '?' + params : ''}`),
   getCastCheckoutDetail: (id) => request('GET', `/cast-checkouts/${id}/`),
+  registerCheckoutByStore: (body) => request('POST', '/cast-checkouts/register-by-store/', body),
   updateCastCheckoutManagerMemo: (id, managerMemo) => request('PATCH', `/cast-checkouts/${id}/`, { manager_memo: managerMemo }),
   reviewCastCheckout: (id, managerMemo) => request('POST', `/cast-checkouts/${id}/review/`, managerMemo !== undefined ? { manager_memo: managerMemo } : {}),
   returnCastCheckout: (id, managerMemo) => request('POST', `/cast-checkouts/${id}/return_to_cast/`, managerMemo !== undefined ? { manager_memo: managerMemo } : {}),

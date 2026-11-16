@@ -194,9 +194,10 @@ class CheckoutPayVersionMigrationTest(TransactionTestCase):
             cast = Cast.objects.create(store_id=store.pk, name="移行確認キャスト")
             row = Checkout.objects.create(store_id=store.pk, cast_id=cast.pk, date="2026-10-02",
                 estimated_pay=15000, room_cash_taken_amount=3000, office_cash_paid_amount=1000)
-            migrate_test_schema(new_target)
-            saved = CastDailyCheckout.objects.get(pk=row.pk)
+            migrated = migrate_test_schema(new_target)
+            saved = migrated.apps.get_model("core", "CastDailyCheckout").objects.get(pk=row.pk)
             self.assertEqual(saved.pay_calculation_version, 1)
             self.assertEqual((saved.estimated_pay, saved.room_cash_taken_amount, saved.office_cash_paid_amount), (15000, 3000, 1000))
         finally:
-            migrate_test_schema(new_target)
+            loader = MigrationLoader(connection)
+            migrate_test_schema(loader.graph.leaf_nodes())

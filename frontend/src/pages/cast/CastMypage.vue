@@ -1036,6 +1036,11 @@ function formatMonthDay(dateStr) {
           <i class="ti ti-door-exit"></i> {{ formatMonthDay(checkoutData?.date) }}分の精算を提出
         </button>
 
+        <div v-if="checkoutData?.unrecorded_prior_dates?.length" class="alert alert-warning small">
+          過去の精算が未登録です（{{ checkoutData.unrecorded_prior_dates.join('・') }}）。その日の分は、今表示している繰越に入っていません。対象日を選んで提出するか、店舗へ確認してください。
+        </div>
+        <div v-if="checkoutData?.checkout?.registration_source === 'STORE'" class="alert alert-info small">この日の精算は店舗側で登録済みです。金額の確認・訂正は店舗へご連絡ください。</div>
+
         <!-- 退勤モーダル -->
         <Teleport to="body">
           <div v-if="showCheckoutModal" class="line-modal-overlay checkout-modal-overlay" @click.self="showCheckoutModal = false">
@@ -1049,6 +1054,7 @@ function formatMonthDay(dateStr) {
 
               <div class="line-modal-body">
                 <div v-if="checkoutError" class="alert alert-danger py-2 small">{{ checkoutError }}</div>
+                <div v-if="checkoutData?.unrecorded_prior_dates?.length" class="alert alert-warning small">過去の未登録日（{{ checkoutData.unrecorded_prior_dates.join('・') }}）の分は、下の繰越に入っていません。店舗へ確認してください。</div>
 
                 <div v-if="!checkoutIsReadOnly" class="bg-light rounded p-3 mb-3">
                   <div class="fw-bold mb-2">システム上の精算見込み</div>

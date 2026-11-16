@@ -395,7 +395,7 @@ function createAdjustmentFromCheckout() {
                   <div class="fw-bold" :class="detail.carryover_closing_amount ? 'text-warning' : 'text-success'">{{ formatYen(detail.carryover_closing_amount) }}</div>
                 </div>
                 <div class="col-6 col-md-3">
-                  <div class="small text-muted">提出日時</div>
+                  <div class="small text-muted">{{ detail.registration_source === 'STORE' ? '店舗登録日時' : '提出日時' }}</div>
                   <div>{{ formatDateTime(detail.submitted_at) }}</div>
                 </div>
                 <div class="col-6 col-md-3">
@@ -403,6 +403,14 @@ function createAdjustmentFromCheckout() {
                   <div>{{ detail.reviewed_by_name || '—' }} / {{ formatDateTime(detail.reviewed_at) }}</div>
                 </div>
               </div>
+              <div v-if="detail.registration_source === 'STORE'" class="alert alert-info small mt-3">店舗側で登録した精算です。登録者：{{ detail.registered_by_name || '記録なし' }}。本人のチェックリスト回答ではありません。</div>
+              <details v-if="detail.registration_history?.length" class="small mb-3">
+                <summary>店舗登録の履歴</summary>
+                <div v-for="(entry, index) in detail.registration_history" :key="index" class="border-top py-2">
+                  {{ formatDateTime(entry.created_at) }} / {{ entry.recorded_by }}<br>
+                  ルーム受取 {{ formatYen(entry.snapshot.room_cash_taken_amount) }} / {{ entry.reason }}
+                </div>
+              </details>
 
               <div class="border rounded p-3 mb-3 bg-light">
                 <div class="fw-bold small mb-2"><i class="ti ti-wallet"></i> 現金精算</div>

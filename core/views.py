@@ -2110,6 +2110,7 @@ class CastCheckoutView(APIView):
 
     def get(self, request):
         from .services.cast_checkout_dates import checkout_context
+        from .services.checkout_registration import unrecorded_prior_dates
         cast, today, current_day, pending, locked = checkout_context(request)
         existing = CastDailyCheckout.objects.filter(cast=cast, date=today).select_related("reviewed_by").prefetch_related("expense_snapshots").first()
         pay_version = existing.pay_calculation_version if existing and existing.status != CastDailyCheckout.Status.RETURNED else CURRENT_PAY_VERSION
@@ -2145,6 +2146,7 @@ class CastCheckoutView(APIView):
             **fee,
             **allocation,
             "carryover_opening_amount": _cast_carryover_before(cast, today),
+            "unrecorded_prior_dates": [day.isoformat() for day in unrecorded_prior_dates(cast, today)],
             "receipt_history": _cast_office_receipt_history(cast),
             "expense_templates": template_data,
             "checkout": CastDailyCheckoutSerializer(existing).data if existing else None,
@@ -2194,7 +2196,8 @@ class CastCheckoutView(APIView):
         allocation = _allocation_amounts(
             sales["estimated_pay"], fee["net_sales_after_payment_fee"], expenses,
         )
-        available_amount = _cast_carryover_before(cast, today) + allocation["compensation"]
+        available_amount = (_cast_carryover_before(cast, today) + allocation["compensation"]
+                            - (existing.office_cash_paid_amount if existing else 0))
         if room_cash_taken_amount > max(0, available_amount):
             return Response(
                 {"detail": "受取可能額を超える金額は入力できません"},
@@ -2223,10 +2226,14 @@ class CastCheckoutView(APIView):
             instance.room_cash_taken_amount = room_cash_taken_amount
             # 既存の出力/APIを壊さないため、旧フィールドにも同じ値を保存する。
             instance.actual_take_home_amount = room_cash_taken_amount
-            instance.office_cash_paid_amount = 0
-            instance.cash_returned_to_room_amount = 0
+            # Re-submission does not undo recorded office payments or cash returns.
+            if existing is None:
+                instance.office_cash_paid_amount = 0
+                instance.cash_returned_to_room_amount = 0
             instance.checklist_json = checklist_json
             instance.cast_memo = cast_memo
+            instance.registration_source = "CAST"
+            instance.registered_by = request.user
             instance.status = CastDailyCheckout.Status.SUBMITTED
             instance.submitted_at = timezone.now()
             instance._cash_recorded_by_id = request.user.pk
@@ -4095,6 +4102,14 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         # POST は detail action（確認・事務所払い）のみ。空の退勤提出は作らせない。
         raise MethodNotAllowed("POST")
+
+    @extend_schema(request=OpenApiTypes.OBJECT, responses=CastDailyCheckoutSerializer)
+    @action(detail=False, methods=["post"], url_path="register-by-store")
+    def register_by_store(self, request):
+        self.check_manager(request)
+        from .services.checkout_registration import register_by_store
+        instance, created = register_by_store(get_user_store(request), request.user, request.data)
+        return Response(CastDailyCheckoutSerializer(instance).data, status=201 if created else 200)
 
     @action(detail=True, methods=["post"])
     def review(self, request, pk=None):
@@ -7934,6 +7949,10 @@ class DailySettlementView(APIView):
             )
 
         # Hide absence-only rows, but never hide existing accounting records.
+        # Accounting still exists when a historical shift is missing.
+        cast_ids.update(get_done_orders_for_business_range(store, d, d).values_list("cast_id", flat=True))
+        cast_ids.discard(None)
+        cast_ids.update(CastDailyCheckout.objects.filter(store=store, date=d).values_list("cast_id", flat=True))
         absent_only = absent_cast_ids - active_cast_ids
         if absent_only:
             recorded = set(get_done_orders_for_business_range(store, d, d)
@@ -8037,8 +8056,15 @@ class DailySettlementView(APIView):
             net_pay = back_amount - expense_total + point_total - cash_sales_total
 
             shift_text = " / ".join(cast_shifts.get(cast_id, []))
+            from .services.checkout_registration import settlement_state
+            handover = settlement_state(cast, d)
+            handover["can_register_by_store"] = (
+                not handover["cash_handover_recorded"]
+                and d <= business_date_for_datetime(timezone.now(), store.timezone)
+            )
 
             rows.append({
+                **handover,
                 "cast_id": cast.id,
                 "cast_name": cast.name,
                 "shift": shift_text,
@@ -8259,6 +8285,8 @@ class DailySettlementExportView(APIView):
             "現金件数", "現金預り", "振込額",
             "売上", "固定雑費", "当日雑費", "報酬", "店落ち",
             "現金精算額（正＝店へ残す／負＝店から支払う）",
+            "前回までの未受取", "当日報酬（精算記録基準）", "受取可能額（繰越込）",
+            "ルーム受取済", "事務所受取済", "未受取残（繰越込）", "過去の未登録日", "精算登録元",
         ])
 
         from .services.sales import settlement_store_share
@@ -8284,6 +8312,11 @@ class DailySettlementExportView(APIView):
                 r.get("compensation", ""),
                 settlement_store_share(r),
                 r.get("cash_settlement_amount", ""),
+                r.get("carryover_opening_amount", ""), r.get("settlement_compensation_amount", ""),
+                r.get("receivable_amount", ""), r.get("room_cash_taken_amount", ""),
+                r.get("office_cash_paid_amount", ""), r.get("remaining_receivable_amount", ""),
+                " / ".join(r.get("unrecorded_prior_dates", [])),
+                {"STORE": "店舗登録", "CAST": "本人提出"}.get(r.get("registration_source"), "未登録"),
             ])
 
         # 合計行
@@ -8304,6 +8337,7 @@ class DailySettlementExportView(APIView):
             totals.get("compensation", ""),
             settlement_store_share(totals),
             totals.get("cash_settlement_amount", ""),
+            "", "", "", "", "", "", "", "",
         ])
 
         # 状態行
