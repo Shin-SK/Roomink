@@ -12,6 +12,7 @@ from core.models import (
     CastAck,
     Course,
     Customer,
+    DailySettlement,
     Option,
     Order,
     Room,
@@ -173,6 +174,52 @@ class CastOrderControlsTest(TestCase):
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, Order.Status.DONE)
         self.assertEqual(self.order.updated_by_id, self.cast_user.id)
+
+    def test_next_morning_completion_uses_original_business_day_once(self):
+        self.order.start = datetime(2026, 10, 27, 2, tzinfo=ZoneInfo("Asia/Tokyo"))
+        self.order.end = self.order.start + timedelta(minutes=90)
+        self.order.status = Order.Status.IN_PROGRESS
+        self.order.save()
+        with patch("django.utils.timezone.now", return_value=datetime(2026, 10, 27, 10, tzinfo=ZoneInfo("Asia/Tokyo"))):
+            listing = self.cast_client.get("/api/cast/today/?date=2026-10-26")
+            self.assertEqual(listing.data["current_business_date"], "2026-10-27")
+            self.assertFalse(listing.data["is_locked"])
+            completed = self.cast_client.post(f"/api/cast/orders/{self.order.id}/complete/")
+            repeated = self.cast_client.post(f"/api/cast/orders/{self.order.id}/complete/")
+            checkout = self.cast_client.get("/api/cast/checkout/?date=2026-10-26")
+            current = self.cast_client.get("/api/cast/checkout/?date=2026-10-27")
+        self.assertEqual(completed.status_code, 200, completed.data)
+        self.assertEqual(repeated.status_code, 400, repeated.data)
+        self.assertEqual(checkout.status_code, 200, checkout.data)
+        self.assertEqual(checkout.data["done_count"], 1)
+        self.assertEqual(checkout.data["total_sales"], 21000)
+        self.assertEqual(checkout.data["estimated_pay"], 12500)
+        self.assertEqual(current.data["done_count"], 0)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.start.hour, 17)  # 02:00 JST, unchanged in UTC.
+
+    def test_locked_past_day_cannot_be_completed(self):
+        day = business_date_for_datetime(self.order.start, self.store.timezone)
+        self.order.status = Order.Status.PENDING_FINALIZE
+        self.order.save()
+        DailySettlement.objects.create(store=self.store, date=day, status="LOCKED")
+        with patch("django.utils.timezone.now", return_value=timezone.now() + timedelta(days=3)):
+            listing = self.cast_client.get(f"/api/cast/today/?date={day}")
+            response = self.cast_client.post(f"/api/cast/orders/{self.order.id}/complete/")
+        self.assertTrue(listing.data["is_locked"])
+        self.assertEqual(response.status_code, 400, response.data)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PENDING_FINALIZE)
+
+    def test_future_day_cannot_be_completed_even_via_direct_api(self):
+        self.order.start += timedelta(days=1)
+        self.order.end += timedelta(days=1)
+        self.order.status = Order.Status.IN_PROGRESS
+        self.order.save()
+        response = self.cast_client.post(f"/api/cast/orders/{self.order.id}/complete/")
+        self.assertEqual(response.status_code, 400, response.data)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.IN_PROGRESS)
 
     def test_cast_can_ack_a_tomorrow_reservation_before_the_service_day(self):
         """前日でも自分の予約を表示し、内容確認だけ先に完了できる。"""

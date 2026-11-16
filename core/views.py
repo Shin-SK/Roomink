@@ -1543,6 +1543,8 @@ class CastTodayView(APIView):
             "cast_name": cast.name,
             "avatar_url": cast.avatar_url,
             "date": d.isoformat(),
+            "current_business_date": business_date_for_datetime(timezone.now(), cast.store.timezone).isoformat(),
+            "is_locked": is_daily_settlement_locked(cast.store, d),
             "shift": {
                 "date": shift.date.isoformat() if shift else None,
                 "start_time": str(shift.start_time)[:5] if shift else None,
@@ -2466,6 +2468,11 @@ class CastOrderCompleteView(APIView):
             return error_response
         with transaction.atomic():
             order = _lock_cast_order_for_mutation(order, cast)
+            if business_date_for_datetime(order.start, cast.store.timezone) > business_date_for_datetime(timezone.now(), cast.store.timezone):
+                return Response(
+                    {"detail": "未来日の予約は接客終了できません。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             if order.status not in (Order.Status.IN_PROGRESS, Order.Status.PENDING_FINALIZE):
                 return Response(
                     {"detail": f"現在の状態では接客を終了できません（{order.get_status_display()}）"},
