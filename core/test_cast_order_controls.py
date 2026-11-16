@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 from core.models import (
     Cast,
     CastAck,
+    CastDailyCheckout,
     Course,
     Customer,
     DailySettlement,
@@ -210,6 +211,26 @@ class CastOrderControlsTest(TestCase):
         self.assertEqual(response.status_code, 400, response.data)
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, Order.Status.PENDING_FINALIZE)
+
+    def test_submitted_past_checkout_is_protected_until_returned(self):
+        day = business_date_for_datetime(self.order.start, self.store.timezone)
+        self.order.status = Order.Status.IN_PROGRESS
+        self.order.save()
+        checkout = CastDailyCheckout.objects.create(store=self.store, cast=self.cast, date=day, estimated_pay=0)
+        with patch("django.utils.timezone.now", return_value=timezone.now() + timedelta(days=1)):
+            response = self.cast_client.post(f"/api/cast/orders/{self.order.id}/complete/")
+            self.assertEqual(response.status_code, 400, response.data)
+            checkout.refresh_from_db()
+            self.assertEqual(checkout.estimated_pay, 0)
+            self.order.refresh_from_db()
+            self.assertEqual(self.order.status, Order.Status.IN_PROGRESS)
+            checkout.status = CastDailyCheckout.Status.RETURNED
+            checkout.save()
+            response = self.cast_client.post(f"/api/cast/orders/{self.order.id}/complete/")
+            self.assertEqual(response.status_code, 200, response.data)
+            refreshed = self.cast_client.get(f"/api/cast/checkout/?date={day}")
+            self.assertTrue(refreshed.data["can_submit"])
+            self.assertEqual(refreshed.data["estimated_pay"], 12500)
 
     def test_future_day_cannot_be_completed_even_via_direct_api(self):
         self.order.start += timedelta(days=1)

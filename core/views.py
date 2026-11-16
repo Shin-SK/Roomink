@@ -2468,9 +2468,18 @@ class CastOrderCompleteView(APIView):
             return error_response
         with transaction.atomic():
             order = _lock_cast_order_for_mutation(order, cast)
-            if business_date_for_datetime(order.start, cast.store.timezone) > business_date_for_datetime(timezone.now(), cast.store.timezone):
+            order_day = business_date_for_datetime(order.start, cast.store.timezone)
+            current_day = business_date_for_datetime(timezone.now(), cast.store.timezone)
+            if order_day > current_day:
                 return Response(
                     {"detail": "未来日の予約は接客終了できません。"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if order_day < current_day and CastDailyCheckout.objects.filter(
+                store=cast.store, cast=cast, date=order_day,
+            ).exclude(status=CastDailyCheckout.Status.RETURNED).exists():
+                return Response(
+                    {"detail": "この営業日は精算提出済みです。店舗で精算を差し戻してから接客終了し、精算を再提出してください。"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             if order.status not in (Order.Status.IN_PROGRESS, Order.Status.PENDING_FINALIZE):
