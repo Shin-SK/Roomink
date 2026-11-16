@@ -41,7 +41,7 @@ def settlement_state(cast, day):
     fee = _compute_payment_summary(cast.store, cast, day)
     opening = _cast_carryover_before(cast, day)
     compensation = _checkout_compensation(checkout) if recorded else sales['estimated_pay'] - expenses['expense_total']
-    room = _suggest_checkout_room(cast, day)
+    room = checkout.room if checkout and checkout.room_id else _suggest_checkout_room(cast, day)
     pending = [d.isoformat() for d in unrecorded_prior_dates(cast, day)]
     # Revision protects against order/expense/rate/room/earlier-payment changes while the form is open.
     revision = digest({'sales': sales, 'expenses': expenses, 'fee': fee, 'opening': opening,
@@ -120,7 +120,8 @@ def register_by_store(store, actor, data):
         setattr(instance, name, fee[name])
     instance.daily_expense_total = expenses['daily_expense_total']
     instance.pay_calculation_version = CURRENT_PAY_VERSION
-    instance.room = _suggest_checkout_room(cast, day)
+    if not instance.room_id:
+        instance.room = _suggest_checkout_room(cast, day)
     instance.room_cash_taken_amount = instance.actual_take_home_amount = amount
     instance.registration_source = 'STORE'
     instance.registered_by = actor

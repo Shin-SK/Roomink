@@ -122,11 +122,14 @@ class ManagerCheckoutTests(TestCase):
         self.assertIn('10500', csv)
 
     def test_returned_store_registration_preserves_office_payments_and_audit(self, _):
+        from core.models import Room
         first = self.manager_client.post(self.url, self.payload(), format='json')
         checkout = CastDailyCheckout.objects.get(pk=first.data['id'])
         checkout.status = 'RETURNED'
         checkout.office_cash_paid_amount = 300
         checkout.cash_returned_to_room_amount = 100
+        checkout.room = Room.objects.create(store=self.store, name='確認済み受渡ルーム')
+        actual_room_id = checkout.room_id
         checkout.save()
         body = self.payload(room_cash_taken_amount=7000)
         second = self.manager_client.post(self.url, body, format='json')
@@ -134,6 +137,7 @@ class ManagerCheckoutTests(TestCase):
         checkout.refresh_from_db()
         self.assertEqual(checkout.office_cash_paid_amount, 300)
         self.assertEqual(checkout.cash_returned_to_room_amount, 100)
+        self.assertEqual(checkout.room_id, actual_room_id)
         self.assertEqual(checkout.registrations.count(), 2)
         self.assertEqual(checkout.envelope_submissions.count(), 2)
         self.assertEqual(second.data['carryover_closing_amount'], 1700)
