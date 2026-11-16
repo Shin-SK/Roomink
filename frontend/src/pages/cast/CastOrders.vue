@@ -19,15 +19,23 @@ const latestOptionOrder = ref(null)
 const actionErrors = ref({})
 const selectedDate = ref('')
 const currentBusinessDate = ref('')
+const isLocked = ref(false)
 
 const isCurrentBusinessDate = computed(() => selectedDate.value === currentBusinessDate.value)
+const isPastBusinessDate = computed(() => selectedDate.value < currentBusinessDate.value)
+
+function canCompletePastOrder(order) {
+  return isPastBusinessDate.value && !isLocked.value
+    && ['IN_PROGRESS', 'PENDING_FINALIZE'].includes(order.status)
+}
 
 async function loadOrders(date = '') {
   loading.value = true
   error.value = ''
   try {
     const data = await api.getCastToday(date)
-    if (!currentBusinessDate.value) currentBusinessDate.value = data.date
+    currentBusinessDate.value = data.current_business_date
+    isLocked.value = data.is_locked
     selectedDate.value = data.date
     shift.value = data.shift
     orders.value = data.orders
@@ -371,11 +379,17 @@ onMounted(() => {
           </div>
 
           <button
-            v-if="!isCurrentBusinessDate"
+            v-if="canCompletePastOrder(order)"
+            class="btn btn-success w-100 fw-bold"
+            :disabled="processingOrderId === order.id"
+            @click="completeService(order)"
+          ><i class="ti ti-check"></i> 接客終了・売上へ反映</button>
+          <button
+            v-else-if="!isCurrentBusinessDate || isLocked"
             class="btn btn-light w-100 ca-order__done"
             disabled
           >
-            <i class="ti ti-eye"></i> 予約詳細を表示中
+            <i class="ti ti-eye"></i> {{ isLocked ? '日締め済みのため変更できません' : '予約詳細を表示中' }}
           </button>
           <button
             v-else-if="order.is_unconfirmed"
