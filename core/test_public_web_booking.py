@@ -13,6 +13,7 @@ from core.models import (
     Cast,
     Course,
     Customer,
+    NominationFee,
     Option,
     OperatorNotification,
     Order,
@@ -150,6 +151,10 @@ class PublicWebBookingTest(TestCase):
         self.assertIsNone(PublicBookingVerification.objects.get().consumed_at)
 
     def test_public_booking_assigns_free_and_saves_named_fee(self):
+        # Web fees remain distinct from each store's configurable fee names/prices.
+        custom_fee = NominationFee.objects.create(
+            store=self.store, name="店舗独自の写真指名", price=3000,
+        )
         for choice, fee, expected_cast, clock_time in (
             ("free", 0, "フリー", 12),
             (self.cast.pk, 1000, self.cast.name, 13),
@@ -171,8 +176,14 @@ class PublicWebBookingTest(TestCase):
                 order = Order.objects.get(pk=result.data["id"])
                 self.assertEqual(order.cast_id, self.cast.pk)
                 self.assertEqual(order.nomination_fee_price, fee)
+                expected_fee_name = "フリー" if choice == "free" else "Web指名料"
+                self.assertEqual(order.nomination_fee_name, expected_fee_name)
+                self.assertEqual(result.data["nomination_fee_name"], expected_fee_name)
+                self.assertIsNone(order.nomination_fee_id)
                 self.assertEqual(order.total_price, 22000 + fee)
                 self.assertEqual(result.data["cast_name"], expected_cast)
+        custom_fee.refresh_from_db()
+        self.assertEqual((custom_fee.name, custom_fee.price), ("店舗独自の写真指名", 3000))
 
     def test_free_booking_skips_cast_blocked_for_verified_customer(self):
         customer = Customer.objects.create(

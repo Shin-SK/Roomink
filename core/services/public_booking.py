@@ -474,7 +474,7 @@ def confirm_public_booking(verification_id, code):
             order_fields = ["status", "updated_at"]
             if selection["automatic_nomination"]:
                 is_free = selection["cast_choice"] == "free"
-                order.nomination_fee_name = "フリー" if is_free else "指名料"
+                order.nomination_fee_name = "フリー" if is_free else "Web指名料"
                 order.nomination_fee_price = 0 if is_free else 1000
                 order_fields.extend(["nomination_fee_name", "nomination_fee_price"])
             order.save(update_fields=order_fields)
