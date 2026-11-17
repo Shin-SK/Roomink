@@ -519,7 +519,7 @@ async function confirmBooking() {
             <div><span>担当</span><strong>{{ form.cast === 'free' ? 'フリー' : selectedCast?.name || '-' }}</strong></div>
             <div><span>日時</span><strong>{{ form.date }} {{ form.time || '-' }}</strong></div>
             <div><span>コース</span><strong>{{ selectedCourse?.name || '-' }}</strong></div>
-            <div v-if="nominationPrice"><span>指名料</span><strong>{{ formatYen(nominationPrice) }}</strong></div>
+            <div v-if="nominationPrice"><span>Web指名料</span><strong>{{ formatYen(nominationPrice) }}</strong></div>
             <div><span>支払い方法</span><strong>{{ form.payment_method === 'CARD' ? 'カード' : form.payment_method === 'CASH' ? '現金' : '未選択' }}</strong></div>
             <div class="summary__total"><span>合計</span><strong>{{ formatYen(totalPrice) }}</strong></div>
           </div>
