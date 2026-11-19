@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
@@ -126,10 +127,20 @@ class PasswordResetTest(TestCase):
         link=self.link();self.user.is_active=False;self.user.save(update_fields=['is_active']);self.assertEqual(self.confirm(link).status_code,400)
 
     def test_invalid_payloads_and_mismatching_passwords_never_change_password(self):
-        for body in [[],{'username':[]},{'username':'x'*151}]:
-            self.assertEqual(self.client.post('/api/auth/password-reset/',body,format='json').status_code,400)
+        for body in [[],{'username':[]},{'username':'x'*151},{'username':'\ud800'}]:
+            self.assertEqual(self.client.post('/api/auth/password-reset/',json.dumps(body),content_type='application/json').status_code,400)
         for body in [[],{'uid':[]},{'uid':'x'*65,'token':'x'},{**self.link(),'new_password':self.changed,'new_password_confirm':'different'}]:
             self.assertEqual(self.client.post('/api/auth/password-reset/confirm/',body,format='json').status_code,400)
+        self.user.refresh_from_db();self.assertTrue(self.user.check_password(self.initial))
+
+    def test_malformed_unicode_links_are_rejected_without_server_errors(self):
+        link=self.link()
+        for value in ['\ud800','あ']:
+            for field in ['uid','token']:
+                malformed={**link,field:(link[field].split('-')[0]+'-'+value if field=='token' else value)}
+                self.assertEqual(self.client.post('/api/auth/password-reset/validate/',json.dumps(malformed),content_type='application/json').status_code,400)
+                body={**malformed,'new_password':self.changed,'new_password_confirm':self.changed}
+                self.assertEqual(self.client.post('/api/auth/password-reset/confirm/',json.dumps(body),content_type='application/json').status_code,400)
         self.user.refresh_from_db();self.assertTrue(self.user.check_password(self.initial))
 
     def test_request_and_confirm_require_csrf_handshake(self):

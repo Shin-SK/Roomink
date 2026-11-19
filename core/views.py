@@ -339,6 +339,10 @@ def auth_password_reset(request):
     username = request.data.get('username', '')
     if not isinstance(username, str) or not username.strip() or len(username.strip()) > 150:
         return Response({'detail': 'ユーザー名を入力してください。'}, status=400)
+    try:
+        username.encode('utf-8')
+    except UnicodeEncodeError:
+        return Response({'detail': 'ユーザー名を入力してください。'}, status=400)
     request_password_reset(username.strip())
     return Response({'detail': RESET_SENT_MESSAGE})
 
@@ -347,7 +351,7 @@ def _reset_link_values(request):
     if not isinstance(request.data, dict):
         return '', ''
     uid, token = request.data.get('uid', ''), request.data.get('token', '')
-    if not isinstance(uid, str) or not isinstance(token, str) or len(uid) > 64 or len(token) > 128:
+    if not isinstance(uid, str) or not isinstance(token, str) or len(uid) > 64 or len(token) > 128 or not uid.isascii() or not token.isascii():
         return '', ''
     return uid, token
 
