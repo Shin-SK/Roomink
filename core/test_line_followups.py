@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 
 from core.models import Cast, Discount, Order, Room, ShiftAssignment, ShiftRequest, SmsLog, UserProfile
 from core.services.sales import get_sales_dashboard, get_sales_dashboard_csv
+from core.services.notify import notify_web_booking_received, sms_encoding_and_segments
 from core import test_public_web_booking as booking_fixtures
 
 
@@ -46,6 +47,43 @@ class LineFollowupTest(TestCase):
         notifications = self.op.get("/api/op/notifications/")
         self.assertEqual(notifications.status_code, 200, notifications.data)
         self.assertEqual(notifications.data["notifications"][0]["order_status"], "REQUESTED")
+
+    def test_receipt_stays_one_segment_in_actual_provider_payload(self):
+        order = self.accept_web()
+        names = ["フラッグシップ", "店" * 100, "🌸" * 100]
+        names.extend("店" * size for size in range(20, 41))
+        with (
+            patch("core.services.notify.TWILIO_ACCOUNT_SID", "test-account"),
+            patch("core.services.notify.TWILIO_AUTH_TOKEN", "test-token"),
+            patch("core.services.notify.TWILIO_FROM_PHONE", "+15005550006"),
+            patch("twilio.rest.Client") as provider,
+        ):
+            message = provider.return_value.messages.create.return_value
+            message.sid = "SM-receipt-test"
+            message.status = "queued"
+            message.num_segments = "0"  # Twilio can return this before delivery.
+            for name in names:
+                with self.subTest(store_name=name):
+                    order.store.name = name
+                    log = notify_web_booking_received(order)
+                    body = provider.return_value.messages.create.call_args.kwargs["body"]
+                    self.assertLessEqual(len(body.encode("utf-16-be")) // 2, 70)
+                    self.assertEqual(sms_encoding_and_segments(body)[1], 1)
+                    self.assertEqual(log.segment_count, 1)
+                    self.assertEqual(log.body, body)
+                    self.assertEqual(log.store_id, order.store_id)
+                    self.assertIn("受け付けました", body)
+                    self.assertIn("未確定", body)
+                    self.assertIn("SMSでご案内", body)
+                    self.assertNotIn(str(order.total_price), body)
+                    self.assertNotIn(self.room.address, body)
+                    self.assertNotIn("http", body)
+                    if name == "フラッグシップ":
+                        self.assertTrue(body.startswith("【フラッグシップ】"))
+                    if name in ("店" * 100, "🌸" * 100):
+                        self.assertTrue(body.startswith("【Roomink】"))
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.REQUESTED)
 
     def test_store_edits_then_confirms_once_and_failed_sms_can_retry_once(self):
         order = self.accept_web()

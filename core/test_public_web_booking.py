@@ -302,7 +302,8 @@ class PublicWebBookingTest(TestCase):
             order=order,
             template_type=SmsLog.TemplateType.OTHER,
         )
-        self.assertIn("まだ予約は確定していません", confirmation.body)
+        self.assertIn("未確定", confirmation.body)
+        self.assertEqual(confirmation.segment_count, 1)
         notification = OperatorNotification.objects.get(order=order)
         self.assertEqual(notification.store, self.store)
         self.assertEqual(notification.kind, OperatorNotification.Kind.PUBLIC_BOOKING)
