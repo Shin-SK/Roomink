@@ -366,9 +366,14 @@ def build_card_payment_confirmed_body(order: Order) -> str:
 
 def notify_web_booking_received(order: Order, created_by=None) -> SmsLog:
     """受付を知らせる。店舗確認前の金額・住所・決済リンクは送らない。"""
+    notice = "予約を受け付けました。店舗で確認中のため未確定です。確認後にSMSでご案内します。"
+    body = f"【{order.store.name}】{notice}"
+    if sms_encoding_and_segments(body)[1] > 1:
+        # Long store names (including supplementary Unicode) must not split the SMS.
+        body = f"【Roomink】{notice}"
     return send_sms(
         to_phone=order.customer.phone,
-        body=f"【{order.store.name}】予約のお申し込みを受け付けました。\n現在、店舗で確認中です。まだ予約は確定していません。\n確認後に改めてSMSでご案内します。",
+        body=body,
         order=order,
         template_type=SmsLog.TemplateType.OTHER,
         created_by=created_by,
