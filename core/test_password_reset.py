@@ -135,6 +135,9 @@ class PasswordResetTest(TestCase):
 
     def test_malformed_unicode_links_are_rejected_without_server_errors(self):
         link=self.link()
+        malformed_password='Malformed-Password-93751-\ud800'
+        body={**link,'new_password':malformed_password,'new_password_confirm':malformed_password}
+        self.assertEqual(self.client.post('/api/auth/password-reset/confirm/',json.dumps(body),content_type='application/json').status_code,400)
         for value in ['\ud800','あ']:
             for field in ['uid','token']:
                 malformed={**link,field:(link[field].split('-')[0]+'-'+value if field=='token' else value)}

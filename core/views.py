@@ -382,6 +382,10 @@ def auth_password_reset_confirm(request):
     password = request.data.get('new_password', '')
     if not isinstance(password, str) or len(password) > 1024:
         return Response({'detail': '新しいパスワードを確認してください。'}, status=400)
+    try:
+        password.encode('utf-8')
+    except UnicodeEncodeError:
+        return Response({'detail': '新しいパスワードを確認してください。'}, status=400)
     if not password or password != request.data.get('new_password_confirm'):
         return Response({'detail': '新しいパスワードが一致しません。'}, status=400)
     try:
