@@ -159,6 +159,8 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 200,
     "DEFAULT_THROTTLE_RATES": {
         "auth_login": "30/hour",
+        "password_reset_request": "5/hour",
+        "password_reset_confirm": "10/minute",
         "customer_login": "30/hour",
         "public_booking_verification": "10/hour",
         "public_booking_confirm": "30/hour",
@@ -268,6 +270,8 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
+
+PASSWORD_RESET_TIMEOUT = 30 * 60
 
 LANGUAGE_CODE = "ja"
 TIME_ZONE = "Asia/Tokyo"

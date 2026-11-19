@@ -130,31 +130,18 @@ class AuthAndPermissionSmokeTest(RoomankOpsSmokeTestBase):
         self.assertEqual(res.status_code, 403)
 
 
-class PublicPasswordResetDisabledTest(RoomankOpsSmokeTestBase):
-    """公開パスワード再設定APIがDBを更新せず、ユーザーの存在も漏らさないことを確認する。"""
+class PublicPasswordResetOwnershipTest(RoomankOpsSmokeTestBase):
+    """Requesting an email must never directly change another user's password."""
 
     endpoint = "/api/auth/password-reset/"
-    disabled_response = {"detail": "パスワード再設定は現在利用できません。管理者へお問い合わせください。"}
 
-    def test_anonymous_request_is_disabled_without_database_access(self):
+    def test_anonymous_request_never_accepts_a_new_password_without_a_token(self):
         client = APIClient()
-
-        with self.assertNumQueries(0):
-            existing = client.post(
-                self.endpoint,
-                {"username": self.manager_a.username, "new_password": "changed-password"},
-                format="json",
-            )
-            missing = client.post(
-                self.endpoint,
-                {"username": "missing-user", "new_password": "changed-password"},
-                format="json",
-            )
-
-        self.assertEqual(existing.status_code, 503)
-        self.assertEqual(missing.status_code, 503)
-        self.assertEqual(existing.json(), self.disabled_response)
-        self.assertEqual(missing.json(), self.disabled_response)
+        existing = client.post(self.endpoint, {"username": self.manager_a.username, "new_password": "changed-password"}, format="json")
+        missing = client.post(self.endpoint, {"username": "missing-user", "new_password": "changed-password"}, format="json")
+        self.assertEqual(existing.status_code, 200)
+        self.assertEqual(missing.status_code, 200)
+        self.assertEqual(existing.json(), missing.json())
         self.manager_a.refresh_from_db()
         self.assertTrue(self.manager_a.check_password("pass1234"))
         self.assertFalse(self.manager_a.check_password("changed-password"))
@@ -162,15 +149,8 @@ class PublicPasswordResetDisabledTest(RoomankOpsSmokeTestBase):
     def test_authenticated_general_user_cannot_reset_another_user_password(self):
         client = self.client_as(self.cast_user_a)
 
-        with self.assertNumQueries(0):
-            response = client.post(
-                self.endpoint,
-                {"username": self.manager_a.username, "new_password": "changed-password"},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json(), self.disabled_response)
+        response = client.post(self.endpoint, {"username": self.manager_a.username, "new_password": "changed-password"}, format="json")
+        self.assertEqual(response.status_code, 200)
         self.manager_a.refresh_from_db()
         self.assertTrue(self.manager_a.check_password("pass1234"))
         self.assertFalse(self.manager_a.check_password("changed-password"))

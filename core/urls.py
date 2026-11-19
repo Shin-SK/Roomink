@@ -106,6 +106,8 @@ urlpatterns = [
     path("auth/logout/", views.auth_logout, name="auth-logout"),
     path("auth/change-password/", views.auth_change_password, name="auth-change-password"),
     path("auth/password-reset/", views.auth_password_reset, name="auth-password-reset"),
+    path("auth/password-reset/validate/", views.auth_password_reset_validate, name="auth-password-reset-validate"),
+    path("auth/password-reset/confirm/", views.auth_password_reset_confirm, name="auth-password-reset-confirm"),
     path("auth/me/", views.auth_me, name="auth-me"),
     path("auth/profile/", views.auth_profile_update, name="auth-profile-update"),
     path(

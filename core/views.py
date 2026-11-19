@@ -238,6 +238,14 @@ class OperatorLoginThrottle(_LoginIPThrottle):
 class CustomerLoginThrottle(_LoginIPThrottle):
     scope = "customer_login"
 
+
+class PasswordResetRequestThrottle(_LoginIPThrottle):
+    scope = "password_reset_request"
+
+
+class PasswordResetConfirmThrottle(_LoginIPThrottle):
+    scope = "password_reset_confirm"
+
 @extend_schema(operation_id="auth_login", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @api_view(["POST"])
 @authentication_classes([])
@@ -322,12 +330,63 @@ def auth_change_password(request):
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
+@throttle_classes([PasswordResetRequestThrottle])
 def auth_password_reset(request):
-    """公開パスワード再設定は、本人確認手段を導入するまで利用不可。"""
-    return Response(
-        {"detail": "パスワード再設定は現在利用できません。管理者へお問い合わせください。"},
-        status=status.HTTP_503_SERVICE_UNAVAILABLE,
-    )
+    from .services.password_reset import RESET_SENT_MESSAGE, request_password_reset
+    SessionAuthentication().enforce_csrf(request)
+    if not isinstance(request.data, dict):
+        return Response({'detail': 'ユーザー名を入力してください。'}, status=400)
+    username = request.data.get('username', '')
+    if not isinstance(username, str) or not username.strip() or len(username.strip()) > 150:
+        return Response({'detail': 'ユーザー名を入力してください。'}, status=400)
+    request_password_reset(username.strip())
+    return Response({'detail': RESET_SENT_MESSAGE})
+
+
+def _reset_link_values(request):
+    if not isinstance(request.data, dict):
+        return '', ''
+    uid, token = request.data.get('uid', ''), request.data.get('token', '')
+    if not isinstance(uid, str) or not isinstance(token, str) or len(uid) > 64 or len(token) > 128:
+        return '', ''
+    return uid, token
+
+
+@extend_schema(operation_id="auth_password_reset_validate", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+@throttle_classes([PasswordResetConfirmThrottle])
+def auth_password_reset_validate(request):
+    from .services.password_reset import INVALID_LINK_MESSAGE, valid_reset_user
+    user = valid_reset_user(*_reset_link_values(request))
+    if user is None:
+        return Response({'detail': INVALID_LINK_MESSAGE}, status=400)
+    return Response({'min_length': password_policy_for_user(user)['min_length']})
+
+
+@extend_schema(operation_id="auth_password_reset_confirm", request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+@throttle_classes([PasswordResetConfirmThrottle])
+def auth_password_reset_confirm(request):
+    from .services.password_reset import INVALID_LINK_MESSAGE, confirm_password_reset
+    SessionAuthentication().enforce_csrf(request)
+    if not isinstance(request.data, dict):
+        return Response({'detail': '新しいパスワードを確認してください。'}, status=400)
+    password = request.data.get('new_password', '')
+    if not isinstance(password, str) or len(password) > 1024:
+        return Response({'detail': '新しいパスワードを確認してください。'}, status=400)
+    if not password or password != request.data.get('new_password_confirm'):
+        return Response({'detail': '新しいパスワードが一致しません。'}, status=400)
+    try:
+        success = confirm_password_reset(*_reset_link_values(request), password)
+    except DjangoValidationError as exc:
+        return Response({'detail': '\n'.join(exc.messages)}, status=400)
+    if not success:
+        return Response({'detail': INVALID_LINK_MESSAGE}, status=400)
+    return Response({'detail': 'パスワードを変更しました。新しいパスワードでログインしてください。'})
 
 
 @extend_schema(operation_id="auth_me", request=None, responses=OpenApiTypes.OBJECT)
