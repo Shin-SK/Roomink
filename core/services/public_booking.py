@@ -16,6 +16,7 @@ from core.models import (
     NominationFee,
     Option,
     Order,
+    OrderOption,
     PublicBookingVerification,
     ShiftAssignment,
     SmsLog,
@@ -52,7 +53,7 @@ def generate_public_booking_code():
 
 
 def serialize_public_booking_options(store, business_date=None):
-    cast_queryset = Cast.objects.filter(store=store).order_by("name")
+    cast_queryset = Cast.objects.filter(store=store, is_booking_queue=False).order_by("name")
     shifts_by_cast = {}
     if business_date is not None:
         shifts = ShiftAssignment.objects.filter(
@@ -111,19 +112,31 @@ def serialize_public_booking_options(store, business_date=None):
     }
 
 
-def get_public_booking_slots(store, cast_id, course_id, business_date, now=None):
+def get_public_booking_slots(store, cast_id, course_id, business_date, now=None, *, include_pending=True):
     now = now or timezone.now()
     if cast_id == "free":
         cast_ids = ShiftAssignment.objects.filter(
             store=store, date=business_date, is_absent=False, room__isnull=False,
+            cast__is_booking_queue=False,
         ).order_by("cast_id").values_list("cast_id", flat=True).distinct()
         slots_by_start = {}
         for eligible_cast_id in cast_ids:
-            for slot in get_public_booking_slots(store, eligible_cast_id, course_id, business_date, now):
+            for slot in get_public_booking_slots(store, eligible_cast_id, course_id, business_date, now, include_pending=False):
                 slots_by_start.setdefault(slot["start_at"], slot)
-        return sorted(slots_by_start.values(), key=lambda slot: parse_datetime(slot["start_at"]))
+        from core.services.free_booking_capacity import CapacitySnapshot, pending_capacity_available
+        course = Course.objects.filter(store=store, pk=course_id).first()
+        if course is None:
+            return []
+        if not slots_by_start:
+            return []
+        snapshot = CapacitySnapshot(store,
+            min(parse_datetime(slot['start_at']) for slot in slots_by_start.values()),
+            max(parse_datetime(slot['end_at']) for slot in slots_by_start.values()))
+        return [slot for slot in sorted(slots_by_start.values(), key=lambda slot: parse_datetime(slot["start_at"]))
+                if pending_capacity_available(store, start=parse_datetime(slot["start_at"]),
+                    end=parse_datetime(slot["end_at"]), course=course, snapshot=snapshot)]
 
-    cast = Cast.objects.filter(store=store, pk=cast_id).first()
+    cast = Cast.objects.filter(store=store, pk=cast_id, is_booking_queue=False).first()
     course = Course.objects.filter(store=store, pk=course_id).first()
     if cast is None or course is None:
         return []
@@ -144,10 +157,22 @@ def get_public_booking_slots(store, cast_id, course_id, business_date, now=None)
     ) for shift in ShiftAssignment.objects.filter(
         store=store, cast=cast, date=business_date, is_absent=False, room__isnull=False,
     )]
-    return [slot for slot in slots if any(
+    result = [slot for slot in slots if any(
         start <= parse_datetime(slot["start_at"]) and parse_datetime(slot["end_at"]) <= end
         for start, end in assigned_intervals
     )]
+    if include_pending and Order.objects.filter(store=store, is_free_pending=True, status=Order.Status.REQUESTED).exists():
+        from core.services.free_booking_capacity import CapacitySnapshot, pending_capacity_available
+        if not result:
+            return []
+        snapshot = CapacitySnapshot(store,
+            min(parse_datetime(slot['start_at']) for slot in result),
+            max(parse_datetime(slot['end_at']) for slot in result))
+        result = [slot for slot in result if pending_capacity_available(
+            store, start=parse_datetime(slot["start_at"]), end=parse_datetime(slot["end_at"]),
+            course=course, cast=cast, snapshot=snapshot,
+        )]
+    return result
 
 
 def _required_store(store_id=None, store_slug=None):
@@ -200,7 +225,7 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False, customer=No
     if start is None or start.utcoffset() is None:
         raise PublicBookingError("予約時刻を選択してください。")
 
-    candidates = cast_queryset.filter(store=store)
+    candidates = cast_queryset.filter(store=store, is_booking_queue=False)
     if cast_id == "free":
         candidates = candidates.filter(pk__in=ShiftAssignment.objects.filter(
             store=store, date=business_date, is_absent=False, room__isnull=False,
@@ -227,6 +252,12 @@ def _clean_booking_selection(data, store, now=None, lock_cast=False, customer=No
             "選択した時間は埋まったか、現在予約できません。空き時間を選び直してください。",
             status_code=409,
         )
+
+    from core.services.free_booking_capacity import pending_capacity_available
+    if not pending_capacity_available(store, start=start,
+        end=parse_datetime(matching_slot["end_at"]), course=course, customer=customer,
+        cast=None if cast_id == "free" else cast):
+        raise PublicBookingError("対応できる空き枠がありません。時間を選び直してください。", status_code=409)
 
     raw_option_ids = data.get("options") or []
     if not isinstance(raw_option_ids, list):
@@ -453,56 +484,76 @@ def confirm_public_booking(verification_id, code):
                 lock_cast=True,
                 customer=customer,
             )
-            serializer = OrderCreateSerializer(data={
-                "customer": customer.id,
-                "cast": selection["cast"].id,
-                "course": selection["course"].id,
-                "start": selection["start"].isoformat(),
-                "options": [option.id for option in selection["options"]],
-                "memo": selection["memo"],
-                "service_recipient_name": "",
-                "payment_method": selection["payment_method"],
-                "nomination_fee": selection["nomination_fee"].pk if selection["nomination_fee"] else None,
-            })
-            if not serializer.is_valid():
-                raise PublicBookingError(
-                    "選択した時間は埋まったか、現在予約できません。空き時間を選び直してください。",
-                    status_code=409,
+            if selection["cast_choice"] == "free":
+                from core.services.daily_settlement_lock import is_daily_settlement_locked
+                if is_daily_settlement_locked(challenge.store, selection['business_date']):
+                    raise PublicBookingError("この営業日は受付できません。店舗へお問い合わせください。", status_code=409)
+                # This row is an intake lane only. Never store a real therapist as
+                # the assignee before the operator makes the decision.
+                queue = Cast.objects.filter(store=challenge.store, is_booking_queue=True).order_by('pk').first()
+                if queue is None:
+                    queue = Cast.objects.create(store=challenge.store, name="フリー", is_booking_queue=True)
+                order = Order.objects.create(
+                    store=challenge.store, customer=customer, cast=queue, room=None,
+                    course=selection["course"], course_name=selection["course"].name,
+                    course_price=selection["course"].price,
+                    options_price=sum(option.price for option in selection["options"]),
+                    start=selection["start"], end=parse_datetime(selection["slot"]["end_at"]),
+                    memo=selection["memo"], payment_method=selection["payment_method"],
+                    nomination_fee_name="フリー", nomination_fee_price=0, is_free_pending=True,
+                    status=Order.Status.REQUESTED,
                 )
-            order = serializer.save()
-            order.status = Order.Status.REQUESTED
-            order_fields = ["status", "updated_at"]
-            if selection["automatic_nomination"]:
-                is_free = selection["cast_choice"] == "free"
-                order.nomination_fee_name = "フリー" if is_free else "Web指名料"
-                order.nomination_fee_price = 0 if is_free else 1000
-                order_fields.extend(["nomination_fee_name", "nomination_fee_price"])
-            order.save(update_fields=order_fields)
-            if selection["automatic_nomination"]:
+                for option in selection["options"]:
+                    OrderOption.objects.create(order=order, option=option)
                 recalculate_order_total(order)
-            challenge.consumed_at = now
-            challenge.save(update_fields=["consumed_at"])
+                challenge.consumed_at = now
+                challenge.save(update_fields=["consumed_at"])
+            else:
+                order = _create_named_booking(selection, customer)
+                challenge.consumed_at = now
+                challenge.save(update_fields=["consumed_at"])
 
     if wrong_code:
         raise PublicBookingError(INVALID_VERIFICATION_MESSAGE)
 
     from core.services.operator_notifications import notify_public_booking_created
-
     notify_public_booking_created(order)
     customer_sms = notify_web_booking_received(order)
     return {
-        "id": order.id,
-        "status": order.status,
-        "store_name": order.store.name,
-        "cast_name": customer_facing_cast_name(order),
-        "course_name": order.course_name,
-        "start": order.start.isoformat(),
-        "end": order.end.isoformat(),
-        "total_price": order.total_price,
-        "payment_method": order.payment_method,
-        "nomination_fee_name": order.nomination_fee_name,
-        "nomination_fee_price": order.nomination_fee_price,
-        "room_name": "",
-        "room_address": "",
-        "sms_status": customer_sms.status,
+        "id": order.id, "status": order.status, "store_name": order.store.name,
+        "cast_name": customer_facing_cast_name(order), "course_name": order.course_name,
+        "start": order.start.isoformat(), "end": order.end.isoformat(),
+        "total_price": order.total_price, "payment_method": order.payment_method,
+        "nomination_fee_name": order.nomination_fee_name, "nomination_fee_price": order.nomination_fee_price,
+        "is_free_pending": order.is_free_pending, "room_name": "", "room_address": "", "sms_status": customer_sms.status,
     }
+
+
+def _create_named_booking(selection, customer):
+    serializer = OrderCreateSerializer(data={
+        "customer": customer.id,
+        "cast": selection["cast"].id,
+        "course": selection["course"].id,
+        "start": selection["start"].isoformat(),
+        "options": [option.id for option in selection["options"]],
+        "memo": selection["memo"],
+        "service_recipient_name": "",
+        "payment_method": selection["payment_method"],
+        "nomination_fee": selection["nomination_fee"].pk if selection["nomination_fee"] else None,
+    })
+    if not serializer.is_valid():
+        raise PublicBookingError(
+            "選択した時間は埋まったか、現在予約できません。空き時間を選び直してください。",
+            status_code=409,
+        )
+    order = serializer.save()
+    order.status = Order.Status.REQUESTED
+    fields = ["status", "updated_at"]
+    if selection["automatic_nomination"]:
+        order.nomination_fee_name = "Web指名料"
+        order.nomination_fee_price = 1000
+        fields.extend(["nomination_fee_name", "nomination_fee_price"])
+    order.save(update_fields=fields)
+    if selection["automatic_nomination"]:
+        recalculate_order_total(order)
+    return order

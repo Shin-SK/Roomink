@@ -876,6 +876,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                     {"detail": f"ステータスが {order.get_status_display()} のため承認できません"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            if order.is_free_pending:
+                raise ValidationError("担当セラピストを選択してから予約を確定してください。")
             order.status = Order.Status.CONFIRMED
             order.updated_by = request.user
             order.save(update_fields=["status", "updated_by", "updated_at"])
@@ -2859,7 +2861,7 @@ class CustomerMypageView(APIView):
         # ── 推しセラピスト（直近指名キャスト 1名）──
         fav_cast_id = (
             visible_orders
-            .filter(status__in=[Order.Status.DONE, Order.Status.CONFIRMED])
+            .filter(status__in=[Order.Status.DONE, Order.Status.CONFIRMED], cast__is_booking_queue=False)
             .values("cast_id")
             .annotate(cnt=Count("id"))
             .order_by("-cnt")
@@ -2882,7 +2884,7 @@ class CustomerMypageView(APIView):
                 })
 
         # ── おすすめ（store 内キャスト最大3名、推し除外）──
-        rec_qs = Cast.objects.filter(store=customer.store).exclude(pk=fav_cast_id or 0).order_by("name")[:3]
+        rec_qs = Cast.objects.filter(store=customer.store, is_booking_queue=False).exclude(pk=fav_cast_id or 0).order_by("name")[:3]
         recommended = [
             {"id": c.id, "name": c.name, "avatar_url": c.avatar_url, "introduction": c.introduction}
             for c in rec_qs
@@ -2953,7 +2955,7 @@ class CustomerAvailableSlotsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        cast = Cast.objects.filter(store=store, pk=cast_id).first()
+        cast = Cast.objects.filter(store=store, pk=cast_id, is_booking_queue=False).first()
         if cast is None:
             return Response({"date": date_str, "cast_id": int(cast_id), "cast_name": "", "slots": []})
 
@@ -2975,7 +2977,7 @@ class CustomerBookingOptionsView(APIView):
     def get(self, request):
         customer = resolve_customer(request)
         store = customer.store
-        casts = [{"id": c.id, "name": c.name, "avatar_url": c.avatar_url, "introduction": c.introduction} for c in Cast.objects.filter(store=store).order_by("name")]
+        casts = [{"id": c.id, "name": c.name, "avatar_url": c.avatar_url, "introduction": c.introduction} for c in Cast.objects.filter(store=store, is_booking_queue=False).order_by("name")]
         courses_qs = Course.objects.filter(store=store).prefetch_related("target_casts").order_by("id")
         courses = []
         for c in courses_qs:

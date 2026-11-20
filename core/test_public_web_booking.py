@@ -174,7 +174,12 @@ class PublicWebBookingTest(TestCase):
                 )
                 self.assertEqual(result.status_code, 201, result.data)
                 order = Order.objects.get(pk=result.data["id"])
-                self.assertEqual(order.cast_id, self.cast.pk)
+                if choice == "free":
+                    self.assertTrue(order.is_free_pending)
+                    self.assertTrue(order.cast.is_booking_queue)
+                    self.assertIsNone(order.room_id)
+                else:
+                    self.assertEqual(order.cast_id, self.cast.pk)
                 self.assertEqual(order.nomination_fee_price, fee)
                 expected_fee_name = "フリー" if choice == "free" else "Web指名料"
                 self.assertEqual(order.nomination_fee_name, expected_fee_name)
@@ -204,7 +209,8 @@ class PublicWebBookingTest(TestCase):
             format="json",
         )
         self.assertEqual(result.status_code, 201, result.data)
-        self.assertEqual(Order.objects.get(pk=result.data["id"]).cast_id, fallback.pk)
+        self.assertTrue(Order.objects.get(pk=result.data["id"]).is_free_pending)
+        self.assertNotEqual(Order.objects.get(pk=result.data["id"]).cast_id, fallback.pk)
 
     def test_anonymous_can_load_options_and_course_length_aware_slots(self):
         Cast.objects.create(store=self.store, name="別日出勤キャスト")

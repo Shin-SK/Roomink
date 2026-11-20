@@ -156,7 +156,7 @@ const displayStatus = computed(() => {
 })
 
 const canModify = computed(() => order.value?.can_modify !== false)
-const canConfirm = computed(() => canModify.value && order.value?.status === 'REQUESTED')
+const canConfirm = computed(() => canModify.value && order.value?.status === 'REQUESTED' && !order.value?.is_free_pending)
 const canCancel = computed(() =>
   canModify.value && order.value && order.value.status !== 'CANCELLED'
   && (order.value.status !== 'DONE' || order.value.can_correct_accounting)
@@ -495,7 +495,11 @@ async function saveRecipientCustomerLink() {
             過去営業日の予約です。変更できるのはマネージャーのみです。
           </div>
 
-          <div v-if="order.is_off_shift || order.is_room_pending" class="alert alert-warning">
+          <div v-if="order.is_free_pending" class="alert alert-info">
+            <strong>フリー予約の受付・担当選択待ち</strong>
+            <div>担当セラピストはまだ決まっていません。予約内容の編集から担当を選び、内容を確認して確定してください。指名料は0円です。</div>
+          </div>
+          <div v-else-if="order.is_off_shift || order.is_room_pending" class="alert alert-warning">
             <div v-if="order.is_off_shift"><strong>シフト外予約</strong>です。</div>
             <div v-if="order.is_room_pending"><strong>ルーム未定</strong>です。シフトとルームを登録してください。</div>
           </div>

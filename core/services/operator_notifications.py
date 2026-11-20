@@ -38,9 +38,9 @@ def _public_booking_text(order):
     customer_name = order.customer.display_name or order.customer.phone
     date_label = local_start.strftime("%Y年%m月%d日")
     time_label = f"{local_start:%H:%M}〜{local_end:%H:%M}"
-    title = f"Web予約の受付がきました（{local_start:%m/%d %H:%M}）"
+    title = f"{'フリー予約の受付・担当選択待ち' if order.is_free_pending else 'Web予約の受付がきました'}（{local_start:%m/%d %H:%M}）"
     message = (
-        f"{customer_name}様／{order.cast.name}／"
+        f"{customer_name}様／{'フリー・担当未定' if order.is_free_pending else order.cast.name}／"
         f"{order.course_name}／{date_label} {time_label}"
     )
     return title, message, date_label, time_label, customer_name
@@ -73,7 +73,7 @@ def notify_public_booking_created(order):
         "",
         f"日時：{date_label} {time_label}",
         f"お客様：{customer_name}様",
-        f"担当：{order.cast.name}",
+        f"担当：{'フリー・担当未定。スタッフが担当を選択してから確定してください。' if order.is_free_pending else order.cast.name}",
         f"コース：{order.course_name}",
     ]
     if schedule_url:

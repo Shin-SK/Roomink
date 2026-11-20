@@ -36,6 +36,7 @@ function formatYen(value) {
       <p class="complete-kicker">RESERVATION REQUEST RECEIVED</p>
       <h1>仮予約を受け付けました</h1>
       <p class="text-muted">現在、店舗で内容を確認しています。まだ予約は確定していません。確認後にSMSでご案内します。</p>
+      <p v-if="result?.is_free_pending" class="text-muted">フリーでのお申し込みです。担当セラピストは店舗が確認して決定します。</p>
       <p v-if="result?.payment_method === 'CARD'" class="text-muted">カード決済のご案内も店舗の確認後にお送りします。入金確認後に本予約が確定します。</p>
       <p v-if="['SENT', 'DUMMY'].includes(result?.sms_status)" class="text-muted">受付のSMSを送信しました。</p>
 
