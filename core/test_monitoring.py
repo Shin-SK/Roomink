@@ -27,6 +27,7 @@ class SentryMonitoringTest(SimpleTestCase):
         self.assertEqual(kwargs["release"], "test-release")
         self.assertFalse(kwargs["send_default_pii"])
         self.assertEqual(kwargs["max_request_body_size"], "never")
+        self.assertFalse(kwargs["include_local_variables"])
         self.assertEqual(kwargs["traces_sample_rate"], 0.0)
 
     def test_event_scrubber_removes_request_secrets(self):

@@ -1,7 +1,9 @@
 import * as Sentry from '@sentry/vue'
+import { scrubPasswordResetUrl, scrubPasswordResetBreadcrumb } from './passwordResetLink.js'
 
 function scrubEvent(event) {
   if (event.request) {
+    event.request.url = scrubPasswordResetUrl(event.request.url)
     delete event.request.data
     delete event.request.cookies
     if (event.request.headers) {
@@ -12,6 +14,7 @@ function scrubEvent(event) {
       }
     }
   }
+  if (event.breadcrumbs) event.breadcrumbs = event.breadcrumbs.map(scrubPasswordResetBreadcrumb)
   return event
 }
 
@@ -27,6 +30,7 @@ export function initializeMonitoring(app) {
     sendDefaultPii: false,
     tracesSampleRate: 0,
     beforeSend: scrubEvent,
+    beforeBreadcrumb: scrubPasswordResetBreadcrumb,
   })
   return true
 }
