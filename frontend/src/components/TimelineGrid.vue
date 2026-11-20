@@ -546,7 +546,7 @@ onBeforeUnmount(() => {
             v-for="cast in casts"
             :key="cast.id"
             class="rk-castcell"
-            :class="{ 'is-active': visibleCastId === cast.id, 'is-off-shift': cast.is_off_shift }"
+            :class="{ 'is-active': visibleCastId === cast.id, 'is-off-shift': cast.is_off_shift, 'is-pending-lane': cast.is_pending_lane }"
             @mouseenter="onCastEnter(cast.id, $event)"
             @mouseleave="onCastLeave"
             @click="onCastClick(cast.id, $event)"
@@ -756,3 +756,13 @@ onBeforeUnmount(() => {
     </Teleport>
   </section>
 </template>
+
+<style scoped>
+.is-pending-lane .rk-name {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+</style>

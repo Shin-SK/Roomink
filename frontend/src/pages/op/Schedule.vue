@@ -713,7 +713,7 @@ onBeforeUnmount(() => {
           class="btn btn-sm" :class="castSegment === value ? 'btn-primary' : 'btn-outline-secondary'"
           :aria-pressed="castSegment === value" @click="castSegment = value">{{ label }}</button>
       </div>
-      <p class="small text-muted mt-2 mb-0">{{ segmentedCasts.length }}名を表示 · 出退勤の打刻状況で絞り込みます。予約がある方は見落とし防止のため表示に残ります。</p>
+      <p class="small text-muted mt-2 mb-0">{{ displayCasts.filter(cast => !cast.is_pending_lane).length }}名を表示 · 出退勤の打刻状況で絞り込みます。予約がある方は見落とし防止のため表示に残ります。</p>
     </section>
 
     <!-- 新規予約 / 番号検索 -->
@@ -804,16 +804,7 @@ onBeforeUnmount(() => {
     <!-- タイムライン -->
     <p v-if="scheduleError" class="alert alert-warning" role="alert">{{ scheduleError }}</p>
     <p v-if="viewMode === 'room' && roomScheduleError" class="alert alert-warning" role="alert">{{ roomScheduleError }}</p>
-    <section v-if="!loading && freeRequests.length" class="card mb-3 border-info">
-      <div class="card-header fw-bold">フリー予約の受付・担当選択待ち（{{ freeRequests.length }}件）</div>
-      <div class="list-group list-group-flush">
-        <router-link v-for="request in freeRequests" :key="request.id" :to="`/op/orders/${request.id}`" class="list-group-item list-group-item-action">
-          <strong>{{ request.start_time_extended }}〜{{ request.end_time_extended }}</strong>
-          <span class="ms-2">{{ request.customer_label }} · {{ request.course_name }}</span>
-          <div class="small text-muted">担当を選択して予約内容を確認してください。指名料0円</div>
-        </router-link>
-      </div>
-    </section>
+    <p v-if="!loading && freeRequests.length" class="alert alert-info py-2 mb-3" aria-live="polite">フリー・担当未定 {{ freeRequests.length }}件</p>
     <div v-if="loading" class="text-center py-5">
       <div class="spinner-border text-primary"></div>
     </div>
