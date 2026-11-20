@@ -349,7 +349,6 @@ async function confirmBooking() {
               <button type="button" :class="{ active: bookingChoice === 'free' }" :aria-pressed="bookingChoice === 'free'" @click="selectBookingChoice('free')">フリーで予約する（指名料0円）</button>
               <button type="button" :class="{ active: bookingChoice === 'named' }" :aria-pressed="bookingChoice === 'named'" @click="selectBookingChoice('named')">指名する（Web指名料1,000円）</button>
             </div>
-            <p v-if="bookingChoice === 'free'" class="text-muted">担当は店舗が確認して決定します。この時点では決まりません。</p>
             <template v-if="bookingChoice === 'named'">
             <div v-if="casts.length" class="filter-panel">
               <label class="search-box">
