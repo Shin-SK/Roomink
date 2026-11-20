@@ -67,6 +67,7 @@ function positionPopover(element) {
 }
 
 function onCastEnter(castId, event) {
+  if (props.casts.find(cast => cast.id === castId)?.is_pending_lane) return
   clearTimeout(hoverTimeout)
   if (pinnedCastId.value) return
   hoveredCastId.value = castId
@@ -80,6 +81,7 @@ function onCastLeave() {
 
 function onCastClick(castId, event) {
   event.stopPropagation()
+  if (props.casts.find(cast => cast.id === castId)?.is_pending_lane) return
   if (pinnedCastId.value === castId) {
     pinnedCastId.value = null
     return
@@ -232,6 +234,7 @@ function orderEndTime(order) {
 function blockMeta(order) {
   const t = `${orderStartTime(order)}–${orderEndTime(order)}`
   const labels = []
+  if (order.is_free_pending) labels.push('担当未定')
   if (order.status === 'REQUESTED') labels.push('申請中')
   if (order.customer_reservation_state === 'PAYMENT_REQUIRED') labels.push('カード決済待ち')
   if (order.is_off_shift) labels.push('シフト外')
@@ -475,6 +478,7 @@ function onGridClick(ev) {
   if (rowIdx < 0 || rowIdx >= props.casts.length) return
   const cast = props.casts[rowIdx]
   if (!cast) return
+  if (cast.is_pending_lane) return
 
   const minutesFromStart = Math.max(0, Math.floor((x / hourW) * 60))
   const totalMin = effectiveStartHour.value * 60 + minutesFromStart
@@ -542,7 +546,7 @@ onBeforeUnmount(() => {
             v-for="cast in casts"
             :key="cast.id"
             class="rk-castcell"
-            :class="{ 'is-active': visibleCastId === cast.id, 'is-off-shift': cast.is_off_shift }"
+            :class="{ 'is-active': visibleCastId === cast.id, 'is-off-shift': cast.is_off_shift, 'is-pending-lane': cast.is_pending_lane }"
             @mouseenter="onCastEnter(cast.id, $event)"
             @mouseleave="onCastLeave"
             @click="onCastClick(cast.id, $event)"
@@ -563,7 +567,7 @@ onBeforeUnmount(() => {
               <div class="rk-name-row">
                 <span class="rk-name">{{ cast.name }}</span>
                 <span
-                  v-if="castStatus(cast)"
+                  v-if="!cast.is_pending_lane && castStatus(cast)"
                   class="rk-status"
                   :class="`rk-status--${castStatus(cast).key}`"
                   :title="castStatus(cast).label"
@@ -752,3 +756,13 @@ onBeforeUnmount(() => {
     </Teleport>
   </section>
 </template>
+
+<style scoped>
+.is-pending-lane .rk-name {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+</style>

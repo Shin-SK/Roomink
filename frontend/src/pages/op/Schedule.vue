@@ -12,6 +12,7 @@ import UnavailableTimeModal from '../../components/UnavailableTimeModal.vue'
 import { api, normalizePhone } from '../../api.js'
 import { getAuthRole } from '../../router.js'
 import { timelineSegments, segmentTimeline } from '../../timelineSegments.js'
+import { freePendingTimeline } from '../../freePendingTimeline.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -131,10 +132,28 @@ const roomOrdersAdapter = computed(() =>
 
 const castSegment = ref('scheduled')
 const segmentedCasts = computed(() => segmentTimeline(casts.value, orders.value, castSegment.value, unavailableTimes.value))
-const displayCasts = computed(() => viewMode.value === 'room' ? roomCastsAdapter.value : segmentedCasts.value)
 const freeRequests = computed(() => orders.value.filter(order => order.is_free_pending))
-const displayOrders = computed(() => (viewMode.value === 'room' ? roomOrdersAdapter.value : orders.value).filter(order => !freeRequests.value.some(request => request.id === order.id)))
+const pendingTimeline = computed(() => freePendingTimeline(orders.value))
+const displayCasts = computed(() => [
+  ...pendingTimeline.value.casts,
+  ...(viewMode.value === 'room' ? roomCastsAdapter.value : segmentedCasts.value.filter(cast => !pendingTimeline.value.queueIds.has(cast.id))),
+])
+const displayOrders = computed(() => [
+  ...pendingTimeline.value.orders,
+  ...(viewMode.value === 'room' ? roomOrdersAdapter.value : orders.value).filter(order => !order.is_free_pending),
+])
 const displayUnavailableTimes = computed(() => viewMode.value === 'room' ? [] : unavailableTimes.value)
+const scheduleError = ref('')
+const roomScheduleError = ref('')
+let scheduleRequest = 0
+let scheduleTimer = null
+let roomScheduleRequest = 0
+
+function refreshScheduleWhenVisible() {
+  if (document.hidden) return
+  fetchSchedule({ background: true })
+  if (viewMode.value === 'room') fetchRoomSchedule({ background: true })
+}
 const showLegend = ref(false)
 const showPhoneSearch = ref(false)
 
@@ -189,15 +208,17 @@ function formatLocalDate(d) {
 }
 
 async function fetchSchedule({ background = false } = {}) {
+  const request = ++scheduleRequest
   const date = selectedDate.value
   if (!background) loading.value = true
   try {
     const data = await api.getSchedule(date)
-    if (date !== selectedDate.value) return
+    if (date !== selectedDate.value || request !== scheduleRequest) return
     casts.value = data.casts
     orders.value = data.orders
     unavailableTimes.value = data.unavailable_times || []
     kpi.value = data.kpi
+    scheduleError.value = ''
 
     if (highlightId.value) {
       nextTick(() => {
@@ -211,22 +232,26 @@ async function fetchSchedule({ background = false } = {}) {
       })
     }
   } catch (e) {
-    console.error(e)
+    if (date === selectedDate.value && request === scheduleRequest) scheduleError.value = '予約の最新情報を取得できませんでした。表示中の内容は前回取得時の情報です。'
   } finally {
-    if (!background && date === selectedDate.value) loading.value = false
+    if (date === selectedDate.value && request === scheduleRequest) loading.value = false
   }
 }
 
-async function fetchRoomSchedule() {
-  loading.value = true
+async function fetchRoomSchedule({ background = false } = {}) {
+  const request = ++roomScheduleRequest
+  const date = selectedDate.value
+  if (!background) loading.value = true
   try {
-    const data = await api.getRoomSchedule(selectedDate.value)
+    const data = await api.getRoomSchedule(date)
+    if (date !== selectedDate.value || request !== roomScheduleRequest) return
     rooms.value = data.rooms
     roomOrders.value = data.orders
+    roomScheduleError.value = ''
   } catch (e) {
-    console.error(e)
+    if (date === selectedDate.value && request === roomScheduleRequest) roomScheduleError.value = '部屋別予約の最新情報を取得できませんでした。表示中の内容は前回取得時の情報です。'
   } finally {
-    loading.value = false
+    if (date === selectedDate.value && request === roomScheduleRequest) loading.value = false
   }
 }
 
@@ -587,12 +612,18 @@ onMounted(async () => {
   loadSchedule()
   loadShiftAlerts()
   shiftAlertsTimer = setInterval(refreshShiftAlertsWhenVisible, 60_000)
+  scheduleTimer = setInterval(refreshScheduleWhenVisible, 30_000)
   document.addEventListener('visibilitychange', refreshShiftAlertsWhenVisible)
+  document.addEventListener('visibilitychange', refreshScheduleWhenVisible)
 })
 onBeforeUnmount(() => {
   ++shiftAlertsRequest
+  ++scheduleRequest
+  ++roomScheduleRequest
+  clearInterval(scheduleTimer)
   clearInterval(shiftAlertsTimer)
   document.removeEventListener('visibilitychange', refreshShiftAlertsWhenVisible)
+  document.removeEventListener('visibilitychange', refreshScheduleWhenVisible)
   detachOrderDragListeners()
 })
 </script>
@@ -682,7 +713,7 @@ onBeforeUnmount(() => {
           class="btn btn-sm" :class="castSegment === value ? 'btn-primary' : 'btn-outline-secondary'"
           :aria-pressed="castSegment === value" @click="castSegment = value">{{ label }}</button>
       </div>
-      <p class="small text-muted mt-2 mb-0">{{ segmentedCasts.length }}名を表示 · 出退勤の打刻状況で絞り込みます。予約がある方は見落とし防止のため表示に残ります。</p>
+      <p class="small text-muted mt-2 mb-0">{{ displayCasts.filter(cast => !cast.is_pending_lane).length }}名を表示 · 出退勤の打刻状況で絞り込みます。予約がある方は見落とし防止のため表示に残ります。</p>
     </section>
 
     <!-- 新規予約 / 番号検索 -->
@@ -771,16 +802,9 @@ onBeforeUnmount(() => {
     </section>
 
     <!-- タイムライン -->
-    <section v-if="!loading && freeRequests.length" class="card mb-3 border-info">
-      <div class="card-header fw-bold">フリー予約の受付・担当選択待ち（{{ freeRequests.length }}件）</div>
-      <div class="list-group list-group-flush">
-        <router-link v-for="request in freeRequests" :key="request.id" :to="`/op/orders/${request.id}`" class="list-group-item list-group-item-action">
-          <strong>{{ request.start_time_extended }}〜{{ request.end_time_extended }}</strong>
-          <span class="ms-2">{{ request.customer_label }} · {{ request.course_name }}</span>
-          <div class="small text-muted">担当を選択して予約内容を確認してください。指名料0円</div>
-        </router-link>
-      </div>
-    </section>
+    <p v-if="scheduleError" class="alert alert-warning" role="alert">{{ scheduleError }}</p>
+    <p v-if="viewMode === 'room' && roomScheduleError" class="alert alert-warning" role="alert">{{ roomScheduleError }}</p>
+    <p v-if="!loading && freeRequests.length" class="alert alert-info py-2 mb-3" aria-live="polite">フリー・担当未定 {{ freeRequests.length }}件</p>
     <div v-if="loading" class="text-center py-5">
       <div class="spinner-border text-primary"></div>
     </div>
