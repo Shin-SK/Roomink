@@ -771,7 +771,7 @@ onBeforeUnmount(() => {
     </section>
 
     <!-- タイムライン -->
-    <section v-if="freeRequests.length" class="card mb-3 border-info">
+    <section v-if="!loading && freeRequests.length" class="card mb-3 border-info">
       <div class="card-header fw-bold">フリー予約の受付・担当選択待ち（{{ freeRequests.length }}件）</div>
       <div class="list-group list-group-flush">
         <router-link v-for="request in freeRequests" :key="request.id" :to="`/op/orders/${request.id}`" class="list-group-item list-group-item-action">

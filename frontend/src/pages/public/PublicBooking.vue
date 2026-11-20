@@ -134,6 +134,7 @@ function selectCourse(courseId) {
 }
 
 function selectBookingChoice(choice) {
+  if (bookingChoice.value === choice) return
   bookingChoice.value = choice
   selectCast(choice === 'free' ? 'free' : '')
 }
@@ -344,7 +345,7 @@ async function confirmBooking() {
             <span class="spinner-border spinner-border-sm text-primary"></span>
           </div>
           <template v-else>
-            <div class="segment-scroller mb-3" role="group" aria-label="予約方法">
+            <div class="booking-methods mb-3" role="group" aria-label="予約方法">
               <button type="button" :class="{ active: bookingChoice === 'free' }" :aria-pressed="bookingChoice === 'free'" @click="selectBookingChoice('free')">フリーで予約する（指名料0円）</button>
               <button type="button" :class="{ active: bookingChoice === 'named' }" :aria-pressed="bookingChoice === 'named'" @click="selectBookingChoice('named')">指名する（Web指名料1,000円）</button>
             </div>
@@ -575,6 +576,10 @@ async function confirmBooking() {
 </template>
 
 <style scoped>
+.booking-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.booking-methods button { border: 2px solid #dbe4e2; border-radius: 12px; padding: 16px 12px; background: #fff; color: #0f172a; font-weight: 700; }
+.booking-methods button.active { border-color: #2a9d8f; background: #e8f6f3; color: #217f74; }
+@media (max-width: 576px) { .booking-methods { grid-template-columns: 1fr; } }
 .public-booking-page {
   --booking-primary: #2a9d8f;
   --booking-primary-dark: #217f74;
