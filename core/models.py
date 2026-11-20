@@ -362,6 +362,15 @@ class Cast(models.Model):
     )
     line_linked_at = models.DateTimeField(null=True, blank=True)
 
+    def save(self, *args, **kwargs):
+        # 「フリー」 is the existing intake lane even if a legacy login is linked.
+        # Keep this classification when the lane is later renamed.
+        if self.name.strip() == "フリー" and not self.is_booking_queue:
+            self.is_booking_queue = True
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"is_booking_queue"}
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return self.name
 
