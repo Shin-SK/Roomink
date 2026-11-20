@@ -24,6 +24,13 @@ const totals = computed(() => data.value.stores.reduce((sum, store) => ({
   sms: sum.sms + store.sms.used_segments,
 }), { stores: 0, calls: 0, seconds: 0, sms: 0 }))
 
+const orderedStores = computed(() => {
+  const isVerificationStore = (store) => /^【[^】]*(?:検証|テスト)[^】]*】/.test(store.name)
+  return [...data.value.stores].sort((a, b) =>
+    Number(isVerificationStore(a)) - Number(isVerificationStore(b)) || a.id - b.id,
+  )
+})
+
 function formatDuration(seconds) {
   const value = Number(seconds || 0)
   const hours = Math.floor(value / 3600)
@@ -137,7 +144,7 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', syncViewport))
         </section>
 
         <section class="platform-grid">
-          <article v-for="store in data.stores" :key="store.id" class="store-ops-card">
+          <article v-for="store in orderedStores" :key="store.id" class="store-ops-card">
             <div class="store-ops-card__head">
               <div>
                 <div class="store-ops-card__name">{{ store.name }}</div>
