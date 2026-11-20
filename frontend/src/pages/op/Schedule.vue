@@ -132,7 +132,8 @@ const roomOrdersAdapter = computed(() =>
 const castSegment = ref('scheduled')
 const segmentedCasts = computed(() => segmentTimeline(casts.value, orders.value, castSegment.value, unavailableTimes.value))
 const displayCasts = computed(() => viewMode.value === 'room' ? roomCastsAdapter.value : segmentedCasts.value)
-const displayOrders = computed(() => viewMode.value === 'room' ? roomOrdersAdapter.value : orders.value)
+const freeRequests = computed(() => orders.value.filter(order => order.is_free_pending))
+const displayOrders = computed(() => (viewMode.value === 'room' ? roomOrdersAdapter.value : orders.value).filter(order => !freeRequests.value.some(request => request.id === order.id)))
 const displayUnavailableTimes = computed(() => viewMode.value === 'room' ? [] : unavailableTimes.value)
 const showLegend = ref(false)
 const showPhoneSearch = ref(false)
@@ -231,6 +232,7 @@ async function fetchRoomSchedule() {
 
 function loadSchedule() {
   if (viewMode.value === 'room') {
+    fetchSchedule({ background: true })
     fetchRoomSchedule()
   } else {
     fetchSchedule()
@@ -769,6 +771,16 @@ onBeforeUnmount(() => {
     </section>
 
     <!-- タイムライン -->
+    <section v-if="freeRequests.length" class="card mb-3 border-info">
+      <div class="card-header fw-bold">フリー予約の受付・担当選択待ち（{{ freeRequests.length }}件）</div>
+      <div class="list-group list-group-flush">
+        <router-link v-for="request in freeRequests" :key="request.id" :to="`/op/orders/${request.id}`" class="list-group-item list-group-item-action">
+          <strong>{{ request.start_time_extended }}〜{{ request.end_time_extended }}</strong>
+          <span class="ms-2">{{ request.customer_label }} · {{ request.course_name }}</span>
+          <div class="small text-muted">担当を選択して予約内容を確認してください。指名料0円</div>
+        </router-link>
+      </div>
+    </section>
     <div v-if="loading" class="text-center py-5">
       <div class="spinner-border text-primary"></div>
     </div>

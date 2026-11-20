@@ -191,6 +191,7 @@ class CastSerializer(serializers.ModelSerializer):
         model = Cast
         fields = "__all__"
         read_only_fields = [
+            "is_booking_queue",
             "store", "line_user_id", "line_linked_at",
             "preferred_area_1", "preferred_area_2", "preferred_area_3",
             "preferred_area_4", "preferred_area_5",
@@ -1491,6 +1492,7 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
+            "is_free_pending",
             "reception_staff", "reception_staff_name", "reception_staff_history",
             "id", "store", "cast", "room", "customer", "course",
             "cast_name", "room_name", "course_name", "customer_label", "service_recipient_name",
@@ -2054,6 +2056,12 @@ class OrderUpdateSerializer(ReceptionStaffMixin, serializers.ModelSerializer):
             raise serializers.ValidationError("会計完了またはキャンセル済みの予約は変更できません。")
         apply_order_extended_datetime(data, instance.store)
         cast = data.get("cast", instance.cast)
+        if instance.is_free_pending:
+            if cast.is_booking_queue:
+                raise serializers.ValidationError({"cast": "フリー受付の担当セラピストを選択してください。"})
+            data["is_free_pending"] = False
+        elif cast.is_booking_queue and "cast" in data:
+            raise serializers.ValidationError({"cast": "担当セラピストを選択してください。"})
         start = data.get("start", instance.start)
         end = data.get("end", instance.end)
 
@@ -2132,6 +2140,8 @@ class OrderUpdateSerializer(ReceptionStaffMixin, serializers.ModelSerializer):
             # ShiftAssignment → room auto-assign
             assignment = find_covering_shift(store, cast, start, end)
             if assignment is None:
+                if instance.is_free_pending:
+                    raise serializers.ValidationError({"cast": "この時間を担当できるシフトのあるセラピストを選択してください。"})
                 if (instance.room_id is not None and cast.pk == instance.cast_id
                         and start == instance.start
                         and (course.pk != instance.course_id or duration != instance.extension_duration)):
@@ -2178,8 +2188,24 @@ class OrderUpdateSerializer(ReceptionStaffMixin, serializers.ModelSerializer):
             instance = Order.objects.select_for_update().get(pk=instance.pk, store=store)
             require_current_order(
                 instance, validated_data.pop("expected_updated_at", None),
-                required="options" in validated_data or "reception_staff" in validated_data,
+                required="options" in validated_data or "reception_staff" in validated_data or "is_free_pending" in validated_data,
             )
+            if "is_free_pending" in validated_data:
+                from core.services.booking_restrictions import customer_booking_blocked
+                selected_cast = validated_data.get("cast", instance.cast)
+                selected_course = validated_data.get("course", instance.course)
+                targets = selected_course.target_casts
+                if customer_booking_blocked(instance.customer, selected_cast.pk, online=True):
+                    raise serializers.ValidationError({"cast": "このお客様を担当できるセラピストを選択してください。"})
+                if targets.exists() and not targets.filter(pk=selected_cast.pk).exists():
+                    raise serializers.ValidationError({"cast": "このコースを担当できるセラピストを選択してください。"})
+                selected_shift = find_covering_shift(
+                    store, selected_cast, validated_data.get("start", instance.start),
+                    validated_data.get("end", instance.end),
+                )
+                if selected_shift is None or selected_shift.room_id is None:
+                    raise serializers.ValidationError({"cast": "担当できるシフトとルームを確認してください。"})
+                validated_data["room"] = selected_shift.room
             if instance.status == Order.Status.CANCELLED or (
                 instance.status == Order.Status.DONE and not self.context.get("allow_completed_addons")
             ):
@@ -2351,6 +2377,7 @@ class ScheduleCastSerializer(serializers.Serializer):
 
 
 class ScheduleOrderSerializer(serializers.Serializer):
+    is_free_pending = serializers.BooleanField()
     id = serializers.IntegerField()
     cast_id = serializers.IntegerField()
     room_id = serializers.IntegerField(allow_null=True)
@@ -2468,6 +2495,7 @@ def build_schedule_data(store, date):
     order_data = []
     for o in orders:
         order_data.append({
+            "is_free_pending": o.is_free_pending,
             "id": o.id,
             "cast_id": o.cast_id,
             "room_id": o.room_id,

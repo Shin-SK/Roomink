@@ -328,6 +328,7 @@ class Room(models.Model):
 
 
 class Cast(models.Model):
+    is_booking_queue = models.BooleanField(default=False, db_default=False, help_text="担当未定のフリー受付用。実在の担当者ではありません。")
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="casts")
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -715,6 +716,7 @@ class Medium(models.Model):
 
 
 class Order(models.Model):
+    is_free_pending = models.BooleanField(default=False, db_default=False, help_text="フリー受付・担当選択待ち")
     reception_staff = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="received_orders",
@@ -861,7 +863,13 @@ class Order(models.Model):
         indexes = [
             models.Index(fields=["store", "cast", "start"]),
             models.Index(fields=["store", "room", "start"]),
+            models.Index(fields=["store", "is_free_pending", "status", "start"], name="order_free_queue_idx"),
         ]
+        constraints = [models.CheckConstraint(
+            condition=models.Q(is_free_pending=False) | models.Q(
+                status__in=['REQUESTED', 'CANCELLED'], room__isnull=True, nomination_fee_price=0,
+            ), name='free_queue_pending_state',
+        )]
 
     def clean(self):
         """店舗をまたぐ参照を永続化しない。
@@ -896,6 +904,13 @@ class Order(models.Model):
         if errors:
             raise ValidationError(errors)
 
+        if self.is_free_pending and (
+            not self.cast.is_booking_queue or self.room_id is not None
+            or self.status not in (self.Status.REQUESTED, self.Status.CANCELLED)
+            or self.nomination_fee_price != 0
+        ):
+            raise ValidationError("フリー受付は担当選択待ち・指名料0円で保存してください。")
+
     def save(self, *args, **kwargs):
         # Model.save() は通常 clean() を呼ばないため、店舗境界だけを全書込み経路で検査する。
         # full_clean() まで呼ぶと、既存の段階保存フローまで無関係に拒否してしまう。
@@ -904,6 +919,24 @@ class Order(models.Model):
             Store.objects.select_for_update().get(pk=self.store_id)
             before = type(self).objects.filter(pk=self.pk).first() if self.pk else None
             self.clean()
+            # All booking writes already share the store lock. A named booking or
+            # a staff assignment must not consume capacity promised to free requests.
+            capacity_fields = {"cast", "cast_id", "start", "end", "course", "course_id", "status", "is_free_pending"}
+            changed_fields = kwargs.get("update_fields")
+            check_capacity = before is None or changed_fields is None or bool(capacity_fields.intersection(changed_fields))
+            if check_capacity and self.status in self.ACTIVE_STATUSES and (
+                self.is_free_pending or type(self).objects.filter(
+                    store_id=self.store_id, is_free_pending=True, status=self.Status.REQUESTED,
+                ).exclude(pk=self.pk).exists()
+            ):
+                from .services.free_booking_capacity import pending_capacity_available
+                if not pending_capacity_available(
+                    self.store, start=self.start, end=self.end, course=self.course,
+                    customer=self.customer, cast=None if self.is_free_pending else self.cast,
+                    exclude_order_id=self.pk,
+                ):
+                    from rest_framework.exceptions import ValidationError as APIValidationError
+                    raise APIValidationError("フリー受付を含めると対応できる空き枠がありません。")
             # Partial saves must use the room/status actually being persisted, not
             # unrelated in-memory changes. Lock the room against concurrent moves.
             fields = kwargs.get("update_fields")

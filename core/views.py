@@ -876,6 +876,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                     {"detail": f"ステータスが {order.get_status_display()} のため承認できません"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            if order.is_free_pending:
+                raise ValidationError("担当セラピストを選択してから予約を確定してください。")
             order.status = Order.Status.CONFIRMED
             order.updated_by = request.user
             order.save(update_fields=["status", "updated_by", "updated_at"])

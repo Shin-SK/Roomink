@@ -14,6 +14,7 @@ const slotsLoading = ref(false)
 const submitting = ref(false)
 const error = ref('')
 const step = ref('booking')
+const bookingChoice = ref('')
 const verificationId = ref('')
 const maskedPhone = ref('')
 const code = ref('')
@@ -132,6 +133,11 @@ function selectCourse(courseId) {
   form.value.course = courseId
 }
 
+function selectBookingChoice(choice) {
+  bookingChoice.value = choice
+  selectCast(choice === 'free' ? 'free' : '')
+}
+
 async function loadOptions() {
   if ((!form.value.store && !storeSlug) || !form.value.date) return
   loadingOptions.value = true
@@ -146,7 +152,7 @@ async function loadOptions() {
     casts.value = data.casts || []
     courses.value = data.courses || []
     options.value = data.options || []
-    form.value.cast = ''
+    form.value.cast = bookingChoice.value === 'free' ? 'free' : ''
     form.value.course = ''
     form.value.options = []
     castSearch.value = ''
@@ -331,13 +337,19 @@ async function confirmBooking() {
         <section class="booking-card">
           <div class="section-heading">
             <span>2</span>
-            <div><h2>キャストを選ぶ</h2><p>選んだ日の出勤キャストを表示しています</p></div>
+            <div><h2>フリーか指名かを選ぶ</h2><p>フリーは店舗が担当を決めます。指名する場合はセラピストを選んでください。</p></div>
           </div>
 
           <div v-if="loadingOptions" class="text-center py-4">
             <span class="spinner-border spinner-border-sm text-primary"></span>
           </div>
           <template v-else>
+            <div class="segment-scroller mb-3" role="group" aria-label="予約方法">
+              <button type="button" :class="{ active: bookingChoice === 'free' }" :aria-pressed="bookingChoice === 'free'" @click="selectBookingChoice('free')">フリーで予約する（指名料0円）</button>
+              <button type="button" :class="{ active: bookingChoice === 'named' }" :aria-pressed="bookingChoice === 'named'" @click="selectBookingChoice('named')">指名する（Web指名料1,000円）</button>
+            </div>
+            <p v-if="bookingChoice === 'free'" class="text-muted">担当は店舗が確認して決定します。この時点では決まりません。</p>
+            <template v-if="bookingChoice === 'named'">
             <div v-if="casts.length" class="filter-panel">
               <label class="search-box">
                 <i class="ti ti-search"></i>
@@ -358,9 +370,6 @@ async function confirmBooking() {
             <p v-if="!casts.length" class="empty-message">この日は出勤予定のキャストがいません。別の日付をお選びください。</p>
             <p v-else-if="!filteredCasts.length" class="empty-message">条件に合うキャストが見つかりません。</p>
             <div v-else class="cast-grid">
-              <button type="button" class="cast-card" :class="{ active: form.cast === 'free' }" @click="selectCast('free')">
-                <span class="cast-card__content"><strong>フリー</strong><small>お店におまかせ</small></span>
-              </button>
               <button
                 v-for="cast in visibleCasts"
                 :key="cast.id"
@@ -390,16 +399,17 @@ async function confirmBooking() {
               class="show-more"
               @click="castVisibleLimit += 12"
             >さらに{{ Math.min(12, filteredCasts.length - castVisibleLimit) }}名を表示</button>
+            </template>
           </template>
         </section>
 
         <section class="booking-card" :class="{ muted: !form.cast }">
           <div class="section-heading">
             <span>3</span>
-            <div><h2>コース・時間を選ぶ</h2><p>キャスト選択後に予約可能時間を確認できます</p></div>
+            <div><h2>コース・時間を選ぶ</h2><p>選択した予約方法で予約可能時間を確認できます</p></div>
           </div>
 
-          <p v-if="!form.cast" class="empty-message">先にキャストを選択してください。</p>
+          <p v-if="!form.cast" class="empty-message">先にフリーか指名かを選び、指名の場合はセラピストを選択してください。</p>
           <template v-else>
             <div class="filter-panel">
               <label class="search-box">

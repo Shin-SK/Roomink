@@ -346,7 +346,7 @@ function applyInitialOrder(o = props.initialOrder) {
   latestOrder.value = null
   nominationTouched.value = false
   form.value.customer = o.customer ?? ''
-  form.value.cast = o.cast ?? ''
+  form.value.cast = o.is_free_pending ? '' : (o.cast ?? '')
   form.value.course = o.course ?? ''
   form.value.extension = o.extension ?? ''
   form.value.extension_duration = o.extension_duration || 0
@@ -389,7 +389,7 @@ async function loadMasters() {
     if (props.initialCustomerId && !customers.value.some(c => c.id === Number(props.initialCustomerId))) {
       customers.value.push(await api.getCustomer(props.initialCustomerId))
     }
-    casts.value = Array.isArray(castData) ? castData : []
+    casts.value = (Array.isArray(castData) ? castData : []).filter(cast => !props.initialOrder?.is_free_pending || !cast.is_booking_queue)
     courses.value = Array.isArray(courseData) ? courseData : []
     options.value = Array.isArray(optData) ? optData : []
     extensions.value = (Array.isArray(extData) ? extData : []).filter(e => e.is_active)
