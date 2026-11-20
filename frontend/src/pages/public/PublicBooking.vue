@@ -338,7 +338,7 @@ async function confirmBooking() {
         <section class="booking-card">
           <div class="section-heading">
             <span>2</span>
-            <div><h2>フリーか指名かを選ぶ</h2><p>フリーは店舗が担当を決めます。指名する場合はセラピストを選んでください。</p></div>
+            <div><h2>フリーか指名かを選ぶ</h2></div>
           </div>
 
           <div v-if="loadingOptions" class="text-center py-4">
