@@ -934,6 +934,7 @@ class Order(models.Model):
                     self.store, start=self.start, end=self.end, course=self.course,
                     customer=self.customer, cast=None if self.is_free_pending else self.cast,
                     exclude_order_id=self.pk,
+                    online=self.is_free_pending and self.created_by_id is None,
                 ):
                     from rest_framework.exceptions import ValidationError as APIValidationError
                     raise APIValidationError("フリー受付を含めると対応できる空き枠がありません。")

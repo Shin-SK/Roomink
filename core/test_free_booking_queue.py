@@ -6,7 +6,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
-from core.models import Cast, Room, ShiftAssignment, Order, OperatorNotification, UserProfile
+from core.models import Cast, Room, ShiftAssignment, Order, OperatorNotification, UserProfile, Customer
 from core.services.free_booking_capacity import can_place_requests
 from core import test_public_web_booking as booking_helpers
 
@@ -138,6 +138,29 @@ class FreeBookingQueueTest(TestCase):
         self.assertNotIn(queue.pk, [item['id'] for item in response.data['casts']])
         self.assertEqual(self.book().status_code, 201)
         self.assertEqual(self.book(1).status_code, 409)
+
+    def test_manual_queue_uses_same_capacity_and_keeps_phone_booking_policy(self):
+        queue = Cast.objects.create(store=self.store, name='フリー', is_booking_queue=True)
+        customer = Customer.objects.create(store=self.store, phone='09011112222', online_booking_ng=True)
+        client = self.manager_client()
+        payload = {'customer':customer.pk, 'cast':queue.pk, 'course':self.course.pk,
+            'start':datetime(2030,1,15,12,30,tzinfo=TOKYO).isoformat(), 'payment_method':'CASH'}
+        response = client.post('/api/orders/', payload, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(response.data['is_free_pending'])
+        self.assertEqual(self.book(1).status_code, 409)
+
+    def test_customer_cannot_book_queue_cast_through_legacy_endpoint(self):
+        queue = Cast.objects.create(store=self.store, name='フリー', is_booking_queue=True)
+        user = get_user_model().objects.create_user(username='queue-customer')
+        Customer.objects.create(store=self.store,user=user,phone='09011112222')
+        self.client.force_authenticate(user)
+        response = self.client.post('/api/cu/bookings/', {
+            'cast':queue.pk, 'course':self.course.pk,
+            'start':datetime(2030,1,15,12,30,tzinfo=TOKYO).isoformat(),
+        }, format='json')
+        self.assertEqual(response.status_code, 403, response.data)
+        self.assertEqual(Order.objects.count(), 0)
 
     def test_matcher_reassigns_flexible_request_to_leave_specialist_available(self):
         start = datetime(2030, 1, 15, 12, tzinfo=TOKYO)

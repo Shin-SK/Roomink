@@ -58,9 +58,9 @@ def can_place_requests(requests, *, max_steps=20000):
 
 
 def pending_capacity_available(store, *, start, end, course, customer=None,
-                               cast=None, exclude_order_id=None, snapshot=None):
+                               cast=None, exclude_order_id=None, snapshot=None, online=None):
     snapshot = snapshot or CapacitySnapshot(store, start, end, exclude_order_id)
-    return snapshot.available(start, end, course, customer, cast)
+    return snapshot.available(start, end, course, customer, cast, online)
 
 
 class CapacitySnapshot:
@@ -106,16 +106,17 @@ class CapacitySnapshot:
             right = max(right, *(o.end + self.margin for o in added))
         return connected, left, right
 
-    def available(self, start, end, course, customer=None, cast=None):
+    def available(self, start, end, course, customer=None, cast=None, online=None):
         connected, _, _ = self.connected(list(self.pending), start, end)
         if cast is not None and not connected:
             return True  # Preserve normal manual booking policy outside this pool.
         if customer is not None and customer.pk not in self.customers:
             self.customers[customer.pk] = (customer, set(customer.ng_casts.values_list('pk', flat=True)))
-        items = [(start, end, course.pk, customer.pk if customer else None, cast)] + [
-            (o.start, o.end, o.course_id, o.customer_id, None) for o in connected]
+        online = cast is None if online is None else online
+        items = [(start, end, course.pk, customer.pk if customer else None, cast, online)] + [
+            (o.start, o.end, o.course_id, o.customer_id, None, o.created_by_id is None) for o in connected]
         requests = []
-        for begins, ends, course_id, customer_id, fixed in items:
+        for begins, ends, course_id, customer_id, fixed, is_online in items:
             targets = self.targets[course_id]
             customer_info = self.customers.get(customer_id)
             options = []
@@ -124,7 +125,7 @@ class CapacitySnapshot:
                     continue
                 if customer_info:
                     person, ng = customer_info
-                    if ((fixed is None and person.online_booking_ng) or
+                    if ((is_online and person.online_booking_ng) or
                         (person.flag == Customer.Flag.BAN and
                          (person.ban_type != Customer.BanType.CAST_NG or candidate.pk in ng))):
                         continue

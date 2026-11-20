@@ -1846,6 +1846,17 @@ class OrderCreateSerializer(ReceptionStaffMixin, serializers.ModelSerializer):
         if data["end"] <= data["start"]:
             raise serializers.ValidationError("終了時刻は開始時刻より後にしてください")
 
+        if data["cast"].is_booking_queue:
+            if not operator:
+                raise PermissionDenied("フリー受付は公開Web予約からお申し込みください。")
+            if nomination_fee is not None and nomination_fee.price:
+                raise serializers.ValidationError({"nomination_fee": "フリー受付の指名料は0円です。"})
+            discount = data.get("discount")
+            if discount is not None and (discount.store_id != store.id or not discount.is_active):
+                raise serializers.ValidationError({"discount": "この店舗の有効な割引を選択してください。"})
+            data.update(is_free_pending=True, room=None, nomination_fee=None)
+            return data
+
         # C) ShiftAssignment → room
         start = data["start"]
         end = data["end"]
@@ -1926,7 +1937,7 @@ class OrderCreateSerializer(ReceptionStaffMixin, serializers.ModelSerializer):
                 validated_data["room"] = room
             start = validated_data["start"]
             end = validated_data["end"]
-            if cast_has_order_conflict(cast, start, end):
+            if not validated_data.get("is_free_pending") and cast_has_order_conflict(cast, start, end):
                 raise serializers.ValidationError(
                     "このキャストは指定時間に予約が入っています（インターバル含む）"
                 )
@@ -2195,7 +2206,7 @@ class OrderUpdateSerializer(ReceptionStaffMixin, serializers.ModelSerializer):
                 selected_cast = validated_data.get("cast", instance.cast)
                 selected_course = validated_data.get("course", instance.course)
                 targets = selected_course.target_casts
-                if customer_booking_blocked(instance.customer, selected_cast.pk, online=True):
+                if customer_booking_blocked(instance.customer, selected_cast.pk, online=instance.created_by_id is None):
                     raise serializers.ValidationError({"cast": "このお客様を担当できるセラピストを選択してください。"})
                 if targets.exists() and not targets.filter(pk=selected_cast.pk).exists():
                     raise serializers.ValidationError({"cast": "このコースを担当できるセラピストを選択してください。"})
