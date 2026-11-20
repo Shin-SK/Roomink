@@ -139,6 +139,34 @@ class FreeBookingQueueTest(TestCase):
         self.assertEqual(self.book().status_code, 201)
         self.assertEqual(self.book(1).status_code, 409)
 
+    def test_linked_legacy_free_lane_is_migrated_and_reused_without_extra_capacity(self):
+        from importlib import import_module
+        from django.apps import apps
+
+        user = get_user_model().objects.create_user(username='legacy-free-login')
+        queue = Cast.objects.create(store=self.store, name='フリー', user=user)
+        self.assertTrue(queue.is_booking_queue)
+        # Recreate the pre-migration state without invoking the current save.
+        Cast.objects.filter(pk=queue.pk).update(is_booking_queue=False)
+        migration = import_module('core.migrations.0114_classify_linked_free_booking_queues')
+        migration.classify_linked_queues(apps, None)
+        queue.refresh_from_db()
+        self.assertTrue(queue.is_booking_queue)
+        self.assertEqual(queue.user_id, user.pk)
+        self.cast.refresh_from_db()
+        self.assertFalse(self.cast.is_booking_queue)
+        room = Room.objects.create(store=self.store, name='旧フリー枠')
+        ShiftAssignment.objects.create(store=self.store, cast=queue, room=room,
+            date=self.business_date, start_time=time(12), end_time=time(15))
+        response = self.client.get('/api/public/booking/options/', {
+            'store': self.store.pk, 'date': str(self.business_date),
+        })
+        self.assertNotIn(queue.pk, [item['id'] for item in response.data['casts']])
+        first = self.book()
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(Order.objects.get(pk=first.data['id']).cast_id, queue.pk)
+        self.assertEqual(self.book(1).status_code, 409)
+
     def test_manual_queue_uses_same_capacity_and_keeps_phone_booking_policy(self):
         queue = Cast.objects.create(store=self.store, name='フリー', is_booking_queue=True)
         customer = Customer.objects.create(store=self.store, phone='09011112222', online_booking_ng=True)
