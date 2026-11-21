@@ -602,7 +602,7 @@ async function saveRecipientCustomerLink() {
                       <div>{{ order.customer_label }}</div>
                       <div v-if="contactPhoneLoading" class="small text-muted">電話番号を読み込み中…</div>
                       <div v-else-if="contactPhoneError" class="small text-danger">{{ contactPhoneError }}</div>
-                      <div v-else class="mt-1">電話番号：{{ contactPhone || '未登録' }}</div>
+                      <div v-else class="mt-1">{{ contactPhone || '未登録' }}</div>
                     </td>
                   </tr>
                   <tr>
