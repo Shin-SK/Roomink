@@ -47,6 +47,51 @@ const initial = {
 const latest = { ...initial, option_ids: [3, 4], options: ['既存', '追加'], options_price: 7000, total_price: 27000, updated_at: '2026-10-16T08:01:00.123456Z' }
 const conflict = () => Object.assign(new Error('予約が更新されています'), { status: 409 })
 
+test('order contact phone follows the contact customer and ignores stale responses', async () => {
+  const requests = []
+  globalThis.__contactPhoneApi = {
+    getOrder: async () => ({ ...initial, service_recipient_customer: 99 }),
+    getPaymentFeeSettings: async () => ({}), getOrderSmsLogs: async () => [],
+    getCustomer: id => new Promise((resolve, reject) => requests.push({ id, resolve, reject })),
+  }
+  const { state, unmount } = await mountSource('../src/pages/op/OrderDetail.vue', { id: 1 }, code => code
+    .replace(/import \{ useRouter \} from 'vue-router'/, 'const useRouter = () => ({ push() {} })')
+    .replace(/import LayoutOperator from .*\n/, 'const LayoutOperator = {}\n')
+    .replace(/import OrderForm from .*\n/, 'const OrderForm = {}\n')
+    .replace(/import \{ api \} from .*\n/, 'const api = globalThis.__contactPhoneApi\n')
+    .replace(/import \{ getAuthRole \} from .*\n/, "const getAuthRole = () => 'staff'\n"))
+  const flush = async () => { await new Promise(resolve => setImmediate(resolve)); await nextTick() }
+  try {
+    assert.equal(requests[0].id, 1)
+    assert.equal(state.contactPhoneLoading, true)
+    state.order = { ...initial, customer: 2 }
+    await flush()
+    requests[1].resolve({ phone: '000-0000-0002' })
+    await flush()
+    requests[0].resolve({ phone: '000-0000-0001' })
+    await flush()
+    assert.equal(state.contactPhone, '000-0000-0002')
+    state.order = { ...initial, customer: 3 }
+    await flush()
+    assert.equal(state.contactPhone, '')
+    requests[2].reject(new Error('network failure'))
+    await flush()
+    assert.match(state.contactPhoneError, /取得できません/)
+    assert.equal(state.error, '')
+    state.order = { ...initial, customer: 4 }
+    await flush()
+    requests[3].resolve({ phone: '' })
+    await flush()
+    assert.equal(state.contactPhone, '')
+    assert.equal(state.contactPhoneError, '')
+    assert.equal(state.contactPhoneLoading, false)
+    state.order = { ...initial, id: 999, customer: 5 }
+    await flush()
+    assert.equal(requests.length, 4)
+    assert.equal(state.contactPhone, '')
+  } finally { unmount(); delete globalThis.__contactPhoneApi }
+})
+
 test('reception staff defaults to the operator on creation; editing preserves the receiver and versions only intentional changes', async () => {
   const patches = []
   const api = {

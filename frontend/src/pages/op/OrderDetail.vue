@@ -14,6 +14,26 @@ const router = useRouter()
 const order = ref(null)
 const loading = ref(true)
 const error = ref('')
+const contactPhone = ref('')
+const contactPhoneLoading = ref(false)
+const contactPhoneError = ref('')
+watch([() => props.id, () => order.value?.customer], async ([orderId, customerId], previous, onCleanup) => {
+  let active = true
+  onCleanup(() => { active = false })
+  contactPhone.value = ''
+  contactPhoneError.value = ''
+  contactPhoneLoading.value = false
+  if (!customerId || String(order.value?.id) !== String(orderId)) return
+  contactPhoneLoading.value = true
+  try {
+    const customer = await api.getCustomer(customerId)
+    if (active) contactPhone.value = customer.phone || ''
+  } catch {
+    if (active) contactPhoneError.value = '電話番号を取得できませんでした'
+  } finally {
+    if (active) contactPhoneLoading.value = false
+  }
+})
 const acting = ref(false)
 const paymentMethodSaving = ref(false)
 const paymentMethodError = ref('')
@@ -578,7 +598,12 @@ async function saveRecipientCustomerLink() {
                   </tr>
                   <tr>
                     <th>連絡者</th>
-                    <td>{{ order.customer_label }}</td>
+                    <td class="text-break">
+                      <div>{{ order.customer_label }}</div>
+                      <div v-if="contactPhoneLoading" class="small text-muted">電話番号を読み込み中…</div>
+                      <div v-else-if="contactPhoneError" class="small text-danger">{{ contactPhoneError }}</div>
+                      <div v-else class="mt-1">電話番号：{{ contactPhone || '未登録' }}</div>
+                    </td>
                   </tr>
                   <tr>
                     <th>ご利用者</th>
