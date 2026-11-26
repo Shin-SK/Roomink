@@ -124,6 +124,13 @@ function exportCsv() {
             >出禁</button>
           </div>
 
+          <div v-if="!loading && !error && total" class="d-flex align-items-center justify-content-between gap-2 mb-3">
+            <small class="text-muted">{{ total }}件中 {{ offset + 1 }}〜{{ offset + filtered.length }}件</small>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-secondary" :disabled="offset === 0" @click="loadCustomers(offset - pageSize)">前へ</button>
+              <button class="btn btn-sm btn-outline-secondary" :disabled="offset + pageSize >= total" @click="loadCustomers(offset + pageSize)">次へ</button>
+            </div>
+          </div>
           <div v-if="loading" class="text-center py-3" role="status">読み込み中…</div>
           <div v-else-if="error" class="alert alert-danger">
             {{ error }}
@@ -166,13 +173,6 @@ function exportCsv() {
               </tr>
             </tbody>
           </table>
-          <div v-if="!loading && !error && total" class="d-flex align-items-center justify-content-between gap-2 mt-3">
-            <small class="text-muted">{{ total }}件中 {{ offset + 1 }}〜{{ offset + filtered.length }}件</small>
-            <div class="d-flex gap-2">
-              <button class="btn btn-sm btn-outline-secondary" :disabled="offset === 0" @click="loadCustomers(offset - pageSize)">前へ</button>
-              <button class="btn btn-sm btn-outline-secondary" :disabled="offset + pageSize >= total" @click="loadCustomers(offset + pageSize)">次へ</button>
-            </div>
-          </div>
         </div>
       </div>
 
