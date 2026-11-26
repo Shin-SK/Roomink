@@ -137,7 +137,7 @@ class CastCustomerManagementTest(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
-    def test_incomplete_order_does_not_grant_customer_access(self):
+    def test_confirmed_customer_can_be_searched_and_memoed_before_first_visit(self):
         start = timezone.now() + timedelta(days=1)
         Order.objects.create(
             store=self.store,
@@ -153,9 +153,59 @@ class CastCustomerManagementTest(TestCase):
             status=Order.Status.CONFIRMED,
         )
 
-        response = self.client.get(f"/api/cast/customers/{self.customer.id}/")
+        response = self.client.get("/api/cast/customers/?q=実利用")
+        item = response.data["customers"][0]
+        self.assertEqual(item["id"], self.customer.id)
+        self.assertEqual(item["visit_count"], 0)
+        self.assertIsNone(item["last_visit_at"])
+        self.assertIsNotNone(item["next_booking_at"])
+        self.assertEqual(item["nomination_labels"], [])
+        detail = self.client.get(f"/api/cast/customers/{self.customer.id}/")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.data["history"], [])
+        saved = self.client.patch(
+            f"/api/cast/customers/{self.customer.id}/", {"memo": "初回接客前のメモ"}, format="json",
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.data["memo"], "初回接客前のメモ")
 
-        self.assertEqual(response.status_code, 404)
+    def test_access_tracks_status_assignment_and_keeps_completed_counts(self):
+        order = self.create_done_order()
+        for status in Order.Status.values:
+            with self.subTest(status=status):
+                Order.objects.filter(pk=order.pk).update(status=status)
+                allowed = status in (Order.Status.CONFIRMED, Order.Status.IN_PROGRESS,
+                                     Order.Status.PENDING_FINALIZE, Order.Status.DONE)
+                listing = self.client.get("/api/cast/customers/").data["customers"]
+                self.assertEqual(len(listing), int(allowed))
+                detail = self.client.get(f"/api/cast/customers/{self.customer.id}/")
+                self.assertEqual(detail.status_code, 200 if allowed else 404)
+                saved = self.client.patch(f"/api/cast/customers/{self.customer.id}/",
+                                          {"memo": "状態確認"}, format="json")
+                self.assertEqual(saved.status_code, 200 if allowed else 404)
+                if allowed:
+                    self.assertEqual(listing[0]["visit_count"], int(status == Order.Status.DONE))
+                    self.assertEqual(len(detail.data["history"]), int(status == Order.Status.DONE))
+        Order.objects.filter(pk=order.pk).update(status=Order.Status.CONFIRMED, cast=self.other_cast)
+        self.assertEqual(self.client.get("/api/cast/customers/").data["customers"], [])
+        self.assertEqual(self.client.get(f"/api/cast/customers/{self.customer.id}/").status_code, 404)
+        self.assertEqual(self.other_client.get(f"/api/cast/customers/{self.customer.id}/").status_code, 200)
+        self.assertEqual(self.other_client.get(f"/api/cast/customers/{self.customer.id}/").data["memo"], "")
+
+    def test_confirmed_recipient_not_contact_is_visible_and_history_survives_cancellation(self):
+        done = self.create_done_order(customer=self.contact, recipient=self.customer)
+        upcoming = self.create_done_order(customer=self.contact, recipient=self.customer, days_ago=-1)
+        Order.objects.filter(pk=upcoming.pk).update(status=Order.Status.CONFIRMED)
+        item = self.client.get("/api/cast/customers/").data["customers"][0]
+        self.assertEqual(item["id"], self.customer.pk)
+        self.assertEqual(item["visit_count"], 1)
+        self.assertEqual(item["last_visit_at"], done.start)
+        self.assertEqual(item["next_booking_at"], upcoming.start)
+        self.assertEqual(self.client.get(f"/api/cast/customers/{self.contact.pk}/").status_code, 404)
+        Order.objects.filter(pk=upcoming.pk).update(status=Order.Status.CANCELLED)
+        item = self.client.get("/api/cast/customers/").data["customers"][0]
+        self.assertEqual(item["visit_count"], 1)
+        self.assertIsNone(item["next_booking_at"])
 
     def test_rejects_non_string_and_too_long_memos(self):
         self.create_done_order()

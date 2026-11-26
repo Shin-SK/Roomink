@@ -275,6 +275,7 @@ export const api = {
   getLegacyHistories: (params = '') => request('GET', `/op/legacy-histories/?${params}`),
   getLegacyHistory: (id) => request('GET', `/op/legacy-histories/${id}/`),
   getCustomers: (params = '') => listRequest('GET', `/customers/${params ? '?' + params : '?limit=1000'}`),
+  getCustomersPage: (params = '') => request('GET', `/customers/?${params}`),
   getCustomer: (id) => request('GET', `/customers/${id}/`),
   getCustomerReservationContext: (id) => request('GET', `/customers/${id}/reservation-context/`),
   createCustomer: (body) => request('POST', '/customers/', body),

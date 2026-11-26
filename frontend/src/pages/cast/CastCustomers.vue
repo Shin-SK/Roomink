@@ -75,7 +75,7 @@ onMounted(loadCustomers)
     <div class="d-flex align-items-center justify-content-between mb-3">
       <div>
         <h2 class="h4 fw-bold mb-1">お客様</h2>
-        <p class="text-muted small mb-0">これまで担当したお客様の利用履歴と自分用メモです。</p>
+        <p class="text-muted small mb-0">担当する予約が確定したお客様の利用履歴と自分用メモです。</p>
       </div>
     </div>
 
@@ -86,7 +86,7 @@ onMounted(loadCustomers)
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-if="loading" class="text-center py-5"><span class="spinner-border text-primary"></span></div>
-    <div v-else-if="customers.length === 0" class="card"><div class="card-body text-center text-muted py-5">利用履歴のあるお客様はまだいません。</div></div>
+    <div v-else-if="customers.length === 0" class="card"><div class="card-body text-center text-muted py-5">該当するお客様がいません。</div></div>
 
     <div v-else class="customer-list">
       <button
@@ -100,7 +100,8 @@ onMounted(loadCustomers)
           <div class="d-flex justify-content-between gap-3">
             <div>
               <div class="fw-bold">{{ customer.display_name }}</div>
-              <div class="small text-muted mt-1">最終利用 {{ formatDate(customer.last_visit_at) }}</div>
+              <div v-if="customer.last_visit_at" class="small text-muted mt-1">最終利用 {{ formatDate(customer.last_visit_at) }}</div>
+              <div v-if="customer.next_booking_at" class="small text-muted mt-1">担当予約 {{ formatDate(customer.next_booking_at) }}</div>
             </div>
             <span class="badge text-bg-light align-self-start">{{ customer.visit_count }}回利用</span>
           </div>
@@ -128,6 +129,7 @@ onMounted(loadCustomers)
         <div v-if="saved" class="text-success small text-center mt-2">保存しました</div>
 
         <h4 class="h6 fw-bold mt-4 mb-2">利用履歴</h4>
+        <p v-if="selected.history.length === 0" class="small text-muted">完了した接客はまだありません。</p>
         <div v-for="order in selected.history" :key="order.id" class="history-row">
           <div class="fw-bold">{{ formatDate(order.start) }}</div>
           <div class="small text-muted">{{ order.course_name }}<span v-if="order.nomination_label"> ・ {{ order.nomination_label }}</span></div>

@@ -1577,10 +1577,21 @@ class CastTodayView(APIView):
         })
 
 
-def _cast_customer_orders(cast, customer):
+CAST_CUSTOMER_VISIBLE_STATUSES = (
+    Order.Status.CONFIRMED,
+    Order.Status.IN_PROGRESS,
+    Order.Status.PENDING_FINALIZE,
+    Order.Status.DONE,
+)
+
+
+def _cast_customer_orders(cast, customer, *, completed_only=True):
     return (
         Order.objects
-        .filter(cast=cast, store=cast.store, status=Order.Status.DONE)
+        .filter(
+            cast=cast, store=cast.store,
+            status__in=(Order.Status.DONE,) if completed_only else CAST_CUSTOMER_VISIBLE_STATUSES,
+        )
         .filter(
             Q(service_recipient_customer=customer)
             | Q(service_recipient_customer__isnull=True, customer=customer)
@@ -1591,7 +1602,7 @@ def _cast_customer_orders(cast, customer):
 
 @document_object_api_view
 class CastCustomerListView(APIView):
-    """キャスト本人が実際に担当し、完了した顧客のみを表示する。"""
+    """本人の確定済み担当予約・完了履歴に紐づく顧客だけを表示する。"""
 
     permission_classes = [IsAuthenticated]
 
@@ -1607,10 +1618,11 @@ class CastCustomerListView(APIView):
             "visit_count": 0,
             "last_visit_at": None,
             "nomination_labels": set(),
+            "next_booking_at": None,
         })
         orders = (
             Order.objects
-            .filter(cast=cast, store=cast.store, status=Order.Status.DONE)
+            .filter(cast=cast, store=cast.store, status__in=CAST_CUSTOMER_VISIBLE_STATUSES)
             .select_related("customer", "service_recipient_customer")
             .order_by("-start", "-id")
         )
@@ -1619,6 +1631,10 @@ class CastCustomerListView(APIView):
             if customer is None or customer.store_id != cast.store_id:
                 continue
             row = history[customer.id]
+            if order.status != Order.Status.DONE:
+                if row["next_booking_at"] is None or order.start < row["next_booking_at"]:
+                    row["next_booking_at"] = order.start
+                continue
             row["visit_count"] += 1
             if row["last_visit_at"] is None:
                 row["last_visit_at"] = order.start
@@ -1651,10 +1667,11 @@ class CastCustomerListView(APIView):
                 "display_name": display_name,
                 "visit_count": row["visit_count"],
                 "last_visit_at": row["last_visit_at"],
+                "next_booking_at": row["next_booking_at"],
                 "nomination_labels": sorted(row["nomination_labels"]),
                 "memo": memos.get(customer.id, ""),
             })
-        items.sort(key=lambda item: item["last_visit_at"], reverse=True)
+        items.sort(key=lambda item: item["last_visit_at"] or item["next_booking_at"], reverse=True)
         return Response({"customers": items})
 
 
@@ -1670,7 +1687,7 @@ class CastCustomerDetailView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         customer = Customer.objects.filter(pk=customer_id, store=cast.store).first()
-        if customer is None or not _cast_customer_orders(cast, customer).exists():
+        if customer is None or not _cast_customer_orders(cast, customer, completed_only=False).exists():
             return cast, None, Response(
                 {"detail": "顧客情報が見つかりません"},
                 status=status.HTTP_404_NOT_FOUND,
