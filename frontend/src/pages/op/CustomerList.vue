@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import { api } from '../../api.js'
@@ -12,6 +12,11 @@ const loading = ref(true)
 const error = ref('')
 const search = ref('')
 const flagFilter = ref('')
+const total = ref(0)
+const offset = ref(0)
+const pageSize = 50
+let requestId = 0
+let searchTimer
 
 const flagMap = {
   NONE: { text: 'なし', cls: '' },
@@ -24,32 +29,43 @@ const banTypeMap = {
   CAST_NG: '個別セラピNG',
 }
 
-const filtered = computed(() => {
-  let list = customers.value
-  if (flagFilter.value) {
-    list = list.filter(c => c.flag === flagFilter.value)
-  }
-  if (search.value.trim()) {
-    const q = search.value.trim().toLowerCase()
-    list = list.filter(c =>
-      (c.phone || '').includes(q) ||
-      (c.display_name || '').toLowerCase().includes(q) ||
-      (c.email || '').toLowerCase().includes(q)
-    )
-  }
-  return list
-})
+const filtered = computed(() => customers.value)
 
-onMounted(async () => {
+async function loadCustomers(nextOffset = 0) {
+  const currentRequest = ++requestId
+  loading.value = true
+  error.value = ''
+  const params = new URLSearchParams({ limit: String(pageSize), offset: String(nextOffset) })
+  if (search.value.trim()) params.set('search', search.value.trim())
+  if (flagFilter.value) params.set('flag', flagFilter.value)
   try {
-    const data = await api.getCustomers()
-    customers.value = Array.isArray(data) ? data : []
+    const data = await api.getCustomersPage(params.toString())
+    if (currentRequest !== requestId) return
+    customers.value = data.results || []
+    total.value = data.count || 0
+    offset.value = nextOffset
   } catch (e) {
+    if (currentRequest !== requestId) return
+    customers.value = []
     error.value = e.message
   } finally {
-    loading.value = false
+    if (currentRequest === requestId) loading.value = false
   }
+}
+
+watch([search, flagFilter], () => {
+  ++requestId
+  clearTimeout(searchTimer)
+  customers.value = []
+  total.value = 0
+  offset.value = 0
+  error.value = ''
+  loading.value = true
+  searchTimer = setTimeout(() => loadCustomers(), 250)
 })
+
+onMounted(() => loadCustomers())
+onBeforeUnmount(() => { clearTimeout(searchTimer); ++requestId })
 
 function goDetail(id) {
   router.push(`/op/customers/${id}`)
@@ -65,13 +81,6 @@ function exportCsv() {
     <template #title>顧客管理</template>
     <router-link to="/op/legacy-histories" class="btn btn-outline-secondary btn-sm mb-3">旧システムの利用履歴</router-link>
 
-    <div v-if="loading" class="text-center py-5">
-      <div class="spinner-border text-primary"></div>
-    </div>
-
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
-
-    <template v-else>
       <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
           <span><i class="ti ti-users"></i> 顧客一覧</span>
@@ -115,7 +124,19 @@ function exportCsv() {
             >出禁</button>
           </div>
 
-          <div v-if="!filtered.length" class="text-muted py-3 text-center">
+          <div v-if="!loading && !error && total" class="d-flex align-items-center justify-content-between gap-2 mb-3">
+            <small class="text-muted">{{ total }}件中 {{ offset + 1 }}〜{{ offset + filtered.length }}件</small>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-secondary" :disabled="offset === 0" @click="loadCustomers(offset - pageSize)">前へ</button>
+              <button class="btn btn-sm btn-outline-secondary" :disabled="offset + pageSize >= total" @click="loadCustomers(offset + pageSize)">次へ</button>
+            </div>
+          </div>
+          <div v-if="loading" class="text-center py-3" role="status">読み込み中…</div>
+          <div v-else-if="error" class="alert alert-danger">
+            {{ error }}
+            <button class="btn btn-sm btn-outline-dark ms-2" @click="loadCustomers()">再試行</button>
+          </div>
+          <div v-else-if="!filtered.length" class="text-muted py-3 text-center">
             該当する顧客がいません
           </div>
 
@@ -154,7 +175,6 @@ function exportCsv() {
           </table>
         </div>
       </div>
-    </template>
 
     <!-- FAB 新規作成 -->
     <router-link to="/op/customers/new" class="fab-btn">
