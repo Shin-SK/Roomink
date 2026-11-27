@@ -197,6 +197,9 @@ export const api = {
   setWorkDeviceAction: (id, action) => request('POST', `/op/work-devices/${id}/action/`, { action }),
   updateProfile: (body) => request('PATCH', '/auth/profile/', body),
   changePassword: (body) => request('POST', '/auth/change-password/', body),
+  requestPasswordReset: (username) => request('POST', '/auth/password-reset/', { username }),
+  validatePasswordReset: (body) => request('POST', '/auth/password-reset/validate/', body),
+  confirmPasswordReset: (body) => request('POST', '/auth/password-reset/confirm/', body),
   getSystemAnnouncements: () => request('GET', '/auth/announcements/'),
   markSystemAnnouncementsRead: (announcementIds = [], all = false) => request(
     'POST',

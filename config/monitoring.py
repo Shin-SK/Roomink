@@ -31,6 +31,7 @@ def initialize_sentry():
         release=os.getenv("SENTRY_RELEASE") or os.getenv("HEROKU_SLUG_COMMIT") or None,
         send_default_pii=False,
         max_request_body_size="never",
+        include_local_variables=False,
         traces_sample_rate=0.0,
         before_send=_scrub_event,
     )
