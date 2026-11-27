@@ -15,12 +15,31 @@ const selectedDate = ref(/^\d{4}-\d{2}-\d{2}$/.test(route.query.date || '') ? ro
 const rows = ref([])
 const envelopeRows = ref([])
 const accountingRows = ref([])
+const accountingData = ref({})
+const addedAccountingIds = ref([])
+const accountingCast = ref('')
+const accountingMode = computed(() => accountingData.value.deferred || accountingRows.value.length || rows.value.some(row => row.settlement_mode === 'DEFERRED'))
+const accountingCards = computed(() => {
+  const result = new Map(rows.value.filter(row => row.settlement_mode === 'DEFERRED').map(row => [row.cast_id, row]))
+  for (const entry of accountingRows.value) if (!result.has(entry.cast_id)) result.set(entry.cast_id, entry)
+  for (const id of addedAccountingIds.value) {
+    const cast = accountingData.value.casts?.find(cast => cast.cast_id === id)
+    if (cast && !result.has(id)) result.set(id, { ...cast, confirmed_unpaid: accountingData.value.unpaid_balances?.[id] ?? null })
+  }
+  return [...result.values()]
+})
+const availableAccountingCasts = computed(() => (accountingData.value.casts || []).filter(cast => !accountingCards.value.some(row => row.cast_id === cast.cast_id)))
+function addAccountingCast() {
+  if (accountingCast.value) addedAccountingIds.value.push(Number(accountingCast.value))
+  accountingCast.value = ''
+}
 async function refreshAccounting() {
   const date = selectedDate.value
   try {
     const data = await api.getCastAccounting(date)
     if (date === selectedDate.value) {
       accountingRows.value = data.rows || []
+      accountingData.value = data
       rows.value = rows.value.map(row => ({ ...row, confirmed_unpaid: data.unpaid_balances?.[row.cast_id] ?? null }))
     }
   } catch (e) { if (date === selectedDate.value) error.value = e.message }
@@ -47,10 +66,15 @@ async function fetchSettlement() {
   error.value = ''
   try {
     envelopeRows.value = []
+    accountingRows.value = []
+    accountingData.value = {}
+    addedAccountingIds.value = []
+    accountingCast.value = ''
     const [data, envelopes, accounting] = await Promise.all([api.getDailySettlement(selectedDate.value), api.getEnvelopeReceipts(selectedDate.value), api.getCastAccounting(selectedDate.value)])
     if (number !== fetchNumber) return
     envelopeRows.value = envelopes.rows || []
     accountingRows.value = accounting.rows || []
+    accountingData.value = accounting
     rows.value = (data.rows || []).map(row => ({ ...row, confirmed_unpaid: accounting.unpaid_balances?.[row.cast_id] ?? null }))
     totals.value = data.totals || {}
     settlementStatus.value = data.settlement_status || 'OPEN'
@@ -192,13 +216,18 @@ function formatDt(iso) {
         </div>
 
         <div v-else-if="!rows.length" class="text-muted text-center py-3">
-          この日に出勤したキャストはいません
+          この日の勤務・売上の明細はありません
         </div>
 
-        <div v-if="!loading && rows.some(row => row.settlement_mode === 'DEFERRED')" class="mb-4">
+        <div v-if="!loading && accountingMode" class="mb-4">
           <h6 class="fw-bold">後日の経理確認</h6>
           <p class="small text-muted">回収金が届いてから、確認できた実額と内容を記録してください。当日の金額入力は不要です。前回分はLINEで相談し、下の当日計算には自動で加算しません。ルーム残金も別の記録です。</p>
-          <CastAccountingCard v-for="row in rows.filter(row => row.settlement_mode === 'DEFERRED')" :key="`${selectedDate}-${row.cast_id}`" :row="row" :date="selectedDate" :entry="accountingRows.find(item => item.cast_id === row.cast_id)" @saved="refreshAccounting" />
+          <p class="small text-muted">未受取残額は、選択した日付時点の確認記録です。現在の残額を記録するときは今日の日付を選んでください。勤務がないキャストも選べます。</p>
+          <div v-if="availableAccountingCasts.length" class="d-flex flex-wrap align-items-end gap-2 mb-3">
+            <div><label for="accounting-add-cast" class="form-label small">勤務・売上のないキャストを確認</label><select id="accounting-add-cast" v-model="accountingCast" class="form-select"><option value="">キャストを選択</option><option v-for="cast in availableAccountingCasts" :key="cast.cast_id" :value="cast.cast_id">{{ cast.cast_name }}</option></select></div>
+            <button type="button" class="btn btn-outline-primary" :disabled="!accountingCast" @click="addAccountingCast">確認欄を表示</button>
+          </div>
+          <CastAccountingCard v-for="row in accountingCards" :key="`${selectedDate}-${row.cast_id}`" :row="row" :date="selectedDate" :entry="accountingRows.find(item => item.cast_id === row.cast_id)" @saved="refreshAccounting" />
         </div>
 
         <div v-if="!loading && rows.some(row => row.receivable_amount !== undefined)" class="mb-4">

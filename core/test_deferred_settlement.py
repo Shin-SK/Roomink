@@ -171,8 +171,20 @@ class DeferredSettlementTests(TestCase):
             demo = Store.objects.get(slug='settlement-demo-test')
             self.assertNotEqual(demo.pk, self.store.pk)
             self.assertFalse(demo.line_is_enabled)
-            self.assertEqual(demo.casts.count(), 3)
+            self.assertEqual(demo.casts.count(), 4)
             self.assertEqual(CastAccountingConfirmation.objects.filter(store=demo).count(), 3)
             with patch('sys.stdin', io.StringIO(json.dumps(payload))):
                 with self.assertRaises(CommandError):
                     call_command('seed_settlement_demo', stdout=output)
+
+    def test_unpaid_can_be_recorded_without_work_or_sales_on_confirmation_day(self):
+        from core.models import Cast
+        cast = Cast.objects.create(store=self.store, name='勤務なしの確認対象')
+        candidates = self.manager_client.get(self.url, {'date': str(self.day)}).data['casts']
+        self.assertIn(cast.pk, [row['cast_id'] for row in candidates])
+        response = self.manager_client.post(self.url, self.payload(cast=cast.pk, collected_amount=None, unpaid_amount=1000), format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        rows = self.manager_client.get('/api/op/daily-settlement/', {'date': str(self.day)}).data['rows']
+        row = next(row for row in rows if row['cast_id'] == cast.pk)
+        self.assertEqual(row['order_count'], 0)
+        self.assertEqual(row['confirmed_unpaid']['amount'], 1000)

@@ -46,10 +46,10 @@ class Command(BaseCommand):
         customer = Customer.objects.create(store=store, display_name='架空のお客様（送信先なし）')
         casts = [Cast.objects.create(store=store, name=name, course_back_rate=60,
                                     user=users['cast'] if i == 0 else None)
-                 for i, name in enumerate(['デモA（現金）', 'デモB（カード）', 'デモC（0円確認）'])]
+                 for i, name in enumerate(['デモA（現金）', 'デモB（カード）', 'デモC（0円確認）', 'デモD（勤務なし・未受取確認）'])]
         for offset in (-2, -1, 0):
             target = day + timedelta(days=offset)
-            for i, cast in enumerate(casts):
+            for i, cast in enumerate(casts[:3]):
                 ShiftAssignment.objects.create(store=store, cast=cast, room=room, date=target,
                     start_time=time(17), end_time=time(23))
                 start = datetime.combine(target, time(17 + i), tzinfo=ZoneInfo('Asia/Tokyo'))

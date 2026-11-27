@@ -51,8 +51,10 @@ class CastAccountingView(APIView):
         for row in CastAccountingConfirmation.objects.filter(store=store, date__lte=day, unpaid_amount__isnull=False).order_by('cast_id', '-date'):
             balances.setdefault(row.cast_id, {"amount": row.unpaid_amount, "date": row.date.isoformat()})
         return Response({"date": day.isoformat(), "deferred": uses_deferred_settlement(store, day),
+            "casts": [{"cast_id": cast.pk, "cast_name": cast.name} for cast in Cast.objects.filter(store=store, is_booking_queue=False).exclude(
+                pk__in=CastDailyCheckout.objects.filter(store=store, date=day, cash_handover_recorded=True).values('cast_id')).order_by('name')],
             "unpaid_balances": balances,
-            "rows": [{"cast_id": row.cast_id, **accounting_state(row),
+            "rows": [{"cast_id": row.cast_id, "cast_name": row.cast.name, **accounting_state(row),
                       "latest_unpaid": balances.get(row.cast_id),
                       "history": [{"before": e.before, "after": e.after,
                                    "recorded_at": e.created_at.isoformat(),
