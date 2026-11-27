@@ -250,8 +250,8 @@ function formatDt(iso) {
                 <th class="text-end">ポイント</th>
                 <th class="text-end">現金件数</th>
                 <th class="text-end">現金預り</th>
-                <th class="text-end fw-bold">振込額（当日分のみ）</th>
-                <th>封筒の受領確認</th>
+                <th class="text-end fw-bold">{{ rows.some(row => row.settlement_mode === 'DEFERRED') ? '当日分の差引（目安）' : '振込額（当日分のみ）' }}</th>
+                <th>{{ rows.some(row => row.settlement_mode === 'DEFERRED') ? '経理確認' : '封筒の受領確認' }}</th>
               </tr>
             </thead>
             <tbody>
@@ -274,7 +274,8 @@ function formatDt(iso) {
                 <td class="text-end text-danger">{{ r.cash_sales_total ? '-' + yen(r.cash_sales_total) : '—' }}</td>
                 <td class="text-end fw-bold" :class="r.net_pay < 0 ? 'text-danger' : ''">
                   {{ yen(r.net_pay) }}
-                  <div v-if="r.net_pay < 0" class="small fw-normal" style="font-size: 0.65rem;">手元残 {{ yen(-r.net_pay) }}</div>
+                  <div v-if="r.net_pay < 0" class="small fw-normal" style="font-size: 0.65rem;">{{ r.settlement_mode === 'DEFERRED' ? '店へ残す目安' : '手元残' }} {{ yen(-r.net_pay) }}</div>
+                  <div v-else-if="r.settlement_mode === 'DEFERRED' && r.net_pay > 0" class="small fw-normal" style="font-size: 0.65rem;">店舗から受け取る目安</div>
                 </td>
                 <td><span v-if="r.settlement_mode === 'DEFERRED'" class="small text-muted">上の経理確認で記録</span><EnvelopeReceiptCell v-else :key="`${selectedDate}-${r.cast_id}`" :entry="envelopeRows.find(item => item.cast_id === r.cast_id)" @saved="refreshEnvelopes" /></td>
               </tr>
