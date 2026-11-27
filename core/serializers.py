@@ -523,6 +523,11 @@ class CastCheckoutExpenseSnapshotSerializer(serializers.ModelSerializer):
 class CastDailyCheckoutSerializer(serializers.ModelSerializer):
     """退勤提出（Phase 3-A）。cast側の提出/参照・manager側の一覧/確認で共通利用。manager_memoのみ書き込み可。"""
     cast_name = serializers.CharField(source="cast.name", read_only=True)
+    # Deferred checklists deliberately have no observed financial amounts.
+    room_cash_taken_amount = serializers.IntegerField(read_only=True, allow_null=True)
+    actual_take_home_amount = serializers.IntegerField(read_only=True, allow_null=True)
+    office_cash_paid_amount = serializers.IntegerField(read_only=True, allow_null=True)
+    cash_returned_to_room_amount = serializers.IntegerField(read_only=True, allow_null=True)
     reviewed_by_name = serializers.SerializerMethodField()
     expense_snapshots = CastCheckoutExpenseSnapshotSerializer(many=True, read_only=True)
     room_name = serializers.CharField(source="room.name", read_only=True)
