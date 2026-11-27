@@ -1003,7 +1003,7 @@ function formatMonthDay(dateStr) {
 
         <!-- 退勤 -->
         <div class="rk-section-header"><i class="ti ti-door-exit"></i> {{ checkoutDeferred ? '当日分の確認・退勤チェック' : '精算の提出' }}</div>
-        <label for="checkout-business-date" class="form-label small">精算する営業日</label>
+        <label for="checkout-business-date" class="form-label small">{{ checkoutDeferred ? '確認する営業日' : '精算する営業日' }}</label>
         <input id="checkout-business-date" v-model="checkoutDate" type="date" class="form-control mb-2" :max="checkoutData?.current_business_date" :disabled="checkoutSaving || showCheckoutModal" @change="loadCheckout">
         <details v-if="checkoutData?.pending_dates?.length" class="small mb-2"><summary class="text-muted">未提出 {{ checkoutData.pending_dates.length }}日分</summary><button v-for="day in checkoutData.pending_dates" :key="day" class="btn btn-link btn-sm" :disabled="checkoutSaving || showCheckoutModal" @click="checkoutDate = day; loadCheckout()">{{ formatMonthDay(day) }}分</button></details>
         <div v-if="checkoutLoading" class="small text-muted mb-2" role="status">精算内容を読み込み中…</div>
@@ -1029,7 +1029,7 @@ function formatMonthDay(dateStr) {
               <div v-if="checkoutData.checkout.manager_memo" class="mt-1">「{{ checkoutData.checkout.manager_memo }}」</div>
             </div>
             <button class="btn btn-sm w-100" :class="checkoutIsReadOnly ? 'btn-outline-primary' : 'btn-warning'" :disabled="checkoutData.is_locked && !checkoutIsReadOnly" @click="openCheckoutModal">
-              <i :class="checkoutIsReadOnly ? 'ti ti-eye' : 'ti ti-edit'"></i> {{ checkoutIsReadOnly ? '精算内容を確認' : '内容を修正して再送する' }}
+              <i :class="checkoutIsReadOnly ? 'ti ti-eye' : 'ti ti-edit'"></i> {{ checkoutIsReadOnly ? (checkoutDeferred ? '退勤チェックを確認' : '精算内容を確認') : '内容を修正して再送する' }}
             </button>
           </div>
         </div>
@@ -1048,7 +1048,7 @@ function formatMonthDay(dateStr) {
           <div v-if="showCheckoutModal" class="line-modal-overlay checkout-modal-overlay" @click.self="showCheckoutModal = false">
             <div class="line-modal checkout-modal" style="max-width: 520px;">
               <div class="line-modal-header">
-                <span class="fw-bold fs-5"><i class="ti ti-door-exit"></i> {{ checkoutModalDate }}分の{{ checkoutIsReadOnly ? '精算内容' : '精算提出' }}</span>
+                <span class="fw-bold fs-5"><i class="ti ti-door-exit"></i> {{ checkoutModalDate }}分の{{ checkoutDeferred ? '退勤チェック' : checkoutIsReadOnly ? '精算内容' : '精算提出' }}</span>
                 <button class="btn btn-sm btn-light rounded-circle" @click="showCheckoutModal = false" style="width: 32px; height: 32px; padding: 0;">
                   <i class="ti ti-x"></i>
                 </button>
@@ -1324,9 +1324,21 @@ function formatMonthDay(dateStr) {
   padding: 16px;
 }
 .checkout-modal {
+  display: flex;
+  flex-direction: column;
   border-radius: 20px;
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
   animation: checkoutModalIn 0.2s ease-out;
+}
+.checkout-modal .line-modal-header,
+.checkout-modal .line-modal-footer { flex-shrink: 0; }
+.checkout-modal .line-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 @keyframes slideUp {
   from { transform: translateY(100%); }

@@ -319,3 +319,31 @@ test('checkout submission and service completion refresh the real cash panel thr
     assert.equal(panel.state.drafts[1].actual_cash_amount, '9000')
   } finally { parent.unmount(); panel.unmount(); globalThis.window = previousWindow }
 })
+
+test('deferred checkout sends a checklist without turning an empty amount into zero', async () => {
+  const calls = []
+  const data = { date: '2026-11-27', can_submit: true, settlement_mode: 'DEFERRED', compensation: 15000 }
+  const parent = await mountPanel({
+    getCastCheckout: async () => data,
+    submitCastCheckout: async body => { calls.push(body) },
+    getCastAdjustmentsMypage: async () => ({}),
+  }, {}, '../src/pages/cast/CastMypage.vue', code => code
+    .replace(/import LayoutCast from [^\n]+/, 'const LayoutCast = {}')
+    .replace(/import RoomCashPanel from [^\n]+/, 'const RoomCashPanel = {}')
+    .replace(/import CastAttendanceCard from [^\n]+/, 'const CastAttendanceCard = {}')
+    .replace(/onMounted\(async \(\) =>/, '(() => {})(async () =>'))
+  try {
+    parent.state.checkoutData = data
+    parent.state.openCheckoutModal()
+    assert.equal(parent.state.checkoutForm.room_cash_taken_amount, '')
+    assert.equal(parent.state.checkoutReadyToSubmit, false)
+    parent.state.checkoutForm.checklist_json = Object.fromEntries(parent.state.CHECKLIST_ITEMS.map(item => [item.key, true]))
+    assert.equal(parent.state.checkoutReadyToSubmit, true)
+    await parent.state.submitCheckout()
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].date, '2026-11-27')
+    assert.equal(Object.hasOwn(calls[0], 'room_cash_taken_amount'), false)
+    assert.equal(Object.hasOwn(calls[0], 'actual_take_home_amount'), false)
+    assert.equal(calls[0].checklist_json.cash_confirmed, true)
+  } finally { parent.unmount() }
+})

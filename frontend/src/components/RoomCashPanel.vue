@@ -106,7 +106,7 @@ defineExpose({ reload, refreshWhenIdle })
 <template>
   <section aria-label="ルーム現金状況">
     <div class="d-flex justify-content-between align-items-center gap-2 mb-2 small">
-      <span class="text-muted">{{ castMode ? 'ルームの現金・受け取り見込み' : 'ルームごとの残金・受け渡し見込み' }}</span>
+      <span class="text-muted">{{ rooms.some(row => row.settlement_mode === 'DEFERRED') ? 'ルームの実残の記録' : castMode ? 'ルームの現金・受け取り見込み' : 'ルームごとの残金・受け渡し見込み' }}</span>
       <button type="button" class="btn btn-outline-secondary btn-sm flex-shrink-0" :disabled="loading || collecting || Object.values(saving).some(Boolean)" @click="reload(true)"><i class="ti ti-refresh"></i> 更新</button>
     </div>
     <div v-if="castMode && roomChoices.length > 1" class="mb-3">
@@ -125,11 +125,12 @@ defineExpose({ reload, refreshWhenIdle })
         <span v-else-if="row.requires_confirmation" class="badge bg-warning text-dark">実残の確認が必要</span>
       </div>
       <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center gap-2 mb-3"><span class="text-muted small">金庫の想定残高</span><strong class="text-primary fs-4">{{ yen(row.expected_cash_amount) }}</strong></div>
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-3"><span class="text-muted small">{{ row.settlement_mode === 'DEFERRED' ? '最後に数えた実残' : '金庫の想定残高' }}</span><strong class="text-primary fs-4">{{ yen(row.settlement_mode === 'DEFERRED' ? row.actual_cash_amount : row.expected_cash_amount) }}</strong></div>
+        <div v-if="row.settlement_mode === 'DEFERRED'" class="small text-muted mb-2">確認日時：{{ datetime(row.last_counted_at) }}</div>
         <RoomCashCollection v-if="!castMode" :key="`${date}-${row.room}`" :row="row" :date="date" :disabled="loading || !!error || Object.values(saving).some(Boolean)" @busy="collecting = $event" @changed="reload(true)" />
         <div v-if="!castMode" class="row g-2 small border-top pt-2 mb-2"><div class="col-7 text-muted">実残・差額（最終確認時）</div><div class="col-5 text-end">{{ row.actual_cash_amount == null ? '未確認' : yen(row.actual_cash_amount) }}<span v-if="row.difference_amount != null" :class="row.difference_amount ? 'text-danger' : 'text-muted'"> / {{ yen(row.difference_amount) }}</span></div></div>
         <div v-for="warning in row.warnings || []" :key="warning" class="alert alert-warning small py-2 mb-2">{{ warning }}</div>
-        <div v-if="!settlements(row).length" class="small text-muted">対象のキャストはいません。</div>
+        <div v-if="row.settlement_mode !== 'DEFERRED' && !settlements(row).length" class="small text-muted">対象のキャストはいません。</div>
         <div v-for="cast in settlements(row)" :key="cast.cast_id || 'self'" class="small border-top pt-2 mt-2">
             <strong v-if="!castMode">{{ cast.cast_name }}</strong>
             <div class="d-flex justify-content-between mt-1"><span>{{ castMode ? 'あなたの未受取額' : '未受取額' }}</span><strong>{{ yen(cast.remaining_receivable_amount) }}</strong></div>
@@ -143,16 +144,18 @@ defineExpose({ reload, refreshWhenIdle })
               <div class="d-flex justify-content-between mt-1 text-muted"><span>受取後のルーム残金（見込み）</span><span>{{ yen(cast.projected_room_balance) }}</span></div>
             </template>
         </div>
-        <p v-if="castMode" class="small text-muted mt-2 mb-0">受け取りの記録は「精算の提出」から送信してください。</p>
+        <p v-if="row.settlement_mode === 'DEFERRED'" class="small text-muted mt-2 mb-0">{{ castMode ? '受取金額の入力は不要です。当日分は下の「当日分の確認・退勤チェック」で確認してください。' : '回収金額・未受取額は日給一覧の経理確認で記録します。ルームの実残とは別の記録です。' }}</p>
+        <p v-else-if="castMode" class="small text-muted mt-2 mb-0">受け取りの記録は「精算の提出」から送信してください。</p>
         <details class="small border-top mt-3 pt-2"><summary>確認内容・計算の詳細</summary>
           <div class="text-muted mt-2">最終実残確認：{{ datetime(row.last_counted_at) }}</div>
           <div v-if="castMode" class="d-flex justify-content-between mt-1"><span>数えた残金 / 差額（最終確認時）</span><span>{{ row.actual_cash_amount == null ? '未確認' : yen(row.actual_cash_amount) }} / {{ row.difference_amount == null ? '未確認' : yen(row.difference_amount) }}</span></div>
-          <template v-else>
+          <template v-else-if="row.settlement_mode !== 'DEFERRED'">
             <p class="text-muted mt-2 mb-2">各キャストに単独で渡す場合の試算です。同じ現金を全員に渡せる金額ではありません。</p>
             <div class="fw-bold mt-2">当日の現金記録（参考）</div>
             <p class="text-muted mb-2">計算残金は最後の実残確認後の増減を反映しています。以下は当日の合計です。</p>
             <dl class="row mb-0"><dt class="col-7 fw-normal">現金売上</dt><dd class="col-5 text-end">{{ yen(row.cash_sales_amount) }}</dd><dt class="col-7 fw-normal">キャストの受取</dt><dd class="col-5 text-end">{{ yen(row.room_cash_taken_amount) }}</dd><dt class="col-7 fw-normal">ルームへの返金</dt><dd class="col-5 text-end">{{ yen(row.cash_returned_amount) }}</dd></dl>
           </template>
+          <p v-if="row.settlement_mode === 'DEFERRED'" class="text-muted mt-2 mb-0">受取金額や回収金額から、現在の残金は自動計算しません。実際に数えた残金と確認日時を確認してください。</p>
         </details>
         <details v-if="!castMode" class="small border-top mt-2 pt-2"><summary>現金の履歴（{{ row.history?.length || 0 }}件）</summary>
           <div v-if="!row.history?.length" class="small text-muted mt-2">履歴はまだありません。</div>
