@@ -29,7 +29,7 @@ class EnvelopeReceiptsView(APIView):
             day = date.fromisoformat(request.query_params.get("date", ""))
         except (ValueError, TypeError):
             return Response({"detail": "営業日を指定してください"}, status=400)
-        rows = CastDailyCheckout.objects.filter(store=store, date=day).select_related("cast", "store")
+        rows = CastDailyCheckout.objects.filter(store=store, date=day, cash_handover_recorded=True).select_related("cast", "store")
         return Response({"date": day.isoformat(), "rows": [state(row) for row in rows]})
 
     @transaction.atomic

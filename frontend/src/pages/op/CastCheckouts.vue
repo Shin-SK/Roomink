@@ -51,6 +51,7 @@ function statusBadgeClass(s) {
 }
 
 function formatYen(n) {
+  if (n == null) return '未記録'
   return `¥${Number(n || 0).toLocaleString()}`
 }
 
@@ -156,7 +157,9 @@ async function saveDetail() {
   actionSaving.value = true
   detailError.value = ''
   try {
-    if (Number(settlementForm.value.room_cash_taken_amount) !== detail.value.room_cash_taken_amount) {
+    if (detail.value.cash_handover_recorded === false) {
+      detail.value = await api.updateCastCheckoutManagerMemo(detail.value.id, managerMemoDraft.value)
+    } else if (Number(settlementForm.value.room_cash_taken_amount) !== detail.value.room_cash_taken_amount) {
       detail.value = await api.correctCastCheckoutCashReceipt(detail.value.id, {
         room_cash_taken_amount: settlementForm.value.room_cash_taken_amount,
         expected_updated_at: detail.value.updated_at, reason: cashCorrectionReason.value,
@@ -412,7 +415,8 @@ function createAdjustmentFromCheckout() {
                 </div>
               </details>
 
-              <div class="border rounded p-3 mb-3 bg-light">
+              <div v-if="detail.cash_handover_recorded === false" class="alert alert-info small">後日経理確認方式の退勤チェックです。受取金額・未受取額の自動計算は行っていません。金額の確認・記録は「日給一覧」の該当営業日から行ってください。</div>
+              <div v-else class="border rounded p-3 mb-3 bg-light">
                 <div class="fw-bold small mb-2"><i class="ti ti-wallet"></i> 現金精算</div>
                 <div class="row g-2 small mb-3">
                   <div class="col-4">

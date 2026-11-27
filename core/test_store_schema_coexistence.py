@@ -69,9 +69,10 @@ class LegacyStoreWriteCompatibilityTest(TestCase):
 
 class StoreMigrationPathTest(TransactionTestCase):
     """Only the disposable test DB is reset to exercise both migration paths."""
-    latest = ("core", "0099_order_sales_area_history")
-
     def setUp(self):
+        # The live model may gain fields after 0099. Exercise the actual current
+        # upgrade target before querying it, rather than stopping at an old schema.
+        self.latest = MigrationExecutor(connection).loader.graph.leaf_nodes("core")[0]
         migrate_test_schema([("core", "0092_store_shift_request_start_hour")])
 
     def tearDown(self):
@@ -126,6 +127,7 @@ class StoreMigrationPathTest(TransactionTestCase):
         )
         MigrationExecutor(connection).migrate([self.latest])
         restored = Store.objects.get(pk=existing.pk)
+        self.assertIsNone(restored.deferred_settlement_from)
         self.assertTrue(restored.nomination_fullback_enabled)
         self.assertEqual(restored.voice_receiver, "groundwire")
         inserted = legacy_store.objects.create(

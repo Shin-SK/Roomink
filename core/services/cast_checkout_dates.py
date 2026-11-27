@@ -38,7 +38,10 @@ def checkout_context(request):
         if target > today or (target != today and target not in dates):
             raise PermissionDenied("本人の勤務・売上・精算がある営業日だけ指定できます")
     elif request.method == "GET":
-        target = next((day for day in pending if day < today and day not in locked), today)
+        from .settlement_policy import uses_deferred_settlement
+        current_checkout = own_checkouts.filter(date=today).first()
+        target = today if uses_deferred_settlement(cast.store, today, current_checkout) else next(
+            (day for day in pending if day < today and day not in locked), today)
     else:
         # 旧画面が前日分の見込みを表示したまま、翌日へ誤提出することを防ぐ。
         if any(day < today and day not in locked for day in pending):

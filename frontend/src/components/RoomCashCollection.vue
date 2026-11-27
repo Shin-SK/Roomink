@@ -53,7 +53,7 @@ async function submit(entry = null) {
     <p class="small text-muted mb-3">回収した金額を登録すると、金庫の想定残高から差し引かれます。</p>
     <div class="collection-grid">
     <div>
-    <form v-if="row.can_count" @submit.prevent="submit()">
+    <form v-if="row.can_count && row.settlement_mode !== 'DEFERRED'" @submit.prevent="submit()">
       <div class="collection-fields">
       <div>
       <label :for="`collection-amount-${row.room}`" class="form-label small">回収する金額</label>
@@ -75,6 +75,7 @@ async function submit(entry = null) {
       </div>
       <p v-if="!available" class="small text-muted mt-2 mb-0">{{ !row.balance_known || row.requires_confirmation ? '実際の現金を確認・記録してから回収できます。' : '回収できる残高はありません。' }}</p>
     </form>
+    <p v-else-if="row.settlement_mode === 'DEFERRED'" class="small text-muted mb-0">回収金額は「日給一覧」の経理確認で記録してください。ルームの残金は、下の実残記録で別に管理します。</p>
     <p v-else class="small text-muted mb-0">回収の登録・取消は現在の営業日で行ってください。</p>
     <div v-if="error" class="alert alert-danger small mt-2 mb-0" role="alert">{{ error }}</div>
     <p v-if="success" class="text-success small mt-2 mb-0" role="status">{{ success }}</p>

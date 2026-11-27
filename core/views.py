@@ -1010,8 +1010,8 @@ class OrderViewSet(viewsets.ModelViewSet):
             "office_cash_paid_amount": checkout.office_cash_paid_amount,
             "cash_returned_to_room_amount": checkout.cash_returned_to_room_amount,
             "expected_updated_at": checkout.updated_at.isoformat(),
-            "can_correct": get_request_profile(request).role == "manager",
-        } if checkout else None)})
+            "can_correct": checkout.cash_handover_recorded and get_request_profile(request).role == "manager",
+        } if checkout and checkout.cash_handover_recorded else None)})
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -1992,7 +1992,7 @@ def _checkout_compensation(checkout):
 def _cast_carryover_before(cast, d):
     """指定日の開始時点でキャストがまだ持ち帰れる金額。"""
     checkouts = (
-        CastDailyCheckout.objects.filter(cast=cast, date__lt=d)
+        CastDailyCheckout.objects.filter(cast=cast, date__lt=d, cash_handover_recorded=True)
         .exclude(status=CastDailyCheckout.Status.RETURNED)
         .prefetch_related("expense_snapshots")
         .order_by("date", "id")
@@ -2134,6 +2134,8 @@ class CastCheckoutView(APIView):
         from .services.checkout_registration import unrecorded_prior_dates
         cast, today, current_day, pending, locked = checkout_context(request)
         existing = CastDailyCheckout.objects.filter(cast=cast, date=today).select_related("reviewed_by").prefetch_related("expense_snapshots").first()
+        from .services.settlement_policy import uses_deferred_settlement
+        deferred = uses_deferred_settlement(cast.store, today, existing)
         pay_version = existing.pay_calculation_version if existing and existing.status != CastDailyCheckout.Status.RETURNED else CURRENT_PAY_VERSION
         sales = _compute_cast_done_sales(cast, today, pay_version=pay_version)
         fee = _compute_payment_summary(cast.store, cast, today)
@@ -2154,8 +2156,11 @@ class CastCheckoutView(APIView):
         ]
 
         from .services.sales import cash_received_total
+        from .accounting_views import latest_unpaid
         return Response({
             "date": today.isoformat(),
+            "settlement_mode": "DEFERRED" if deferred else "LEGACY",
+            "confirmed_unpaid": latest_unpaid(cast, today) if deferred else None,
             "current_business_date": current_day.isoformat(),
             "pending_dates": [day.isoformat() for day in pending],
             "is_locked": today in locked,
@@ -2166,8 +2171,8 @@ class CastCheckoutView(APIView):
             "sales_items": _checkout_sales_items(cast, today),
             **fee,
             **allocation,
-            "carryover_opening_amount": _cast_carryover_before(cast, today),
-            "unrecorded_prior_dates": [day.isoformat() for day in unrecorded_prior_dates(cast, today)],
+            "carryover_opening_amount": None if deferred else _cast_carryover_before(cast, today),
+            "unrecorded_prior_dates": [] if deferred else [day.isoformat() for day in unrecorded_prior_dates(cast, today)],
             "receipt_history": _cast_office_receipt_history(cast),
             "expense_templates": template_data,
             "checkout": CastDailyCheckoutSerializer(existing).data if existing else None,
@@ -2180,6 +2185,10 @@ class CastCheckoutView(APIView):
         Store.objects.select_for_update().get(pk=cast.store_id)
         _require_daily_settlement_open(cast.store, today)
         existing = CastDailyCheckout.objects.select_for_update().filter(cast=cast, date=today).first()
+        from .services.settlement_policy import uses_deferred_settlement
+        deferred = uses_deferred_settlement(cast.store, today, existing)
+        if deferred and any(key in request.data for key in ("room_cash_taken_amount", "actual_take_home_amount")):
+            return Response({"detail": "後日経理確認方式では金額を送信しないでください。画面を更新してください。"}, status=400)
         if existing is not None and existing.status != CastDailyCheckout.Status.RETURNED:
             return Response(
                 {"detail": "本日はすでに退勤提出済みです"},
@@ -2245,6 +2254,7 @@ class CastCheckoutView(APIView):
             instance.net_sales_after_payment_fee = fee["net_sales_after_payment_fee"]
             instance.room = _suggest_checkout_room(cast, today)
             instance.room_cash_taken_amount = room_cash_taken_amount
+            instance.cash_handover_recorded = not deferred
             # 既存の出力/APIを壊さないため、旧フィールドにも同じ値を保存する。
             instance.actual_take_home_amount = room_cash_taken_amount
             # Re-submission does not undo recorded office payments or cash returns.
@@ -4190,6 +4200,8 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         """運営だけが、ルーム現金・返金・メモを退勤精算に追記する。"""
         self.check_manager(request)
         instance = self.get_object()
+        from .services.settlement_policy import require_legacy_handover
+        require_legacy_handover(instance)
         audit_fields = ("room_cash_taken_amount", "actual_take_home_amount", "office_cash_paid_amount", "cash_returned_to_room_amount", "room_id")
         before_cash = {field: getattr(instance, field) for field in audit_fields}
         if any(field in request.data for field in ("room_cash_taken_amount", "cash_returned_to_room_amount", "room")):
@@ -4260,6 +4272,8 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         """既に取消済みの日も含め、実受渡額だけを理由付きで訂正する。"""
         self.check_manager(request)
         instance = self.get_object()
+        from .services.settlement_policy import require_legacy_handover
+        require_legacy_handover(instance)
         instance = CastDailyCheckout.objects.select_for_update().get(pk=instance.pk, store=instance.store)
         _require_daily_settlement_open(instance.store, instance.date)
         from .services.checkout_cash_correction import require_current_checkout, validate_cash_correction, correct_cash_receipt
@@ -4279,6 +4293,8 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
         """事務所で渡した現金を、後から消えない受取履歴として記録する。"""
         self.check_manager(request)
         instance = self.get_object()
+        from .services.settlement_policy import require_legacy_handover
+        require_legacy_handover(instance)
         try:
             amount = int(request.data.get("amount") or 0)
         except (TypeError, ValueError):
@@ -4365,7 +4381,7 @@ class CastCheckoutViewSet(viewsets.ModelViewSet):
                 c.done_count,
                 c.total_sales,
                 c.estimated_pay,
-                c.actual_take_home_amount,
+                c.actual_take_home_amount if c.cash_handover_recorded else "未記録（後日経理確認）",
                 c.submitted_at.strftime("%Y-%m-%d %H:%M") if c.submitted_at else "",
                 c.reviewed_by.username if c.reviewed_by else "",
                 c.reviewed_at.strftime("%Y-%m-%d %H:%M") if c.reviewed_at else "",
@@ -7988,11 +8004,13 @@ class DailySettlementView(APIView):
         cast_ids.update(get_done_orders_for_business_range(store, d, d).values_list("cast_id", flat=True))
         cast_ids.discard(None)
         cast_ids.update(CastDailyCheckout.objects.filter(store=store, date=d).values_list("cast_id", flat=True))
+        from .models import CastAccountingConfirmation
+        cast_ids.update(CastAccountingConfirmation.objects.filter(store=store, date=d).values_list("cast_id", flat=True))
         absent_only = absent_cast_ids - active_cast_ids
         if absent_only:
             recorded = set(get_done_orders_for_business_range(store, d, d)
                            .filter(cast_id__in=absent_only).values_list("cast_id", flat=True))
-            for model in (CastDailyCheckout, CastExpense, PointLog):
+            for model in (CastDailyCheckout, CastAccountingConfirmation, CastExpense, PointLog):
                 recorded.update(model.objects.filter(store=store, date=d, cast_id__in=absent_only)
                                 .values_list("cast_id", flat=True))
             cast_ids -= absent_only - recorded
@@ -8094,7 +8112,8 @@ class DailySettlementView(APIView):
             from .services.checkout_registration import settlement_state
             handover = settlement_state(cast, d)
             handover["can_register_by_store"] = (
-                not handover["cash_handover_recorded"]
+                handover.get("settlement_mode") != "DEFERRED"
+                and not handover["cash_handover_recorded"]
                 and d <= business_date_for_datetime(timezone.now(), store.timezone)
             )
 

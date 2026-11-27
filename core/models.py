@@ -64,6 +64,10 @@ class OperationGroup(models.Model):
 
 
 class Store(models.Model):
+    deferred_settlement_from = models.DateField(
+        null=True, blank=True,
+        help_text="後日経理確認方式の開始営業日。未設定なら従来方式を継続。",
+    )
     voice_receiver = models.CharField(
         max_length=12,
         choices=[("groundwire", "Groundwire"), ("work", "Roomink Work")],
@@ -1959,6 +1963,10 @@ class CastExpenseTemplateHistory(models.Model):
 
 
 class CastDailyCheckout(models.Model):
+    cash_handover_recorded = models.BooleanField(
+        default=True, db_default=True,
+        help_text="実受渡の記録を含むか。後日確認方式の退勤チェックはFalse。",
+    )
     """キャスト退勤提出（Phase 3-A）。給与確定ではなく、退勤時点の見込みスナップショット+manager確認の土台。"""
     class Status(models.TextChoices):
         SUBMITTED = "SUBMITTED", "提出済"
@@ -2051,6 +2059,32 @@ class CastDailyCheckout(models.Model):
             result = super().save(*args, **kwargs)
             record_cash_source_change(before, type(self).objects.get(pk=self.pk), actor_id=getattr(self, "_cash_recorded_by_id", None))
             return result
+
+
+class CastAccountingConfirmation(models.Model):
+    """Accountant-observed amounts, never an inferred payment or room movement."""
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    cast = models.ForeignKey(Cast, on_delete=models.CASCADE)
+    date = models.DateField()
+    collected_amount = models.PositiveIntegerField(null=True, blank=True)
+    unpaid_amount = models.PositiveIntegerField(null=True, blank=True)
+    memo = models.TextField(blank=True, default="")
+    version = models.PositiveIntegerField(default=0)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["store", "cast", "date"], name="unique_cast_accounting_day")]
+
+
+class CastAccountingConfirmationEvent(models.Model):
+    confirmation = models.ForeignKey(CastAccountingConfirmation, on_delete=models.CASCADE, related_name="events")
+    request_id = models.UUIDField(unique=True)
+    request_signature = models.CharField(max_length=64)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class CastCheckoutRegistration(models.Model):

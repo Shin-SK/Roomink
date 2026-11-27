@@ -30,6 +30,10 @@ def cash_source(instance):
             "finalized": instance.status == Order.Status.DONE,
             "date": business_date_for_datetime(instance.start, instance.store.timezone).isoformat(),
         }
+    if not instance.cash_handover_recorded:
+        return {"source_type": "checkout", "source_id": instance.pk,
+                "room": instance.room_id, "amount": 0, "taken": 0, "returned": 0,
+                "date": instance.date.isoformat()}
     return {
         "source_type": "checkout", "source_id": instance.pk,
         "room": instance.room_id,
@@ -142,7 +146,12 @@ def room_cash_summary(store, d, *, room_ids=None, cast_id=None):
             # movement total or inventing a physical handover.
             missing_history = source_amount - checkpoint.source_cash_amount != recorded_change
         warnings = []
-        if expected is None:
+        from .settlement_policy import uses_deferred_settlement
+        deferred = uses_deferred_settlement(store, d)
+        if deferred:
+            expected = None
+            warnings.append("後日経理確認方式では現金の受渡額を自動記録しません。現在残高は推定せず、最後に数えた実残と確認日時を表示します。")
+        if expected is None and not deferred:
             warnings.append("開始残高が未確認のため、現在残高と不足額は確定できません。実際に数えた現金を一度登録してください。")
         if needs_confirmation:
             warnings.append("記録の訂正で計算額が変わっています。現物の受渡・返金を確認し、必要に応じて数え直してください。")
@@ -170,6 +179,7 @@ def room_cash_summary(store, d, *, room_ids=None, cast_id=None):
             })
             cast_data.append(item)
         rows.append({
+            "settlement_mode": "DEFERRED" if deferred else "LEGACY",
             "room": room.pk, "room_name": room.name, "balance_known": expected is not None,
             "opening_cash_amount": opening,
             "cash_sales_amount": sum(item["amount"] for item in day_items if item["source_type"] == "order"),
@@ -183,7 +193,7 @@ def room_cash_summary(store, d, *, room_ids=None, cast_id=None):
             "last_counted_at": checkpoint.counted_at.isoformat() if checkpoint else (legacy.counted_at.isoformat() if legacy else None),
             "last_counted_date": checkpoint.date.isoformat() if checkpoint else (legacy.date.isoformat() if legacy else None),
             "memo": checkpoint.memo if checkpoint else (legacy.memo if legacy else ""),
-            "revision": revision, "requires_confirmation": needs_confirmation or missing_room or missing_history,
+            "revision": revision, "requires_confirmation": deferred or needs_confirmation or missing_room or missing_history,
             "can_count": d == today, "warnings": warnings, "history": history,
             "casts": cast_data, "source_cash_amount": source_amount,
             "collected_cash_amount": collection_net,
@@ -222,6 +232,10 @@ def _cast_rows(store, d, orders, checkouts, *, only_cast_id=None):
     pending_ids = set(CastDailyCheckout.objects.filter(store=store, date__lt=d, status=CastDailyCheckout.Status.RETURNED).values_list("cast_id", flat=True))
     for cast in Cast.objects.filter(store=store, pk__in=ids).order_by("id"):
         checkout = current_checkouts.get(cast.pk)
+        from .settlement_policy import uses_deferred_settlement
+        if uses_deferred_settlement(store, d, checkout):
+            # No suggestion may turn an unobserved handover into a claimed unpaid balance.
+            continue
         if checkout and checkout.status != checkout.Status.RETURNED:
             compensation = _checkout_compensation(checkout)
         else:
@@ -379,9 +393,12 @@ def cast_room_cash_summary(cast, d, allowed_ids, selected_room=None):
         )}
         # Manager warnings can contain other cast names. Never copy their text.
         safe["warnings"] = []
-        if not row["balance_known"]:
+        if row.get("settlement_mode") == "DEFERRED":
+            safe["settlement_mode"] = "DEFERRED"
+            safe["warnings"].append("受渡額は自動記録していません。現在残高は推定せず、最後に数えた実残と確認日時を表示します。")
+        elif not row["balance_known"]:
             safe["warnings"].append("開始残高が未確認です。実際に数えた現金を登録すると計算残高を確認できます。")
-        if row["requires_confirmation"]:
+        if row["requires_confirmation"] and row.get("settlement_mode") != "DEFERRED":
             safe["warnings"].append("計算に確認が必要な記録があります。実際の現金を確認し、不明な場合は店舗へ連絡してください。")
         own = next((item for item in row["casts"] if item["cast_id"] == cast.pk), None)
         safe["settlement"] = None

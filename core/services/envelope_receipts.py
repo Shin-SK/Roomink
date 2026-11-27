@@ -33,6 +33,8 @@ def source(checkout):
 
 
 def capture(checkout):
+    if not checkout.cash_handover_recorded:
+        return None
     return EnvelopeSubmission.objects.create(checkout=checkout, **source(checkout))
 
 
@@ -51,7 +53,7 @@ def state(checkout):
         "submitted_at": snapshot.created_at.isoformat() if snapshot else None,
         "current_amount": current["deposit_amount"], "changed_since_submission": changed,
         "returned": checkout.status == "RETURNED",
-        "can_receive": checkout.status != "RETURNED" and (snapshot is None or snapshot.deposit_amount > 0),
+        "can_receive": checkout.cash_handover_recorded and checkout.status != "RETURNED" and (snapshot is None or snapshot.deposit_amount > 0),
         "source_revision": revision, "version": receipt.version if receipt else 0,
         "received": received,
         "needs_reconfirmation": received and receipt.source_revision != revision,

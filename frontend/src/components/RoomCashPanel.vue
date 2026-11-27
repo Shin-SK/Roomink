@@ -120,7 +120,8 @@ defineExpose({ reload, refreshWhenIdle })
     <article v-for="row in rooms" :key="row.room" class="card mb-3">
       <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <span><i class="ti ti-door"></i> {{ row.room_name }}</span>
-        <span v-if="!row.balance_known" class="badge bg-secondary">残高未確認</span>
+        <span v-if="row.settlement_mode === 'DEFERRED'" class="badge bg-secondary">実残を個別に記録</span>
+        <span v-else-if="!row.balance_known" class="badge bg-secondary">残高未確認</span>
         <span v-else-if="row.requires_confirmation" class="badge bg-warning text-dark">実残の確認が必要</span>
       </div>
       <div class="card-body">

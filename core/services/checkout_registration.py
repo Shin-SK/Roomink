@@ -35,6 +35,12 @@ def settlement_state(cast, day):
     from core.views import (_cast_carryover_before, _checkout_compensation, _compute_cast_done_sales,
                             _cast_expense_totals, _compute_payment_summary, _suggest_checkout_room)
     checkout = CastDailyCheckout.objects.filter(cast=cast, store=cast.store, date=day).prefetch_related('expense_snapshots').first()
+    from .settlement_policy import uses_deferred_settlement
+    if uses_deferred_settlement(cast.store, day, checkout):
+        from core.accounting_views import latest_unpaid
+        return {'settlement_mode': 'DEFERRED', 'can_register_by_store': False,
+                'cash_handover_recorded': False, 'checkout_id': checkout.pk if checkout else None,
+                'confirmed_unpaid': latest_unpaid(cast, day)}
     recorded = bool(checkout and checkout.status != 'RETURNED')
     sales = _compute_cast_done_sales(cast, day)
     expenses = _cast_expense_totals(cast, day, sales['done_count'])
@@ -78,6 +84,10 @@ def register_by_store(store, actor, data):
         raise ValidationError('営業日とリクエストIDを確認してください。')
     cast_id = serializers.IntegerField(min_value=1).run_validation(data.get('cast'))
     cast = get_object_or_404(Cast.objects.select_related('store'), store=store, pk=cast_id)
+    from .settlement_policy import uses_deferred_settlement
+    existing_mode = CastDailyCheckout.objects.filter(store=store, cast=cast, date=day).first()
+    if uses_deferred_settlement(store, day, existing_mode):
+        raise ValidationError('後日経理確認方式では当日の受取金額登録は不要です。経理確認で記録してください。')
     signature = digest([actor.pk, store.pk, dict(data)])
     previous = CastCheckoutRegistration.objects.filter(request_id=request_id).select_related('checkout').first()
     if previous:

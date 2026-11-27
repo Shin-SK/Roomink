@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import LayoutOperator from '../../components/LayoutOperator.vue'
 import EnvelopeReceiptCell from '../../components/EnvelopeReceiptCell.vue'
 import SettlementHandover from '../../components/SettlementHandover.vue'
+import CastAccountingCard from '../../components/CastAccountingCard.vue'
 import { api } from '../../api.js'
 
 const loading = ref(true)
@@ -13,6 +14,17 @@ const route = useRoute()
 const selectedDate = ref(/^\d{4}-\d{2}-\d{2}$/.test(route.query.date || '') ? route.query.date : new Date().toISOString().slice(0, 10))
 const rows = ref([])
 const envelopeRows = ref([])
+const accountingRows = ref([])
+async function refreshAccounting() {
+  const date = selectedDate.value
+  try {
+    const data = await api.getCastAccounting(date)
+    if (date === selectedDate.value) {
+      accountingRows.value = data.rows || []
+      rows.value = rows.value.map(row => ({ ...row, confirmed_unpaid: data.unpaid_balances?.[row.cast_id] ?? null }))
+    }
+  } catch (e) { if (date === selectedDate.value) error.value = e.message }
+}
 let fetchNumber = 0
 async function refreshEnvelopes() {
   const date = selectedDate.value
@@ -35,10 +47,11 @@ async function fetchSettlement() {
   error.value = ''
   try {
     envelopeRows.value = []
-    const [data, envelopes] = await Promise.all([api.getDailySettlement(selectedDate.value), api.getEnvelopeReceipts(selectedDate.value)])
+    const [data, envelopes, accounting] = await Promise.all([api.getDailySettlement(selectedDate.value), api.getEnvelopeReceipts(selectedDate.value), api.getCastAccounting(selectedDate.value)])
     if (number !== fetchNumber) return
     envelopeRows.value = envelopes.rows || []
-    rows.value = data.rows || []
+    accountingRows.value = accounting.rows || []
+    rows.value = (data.rows || []).map(row => ({ ...row, confirmed_unpaid: accounting.unpaid_balances?.[row.cast_id] ?? null }))
     totals.value = data.totals || {}
     settlementStatus.value = data.settlement_status || 'OPEN'
     lockedAt.value = data.locked_at || null
@@ -182,6 +195,12 @@ function formatDt(iso) {
           この日に出勤したキャストはいません
         </div>
 
+        <div v-if="!loading && rows.some(row => row.settlement_mode === 'DEFERRED')" class="mb-4">
+          <h6 class="fw-bold">後日の経理確認</h6>
+          <p class="small text-muted">回収金が届いてから、確認できた実額と内容を記録してください。当日の金額入力は不要です。前回分はLINEで相談し、下の当日計算には自動で加算しません。ルーム残金も別の記録です。</p>
+          <CastAccountingCard v-for="row in rows.filter(row => row.settlement_mode === 'DEFERRED')" :key="`${selectedDate}-${row.cast_id}`" :row="row" :date="selectedDate" :entry="accountingRows.find(item => item.cast_id === row.cast_id)" @saved="refreshAccounting" />
+        </div>
+
         <div v-if="!loading && rows.some(row => row.receivable_amount !== undefined)" class="mb-4">
           <h6 class="fw-bold mb-2">前回の残りを含めた受け取り状況</h6>
           <p class="small text-muted">下の「当日分だけの計算」とは別に、前回からの未受取と実際の受取額を確認できます。{{ settlementStatus === 'LOCKED' ? 'この日を確定した時点の記録です。' : '' }}</p>
@@ -257,7 +276,7 @@ function formatDt(iso) {
                   {{ yen(r.net_pay) }}
                   <div v-if="r.net_pay < 0" class="small fw-normal" style="font-size: 0.65rem;">手元残 {{ yen(-r.net_pay) }}</div>
                 </td>
-                <td><EnvelopeReceiptCell :key="`${selectedDate}-${r.cast_id}`" :entry="envelopeRows.find(item => item.cast_id === r.cast_id)" @saved="refreshEnvelopes" /></td>
+                <td><span v-if="r.settlement_mode === 'DEFERRED'" class="small text-muted">上の経理確認で記録</span><EnvelopeReceiptCell v-else :key="`${selectedDate}-${r.cast_id}`" :entry="envelopeRows.find(item => item.cast_id === r.cast_id)" @saved="refreshEnvelopes" /></td>
               </tr>
             </tbody>
             <tfoot>

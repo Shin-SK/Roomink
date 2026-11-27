@@ -106,6 +106,7 @@ const checkoutIsReadOnly = computed(() => {
   const co = checkoutData.value?.checkout
   return !!co && co.status !== 'RETURNED'
 })
+const checkoutDeferred = computed(() => checkoutData.value?.settlement_mode === 'DEFERRED')
 
 const checkoutCarryover = computed(() => {
   const saved = checkoutIsReadOnly.value ? checkoutData.value?.checkout : null
@@ -121,7 +122,7 @@ const checkoutBalance = computed(() => checkoutBalanceDisplay(
   checkoutCarryover.value.available, checkoutCarryover.value.roomCash, checkoutCarryover.value.officeCash,
 ))
 
-const checkoutHasValidAmount = computed(() => checkoutIsReadOnly.value || (
+const checkoutHasValidAmount = computed(() => checkoutDeferred.value || checkoutIsReadOnly.value || (
   Number.isSafeInteger(checkoutForm.value.room_cash_taken_amount)
   && checkoutForm.value.room_cash_taken_amount >= 0
   && checkoutForm.value.room_cash_taken_amount <= Math.max(0, checkoutCarryover.value.available)
@@ -335,6 +336,7 @@ async function submitCheckout() {
       cast_memo: checkoutForm.value.cast_memo,
       checklist_json: checkoutForm.value.checklist_json,
     }
+    if (checkoutDeferred.value) delete body.room_cash_taken_amount
     await api.submitCastCheckout(body)
     showCheckoutModal.value = false
     checkoutSaving.value = false
@@ -1000,7 +1002,7 @@ function formatMonthDay(dateStr) {
         </Teleport>
 
         <!-- 退勤 -->
-        <div class="rk-section-header"><i class="ti ti-door-exit"></i> 精算の提出</div>
+        <div class="rk-section-header"><i class="ti ti-door-exit"></i> {{ checkoutDeferred ? '当日分の確認・退勤チェック' : '精算の提出' }}</div>
         <label for="checkout-business-date" class="form-label small">精算する営業日</label>
         <input id="checkout-business-date" v-model="checkoutDate" type="date" class="form-control mb-2" :max="checkoutData?.current_business_date" :disabled="checkoutSaving || showCheckoutModal" @change="loadCheckout">
         <details v-if="checkoutData?.pending_dates?.length" class="small mb-2"><summary class="text-muted">未提出 {{ checkoutData.pending_dates.length }}日分</summary><button v-for="day in checkoutData.pending_dates" :key="day" class="btn btn-link btn-sm" :disabled="checkoutSaving || showCheckoutModal" @click="checkoutDate = day; loadCheckout()">{{ formatMonthDay(day) }}分</button></details>
@@ -1011,7 +1013,7 @@ function formatMonthDay(dateStr) {
         <div v-if="!checkoutLoading && !checkoutLoadError && checkoutData?.checkout" class="card mb-3">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-              <span class="fw-bold"><i class="ti ti-circle-check text-primary"></i> {{ checkoutData.date }}分の精算提出済み</span>
+              <span class="fw-bold"><i class="ti ti-circle-check text-primary"></i> {{ checkoutData.date }}分の{{ checkoutDeferred ? '退勤チェック提出済み' : '精算提出済み' }}</span>
               <span
                 class="badge"
                 :class="{
@@ -1033,7 +1035,7 @@ function formatMonthDay(dateStr) {
         </div>
 
         <button v-else class="btn btn-primary w-100 mb-3" :disabled="checkoutLoading || !!checkoutLoadError || !checkoutData?.can_submit" @click="openCheckoutModal">
-          <i class="ti ti-door-exit"></i> {{ formatMonthDay(checkoutData?.date) }}分の精算を提出
+          <i class="ti ti-door-exit"></i> {{ formatMonthDay(checkoutData?.date) }}分の{{ checkoutDeferred ? '当日分と退勤チェックを確認' : '精算を提出' }}
         </button>
 
         <div v-if="checkoutData?.unrecorded_prior_dates?.length" class="alert alert-warning small">
@@ -1056,6 +1058,16 @@ function formatMonthDay(dateStr) {
                 <div v-if="checkoutError" class="alert alert-danger py-2 small">{{ checkoutError }}</div>
                 <div v-if="checkoutData?.unrecorded_prior_dates?.length" class="alert alert-warning small">過去の未登録日（{{ checkoutData.unrecorded_prior_dates.join('・') }}）の分は、下の繰越に入っていません。店舗へ確認してください。</div>
 
+                <div v-if="checkoutDeferred" class="bg-light rounded p-3 mb-3">
+                  <div class="fw-bold mb-3">当日分だけの精算目安</div>
+                  <div class="d-flex justify-content-between gap-2"><span>対象日の報酬</span><strong>{{ formatYen(checkoutCarryover.compensation) }}</strong></div>
+                  <div class="d-flex justify-content-between gap-2 mt-2"><span>お客様から受け取った現金</span><strong>{{ formatYen(checkoutData?.cash_sales_total ?? 0) }}</strong></div>
+                  <div class="d-flex justify-content-between gap-2 mt-2 border-top pt-2"><span>店へ残す目安</span><strong>{{ formatYen(Math.max(0, Number(checkoutData?.cash_sales_total ?? 0) - checkoutCarryover.compensation)) }}</strong></div>
+                  <div v-if="checkoutCarryover.compensation > Number(checkoutData?.cash_sales_total ?? 0)" class="small mt-2">当日分の報酬は、現金預りより {{ formatYen(checkoutCarryover.compensation - Number(checkoutData?.cash_sales_total ?? 0)) }} 多い計算です。受け取り方は店舗へ確認してください。</div>
+                  <p class="small text-muted mt-3 mb-0">前回の過不足は含みません。実際に受け取る額・店へ残す額は、これまでどおりLINEで確認してください。ここで金額を入力する必要はありません。</p>
+                  <div class="border-top pt-2 mt-3 small">経理が確認した未受取額：<strong>{{ checkoutData?.confirmed_unpaid ? formatYen(checkoutData.confirmed_unpaid.amount) : '未確認' }}</strong><span v-if="checkoutData?.confirmed_unpaid">（{{ checkoutData.confirmed_unpaid.date }}時点）</span><div class="text-muted">この額は当日分へ自動で加算しません。</div></div>
+                </div>
+                <template v-if="!checkoutDeferred">
                 <div v-if="!checkoutIsReadOnly" class="bg-light rounded p-3 mb-3">
                   <div class="fw-bold mb-2">システム上の精算見込み</div>
                   <div class="d-flex justify-content-between gap-2"><span>受け取り額の目安</span><strong>{{ formatYen(checkoutEstimate.taken) }}</strong></div>
@@ -1096,6 +1108,7 @@ function formatMonthDay(dateStr) {
                   <div v-else-if="checkoutCarryover.closing < 0" class="text-muted mt-2" style="font-size: .75rem;">金額を確認し、運営に相談してください。</div>
                 </div>
 
+                </template>
                 <div v-if="checkoutData?.sales_items?.length" class="mb-3">
                   <button type="button" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between" @click="showCheckoutSales = !showCheckoutSales">
                     <span><i class="ti ti-list-details"></i> 対象日の売上一覧（{{ checkoutData.sales_items.length }}件）</span>
@@ -1117,7 +1130,7 @@ function formatMonthDay(dateStr) {
                   </div>
                 </div>
 
-                <div v-if="checkoutHasValidAmount" class="mb-3">
+                <div v-if="!checkoutDeferred && checkoutHasValidAmount" class="mb-3">
                   <button type="button" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between" @click="showCheckoutCalculation = !showCheckoutCalculation">
                     <span><i class="ti ti-calculator"></i> 売上・精算の計算を見る</span>
                     <i :class="showCheckoutCalculation ? 'ti ti-chevron-up' : 'ti ti-chevron-down'"></i>
@@ -1134,7 +1147,7 @@ function formatMonthDay(dateStr) {
                   </div>
                 </div>
 
-                <div class="mb-3">
+                <div v-if="!checkoutDeferred" class="mb-3">
                   <button type="button" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between" @click="showReceiptHistory = !showReceiptHistory">
                     <span><i class="ti ti-receipt"></i> 事務所で受け取った履歴を見る</span>
                     <i :class="showReceiptHistory ? 'ti ti-chevron-up' : 'ti ti-chevron-down'"></i>
@@ -1197,8 +1210,8 @@ function formatMonthDay(dateStr) {
                   :class="checkoutReadyToSubmit ? 'btn-primary' : 'btn-outline-secondary'"
                   :disabled="checkoutSaving || !checkoutReadyToSubmit"
                   @click="submitCheckout"
-                >{{ checkoutSaving ? '送信中...' : '精算を提出する' }}</button>
-                <div v-if="!checkoutIsReadOnly && !checkoutReadyToSubmit" class="small text-muted text-center mt-2">受取額の入力と退勤チェックをすべて完了すると送信できます。</div>
+                >{{ checkoutSaving ? '送信中...' : checkoutDeferred ? '退勤チェックを提出する' : '精算を提出する' }}</button>
+                <div v-if="!checkoutIsReadOnly && !checkoutReadyToSubmit" class="small text-muted text-center mt-2">{{ checkoutDeferred ? '退勤チェックをすべて完了すると送信できます。金額入力は不要です。' : '受取額の入力と退勤チェックをすべて完了すると送信できます。' }}</div>
                 <button v-if="checkoutIsReadOnly" class="btn btn-outline-secondary w-100" @click="showCheckoutModal = false">閉じる</button>
               </div>
             </div>

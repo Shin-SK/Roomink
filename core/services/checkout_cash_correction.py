@@ -33,6 +33,8 @@ def validate_cash_correction(data):
 
 
 def correct_cash_receipt(checkout, amount, reason, actor, *, order=None):
+    from .settlement_policy import require_legacy_handover
+    require_legacy_handover(checkout)
     from core.models import CastCheckoutCashCorrection
     fields = ("room_cash_taken_amount", "actual_take_home_amount", "office_cash_paid_amount", "cash_returned_to_room_amount", "room_id")
     before = {field: getattr(checkout, field) for field in fields}

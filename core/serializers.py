@@ -104,6 +104,7 @@ class StoreSerializer(serializers.ModelSerializer):
     class Meta:
         model = Store
         fields = "__all__"
+        read_only_fields = ["deferred_settlement_from"]
 
 
 class RoomSerializer(serializers.ModelSerializer):
@@ -536,7 +537,7 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
     class Meta:
         model = CastDailyCheckout
         fields = [
-            "id", "store", "cast", "cast_name", "date", "status",
+            "id", "store", "cast", "cast_name", "date", "status", "cash_handover_recorded",
             "done_count", "total_sales", "estimated_pay", "course_sales", "options_sales", "daily_expense_total",
             "customer_payment_surcharge", "customer_payment_total",
             "payment_fee_estimate", "net_sales_after_payment_fee",
@@ -584,9 +585,11 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
         from .views import _checkout_compensation
         return _checkout_compensation(obj)
 
-    def get_carryover_opening_amount(self, obj) -> int:
+    def get_carryover_opening_amount(self, obj) -> Optional[int]:
+        if not obj.cash_handover_recorded:
+            return None
         previous = (
-            CastDailyCheckout.objects.filter(cast=obj.cast, date__lt=obj.date)
+            CastDailyCheckout.objects.filter(cast=obj.cast, date__lt=obj.date, cash_handover_recorded=True)
             .exclude(status=CastDailyCheckout.Status.RETURNED)
             .prefetch_related("expense_snapshots")
         )
@@ -596,13 +599,22 @@ class CastDailyCheckoutSerializer(serializers.ModelSerializer):
             for item in previous
         )
 
-    def get_carryover_closing_amount(self, obj) -> int:
+    def get_carryover_closing_amount(self, obj) -> Optional[int]:
+        if not obj.cash_handover_recorded:
+            return None
         return (
             self.get_carryover_opening_amount(obj)
             + self.get_compensation_amount(obj)
             - obj.room_cash_taken_amount
             - obj.office_cash_paid_amount
         )
+
+    def to_representation(self, instance):
+        result = super().to_representation(instance)
+        if not instance.cash_handover_recorded:
+            for key in ("room_cash_taken_amount", "actual_take_home_amount", "office_cash_paid_amount", "cash_returned_to_room_amount"):
+                result[key] = None
+        return result
 
 
 class CastAdjustmentSerializer(serializers.ModelSerializer):
